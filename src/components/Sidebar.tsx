@@ -8,7 +8,7 @@ import {
   LineChart, Scale, Receipt, ShoppingCart, 
   TrendingUp, FileText, Library, Lightbulb, FolderClock, History,
   ChevronDown, LayoutGrid, Settings, Key, Banknote, Wallet, CreditCard, ShieldAlert, RefreshCw, LogOut, Shield, FolderUp,
-  Boxes, CheckCircle2, FileSignature
+  Boxes, CheckCircle2, FileSignature, Home
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -113,6 +113,17 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
         </div>
 
         <div className="flex-1 overflow-y-auto py-4 px-3 flex flex-col gap-1 custom-scrollbar">
+          <button
+            onClick={() => {
+              openModal(null);
+              setIsOpen(false);
+            }}
+            className="flex items-center gap-3 px-4 py-3 text-sm font-bold text-blue-700 dark:text-blue-400 rounded-xl bg-blue-50/60 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-all w-full text-left group mb-1"
+          >
+            <Home className="w-5 h-5 opacity-80 group-hover:opacity-100 transition-opacity" />
+            Dashboard
+          </button>
+
           {navItems.map((item) => {
             const Icon = item.icon;
             return (
