@@ -22,6 +22,7 @@ import { AdminSettingsModal } from './components/modals/AdminSettingsModal';
 import { FileManagerModal } from './components/modals/FileManagerModal';
 import { InventoryModal } from './components/modals/InventoryModal';
 import { BIRFormsModal } from './components/modals/BIRFormsModal';
+import { ComplianceTrackerModal } from './components/modals/ComplianceTrackerModal';
 import AccountsPayableModal from './components/modals/AccountsPayableModal';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AuthContainer } from './components/AuthContainer';
@@ -89,6 +90,7 @@ function AppLayout() {
         <FileManagerModal />
         <InventoryModal />
         <BIRFormsModal />
+        <ComplianceTrackerModal />
         {activeModal === 'ap-workspace' && <AccountsPayableModal />}
       </main>
     </div>

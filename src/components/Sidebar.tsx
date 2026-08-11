@@ -330,8 +330,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               >
                 <button
                   onClick={() => {
-                    setBirFormTab('tracker');
-                    openModal('bir-forms');
+                    openModal('compliance-tracker');
                     setIsOpen(false);
                   }}
                   className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-emerald-600 dark:text-emerald-400 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/10 border border-emerald-100/30 hover:bg-emerald-100/50 dark:hover:bg-emerald-900/20 transition-all w-full text-left"
