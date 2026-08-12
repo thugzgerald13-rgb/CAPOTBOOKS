@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Client, BusinessProfile, DatSelection } from '../types';
 import { supabase } from '../lib/supabase';
 import type { RealtimeChannel } from '@supabase/supabase-js';
@@ -113,7 +114,15 @@ export function AccountingProvider({
   const [currentClientId, setCurrentClientId] = useState<string | null>(null);
   const [businessProfile, setBusinessProfile] = useState<BusinessProfile | null>(null);
   const [isDarkMode, setDarkMode] = useState(false);
-  const [activeModal, setActiveModal] = useState<string | null>(null);
+  // activeModal is now derived from the URL route, so every "modal" (page)
+  // has its own real URL: browser back/forward and refresh-to-stay-there
+  // both work. '/' (or no path) means no page is active (Dashboard shows).
+  const location = useLocation();
+  const navigate = useNavigate();
+  const activeModal = (() => {
+    const path = location.pathname.replace(/^\/+/, '');
+    return path === '' ? null : decodeURIComponent(path);
+  })();
   const [currentDat, setCurrentDat] = useState<DatSelection | null>(null);
   const [historyTab, setHistoryTab] = useState('expenses');
   const [birFormTab, setBirFormTab] = useState('tracker');
@@ -707,7 +716,7 @@ export function AccountingProvider({
   };
 
   const openModal = (modal: string | null) => {
-    setActiveModal(modal);
+    navigate(modal ? `/${modal}` : '/');
   };
 
   if (syncError) {
