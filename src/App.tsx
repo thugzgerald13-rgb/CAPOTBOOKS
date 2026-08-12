@@ -26,6 +26,7 @@ import { ComplianceTrackerModal } from './components/modals/ComplianceTrackerMod
 import AccountsPayableModal from './components/modals/AccountsPayableModal';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AuthContainer } from './components/AuthContainer';
+import { HashRouter } from 'react-router-dom';
 
 function AppLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -133,8 +134,10 @@ function MainApp() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <MainApp />
-    </AuthProvider>
+    <HashRouter>
+      <AuthProvider>
+        <MainApp />
+      </AuthProvider>
+    </HashRouter>
   );
 }
