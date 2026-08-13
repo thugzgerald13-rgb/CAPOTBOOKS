@@ -417,7 +417,8 @@ export function APDisbursementsTab({
           <div className="md:col-span-2 space-y-4">
             <h6 className="font-bold text-xs uppercase tracking-wider text-slate-400">Matched Invoices Awaiting Payment Clearing</h6>
             <div className="border border-slate-100 dark:border-slate-800 rounded-2xl overflow-hidden bg-white dark:bg-slate-900/30">
-              <table className="w-full text-xs text-left">
+              <div className="overflow-x-auto">
+<table className="w-full text-xs text-left">
                 <thead className="bg-slate-50 dark:bg-slate-800 uppercase text-[10px] font-bold text-slate-400 tracking-wider">
                   <tr>
                     <th className="p-3">Ref Invoice</th>
@@ -453,6 +454,7 @@ export function APDisbursementsTab({
                   )}
                 </tbody>
               </table>
+</div>
             </div>
           </div>
         </div>
@@ -481,7 +483,8 @@ export function APDisbursementsTab({
 
               {/* Advances list */}
               <div className="border border-slate-100 dark:border-slate-800 rounded-2xl overflow-hidden bg-white dark:bg-slate-900/30">
-                <table className="w-full text-xs text-left">
+                <div className="overflow-x-auto">
+<table className="w-full text-xs text-left">
                   <thead className="bg-slate-50 dark:bg-slate-800 uppercase text-[10px] font-bold text-slate-400 tracking-wider">
                     <tr>
                       <th className="p-3">Advance ID</th>
@@ -521,6 +524,7 @@ export function APDisbursementsTab({
                     )}
                   </tbody>
                 </table>
+</div>
               </div>
             </div>
           ) : (
@@ -653,7 +657,8 @@ export function APDisbursementsTab({
 
               {/* Simple grid list */}
               <div className="border border-slate-100 dark:border-slate-800 rounded-2xl overflow-hidden bg-white dark:bg-slate-900/30">
-                <table className="w-full text-xs text-left">
+                <div className="overflow-x-auto">
+<table className="w-full text-xs text-left">
                   <thead className="bg-slate-50 dark:bg-slate-800 uppercase text-[10px] font-bold text-slate-400 tracking-wider">
                     <tr>
                       <th className="p-3">Reference Voucher</th>
@@ -693,6 +698,7 @@ export function APDisbursementsTab({
                     )}
                   </tbody>
                 </table>
+</div>
               </div>
             </div>
           ) : (
@@ -820,7 +826,8 @@ export function APDisbursementsTab({
       {activeDisbSub === 'registry' && (
         <div className="space-y-4">
           <div className="border border-slate-100 dark:border-slate-800 rounded-2xl overflow-hidden bg-white dark:bg-slate-900/30">
-            <table className="w-full text-xs text-left">
+            <div className="overflow-x-auto">
+<table className="w-full text-xs text-left">
               <thead className="bg-slate-50 dark:bg-slate-800 uppercase text-[10px] font-bold text-slate-400 tracking-wider">
                 <tr>
                   <th className="p-3">CV ID</th>
@@ -892,6 +899,7 @@ export function APDisbursementsTab({
                 )}
               </tbody>
             </table>
+</div>
           </div>
         </div>
       )}
@@ -946,7 +954,8 @@ export function APDisbursementsTab({
                   </div>
                 </div>
 
-                <div className="grid grid-cols-4 gap-3 text-[11px] font-bold">
+                <div className="overflow-x-auto">
+                <div className="grid grid-cols-4 gap-3 text-[11px] font-bold min-w-[480px]">
                   <div className="col-span-2 border-r border-slate-300 pr-2">
                     <span className="text-[9px] text-slate-500 uppercase block">PAYEE PARTNER</span>
                     <span className="text-sm uppercase text-black font-black">{viewingVoucher.payeeName}</span>
@@ -960,10 +969,12 @@ export function APDisbursementsTab({
                     <span className="font-mono text-xs">{viewingVoucher.checkNumber} ({viewingVoucher.bankName})</span>
                   </div>
                 </div>
+                </div>
 
                 {/* Accounting breakdowns */}
                 <div className="border border-black bg-white rounded-lg overflow-hidden mt-2">
-                  <table className="w-full text-[10px] text-left border-collapse">
+                  <div className="overflow-x-auto">
+<table className="w-full text-[10px] text-left border-collapse">
                     <thead className="bg-slate-100 uppercase font-black border-b border-black">
                       <tr>
                         <th className="p-2 border-r border-black">PARTICULARS / ACCOUNT DESCRIPTION</th>
@@ -1014,6 +1025,7 @@ export function APDisbursementsTab({
                       )}
                     </tbody>
                   </table>
+</div>
                 </div>
 
                 {/* Amount in words */}

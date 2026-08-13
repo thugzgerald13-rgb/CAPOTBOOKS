@@ -150,7 +150,7 @@ export function APDashboardTab({ currentClient, payableInvoices, bankAccounts }:
         </div>
 
         {/* Global Progress Bars */}
-        <div className="grid grid-cols-5 gap-3.5 mb-6 text-center">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3.5 mb-6 text-center">
           {[
             { label: 'Current', val: agingBuckets.current, color: 'bg-emerald-500' },
             { label: '1 - 30 Days', val: agingBuckets.days30, color: 'bg-blue-500' },
@@ -174,7 +174,8 @@ export function APDashboardTab({ currentClient, payableInvoices, bankAccounts }:
 
         {/* Supplier Breakdown Table */}
         <div className="border border-slate-100 dark:border-slate-800 rounded-2xl overflow-hidden">
-          <table className="w-full text-xs text-left">
+          <div className="overflow-x-auto">
+<table className="w-full text-xs text-left">
             <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider border-b border-slate-100 dark:border-slate-800">
               <tr>
                 <th className="p-3.5 pr-1">Supplier / Payee</th>
@@ -211,6 +212,7 @@ export function APDashboardTab({ currentClient, payableInvoices, bankAccounts }:
               )}
             </tbody>
           </table>
+</div>
         </div>
       </div>
     </div>

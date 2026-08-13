@@ -390,7 +390,8 @@ export function APMatchingTab({
 
               {/* Invoices List */}
               <div className="border border-slate-100 dark:border-slate-800 rounded-2xl overflow-hidden bg-white dark:bg-slate-900/30">
-                <table className="w-full text-xs text-left">
+                <div className="overflow-x-auto">
+<table className="w-full text-xs text-left">
                   <thead className="bg-slate-50 dark:bg-slate-800 uppercase text-[10px] font-bold text-slate-400 tracking-wider">
                     <tr>
                       <th className="p-3">Invoice / Ref</th>
@@ -515,6 +516,7 @@ export function APMatchingTab({
                     )}
                   </tbody>
                 </table>
+</div>
               </div>
             </div>
           ) : (
@@ -661,7 +663,8 @@ export function APMatchingTab({
 
               {/* PO table */}
               <div className="border border-slate-100 dark:border-slate-800 rounded-2xl overflow-hidden bg-white dark:bg-slate-900/30">
-                <table className="w-full text-xs text-left">
+                <div className="overflow-x-auto">
+<table className="w-full text-xs text-left">
                   <thead className="bg-slate-50 dark:bg-slate-800 uppercase text-[10px] font-bold text-slate-400 tracking-wider">
                     <tr>
                       <th className="p-3">PO Reference ID</th>
@@ -711,6 +714,7 @@ export function APMatchingTab({
                     )}
                   </tbody>
                 </table>
+</div>
               </div>
             </div>
           ) : (
@@ -811,7 +815,8 @@ export function APMatchingTab({
 
               {/* RRs Table */}
               <div className="border border-slate-100 dark:border-slate-800 rounded-2xl overflow-hidden bg-white dark:bg-slate-900/30">
-                <table className="w-full text-xs text-left">
+                <div className="overflow-x-auto">
+<table className="w-full text-xs text-left">
                   <thead className="bg-slate-50 dark:bg-slate-800 uppercase text-[10px] font-bold text-slate-400 tracking-wider">
                     <tr>
                       <th className="p-3">RR Number</th>
@@ -862,6 +867,7 @@ export function APMatchingTab({
                     )}
                   </tbody>
                 </table>
+</div>
               </div>
             </div>
           ) : (

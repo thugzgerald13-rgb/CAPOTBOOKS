@@ -131,7 +131,8 @@ export function JournalVoucher() {
       </div>
 
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden mb-4">
-        <table className="w-full text-xs">
+        <div className="overflow-x-auto">
+<table className="w-full text-xs">
           <thead>
             <tr className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 uppercase tracking-wider font-bold">
               <th className="px-3 py-2.5 text-left">Account</th>
@@ -198,6 +199,7 @@ export function JournalVoucher() {
             </tr>
           </tfoot>
         </table>
+</div>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
@@ -243,7 +245,8 @@ export function JournalVoucher() {
               </div>
               {isExpanded && (
                 <div className="border-t border-slate-100 dark:border-slate-800 px-4 py-3">
-                  <table className="w-full text-xs">
+                  <div className="overflow-x-auto">
+<table className="w-full text-xs">
                     <thead>
                       <tr className="text-slate-400 uppercase text-[10px]">
                         <th className="text-left py-1">Account</th>
@@ -261,6 +264,7 @@ export function JournalVoucher() {
                       ))}
                     </tbody>
                   </table>
+</div>
                 </div>
               )}
             </div>
