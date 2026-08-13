@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Modal } from '../ui/Modal';
+import { PageHeader } from '../ui/PageHeader';
 import { useAccounting } from '../../context/AccountingContext';
 import { formatTIN } from '../../lib/utils';
 import { CreditCard, Plus, Trash2, RefreshCw, CheckCircle2 } from 'lucide-react';
@@ -205,7 +205,9 @@ export function BillingModal() {
   const outstandingTotal = invoices.filter(i => getStatus(i) !== 'Paid').reduce((s, i) => s + i.amount, 0);
 
   return (
-    <Modal id="billing" title="Billing" icon={<CreditCard className="w-5 h-5 text-indigo-500" />} maxWidth="max-w-6xl">
+    <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
+      <PageHeader title="Billing" icon={<CreditCard className="w-5 h-5 text-indigo-500" />} />
+      <div className="p-4 md:p-6 flex-1">
       <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-2xl mb-6 border border-indigo-100 dark:border-indigo-800 flex justify-between items-center">
         <span className="font-bold text-indigo-700 dark:text-indigo-400">Total Outstanding (incl. Overdue)</span>
         <span className="text-xl font-extrabold text-indigo-600 dark:text-indigo-400">₱{outstandingTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
@@ -361,6 +363,7 @@ export function BillingModal() {
           );
         })}
       </div>
-    </Modal>
+          </div>
+    </div>
   );
 }

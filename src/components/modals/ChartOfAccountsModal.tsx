@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { BookOpen, Plus, Trash2, RefreshCcw, Edit2, ClipboardList, Check, X, Columns, ArrowUpDown } from 'lucide-react';
-import { Modal } from '../ui/Modal';
+import { PageHeader } from '../ui/PageHeader';
 import { useAccounting } from '../../context/AccountingContext';
 import { CoaAccount } from '../../types';
 import { cn } from '../../lib/utils';
@@ -570,7 +570,9 @@ export function ChartOfAccountsModal() {
   };
 
   return (
-    <Modal id="coa" title="Chart of Accounts" icon={<BookOpen />} maxWidth="max-w-4xl">
+    <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
+      <PageHeader title="Chart of Accounts" icon={<BookOpen />} />
+      <div className="p-4 md:p-6 flex-1">
       <div className="p-4 sm:p-6 bg-slate-50 dark:bg-slate-950/20 max-h-[85vh] overflow-y-auto">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
           <div>
@@ -1208,6 +1210,7 @@ export function ChartOfAccountsModal() {
           </div>
         </div>
       </div>
-    </Modal>
+          </div>
+    </div>
   );
 }

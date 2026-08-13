@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Modal } from '../ui/Modal';
+import { PageHeader } from '../ui/PageHeader';
 import { useAccounting } from '../../context/AccountingContext';
 import { formatTIN } from '../../lib/utils';
 import { Building2, Search, Trash2, Plus, Users, Factory, Upload } from 'lucide-react';
@@ -229,11 +229,9 @@ export function TinLibraryModal() {
   };
 
   return (
-    <Modal
-      id="tinlibrary"
-      title="TIN Library"
-      icon={<Building2 className="w-5 h-5 text-purple-500" />}
-    >
+    <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
+      <PageHeader title="TIN Library" icon={<Building2 className="w-5 h-5 text-purple-500" />} />
+      <div className="p-4 md:p-6 flex-1">
       <div className="flex gap-2 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl mb-6">
         <button
           onClick={() => setActiveTab('customers')}
@@ -346,6 +344,7 @@ export function TinLibraryModal() {
           </table>
         </div>
       </div>
-    </Modal>
+      </div>
+    </div>
   );
 }

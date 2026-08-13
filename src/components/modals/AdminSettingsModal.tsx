@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { ShieldAlert, Download, Users, RefreshCw, Mail, Calendar } from 'lucide-react';
-import { Modal } from '../ui/Modal';
+import { PageHeader } from '../ui/PageHeader';
 import { useAccounting } from '../../context/AccountingContext';
 import { useAuth } from '../../context/AuthContext';
 import { supabase } from '../../lib/supabase';
@@ -65,7 +65,9 @@ export function AdminSettingsModal() {
   if (!isAdmin) return null;
 
   return (
-    <Modal id="admin-settings" title="Developer System Config" icon={<ShieldAlert className="text-emerald-500" />}>
+    <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
+      <PageHeader title="Developer System Config" icon={<ShieldAlert className="text-emerald-500" />} />
+      <div className="p-4 md:p-6 flex-1">
       <div className="p-6 overflow-y-auto max-h-[80vh]">
         <div className="flex justify-between items-center mb-6">
           <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Superuser Dashboard</h3>
@@ -190,6 +192,7 @@ export function AdminSettingsModal() {
           </div>
         </div>
       </div>
-    </Modal>
+          </div>
+    </div>
   );
 }

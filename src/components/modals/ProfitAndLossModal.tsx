@@ -1,6 +1,6 @@
 import React from 'react';
 import { TrendingUp, Plus, Trash2, Settings, Download } from 'lucide-react';
-import { Modal } from '../ui/Modal';
+import { PageHeader } from '../ui/PageHeader';
 import { useAccounting } from '../../context/AccountingContext';
 import { ProfitAndLossData, ProfitAndLossLine } from '../../types';
 import { cn } from '../../lib/utils';
@@ -82,7 +82,9 @@ export function ProfitAndLossModal() {
   };
 
   return (
-    <Modal id="pl" title="Profit & Loss" icon={<TrendingUp className="text-emerald-500" />} maxWidth="max-w-4xl">
+    <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
+      <PageHeader title="Profit & Loss" icon={<TrendingUp className="text-emerald-500" />} />
+      <div className="p-4 md:p-6 flex-1">
       <div className="p-8 text-sm">
         
         {/* HEADER SECTION */}
@@ -305,6 +307,7 @@ export function ProfitAndLossModal() {
 
         </div>
       </div>
-    </Modal>
+          </div>
+    </div>
   );
 }

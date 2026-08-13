@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Wallet, Plus, Trash2, Settings, X, Edit, Loader, Check } from 'lucide-react';
-import { Modal } from '../ui/Modal';
+import { PageHeader } from '../ui/PageHeader';
 import { useAccounting } from '../../context/AccountingContext';
 import { JournalColumn, CashReceipt } from '../../types';
 import { cn } from '../../lib/utils';
@@ -98,7 +98,9 @@ export function CashReceiptsJournalModal() {
   const isBalanced = Math.abs(totalDr - totalCr) < 0.01;
 
   return (
-    <Modal id="cash-receipt" title="Cash Receipts Journal" icon={<Wallet />} maxWidth="max-w-7xl">
+    <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
+      <PageHeader title="Cash Receipts Journal" icon={<Wallet />} />
+      <div className="p-4 md:p-6 flex-1">
       <div className="p-6">
         <div className="flex justify-between items-center mb-6">
           <div className="flex items-center gap-4">
@@ -360,6 +362,7 @@ export function CashReceiptsJournalModal() {
           </div>
         )}
       </div>
-    </Modal>
+          </div>
+    </div>
   );
 }

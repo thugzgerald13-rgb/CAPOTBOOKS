@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Modal } from '../ui/Modal';
+import { PageHeader } from '../ui/PageHeader';
 import { useAccounting } from '../../context/AccountingContext';
 import { useAuth } from '../../context/AuthContext';
 import { Users, TrendingUp, Key, Lightbulb, BookOpen, BookText, LineChart, Scale, Plus, Building2, Save, X, RotateCcw, Library, FileText, Receipt, ShoppingCart, Banknote, Wallet, CreditCard, Trash2 } from 'lucide-react';
@@ -113,7 +113,10 @@ export function ExtraModals() {
   
   return (
     <>
-      <Modal id="clients" title="Client Profiles" icon={<Users className="text-blue-500" />}>
+      {activeModal === 'clients' && (
+        <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
+          <PageHeader title="Client Profiles" icon={<Users className="text-blue-500" />} />
+          <div className="p-4 md:p-6 flex-1">
         {editingClient ? (
           <div className="bg-slate-100 dark:bg-slate-900 -m-6 p-6 h-full min-h-[600px] flex flex-col font-sans">
             {/* Form Header */}
@@ -513,9 +516,14 @@ export function ExtraModals() {
             </div>
           </>
         )}
-      </Modal>
+      </div>
+        </div>
+      )}
 
-      <Modal id="business" title="Business Profiles" icon={<Building2 className="text-blue-500" />}>
+      {activeModal === 'business' && (
+        <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
+          <PageHeader title="Business Profiles" icon={<Building2 className="text-blue-500" />} />
+          <div className="p-4 md:p-6 flex-1">
         {editingBusiness ? (
           <div className="bg-slate-100 dark:bg-slate-900 -m-6 p-6 h-full min-h-[600px] flex flex-col font-sans">
             {/* Form Header */}
@@ -861,9 +869,14 @@ export function ExtraModals() {
             </div>
           </div>
         )}
-      </Modal>
+      </div>
+        </div>
+      )}
 
-      <Modal id="reports" title="Accounting Reports" icon={<TrendingUp className="text-indigo-500" />}>
+      {activeModal === 'reports' && (
+        <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
+          <PageHeader title="Accounting Reports" icon={<TrendingUp className="text-indigo-500" />} />
+          <div className="p-4 md:p-6 flex-1">
          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
            <button 
              onClick={() => openModal('pl')}
@@ -894,9 +907,14 @@ export function ExtraModals() {
              <p className="text-xs text-slate-600 dark:text-slate-400 italic">Coming soon: Track the flow of cash in and out of your business.</p>
            </div>
          </div>
-      </Modal>
+      </div>
+        </div>
+      )}
 
-      <Modal id="books" title="Accounting Books" icon={<Library className="text-cyan-500" />}>
+      {activeModal === 'books' && (
+        <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
+          <PageHeader title="Accounting Books" icon={<Library className="text-cyan-500" />} />
+          <div className="p-4 md:p-6 flex-1">
          <div className="grid grid-cols-1 gap-4">
            <button 
              onClick={() => openModal('journal')}
@@ -935,9 +953,14 @@ export function ExtraModals() {
              <p className="text-xs text-slate-500 font-medium italic">Subsidiary ledgers and specialized journals will appear here as you expand your accounting system.</p>
            </div>
          </div>
-      </Modal>
+      </div>
+        </div>
+      )}
 
-      <Modal id="taxnotes" title="Tax Notes & Estimates" icon={<Lightbulb className="text-yellow-500" />}>
+      {activeModal === 'taxnotes' && (
+        <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
+          <PageHeader title="Tax Notes & Estimates" icon={<Lightbulb className="text-yellow-500" />} />
+          <div className="p-4 md:p-6 flex-1">
          <div className="bg-yellow-50 dark:bg-yellow-900/10 border border-yellow-200 dark:border-yellow-800 p-6 rounded-2xl flex flex-col gap-4">
             <div className="flex justify-between items-center bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm">
                <span className="font-semibold text-slate-700 dark:text-slate-300">Estimated Income Tax (25% based on Gross)</span>
@@ -948,17 +971,27 @@ export function ExtraModals() {
                <span className="font-extrabold text-lg text-blue-600">₱{totalIpTax.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
             </div>
          </div>
-      </Modal>
+      </div>
+        </div>
+      )}
 
       {/* Placeholders for deep accounting features that were blank in the original HTML */}
-      <Modal id="trialbalance" title="Trial Balance" icon={<Scale />}>
+      {activeModal === 'trialbalance' && (
+        <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
+          <PageHeader title="Trial Balance" icon={<Scale />} />
+          <div className="p-4 md:p-6 flex-1">
          <p className="text-center p-8 text-slate-500">Trial Balance computation based on Journal and Ledger.</p>
          <div className="bg-slate-100 dark:bg-slate-800 p-4 rounded-xl text-center font-mono">
             <strong>Debits:</strong> ₱{salesTotal.toLocaleString()} &nbsp; | &nbsp; <strong>Credits:</strong> ₱{purchasesTotal.toLocaleString()}
          </div>
-      </Modal>
+      </div>
+        </div>
+      )}
 
-      <Modal id="sales-journal" title="Sales Journal" icon={<Receipt className="text-emerald-500" />} maxWidth="max-w-6xl">
+      {activeModal === 'sales-journal' && (
+        <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
+          <PageHeader title="Sales Journal" icon={<Receipt className="text-emerald-500" />} />
+          <div className="p-4 md:p-6 flex-1">
          <div className="p-2">
             <p className="text-sm text-slate-500 mb-4">Income entries posted here automatically when Payment Type is Credit Card or On Account (recorded in Cash Receipts Journal instead).</p>
 
@@ -1009,7 +1042,9 @@ export function ExtraModals() {
                <span className="text-xl font-extrabold text-emerald-600 dark:text-emerald-400">₱{creditSalesTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
             </div>
          </div>
-      </Modal>
+      </div>
+        </div>
+      )}
     </>
   );
 }

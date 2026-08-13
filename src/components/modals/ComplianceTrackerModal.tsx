@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Modal } from '../ui/Modal';
+import { PageHeader } from '../ui/PageHeader';
 import { useAccounting } from '../../context/AccountingContext';
 import {
   FileText, Printer, Sparkles, CheckCircle2, AlertCircle, Calendar
@@ -271,7 +271,9 @@ export function ComplianceTrackerModal() {
   const yearsList = [2026, 2025, 2024, 2023];
 
   return (
-    <Modal id="compliance-tracker" title="Philippine BIR Tax Declarations" icon={<FileText className="text-blue-600 w-5 h-5" />} maxWidth="max-w-6xl">
+    <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
+      <PageHeader title="Philippine BIR Tax Declarations" icon={<FileText className="text-blue-600 w-5 h-5" />} />
+      <div className="p-4 md:p-6 flex-1">
       <div className="flex flex-col lg:flex-row gap-6 font-sans">
         
         {/* Left Control Sidebar */}
@@ -833,6 +835,7 @@ export function ComplianceTrackerModal() {
         </div>
 
       </div>
-    </Modal>
+          </div>
+    </div>
   );
 }
