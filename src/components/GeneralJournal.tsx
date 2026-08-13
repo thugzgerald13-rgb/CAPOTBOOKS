@@ -1,23 +1,19 @@
 import React, { useState } from 'react';
-import { Wallet, Plus, Trash2, Settings, X, Edit, Loader, Check } from 'lucide-react';
-import { PageHeader } from '../ui/PageHeader';
-import { useAccounting } from '../../context/AccountingContext';
-import { JournalColumn, CashReceipt } from '../../types';
-import { cn } from '../../lib/utils';
+import { BookText, Plus, Trash2, Settings, X, Check } from 'lucide-react';
+import { PageHeader } from './ui/PageHeader';
+import { useAccounting } from '../context/AccountingContext';
+import { JournalColumn, JournalEntry } from '../types';
+import { cn } from '../lib/utils';
 
-export const DEFAULT_CRJ_COLUMNS: JournalColumn[] = [
-  { id: 'date', name: 'Date', type: 'text', category: 'None', isSystem: true },
-  { id: 'reference', name: 'Reference', type: 'text', category: 'None', isSystem: true },
-  { id: 'description', name: 'Account Credited / Description', type: 'text', category: 'None', isSystem: true },
-  { id: 'post_ref', name: 'Post. Ref.', type: 'text', category: 'None', isSystem: true },
-  { id: 'sales_disc', name: 'Sales Discount', type: 'number', category: 'Dr', isSystem: false },
-  { id: 'cash', name: 'Cash', type: 'number', category: 'Dr', isSystem: false },
-  { id: 'ar', name: 'Accounts Receivable', type: 'number', category: 'Cr', isSystem: false },
-  { id: 'sales', name: 'Sales', type: 'number', category: 'Cr', isSystem: false },
-  { id: 'sundry', name: 'Sundry Accounts', type: 'number', category: 'Cr', isSystem: false },
+export const DEFAULT_GJ_COLUMNS: JournalColumn[] = [
+  { id: 'date', name: 'DATE', type: 'text', category: 'None', isSystem: true },
+  { id: 'particulars', name: 'PARTICULARS', type: 'text', category: 'None', isSystem: true },
+  { id: 'ref_no', name: 'REF. NO.', type: 'text', category: 'None', isSystem: true },
+  { id: 'debit', name: 'DEBIT', type: 'number', category: 'Dr', isSystem: true },
+  { id: 'credit', name: 'CREDIT', type: 'number', category: 'Cr', isSystem: true },
 ];
 
-export function CashReceiptsJournalModal() {
+export function GeneralJournal() {
   const { currentClient, currentClientId, saveClient, activeDevice } = useAccounting();
   
   const [isEditingHeaders, setIsEditingHeaders] = useState(false);
@@ -26,15 +22,15 @@ export function CashReceiptsJournalModal() {
 
   if (!currentClient || !currentClientId) return null;
 
-  const columns = currentClient.crjColumns || DEFAULT_CRJ_COLUMNS;
-  const entries = currentClient.crjEntries || [];
+  const columns = currentClient.gjColumns || DEFAULT_GJ_COLUMNS;
+  const entries = currentClient.gjEntries || [];
 
   const handleSaveColumns = (newCols: JournalColumn[]) => {
-    saveClient(currentClientId, { ...currentClient, crjColumns: newCols });
+    saveClient(currentClientId, { ...currentClient, gjColumns: newCols });
   };
 
-  const handleSaveEntries = (newEntries: CashReceipt[]) => {
-    saveClient(currentClientId, { ...currentClient, crjEntries: newEntries });
+  const handleSaveEntries = (newEntries: JournalEntry[]) => {
+    saveClient(currentClientId, { ...currentClient, gjEntries: newEntries });
   };
 
   const addColumn = () => {
@@ -57,10 +53,50 @@ export function CashReceiptsJournalModal() {
   };
 
   const addEntry = () => {
-    const newEntry: CashReceipt = {
+    const newEntry: JournalEntry = {
       id: crypto.randomUUID(),
       values: {}
     };
+    handleSaveEntries([...entries, newEntry]);
+  };
+
+  const balanceEntry = () => {
+    if (isBalanced || entries.length === 0) return;
+
+    const diff = Math.abs(totalDr - totalCr);
+    if (diff < 0.01) return;
+
+    const isDrNeeded = totalDr < totalCr;
+
+    const colId = isDrNeeded
+      ? (columns.find(c => c.category === 'Dr' && c.type === 'number')?.id || 'debit')
+      : (columns.find(c => c.category === 'Cr' && c.type === 'number')?.id || 'credit');
+
+    const formattedVal = diff.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    const lastEntry = entries[entries.length - 1];
+    const dateVal = lastEntry?.values?.date || '';
+    const refNoVal = lastEntry?.values?.ref_no || '';
+
+    const newValues: Record<string, string> = {};
+    columns.forEach(col => {
+      if (col.type !== 'number') {
+        newValues[col.id] = lastEntry?.values?.[col.id] || '';
+      } else {
+        newValues[col.id] = '';
+      }
+    });
+
+    newValues.date = dateVal;
+    newValues.ref_no = refNoVal;
+    newValues.particulars = 'Balancing Entry';
+    newValues[colId] = formattedVal;
+
+    const newEntry: JournalEntry = {
+      id: crypto.randomUUID(),
+      values: newValues
+    };
+
     handleSaveEntries([...entries, newEntry]);
   };
 
@@ -99,12 +135,12 @@ export function CashReceiptsJournalModal() {
 
   return (
     <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
-      <PageHeader title="Cash Receipts Journal" icon={<Wallet />} />
+      <PageHeader title="General Journal" icon={<BookText />} />
       <div className="p-4 md:p-6 flex-1">
       <div className="p-6">
         <div className="flex justify-between items-center mb-6">
           <div className="flex items-center gap-4">
-             <p className="text-slate-500 dark:text-slate-400">Record cash receipts in detail.</p>
+             <p className="text-slate-500 dark:text-slate-400">Record general journal entries.</p>
              <button 
                onClick={() => setIsEditingHeaders(!isEditingHeaders)}
                className={cn("px-3 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5", 
@@ -114,12 +150,23 @@ export function CashReceiptsJournalModal() {
                Customize Columns
              </button>
           </div>
-          <button 
-            onClick={addEntry}
-            className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold px-4 py-2 rounded-xl transition-colors flex items-center gap-2"
-          >
-            <Plus className="w-4 h-4" /> Add Row
-          </button>
+          <div className="flex items-center gap-2">
+            {!isBalanced && entries.length > 0 && (
+              <button 
+                onClick={balanceEntry}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-xl transition-colors flex items-center gap-2 shadow-sm"
+                title="Automatically add a row to balance debits and credits"
+              >
+                <Check className="w-4 h-4" /> Balance Entry
+              </button>
+            )}
+            <button 
+              onClick={addEntry}
+              className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold px-4 py-2 rounded-xl transition-colors flex items-center gap-2"
+            >
+              <Plus className="w-4 h-4" /> Add Row
+            </button>
+          </div>
         </div>
 
         {isEditingHeaders && (
@@ -151,7 +198,7 @@ export function CashReceiptsJournalModal() {
                   value={newColName} 
                   onChange={e => setNewColName(e.target.value)} 
                   className="form-input text-sm py-1.5"
-                  placeholder="e.g. Sales Auth"
+                  placeholder="e.g. Sub-account"
                 />
               </div>
               <div>
@@ -163,6 +210,7 @@ export function CashReceiptsJournalModal() {
                 >
                   <option value="Dr">Debit (Dr)</option>
                   <option value="Cr">Credit (Cr)</option>
+                  <option value="None">None</option>
                 </select>
               </div>
               <button 
@@ -226,7 +274,7 @@ export function CashReceiptsJournalModal() {
                               updateEntry(entry.id, col.id, parseFloat(raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
                             }
                           }}
-                          className="w-32 text-right bg-transparent border-b border-dashed border-slate-200 hover:border-slate-400 dark:border-slate-700/60 dark:hover:border-slate-500 focus:border-cyan-500 font-mono text-xs px-1 py-0.5 outline-none font-bold text-slate-800 dark:text-slate-200"
+                          className="w-32 text-right bg-transparent border-b border-dashed border-slate-200 hover:border-slate-400 dark:border-slate-700/60 dark:hover:border-slate-500 focus:border-cyan-500 font-mono text-xs px-1/2 py-0.5 outline-none font-bold text-slate-800 dark:text-slate-200"
                           placeholder="0.00"
                         />
                       </div>
@@ -241,7 +289,7 @@ export function CashReceiptsJournalModal() {
           </div>
         ) : (
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-x-auto shadow-sm">
-            <table className="w-full text-xs text-left whitespace-nowrap min-w-[800px]">
+            <table className="w-full text-xs text-left whitespace-nowrap min-w-[700px]">
               <thead>
                 <tr className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 uppercase tracking-wider font-bold border-b border-slate-200 dark:border-slate-700">
                   <th className="px-3 py-3 w-10 text-center">#</th>
@@ -291,7 +339,7 @@ export function CashReceiptsJournalModal() {
                     <td className="px-3 py-2 text-center">
                       <button 
                         onClick={() => deleteEntry(entry.id)}
-                        className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors opacity-0 group-hover:opacity-100"
+                        className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-all opacity-0 group-hover:opacity-100"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -345,18 +393,29 @@ export function CashReceiptsJournalModal() {
                 </p>
               </div>
             </div>
-            <div className={cn(
-              "px-4 py-2 rounded-xl font-bold flex items-center gap-2",
-              isBalanced ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-            )}>
-              {isBalanced ? (
-                <>
-                  <Check className="w-5 h-5" /> Balanced
-                </>
-              ) : (
-                <>
-                  <X className="w-5 h-5" /> Out of Balance: ₱{Math.abs(totalDr - totalCr).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </>
+            <div className="flex items-center gap-3">
+              <div className={cn(
+                "px-4 py-2 rounded-xl font-bold flex items-center gap-2",
+                isBalanced ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+              )}>
+                {isBalanced ? (
+                  <>
+                    <Check className="w-5 h-5" /> Balanced
+                  </>
+                ) : (
+                  <>
+                    <X className="w-5 h-5" /> Out of Balance: ₱{Math.abs(totalDr - totalCr).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </>
+                )}
+              </div>
+              {!isBalanced && (
+                <button 
+                  onClick={balanceEntry}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-2 rounded-xl text-xs transition-colors shadow-sm flex items-center gap-1.5 cursor-pointer"
+                  title="Add automatic balancing row to balance debits and credits"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Auto-Balance Entry
+                </button>
               )}
             </div>
           </div>

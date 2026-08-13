@@ -1,15 +1,15 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { PageHeader } from '../ui/PageHeader';
-import { useAccounting } from '../../context/AccountingContext';
+import { PageHeader } from './ui/PageHeader';
+import { useAccounting } from '../context/AccountingContext';
 import {
   FileText, Printer, Sparkles, CheckCircle2, AlertCircle, Calendar
 } from 'lucide-react';
-import { TaxDeadline, Client } from '../../types';
-import { getComplianceStatusInfo } from '../../lib/complianceUtils';
-import { generateStandardDeadlines } from './BIRFormsModal';
+import { TaxDeadline, Client } from '../types';
+import { getComplianceStatusInfo } from '../lib/complianceUtils';
+import { generateStandardDeadlines } from './BIRForms';
 
-export function ComplianceTrackerModal() {
-  const { currentClient, currentClientId, setCurrentClientId, clients, businessProfile, activeModal, openModal, setBirFormTab, saveClient, currentDat } = useAccounting();
+export function ComplianceTracker() {
+  const { currentClient, currentClientId, setCurrentClientId, clients, businessProfile, activePage, navigateToPage, setBirFormTab, saveClient, currentDat } = useAccounting();
 
   // Dynamically determine today's simulated date
   const getSimulatedToday = () => {
@@ -40,10 +40,10 @@ export function ComplianceTrackerModal() {
 
   // Automatically select 'client_owner' if no active client is selected
   useEffect(() => {
-    if (activeModal === 'compliance-tracker' && !currentClientId) {
+    if (activePage === 'compliance-tracker' && !currentClientId) {
       setCurrentClientId('client_owner');
     }
-  }, [activeModal, currentClientId, setCurrentClientId]);
+  }, [activePage, currentClientId, setCurrentClientId]);
 
   // Automatically initialize BIR compliance deadlines for the selected active client
   useEffect(() => {
@@ -772,7 +772,7 @@ export function ComplianceTrackerModal() {
                                     <button
                                       onClick={() => {
                                         setBirFormTab(deadline.formType);
-                                        openModal('bir-forms');
+                                        navigateToPage('bir-forms');
                                       }}
                                       className="text-xs text-blue-600 dark:text-blue-400 font-bold border border-blue-200 dark:border-blue-800 rounded-xl px-4 py-2 hover:bg-blue-50/50 dark:hover:bg-blue-950/20 transition flex items-center gap-1.5"
                                     >

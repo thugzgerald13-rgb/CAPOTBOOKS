@@ -4,33 +4,33 @@ import { Header } from './components/Header';
 import { Dashboard } from './components/Dashboard';
 import { AccountingProvider, useAccounting } from './context/AccountingContext';
 import { AnimatePresence, motion } from 'motion/react';
-import { SalesModal } from './components/modals/SalesModal';
-import { BillingModal } from './components/modals/BillingModal';
-import { JournalVoucherModal } from './components/modals/JournalVoucherModal';
-import { PurchasesModal } from './components/modals/PurchasesModal';
-import { TinLibraryModal } from './components/modals/TinLibraryModal';
-import { HistoryModal } from './components/modals/HistoryModal';
-import { ChartOfAccountsModal } from './components/modals/ChartOfAccountsModal';
-import { CashReceiptsJournalModal } from './components/modals/CashReceiptsJournalModal';
-import { CashDisbursementsJournalModal } from './components/modals/CashDisbursementsJournalModal';
-import { PurchasesJournalModal } from './components/modals/PurchasesJournalModal';
-import { GeneralJournalModal } from './components/modals/GeneralJournalModal';
-import { GeneralLedgerModal } from './components/modals/GeneralLedgerModal';
-import { ProfitAndLossModal } from './components/modals/ProfitAndLossModal';
-import { ExtraModals } from './components/modals/ExtraModals';
-import { AdminSettingsModal } from './components/modals/AdminSettingsModal';
-import { FileManagerModal } from './components/modals/FileManagerModal';
-import { InventoryModal } from './components/modals/InventoryModal';
-import { BIRFormsModal } from './components/modals/BIRFormsModal';
-import { ComplianceTrackerModal } from './components/modals/ComplianceTrackerModal';
-import AccountsPayableModal from './components/modals/AccountsPayableModal';
+import { Sales } from './components/Sales';
+import { Billing } from './components/Billing';
+import { JournalVoucher } from './components/JournalVoucher';
+import { Purchases } from './components/Purchases';
+import { TinLibrary } from './components/TinLibrary';
+import { History } from './components/History';
+import { ChartOfAccounts } from './components/ChartOfAccounts';
+import { CashReceiptsJournal } from './components/CashReceiptsJournal';
+import { CashDisbursementsJournal } from './components/CashDisbursementsJournal';
+import { PurchasesJournal } from './components/PurchasesJournal';
+import { GeneralJournal } from './components/GeneralJournal';
+import { GeneralLedger } from './components/GeneralLedger';
+import { ProfitAndLoss } from './components/ProfitAndLoss';
+import { Extras } from './components/Extras';
+import { AdminSettings } from './components/AdminSettings';
+import { FileManager } from './components/FileManager';
+import { Inventory } from './components/Inventory';
+import { BIRForms } from './components/BIRForms';
+import { ComplianceTracker } from './components/ComplianceTracker';
+import AccountsPayable from './components/AccountsPayable';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AuthContainer } from './components/AuthContainer';
 import { HashRouter, Routes, Route } from 'react-router-dom';
 
 function AppLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const { toastMsg, clients, openModal, activeModal } = useAccounting();
+  const { toastMsg, clients, navigateToPage, activePage } = useAccounting();
   const { userRole } = useAuth();
 
   const hasClients = Object.keys(clients).length > 0;
@@ -42,7 +42,7 @@ function AppLayout() {
       <main className="flex-1 flex flex-col h-screen overflow-y-auto w-full relative">
         <div className="p-4 md:p-8 max-w-[1400px] mx-auto w-full">
           <Header onMenuClick={() => setIsSidebarOpen(true)} />
-          {!activeModal && (
+          {!activePage && (
             hasClients ? (
               <Dashboard />
             ) : (
@@ -50,7 +50,7 @@ function AppLayout() {
                 <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100 mb-2">Welcome to your workspace</h2>
                 <p className="text-slate-500 dark:text-slate-400 max-w-md mb-8">Let's get started by creating your first {userRole === 'owner' ? 'business' : 'client'} profile to begin tracking transactions and generating reports.</p>
                 <button 
-                   onClick={() => openModal(userRole === 'owner' ? 'business' : 'clients')}
+                   onClick={() => navigateToPage(userRole === 'owner' ? 'business' : 'clients')}
                    className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg shadow-blue-500/30 transition-all"
                 >
                   {userRole === 'owner' ? 'Create Business Profile' : 'Create Client Profile'}
@@ -79,35 +79,35 @@ function AppLayout() {
             (fresh state each visit) instead of keeping ~20 components alive
             and toggling visibility. */}
         <Routes>
-          <Route path="/sales" element={<SalesModal />} />
-          <Route path="/billing" element={<BillingModal />} />
-          <Route path="/journal-voucher" element={<JournalVoucherModal />} />
-          <Route path="/purchases" element={<PurchasesModal />} />
-          <Route path="/tinlibrary" element={<TinLibraryModal />} />
-          <Route path="/history" element={<HistoryModal />} />
-          <Route path="/coa" element={<ChartOfAccountsModal />} />
-          <Route path="/cash-receipt" element={<CashReceiptsJournalModal />} />
-          <Route path="/cash-disbursement" element={<CashDisbursementsJournalModal />} />
-          <Route path="/purchase-journal" element={<PurchasesJournalModal />} />
-          <Route path="/journal" element={<GeneralJournalModal />} />
-          <Route path="/ledger" element={<GeneralLedgerModal />} />
-          <Route path="/pl" element={<ProfitAndLossModal />} />
-          <Route path="/admin-settings" element={<AdminSettingsModal />} />
-          {/* ExtraModals bundles several related pages in one file; each gets
+          <Route path="/sales" element={<Sales />} />
+          <Route path="/billing" element={<Billing />} />
+          <Route path="/journal-voucher" element={<JournalVoucher />} />
+          <Route path="/purchases" element={<Purchases />} />
+          <Route path="/tinlibrary" element={<TinLibrary />} />
+          <Route path="/history" element={<History />} />
+          <Route path="/coa" element={<ChartOfAccounts />} />
+          <Route path="/cash-receipt" element={<CashReceiptsJournal />} />
+          <Route path="/cash-disbursement" element={<CashDisbursementsJournal />} />
+          <Route path="/purchase-journal" element={<PurchasesJournal />} />
+          <Route path="/journal" element={<GeneralJournal />} />
+          <Route path="/ledger" element={<GeneralLedger />} />
+          <Route path="/pl" element={<ProfitAndLoss />} />
+          <Route path="/admin-settings" element={<AdminSettings />} />
+          {/* Extras bundles several related pages in one file; each gets
               its own route but they all mount the same component, which
               internally shows only the section matching the current route. */}
-          <Route path="/clients" element={<ExtraModals />} />
-          <Route path="/business" element={<ExtraModals />} />
-          <Route path="/reports" element={<ExtraModals />} />
-          <Route path="/books" element={<ExtraModals />} />
-          <Route path="/taxnotes" element={<ExtraModals />} />
-          <Route path="/trialbalance" element={<ExtraModals />} />
-          <Route path="/sales-journal" element={<ExtraModals />} />
-          <Route path="/files" element={<FileManagerModal />} />
-          <Route path="/inventory" element={<InventoryModal />} />
-          <Route path="/bir-forms" element={<BIRFormsModal />} />
-          <Route path="/compliance-tracker" element={<ComplianceTrackerModal />} />
-          <Route path="/ap-workspace" element={<AccountsPayableModal />} />
+          <Route path="/clients" element={<Extras />} />
+          <Route path="/business" element={<Extras />} />
+          <Route path="/reports" element={<Extras />} />
+          <Route path="/books" element={<Extras />} />
+          <Route path="/taxnotes" element={<Extras />} />
+          <Route path="/trialbalance" element={<Extras />} />
+          <Route path="/sales-journal" element={<Extras />} />
+          <Route path="/files" element={<FileManager />} />
+          <Route path="/inventory" element={<Inventory />} />
+          <Route path="/bir-forms" element={<BIRForms />} />
+          <Route path="/compliance-tracker" element={<ComplianceTracker />} />
+          <Route path="/ap-workspace" element={<AccountsPayable />} />
         </Routes>
       </main>
     </div>

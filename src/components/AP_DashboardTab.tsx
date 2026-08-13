@@ -1,5 +1,5 @@
 import React from 'react';
-import { Client, PayableInvoice, BankAccount } from '../../types';
+import { Client, PayableInvoice, BankAccount } from '../types';
 import { Landmark, ArrowUpRight, TrendingDown, Hourglass, ShieldAlert, CheckCircle2 } from 'lucide-react';
 
 interface APDashboardTabProps {

@@ -1,11 +1,11 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { PageHeader } from '../ui/PageHeader';
-import { useAccounting } from '../../context/AccountingContext';
+import { PageHeader } from './ui/PageHeader';
+import { useAccounting } from '../context/AccountingContext';
 import { 
   FileText, Printer, Sparkles, CheckCircle2
 } from 'lucide-react';
-import { TaxDeadline, Client } from '../../types';
-import { adjustDeadlineForWeekend } from '../../lib/complianceUtils';
+import { TaxDeadline, Client } from '../types';
+import { adjustDeadlineForWeekend } from '../lib/complianceUtils';
 
 // Standard BIR filing deadlines generator for Philippines 2026/2025
 export function generateStandardDeadlines(year: number): TaxDeadline[] {
@@ -180,8 +180,8 @@ export function generateStandardDeadlines(year: number): TaxDeadline[] {
   return deadlines.map(d => ({ ...d, dueDate: adjustDeadlineForWeekend(d.dueDate) }));
 }
 
-export function BIRFormsModal() {
-  const { currentClient, currentClientId, setCurrentClientId, clients, businessProfile, activeModal, openModal, birFormTab, saveClient, currentDat } = useAccounting();
+export function BIRForms() {
+  const { currentClient, currentClientId, setCurrentClientId, clients, businessProfile, activePage, navigateToPage, birFormTab, saveClient, currentDat } = useAccounting();
 
   // Active form choice: '2550Q' | '1701Q' | '2551Q' | '1601-C' | '0619-E' | '1601-EQ'
   const [activeFormType, setActiveFormType] = useState<'2550Q' | '1701Q' | '2551Q' | '1601-C' | '0619-E' | '1601-EQ'>('2550Q');
@@ -240,24 +240,24 @@ export function BIRFormsModal() {
   const [manual1601EQInterest, setManual1601EQInterest] = useState<string>('0');
   const [manual1601EQCompromise, setManual1601EQCompromise] = useState<string>('0');
 
-  // Load correct form type on activeModal or birFormTab change if triggered from Sidebar
+  // Load correct form type on activePage or birFormTab change if triggered from Sidebar
   useEffect(() => {
     if (birFormTab && ['2550Q', '1701Q', '2551Q', '1601-C', '0619-E', '1601-EQ'].includes(birFormTab)) {
       setActiveFormType(birFormTab as any);
-    } else if (activeModal && activeModal.startsWith('bir-')) {
-      const type = activeModal.split('-')[1]?.toUpperCase() as any;
+    } else if (activePage && activePage.startsWith('bir-')) {
+      const type = activePage.split('-')[1]?.toUpperCase() as any;
       if (['2550Q', '1701Q', '2551Q', '1601C', '0619E', '1601EQ'].includes(type)) {
         setActiveFormType(type === '1601C' ? '1601-C' : type === '0619E' ? '0619-E' : type === '1601EQ' ? '1601-EQ' : type);
       }
     }
-  }, [activeModal, birFormTab]);
+  }, [activePage, birFormTab]);
 
   // Automatically select 'client_owner' if no active client is selected
   useEffect(() => {
-    if ((activeModal === 'bir-forms' || activeModal?.startsWith('bir-')) && !currentClientId) {
+    if ((activePage === 'bir-forms' || activePage?.startsWith('bir-')) && !currentClientId) {
       setCurrentClientId('client_owner');
     }
-  }, [activeModal, currentClientId, setCurrentClientId]);
+  }, [activePage, currentClientId, setCurrentClientId]);
 
   // Utility to determine date quarter
   const getQuarterNum = (dateStr: string) => {

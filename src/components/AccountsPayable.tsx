@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { useAccounting } from '../../context/AccountingContext';
-import { Client, PurchaseOrder, ReceivingReport, PayableInvoice, BankAccount, SupplierAdvance, WithholdingTaxEntry, CheckVoucher, DebitCreditMemo } from '../../types';
+import { useAccounting } from '../context/AccountingContext';
+import { Client, PurchaseOrder, ReceivingReport, PayableInvoice, BankAccount, SupplierAdvance, WithholdingTaxEntry, CheckVoucher, DebitCreditMemo } from '../types';
 import { 
-  X, Landmark, Receipt, CircleDollarSign, 
+  ArrowLeft, Landmark, Receipt, CircleDollarSign, 
   Settings, History, HelpCircle, FileText, ArrowLeftRight, Check, Plus, Trash2, ArrowUpRight 
 } from 'lucide-react';
 
@@ -13,12 +13,8 @@ import { APMatchingTab } from './AP_MatchingTab';
 import { APDisbursementsTab } from './AP_DisbursementsTab';
 import { APWithholdingTab } from './AP_WithholdingTab';
 
-interface AccountsPayableModalProps {
-  onClose?: () => void;
-}
-
-export default function AccountsPayableModal({ onClose }: AccountsPayableModalProps) {
-  const { currentClient, saveClient, showToast, isDarkMode, openModal } = useAccounting();
+export default function AccountsPayable() {
+  const { currentClient, saveClient, showToast, isDarkMode, navigateToPage } = useAccounting();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'matching' | 'disbursements' | 'withholding' | 'memos'>('dashboard');
 
   // Form states: Debit Credit Memo
@@ -233,11 +229,7 @@ export default function AccountsPayableModal({ onClose }: AccountsPayableModalPr
   };
 
   const handleClose = () => {
-    if (onClose) {
-      onClose();
-    } else {
-      openModal(null);
-    }
+    navigateToPage(null);
   };
 
   const formatCurrency = (val: number) => {
@@ -245,13 +237,13 @@ export default function AccountsPayableModal({ onClose }: AccountsPayableModalPr
   };
 
   return (
-    <div className="fixed inset-0 bg-slate-900/60 dark:bg-black/80 backdrop-blur-xs z-50 flex items-center justify-center p-4" id="ap-workspace-modal">
+    <div className="w-full mt-8" id="ap-workspace-page">
       <motion.div 
-        initial={{ opacity: 0, scale: 0.95, y: 15 }}
-        animate={{ opacity: 1, scale: 1, y: 0 }}
-        className="bg-slate-100 dark:bg-slate-905 bg-[whitesmoke] dark:bg-slate-900 w-full max-w-6xl h-[92vh] rounded-[36px] flex flex-col shadow-2xl overflow-hidden border border-slate-200/80 dark:border-slate-800"
+        initial={{ opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        className="bg-slate-100 dark:bg-slate-905 bg-[whitesmoke] dark:bg-slate-900 w-full h-[85vh] rounded-3xl flex flex-col shadow-sm overflow-hidden border border-slate-200 dark:border-slate-700"
       >
-        {/* Modal Primary Header Banner */}
+        {/* Primary Header Banner */}
         <div className="p-6 bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between shrink-0">
           <div className="flex items-center gap-3">
             <div className="p-3 bg-blue-50/80 dark:bg-blue-950/40 text-blue-600 rounded-3xl">
@@ -272,13 +264,13 @@ export default function AccountsPayableModal({ onClose }: AccountsPayableModalPr
           <button 
             onClick={handleClose}
             className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-full transition-all"
-            title="Close Workspace"
+            title="Back to Dashboard"
           >
-            <X className="w-5 h-5 font-bold" />
+            <ArrowLeft className="w-5 h-5 font-bold" />
           </button>
         </div>
 
-        {/* Modal Work Desk Body splits into Sidebar Tabs & Active Screen Panels */}
+        {/* Work Desk Body splits into Sidebar Tabs & Active Screen Panels */}
         <div className="flex-1 flex overflow-hidden">
           {/* Work Desk Side Navigation */}
           <div className="w-56 border-r border-slate-200/80 dark:border-slate-800 bg-white/50 dark:bg-slate-900/40 p-4 flex flex-col justify-between shrink-0">

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Client, PayableInvoice, WithholdingTaxEntry } from '../../types';
+import { Client, PayableInvoice, WithholdingTaxEntry } from '../types';
 import { FileText, Award, Calendar, Printer, Download, MapPin, Building } from 'lucide-react';
 
 interface APWithholdingTabProps {

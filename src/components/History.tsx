@@ -1,14 +1,14 @@
 import { useState, useEffect } from 'react';
-import { PageHeader } from '../ui/PageHeader';
-import { useAccounting } from '../../context/AccountingContext';
-import { Search, Trash2, Receipt, ShoppingCart, FolderClock, History, FileDown, FileSpreadsheet } from 'lucide-react';
-import { cn, MONTHS, generateCSV, formatTIN } from '../../lib/utils';
+import { PageHeader } from './ui/PageHeader';
+import { useAccounting } from '../context/AccountingContext';
+import { Search, Trash2, Receipt, ShoppingCart, FolderClock, History as HistoryIcon, FileDown, FileSpreadsheet } from 'lucide-react';
+import { cn, MONTHS, generateCSV, formatTIN } from '../lib/utils';
 import * as XLSX from 'xlsx';
 
 type HistoryTab = 'expenses' | 'income' | 'slp' | 'sls';
 
-export function HistoryModal() {
-  const { currentClient, currentClientId, currentDat, saveClient, showToast, openModal, setCurrentDat, historyTab, setHistoryTab, activeDevice } = useAccounting();
+export function History() {
+  const { currentClient, currentClientId, currentDat, saveClient, showToast, navigateToPage, setCurrentDat, historyTab, setHistoryTab, activeDevice } = useAccounting();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedMonth, setSelectedMonth] = useState<number>(currentDat?.month || new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState<number>(currentDat?.year || new Date().getFullYear());
@@ -475,7 +475,7 @@ export function HistoryModal() {
 
                   {((activeTab === 'expenses' && filteredPurchases.length === 0) || (activeTab === 'income' && filteredSales.length === 0)) && (
                     <div className="text-center py-12 text-slate-500 dark:text-slate-400">
-                      <History className="w-8 h-8 mx-auto mb-3 opacity-20" />
+                      <HistoryIcon className="w-8 h-8 mx-auto mb-3 opacity-20" />
                       <p className="font-medium">No {activeTab} found for this period.</p>
                       <p className="text-xs">Adjust your search or change the DAT File Selection.</p>
                     </div>
@@ -620,7 +620,7 @@ export function HistoryModal() {
                       {((activeTab === 'expenses' && filteredPurchases.length === 0) || (activeTab === 'income' && filteredSales.length === 0)) && (
                         <tr>
                           <td colSpan={9} className="px-4 py-12 text-center text-slate-500 dark:text-slate-400">
-                            <History className="w-8 h-8 mx-auto mb-3 opacity-20" />
+                            <HistoryIcon className="w-8 h-8 mx-auto mb-3 opacity-20" />
                             <p className="font-medium">No {activeTab} found for this period.</p>
                             <p className="text-xs">Adjust your search or change the DAT File Selection.</p>
                           </td>
@@ -684,7 +684,7 @@ export function HistoryModal() {
                   <p className="font-bold">No Period Selected</p>
                   <p className="text-sm mb-6">Please select a period to view the summary list.</p>
                   <button 
-                    onClick={() => openModal('purchases')}
+                    onClick={() => navigateToPage('purchases')}
                     className="px-6 py-2 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/20"
                   >
                     Select Period Now
@@ -692,7 +692,7 @@ export function HistoryModal() {
                 </div>
               ) : purchases.length === 0 ? (
                 <div className="p-12 text-center text-slate-500 dark:text-slate-400">
-                  <History className="w-12 h-12 mx-auto mb-4 opacity-10" />
+                  <HistoryIcon className="w-12 h-12 mx-auto mb-4 opacity-10" />
                   <p className="font-bold">No Records in {currentDat.formatted}</p>
                   <p className="text-sm">Add some expense entries to see the summary here.</p>
                 </div>
@@ -856,7 +856,7 @@ export function HistoryModal() {
                   <p className="font-bold">No Period Selected</p>
                   <p className="text-sm mb-6">Please select a period to view the summary list.</p>
                   <button 
-                    onClick={() => openModal('sales')}
+                    onClick={() => navigateToPage('sales')}
                     className="px-6 py-2 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/20"
                   >
                     Select Period Now
@@ -864,7 +864,7 @@ export function HistoryModal() {
                 </div>
               ) : sales.length === 0 ? (
                 <div className="p-12 text-center text-slate-500 dark:text-slate-400">
-                  <History className="w-12 h-12 mx-auto mb-4 opacity-10" />
+                  <HistoryIcon className="w-12 h-12 mx-auto mb-4 opacity-10" />
                   <p className="font-bold">No Records in {currentDat.formatted}</p>
                   <p className="text-sm">Add some income entries to see the summary here.</p>
                 </div>

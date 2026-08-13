@@ -1,11 +1,11 @@
 import React, { useState } from 'react';
 import { LineChart, Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
-import { PageHeader } from '../ui/PageHeader';
-import { useAccounting } from '../../context/AccountingContext';
-import { GeneralLedgerAccount, GeneralLedgerEntry } from '../../types';
-import { cn } from '../../lib/utils';
+import { PageHeader } from './ui/PageHeader';
+import { useAccounting } from '../context/AccountingContext';
+import { GeneralLedgerAccount, GeneralLedgerEntry } from '../types';
+import { cn } from '../lib/utils';
 
-export function GeneralLedgerModal() {
+export function GeneralLedger() {
   const { currentClient, currentClientId, saveClient } = useAccounting();
   
   const [newAccountTitle, setNewAccountTitle] = useState('');

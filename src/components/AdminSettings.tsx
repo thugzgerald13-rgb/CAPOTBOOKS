@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { ShieldAlert, Download, Users, RefreshCw, Mail, Calendar } from 'lucide-react';
-import { PageHeader } from '../ui/PageHeader';
-import { useAccounting } from '../../context/AccountingContext';
-import { useAuth } from '../../context/AuthContext';
-import { supabase } from '../../lib/supabase';
+import { PageHeader } from './ui/PageHeader';
+import { useAccounting } from '../context/AccountingContext';
+import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 
 interface UserProfile {
   uid: string;
@@ -14,7 +14,7 @@ interface UserProfile {
   updatedAt?: any;
 }
 
-export function AdminSettingsModal() {
+export function AdminSettings() {
   const { currentClient } = useAccounting();
   const { isAdmin, userRole, setUserRole } = useAuth();
   const [users, setUsers] = useState<UserProfile[]>([]);

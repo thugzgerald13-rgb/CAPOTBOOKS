@@ -1,15 +1,15 @@
 import { useState, useEffect } from 'react';
-import { PageHeader } from '../ui/PageHeader';
-import { useAccounting } from '../../context/AccountingContext';
-import { formatTIN, MONTHS, getMonthName } from '../../lib/utils';
+import { PageHeader } from './ui/PageHeader';
+import { useAccounting } from '../context/AccountingContext';
+import { formatTIN, MONTHS, getMonthName } from '../lib/utils';
 import { Receipt, Plus, FolderClock } from 'lucide-react';
-import { DEFAULT_CRJ_COLUMNS } from './CashReceiptsJournalModal';
-import { JournalEntry } from '../../types';
+import { DEFAULT_CRJ_COLUMNS } from './CashReceiptsJournal';
+import { JournalEntry } from '../types';
 
 const CASH_RECEIPT_PAYMENT_TYPES = ['Cash', 'Check', 'E-Payment', 'Bank Transfer'];
 const SALES_JOURNAL_PAYMENT_TYPES = ['Credit Card', 'On Account'];
 
-export function SalesModal() {
+export function Sales() {
   const { currentClient, currentClientId, currentDat, setCurrentDat, saveClient, showToast } = useAccounting();
 
   const currentYear = new Date().getFullYear();

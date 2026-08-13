@@ -12,7 +12,7 @@ interface AccountingContextType {
   currentClient: Client | null;
   businessProfile: BusinessProfile | null;
   isDarkMode: boolean;
-  activeModal: string | null;
+  activePage: string | null;
   currentDat: DatSelection | null;
   historyTab: string;
   birFormTab: string;
@@ -22,7 +22,7 @@ interface AccountingContextType {
   syncData: () => Promise<void>;
 
   setDarkMode: (value: boolean) => void;
-  openModal: (modal: string | null) => void;
+  navigateToPage: (page: string | null) => void;
   setHistoryTab: (tab: string) => void;
   setBirFormTab: (tab: string) => void;
   setCurrentClientId: (id: string) => void;
@@ -114,12 +114,12 @@ export function AccountingProvider({
   const [currentClientId, setCurrentClientId] = useState<string | null>(null);
   const [businessProfile, setBusinessProfile] = useState<BusinessProfile | null>(null);
   const [isDarkMode, setDarkMode] = useState(false);
-  // activeModal is now derived from the URL route, so every "modal" (page)
-  // has its own real URL: browser back/forward and refresh-to-stay-there
-  // both work. '/' (or no path) means no page is active (Dashboard shows).
+  // activePage is derived from the URL route, so every page has its own
+  // real URL: browser back/forward and refresh-to-stay-there both work.
+  // '/' (or no path) means no page is active (Dashboard shows).
   const location = useLocation();
   const navigate = useNavigate();
-  const activeModal = (() => {
+  const activePage = (() => {
     const path = location.pathname.replace(/^\/+/, '');
     return path === '' ? null : decodeURIComponent(path);
   })();
@@ -715,8 +715,8 @@ export function AccountingProvider({
     setTimeout(() => setToastMsg(null), 3000);
   };
 
-  const openModal = (modal: string | null) => {
-    navigate(modal ? `/${modal}` : '/');
+  const navigateToPage = (page: string | null) => {
+    navigate(page ? `/${page}` : '/');
   };
 
   if (syncError) {
@@ -797,7 +797,7 @@ export function AccountingProvider({
         currentClient,
         businessProfile,
         isDarkMode,
-        activeModal,
+        activePage,
         currentDat,
         historyTab,
         birFormTab,
@@ -806,7 +806,7 @@ export function AccountingProvider({
         syncError,
         syncData,
         setDarkMode,
-        openModal,
+        navigateToPage,
         setHistoryTab,
         setBirFormTab,
         setCurrentClientId,

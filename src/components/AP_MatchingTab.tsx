@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Client, PurchaseOrder, ReceivingReport, PayableInvoice, PayableInvoiceItem, WithholdingTaxEntry } from '../../types';
+import { Client, PurchaseOrder, ReceivingReport, PayableInvoice, PayableInvoiceItem, WithholdingTaxEntry } from '../types';
 import { ShoppingBag, Eye, Plus, Check, Play, AlertCircle, Ban, ArrowRight, ShieldCheck } from 'lucide-react';
 
 interface APMatchingTabProps {

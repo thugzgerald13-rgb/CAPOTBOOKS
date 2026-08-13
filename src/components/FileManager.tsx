@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
-import { PageHeader } from '../ui/PageHeader';
-import { useAccounting } from '../../context/AccountingContext';
-import { AppFolder, AppFile } from '../../types';
+import { PageHeader } from './ui/PageHeader';
+import { useAccounting } from '../context/AccountingContext';
+import { AppFolder, AppFile } from '../types';
 import { 
   Folder, FolderOpen, Upload, Trash2, Edit2, 
   Check, X, FileText, Download, Plus, File, AlertTriangle 
@@ -17,7 +17,7 @@ export interface StagedFile {
   description: string;
 }
 
-export function FileManagerModal() {
+export function FileManager() {
   const { currentClient, saveClient, showToast } = useAccounting();
   const [selectedFolderId, setSelectedFolderId] = useState<string>('folder_revenue');
   const [newFolderName, setNewFolderName] = useState('');
