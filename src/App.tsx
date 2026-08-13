@@ -26,7 +26,7 @@ import { ComplianceTrackerModal } from './components/modals/ComplianceTrackerMod
 import AccountsPayableModal from './components/modals/AccountsPayableModal';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AuthContainer } from './components/AuthContainer';
-import { HashRouter } from 'react-router-dom';
+import { HashRouter, Routes, Route } from 'react-router-dom';
 
 function AppLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -74,27 +74,41 @@ function AppLayout() {
           )}
         </AnimatePresence>
 
-        {/* Modal Declarations */}
-        <SalesModal />
-        <BillingModal />
-        <JournalVoucherModal />
-        <PurchasesModal />
-        <TinLibraryModal />
-        <HistoryModal />
-        <ChartOfAccountsModal />
-        <CashReceiptsJournalModal />
-        <CashDisbursementsJournalModal />
-        <PurchasesJournalModal />
-        <GeneralJournalModal />
-        <GeneralLedgerModal />
-        <ProfitAndLossModal />
-        <AdminSettingsModal />
-        <ExtraModals />
-        <FileManagerModal />
-        <InventoryModal />
-        <BIRFormsModal />
-        <ComplianceTrackerModal />
-        {activeModal === 'ap-workspace' && <AccountsPayableModal />}
+        {/* Pages: React Router only mounts the component matching the current
+            route, so navigating away actually unmounts the previous page
+            (fresh state each visit) instead of keeping ~20 components alive
+            and toggling visibility. */}
+        <Routes>
+          <Route path="/sales" element={<SalesModal />} />
+          <Route path="/billing" element={<BillingModal />} />
+          <Route path="/journal-voucher" element={<JournalVoucherModal />} />
+          <Route path="/purchases" element={<PurchasesModal />} />
+          <Route path="/tinlibrary" element={<TinLibraryModal />} />
+          <Route path="/history" element={<HistoryModal />} />
+          <Route path="/coa" element={<ChartOfAccountsModal />} />
+          <Route path="/cash-receipt" element={<CashReceiptsJournalModal />} />
+          <Route path="/cash-disbursement" element={<CashDisbursementsJournalModal />} />
+          <Route path="/purchase-journal" element={<PurchasesJournalModal />} />
+          <Route path="/journal" element={<GeneralJournalModal />} />
+          <Route path="/ledger" element={<GeneralLedgerModal />} />
+          <Route path="/pl" element={<ProfitAndLossModal />} />
+          <Route path="/admin-settings" element={<AdminSettingsModal />} />
+          {/* ExtraModals bundles several related pages in one file; each gets
+              its own route but they all mount the same component, which
+              internally shows only the section matching the current route. */}
+          <Route path="/clients" element={<ExtraModals />} />
+          <Route path="/business" element={<ExtraModals />} />
+          <Route path="/reports" element={<ExtraModals />} />
+          <Route path="/books" element={<ExtraModals />} />
+          <Route path="/taxnotes" element={<ExtraModals />} />
+          <Route path="/trialbalance" element={<ExtraModals />} />
+          <Route path="/sales-journal" element={<ExtraModals />} />
+          <Route path="/files" element={<FileManagerModal />} />
+          <Route path="/inventory" element={<InventoryModal />} />
+          <Route path="/bir-forms" element={<BIRFormsModal />} />
+          <Route path="/compliance-tracker" element={<ComplianceTrackerModal />} />
+          <Route path="/ap-workspace" element={<AccountsPayableModal />} />
+        </Routes>
       </main>
     </div>
   );
