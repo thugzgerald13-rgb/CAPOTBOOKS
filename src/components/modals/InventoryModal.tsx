@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Modal } from '../ui/Modal';
+import { PageHeader } from '../ui/PageHeader';
 import { useAccounting } from '../../context/AccountingContext';
 import { 
   Boxes, Plus, Search, Trash2, Edit3, CheckCircle, 
@@ -392,7 +392,9 @@ export function InventoryModal() {
   const lowStockList = inventoryItems.filter(i => i.stockLevel > 0 && i.stockLevel <= i.reorderPoint);
 
   return (
-    <Modal id="inventory" title="Inventory & Stock Valuation" icon={<Boxes className="text-amber-500 w-5 h-5" />} maxWidth="max-w-6xl">
+    <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
+      <PageHeader title="Inventory & Stock Valuation" icon={<Boxes className="text-amber-500 w-5 h-5" />} />
+      <div className="p-4 md:p-6 flex-1">
       <div className="flex flex-col gap-6 font-sans">
         
         {/* Header KPI Hub */}
@@ -1034,6 +1036,7 @@ export function InventoryModal() {
           </div>
         </div>
       )}
-    </Modal>
+          </div>
+    </div>
   );
 }

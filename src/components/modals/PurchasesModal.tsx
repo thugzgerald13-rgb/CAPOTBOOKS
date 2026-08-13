@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Modal } from '../ui/Modal';
+import { PageHeader } from '../ui/PageHeader';
 import { useAccounting } from '../../context/AccountingContext';
 import { formatTIN, generateCSV, MONTHS, getMonthName } from '../../lib/utils';
 import { ShoppingCart, Plus, ArrowLeft, FolderClock, ChevronsLeft, ChevronsRight, ChevronLeft, ChevronRight, PlusCircle, Trash2 } from 'lucide-react';
@@ -274,11 +274,9 @@ export function PurchasesModal() {
   };
 
   return (
-    <Modal
-      id="purchases"
-      title={currentDat ? "Expense Data Entry Screen (DAT)" : "Expense Data Entry Screen"}
-      icon={<ShoppingCart className="w-5 h-5 text-amber-500" />}
-    >
+    <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
+      <PageHeader title={currentDat ? "Expense Data Entry Screen (DAT)" : "Expense Data Entry Screen"} icon={<ShoppingCart className="w-5 h-5 text-amber-500" />} />
+      <div className="p-4 md:p-6 flex-1">
       <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between bg-slate-100 dark:bg-slate-800 p-4 rounded-2xl mb-6 gap-4 border border-slate-200 dark:border-slate-700">
         <div className="flex flex-wrap items-center gap-2 font-bold text-slate-700 dark:text-slate-300">
           <FolderClock className="w-5 h-5 text-cyan-500" />
@@ -581,6 +579,7 @@ export function PurchasesModal() {
         </div>
       </div>
 
-    </Modal>
+      </div>
+    </div>
   );
 }

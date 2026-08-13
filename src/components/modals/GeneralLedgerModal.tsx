@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { LineChart, Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
-import { Modal } from '../ui/Modal';
+import { PageHeader } from '../ui/PageHeader';
 import { useAccounting } from '../../context/AccountingContext';
 import { GeneralLedgerAccount, GeneralLedgerEntry } from '../../types';
 import { cn } from '../../lib/utils';
@@ -88,7 +88,9 @@ export function GeneralLedgerModal() {
   };
 
   return (
-    <Modal id="ledger" title="General Ledger" icon={<LineChart />} maxWidth="max-w-7xl">
+    <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
+      <PageHeader title="General Ledger" icon={<LineChart />} />
+      <div className="p-4 md:p-6 flex-1">
       <div className="p-6">
         <div className="flex justify-between items-center mb-6">
           <p className="text-slate-500 dark:text-slate-400">Record general ledger transactions manually.</p>
@@ -316,6 +318,7 @@ export function GeneralLedgerModal() {
           )}
         </div>
       </div>
-    </Modal>
+          </div>
+    </div>
   );
 }

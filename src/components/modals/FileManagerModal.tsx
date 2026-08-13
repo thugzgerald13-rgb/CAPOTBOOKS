@@ -1,5 +1,5 @@
 import React, { useState, useRef } from 'react';
-import { Modal } from '../ui/Modal';
+import { PageHeader } from '../ui/PageHeader';
 import { useAccounting } from '../../context/AccountingContext';
 import { AppFolder, AppFile } from '../../types';
 import { 
@@ -257,12 +257,9 @@ export function FileManagerModal() {
   const activeFolderFiles = files.filter(f => f.folderId === activeFolderId);
 
   return (
-    <Modal 
-      id="files" 
-      title="Document & Receipt Vault" 
-      icon={<FolderOpen className="text-blue-500" />}
-      maxWidth="max-w-5xl"
-    >
+    <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
+      <PageHeader title="Document & Receipt Vault" icon={<FolderOpen className="text-blue-500" />} />
+      <div className="p-4 md:p-6 flex-1">
       <div className="flex flex-col md:flex-row gap-6 min-h-[500px]">
         {/* Left Side: Folder Management */}
         <div className="w-full md:w-80 shrink-0 border-r border-slate-100 dark:border-slate-800 pr-0 md:pr-6 flex flex-col gap-6">
@@ -604,6 +601,7 @@ export function FileManagerModal() {
           </div>
         </div>
       </div>
-    </Modal>
+      </div>
+    </div>
   );
 }

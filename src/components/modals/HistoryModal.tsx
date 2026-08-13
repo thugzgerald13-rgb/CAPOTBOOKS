@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Modal } from '../ui/Modal';
+import { PageHeader } from '../ui/PageHeader';
 import { useAccounting } from '../../context/AccountingContext';
 import { Search, Trash2, Receipt, ShoppingCart, FolderClock, History, FileDown, FileSpreadsheet } from 'lucide-react';
 import { cn, MONTHS, generateCSV, formatTIN } from '../../lib/utils';
@@ -288,12 +288,9 @@ export function HistoryModal() {
   };
 
   return (
-    <Modal
-      id="history"
-      title={activeConfig.label}
-      icon={<activeConfig.icon className="w-5 h-5 text-indigo-500" />}
-      maxWidth="max-w-4xl"
-    >
+    <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
+      <PageHeader title={activeConfig.label} icon={<activeConfig.icon className="w-5 h-5 text-indigo-500" />} />
+      <div className="p-4 md:p-6 flex-1">
       <div className="flex flex-col gap-6">
         {/* Content Area */}
         <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
@@ -975,6 +972,7 @@ export function HistoryModal() {
           </div>
         )}
       </div>
-    </Modal>
+      </div>
+    </div>
   );
 }

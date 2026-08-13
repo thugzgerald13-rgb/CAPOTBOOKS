@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Modal } from '../ui/Modal';
+import { PageHeader } from '../ui/PageHeader';
 import { useAccounting } from '../../context/AccountingContext';
 import { FileSignature, Plus, Trash2, Check, X, ChevronDown, ChevronUp } from 'lucide-react';
 import { DEFAULT_GJ_COLUMNS } from './GeneralJournalModal';
@@ -112,7 +112,9 @@ export function JournalVoucherModal() {
   };
 
   return (
-    <Modal id="journal-voucher" title="Journal Voucher" icon={<FileSignature className="w-5 h-5 text-cyan-500" />} maxWidth="max-w-5xl">
+    <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
+      <PageHeader title="Journal Voucher" icon={<FileSignature className="w-5 h-5 text-cyan-500" />} />
+      <div className="p-4 md:p-6 flex-1">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-100 dark:border-slate-700">
         <div>
           <label className="form-label">Date</label>
@@ -265,6 +267,7 @@ export function JournalVoucherModal() {
           );
         })}
       </div>
-    </Modal>
+          </div>
+    </div>
   );
 }
