@@ -128,7 +128,8 @@ export function ProfitAndLoss() {
           {/* REVENUE */}
           <div>
             <div className="uppercase mb-2">REVENUE:</div>
-            <table className="w-full">
+            <div className="overflow-x-auto">
+<table className="w-full">
               <tbody>
                 {plData.revenue.map(line => (
                   <tr key={line.id} className="group">
@@ -165,13 +166,15 @@ export function ProfitAndLoss() {
                 ))}
               </tbody>
             </table>
+</div>
             <button onClick={() => handleAddLine('revenue')} className="text-xs text-cyan-600 font-bold ml-6 mt-1 opacity-50 hover:opacity-100">+ Add Row</button>
           </div>
 
           {/* COST OF REVENUE */}
           <div>
             <div className="uppercase mb-2">COST OF REVENUE</div>
-            <table className="w-full">
+            <div className="overflow-x-auto">
+<table className="w-full">
               <tbody>
                 {plData.costOfRevenue.map((line, idx) => (
                   <tr key={line.id} className="group">
@@ -214,6 +217,7 @@ export function ProfitAndLoss() {
                 </tr>
               </tbody>
             </table>
+</div>
             <button onClick={() => handleAddLine('costOfRevenue')} className="text-xs text-cyan-600 font-bold ml-6 mt-1 opacity-50 hover:opacity-100">+ Add Row</button>
           </div>
 
@@ -228,7 +232,8 @@ export function ProfitAndLoss() {
           {/* OPERATING EXPENSES */}
           <div>
             <div className="uppercase mb-2">OPERATING EXPENSES:</div>
-            <table className="w-full">
+            <div className="overflow-x-auto">
+<table className="w-full">
               <tbody>
                 {plData.operatingExpenses.map(line => (
                   <tr key={line.id} className="group">
@@ -271,6 +276,7 @@ export function ProfitAndLoss() {
                 </tr>
               </tbody>
             </table>
+</div>
             <button onClick={() => handleAddLine('operatingExpenses')} className="text-xs text-cyan-600 font-bold ml-6 mt-1 opacity-50 hover:opacity-100">+ Add Row</button>
           </div>
 

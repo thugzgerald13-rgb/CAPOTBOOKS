@@ -1041,7 +1041,8 @@ export function BIRForms() {
                   <div className="bg-yellow-50 outline outline-[1px] outline-black text-[11px] font-black uppercase px-2 py-0.5 tracking-wide mb-1 select-none">
                     Part II: Computation of VAT
                   </div>
-                  <table className="w-full text-xs border border-black border-collapse">
+                  <div className="overflow-x-auto">
+<table className="w-full text-xs border border-black border-collapse">
                     <thead>
                       <tr className="bg-slate-100 font-bold border-b border-black text-[10px]">
                         <th className="border-r border-black p-1 text-center w-10">Item</th>
@@ -1113,6 +1114,7 @@ export function BIRForms() {
                       </tr>
                     </tbody>
                   </table>
+</div>
                 </div>
 
                 <div className="flex justify-between items-center text-[10px] font-bold text-slate-500 pt-2 border-t border-black">
@@ -1175,7 +1177,8 @@ export function BIRForms() {
                   <div className="bg-yellow-50 outline outline-[1px] outline-black text-[11px] font-black uppercase px-2 py-0.5 tracking-wide mb-1 select-none">
                     Part II: Tax Computation
                   </div>
-                  <table className="w-full text-xs border border-black border-collapse">
+                  <div className="overflow-x-auto">
+<table className="w-full text-xs border border-black border-collapse">
                     <thead>
                       <tr className="bg-slate-100 font-bold border-b border-black text-[10px]">
                         <th className="border-r border-black p-1 text-center w-10">Item</th>
@@ -1233,6 +1236,7 @@ export function BIRForms() {
                       </tr>
                     </tbody>
                   </table>
+</div>
                 </div>
 
                 <div className="flex justify-between items-center text-[10px] font-bold text-slate-500 pt-2 border-t border-black">
@@ -1291,7 +1295,8 @@ export function BIRForms() {
                   <div className="bg-yellow-50 outline outline-[1px] outline-black text-[11px] font-black uppercase px-2 py-0.5 tracking-wide mb-1 select-none">
                     Part II: Percentage Tax Computation
                   </div>
-                  <table className="w-full text-xs border border-black border-collapse">
+                  <div className="overflow-x-auto">
+<table className="w-full text-xs border border-black border-collapse">
                     <thead>
                       <tr className="bg-slate-100 font-bold border-b border-black text-[10px]">
                         <th className="border-r border-black p-1 text-center w-10">ATC</th>
@@ -1322,6 +1327,7 @@ export function BIRForms() {
                       </tr>
                     </tbody>
                   </table>
+</div>
                 </div>
 
                 <div className="flex justify-between items-center text-[10px] font-bold text-slate-500 pt-2 border-t border-black">
@@ -1382,7 +1388,8 @@ export function BIRForms() {
                   <div className="bg-yellow-50 outline outline-[1px] outline-black text-[11px] font-black uppercase px-2 py-0.5 tracking-wide mb-1 select-none">
                     Part II: Computation of Taxes Withheld
                   </div>
-                  <table className="w-full text-xs border border-black border-collapse">
+                  <div className="overflow-x-auto">
+<table className="w-full text-xs border border-black border-collapse">
                     <thead>
                       <tr className="bg-slate-100 font-bold border-b border-black text-[10px]">
                         <th className="border-r border-black p-1 text-center w-10">Item</th>
@@ -1418,6 +1425,7 @@ export function BIRForms() {
                       </tr>
                     </tbody>
                   </table>
+</div>
                 </div>
 
                 <div className="flex justify-between items-center text-[10px] font-bold text-slate-500 pt-2 border-t border-black">
@@ -1571,7 +1579,8 @@ export function BIRForms() {
                   <div className="bg-yellow-50 outline outline-[1px] outline-black text-[11px] font-black uppercase px-2 py-0.5 tracking-wide mb-1 select-none">
                     Part II: Computation of Remittance
                   </div>
-                  <table className="w-full text-xs border border-black border-collapse">
+                  <div className="overflow-x-auto">
+<table className="w-full text-xs border border-black border-collapse">
                     <thead>
                       <tr className="bg-slate-100 font-bold border-b border-black text-[10px]">
                         <th className="border-r border-black p-1 text-center w-10">Item</th>
@@ -1618,6 +1627,7 @@ export function BIRForms() {
                       </tr>
                     </tbody>
                   </table>
+</div>
                 </div>
 
                 {/* Section Part III: Details of Payment */}
@@ -1625,7 +1635,8 @@ export function BIRForms() {
                   <div className="bg-yellow-50 outline outline-[1px] outline-black text-[11px] font-black uppercase px-2 py-0.5 tracking-wide mb-1 select-none">
                     Part III: Details of Payment
                   </div>
-                  <table className="w-full text-[10px] border border-black border-collapse">
+                  <div className="overflow-x-auto">
+<table className="w-full text-[10px] border border-black border-collapse">
                     <thead>
                       <tr className="bg-slate-100 font-bold border-b border-black text-[9px] uppercase">
                         <th className="border-r border-black p-1 text-center w-12">Item</th>
@@ -1671,6 +1682,7 @@ export function BIRForms() {
                       </tr>
                     </tbody>
                   </table>
+</div>
                 </div>
 
                 {/* Perjury declaration and signatures */}
@@ -1759,7 +1771,8 @@ export function BIRForms() {
                   <div className="bg-yellow-50 outline outline-[1px] outline-black text-[11px] font-black uppercase px-2 py-0.5 tracking-wide mb-1 select-none">
                     Part II: Details of Withholding Taxes for the Quarter
                   </div>
-                  <table className="w-full text-xs border border-black border-collapse">
+                  <div className="overflow-x-auto">
+<table className="w-full text-xs border border-black border-collapse">
                     <thead>
                       <tr className="bg-slate-100 font-bold border-b border-black text-[10px]">
                         <th className="border-r border-black p-1 text-center w-12">ATC</th>
@@ -1841,6 +1854,7 @@ export function BIRForms() {
                       </tr>
                     </tbody>
                   </table>
+</div>
                 </div>
 
                 <div className="flex justify-between items-center text-[10px] font-bold text-slate-500 pt-2 border-t border-black">

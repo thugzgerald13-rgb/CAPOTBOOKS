@@ -219,10 +219,12 @@ export function APWithholdingTab({ currentClient, payableInvoices, withholdingTa
                 </div>
 
                 {/* Quarter period */}
-                <div className="grid grid-cols-4 border border-black bg-slate-100 text-[10px] font-bold p-1 text-center divide-x divide-black uppercase">
+                <div className="overflow-x-auto">
+                <div className="grid grid-cols-4 border border-black bg-slate-100 text-[10px] font-bold p-1 text-center divide-x divide-black uppercase min-w-[420px]">
                   <div className="col-span-2">Period Covered: April 1, 2026 to June 30, 2026</div>
                   <div>Year: 2026</div>
                   <div>Quarter: {reportingQuarter}</div>
+                </div>
                 </div>
 
                 {/* Part 1: Payee details */}
@@ -273,7 +275,8 @@ export function APWithholdingTab({ currentClient, payableInvoices, withholdingTa
                   Part III - Details of Tax Withheld
                 </div>
                 <div className="border border-black bg-white rounded-lg overflow-hidden">
-                  <table className="w-full text-[10px] text-left border-collapse">
+                  <div className="overflow-x-auto">
+<table className="w-full text-[10px] text-left border-collapse">
                     <thead className="bg-slate-100 uppercase font-black text-center border-b border-black">
                       <tr>
                         <th className="p-2 border-r border-black">Income Payment Classified Details</th>
@@ -293,6 +296,7 @@ export function APWithholdingTab({ currentClient, payableInvoices, withholdingTa
                       </tr>
                     </tbody>
                   </table>
+</div>
                 </div>
 
                 <div className="flex justify-between items-center pt-4 text-[10px] text-center uppercase font-bold text-slate-500 font-sans">
@@ -329,7 +333,8 @@ export function APWithholdingTab({ currentClient, payableInvoices, withholdingTa
           </div>
 
           <div className="border border-slate-100 dark:border-slate-800 rounded-2xl overflow-hidden bg-white dark:bg-slate-900/30">
-            <table className="w-full text-xs text-left">
+            <div className="overflow-x-auto">
+<table className="w-full text-xs text-left">
               <thead className="bg-slate-50 dark:bg-slate-800 uppercase text-[10px] font-bold text-slate-400 tracking-wider">
                 <tr>
                   <th className="p-3.5">Filing ATC</th>
@@ -359,6 +364,7 @@ export function APWithholdingTab({ currentClient, payableInvoices, withholdingTa
                 )}
               </tbody>
             </table>
+</div>
           </div>
         </div>
       )}
