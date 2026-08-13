@@ -1,11 +1,11 @@
 import React from 'react';
 import { TrendingUp, Plus, Trash2, Settings, Download } from 'lucide-react';
-import { PageHeader } from '../ui/PageHeader';
-import { useAccounting } from '../../context/AccountingContext';
-import { ProfitAndLossData, ProfitAndLossLine } from '../../types';
-import { cn } from '../../lib/utils';
+import { PageHeader } from './ui/PageHeader';
+import { useAccounting } from '../context/AccountingContext';
+import { ProfitAndLossData, ProfitAndLossLine } from '../types';
+import { cn } from '../lib/utils';
 
-export function ProfitAndLossModal() {
+export function ProfitAndLoss() {
   const { currentClient, currentClientId, saveClient, activeDevice } = useAccounting();
   
   if (!currentClient || !currentClientId) return null;

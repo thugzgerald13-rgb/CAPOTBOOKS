@@ -1,19 +1,28 @@
 import React, { useState } from 'react';
-import { BookText, Plus, Trash2, Settings, X, Check } from 'lucide-react';
-import { PageHeader } from '../ui/PageHeader';
-import { useAccounting } from '../../context/AccountingContext';
-import { JournalColumn, JournalEntry } from '../../types';
-import { cn } from '../../lib/utils';
+import { Wallet, Plus, Trash2, Settings, X, Check } from 'lucide-react';
+import { PageHeader } from './ui/PageHeader';
+import { useAccounting } from '../context/AccountingContext';
+import { JournalColumn, JournalEntry } from '../types';
+import { cn } from '../lib/utils';
 
-export const DEFAULT_GJ_COLUMNS: JournalColumn[] = [
-  { id: 'date', name: 'DATE', type: 'text', category: 'None', isSystem: true },
-  { id: 'particulars', name: 'PARTICULARS', type: 'text', category: 'None', isSystem: true },
-  { id: 'ref_no', name: 'REF. NO.', type: 'text', category: 'None', isSystem: true },
-  { id: 'debit', name: 'DEBIT', type: 'number', category: 'Dr', isSystem: true },
-  { id: 'credit', name: 'CREDIT', type: 'number', category: 'Cr', isSystem: true },
+export const DEFAULT_CDJ_COLUMNS: JournalColumn[] = [
+  { id: 'date', name: 'Date', type: 'text', category: 'None', isSystem: true },
+  { id: 'payee', name: 'Payee', type: 'text', category: 'None', isSystem: true },
+  { id: 'account_title', name: 'Account Title', type: 'text', category: 'None', isSystem: true },
+  { id: 'amount', name: 'Amount Dr(Cr)', type: 'number', category: 'Dr', isSystem: false },
+  { id: 'cash', name: 'Cash', type: 'number', category: 'Cr', isSystem: false },
+  { id: 'input_tax', name: 'Input Tax', type: 'number', category: 'Dr', isSystem: false },
+  { id: 'direct_labor', name: 'Direct Labor', type: 'number', category: 'Dr', isSystem: false },
+  { id: 'light_water', name: 'Light & Water', type: 'number', category: 'Dr', isSystem: false },
+  { id: 'materials', name: 'Materials', type: 'number', category: 'Dr', isSystem: false },
+  { id: 'office_supplies', name: 'Office Supplies', type: 'number', category: 'Dr', isSystem: false },
+  { id: 'gasoline', name: 'Gasoline', type: 'number', category: 'Dr', isSystem: false },
+  { id: 'telecom', name: 'Telecom', type: 'number', category: 'Dr', isSystem: false },
+  { id: 'repairs', name: 'Repairs & Maintenance', type: 'number', category: 'Dr', isSystem: false },
+  { id: 'representation', name: 'Representation', type: 'number', category: 'Dr', isSystem: false },
 ];
 
-export function GeneralJournalModal() {
+export function CashDisbursementsJournal() {
   const { currentClient, currentClientId, saveClient, activeDevice } = useAccounting();
   
   const [isEditingHeaders, setIsEditingHeaders] = useState(false);
@@ -22,15 +31,15 @@ export function GeneralJournalModal() {
 
   if (!currentClient || !currentClientId) return null;
 
-  const columns = currentClient.gjColumns || DEFAULT_GJ_COLUMNS;
-  const entries = currentClient.gjEntries || [];
+  const columns = currentClient.cdjColumns || DEFAULT_CDJ_COLUMNS;
+  const entries = currentClient.cdjEntries || [];
 
   const handleSaveColumns = (newCols: JournalColumn[]) => {
-    saveClient(currentClientId, { ...currentClient, gjColumns: newCols });
+    saveClient(currentClientId, { ...currentClient, cdjColumns: newCols });
   };
 
   const handleSaveEntries = (newEntries: JournalEntry[]) => {
-    saveClient(currentClientId, { ...currentClient, gjEntries: newEntries });
+    saveClient(currentClientId, { ...currentClient, cdjEntries: newEntries });
   };
 
   const addColumn = () => {
@@ -57,46 +66,6 @@ export function GeneralJournalModal() {
       id: crypto.randomUUID(),
       values: {}
     };
-    handleSaveEntries([...entries, newEntry]);
-  };
-
-  const balanceEntry = () => {
-    if (isBalanced || entries.length === 0) return;
-
-    const diff = Math.abs(totalDr - totalCr);
-    if (diff < 0.01) return;
-
-    const isDrNeeded = totalDr < totalCr;
-
-    const colId = isDrNeeded
-      ? (columns.find(c => c.category === 'Dr' && c.type === 'number')?.id || 'debit')
-      : (columns.find(c => c.category === 'Cr' && c.type === 'number')?.id || 'credit');
-
-    const formattedVal = diff.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-    const lastEntry = entries[entries.length - 1];
-    const dateVal = lastEntry?.values?.date || '';
-    const refNoVal = lastEntry?.values?.ref_no || '';
-
-    const newValues: Record<string, string> = {};
-    columns.forEach(col => {
-      if (col.type !== 'number') {
-        newValues[col.id] = lastEntry?.values?.[col.id] || '';
-      } else {
-        newValues[col.id] = '';
-      }
-    });
-
-    newValues.date = dateVal;
-    newValues.ref_no = refNoVal;
-    newValues.particulars = 'Balancing Entry';
-    newValues[colId] = formattedVal;
-
-    const newEntry: JournalEntry = {
-      id: crypto.randomUUID(),
-      values: newValues
-    };
-
     handleSaveEntries([...entries, newEntry]);
   };
 
@@ -135,12 +104,12 @@ export function GeneralJournalModal() {
 
   return (
     <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
-      <PageHeader title="General Journal" icon={<BookText />} />
+      <PageHeader title="Cash Disbursements Journal" icon={<Wallet />} />
       <div className="p-4 md:p-6 flex-1">
       <div className="p-6">
         <div className="flex justify-between items-center mb-6">
           <div className="flex items-center gap-4">
-             <p className="text-slate-500 dark:text-slate-400">Record general journal entries.</p>
+             <p className="text-slate-500 dark:text-slate-400">Record cash disbursements in detail.</p>
              <button 
                onClick={() => setIsEditingHeaders(!isEditingHeaders)}
                className={cn("px-3 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5", 
@@ -150,23 +119,12 @@ export function GeneralJournalModal() {
                Customize Columns
              </button>
           </div>
-          <div className="flex items-center gap-2">
-            {!isBalanced && entries.length > 0 && (
-              <button 
-                onClick={balanceEntry}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-xl transition-colors flex items-center gap-2 shadow-sm"
-                title="Automatically add a row to balance debits and credits"
-              >
-                <Check className="w-4 h-4" /> Balance Entry
-              </button>
-            )}
-            <button 
-              onClick={addEntry}
-              className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold px-4 py-2 rounded-xl transition-colors flex items-center gap-2"
-            >
-              <Plus className="w-4 h-4" /> Add Row
-            </button>
-          </div>
+          <button 
+            onClick={addEntry}
+            className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold px-4 py-2 rounded-xl transition-colors flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4" /> Add Row
+          </button>
         </div>
 
         {isEditingHeaders && (
@@ -198,7 +156,7 @@ export function GeneralJournalModal() {
                   value={newColName} 
                   onChange={e => setNewColName(e.target.value)} 
                   className="form-input text-sm py-1.5"
-                  placeholder="e.g. Sub-account"
+                  placeholder="e.g. Sales Auth"
                 />
               </div>
               <div>
@@ -210,7 +168,6 @@ export function GeneralJournalModal() {
                 >
                   <option value="Dr">Debit (Dr)</option>
                   <option value="Cr">Credit (Cr)</option>
-                  <option value="None">None</option>
                 </select>
               </div>
               <button 
@@ -289,7 +246,7 @@ export function GeneralJournalModal() {
           </div>
         ) : (
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-x-auto shadow-sm">
-            <table className="w-full text-xs text-left whitespace-nowrap min-w-[700px]">
+            <table className="w-full text-xs text-left whitespace-nowrap min-w-[800px]">
               <thead>
                 <tr className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 uppercase tracking-wider font-bold border-b border-slate-200 dark:border-slate-700">
                   <th className="px-3 py-3 w-10 text-center">#</th>
@@ -339,7 +296,7 @@ export function GeneralJournalModal() {
                     <td className="px-3 py-2 text-center">
                       <button 
                         onClick={() => deleteEntry(entry.id)}
-                        className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-all opacity-0 group-hover:opacity-100"
+                        className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors opacity-0 group-hover:opacity-100"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
@@ -393,29 +350,18 @@ export function GeneralJournalModal() {
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-3">
-              <div className={cn(
-                "px-4 py-2 rounded-xl font-bold flex items-center gap-2",
-                isBalanced ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
-              )}>
-                {isBalanced ? (
-                  <>
-                    <Check className="w-5 h-5" /> Balanced
-                  </>
-                ) : (
-                  <>
-                    <X className="w-5 h-5" /> Out of Balance: ₱{Math.abs(totalDr - totalCr).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </>
-                )}
-              </div>
-              {!isBalanced && (
-                <button 
-                  onClick={balanceEntry}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-2 rounded-xl text-xs transition-colors shadow-sm flex items-center gap-1.5 cursor-pointer"
-                  title="Add automatic balancing row to balance debits and credits"
-                >
-                  <Plus className="w-3.5 h-3.5" /> Auto-Balance Entry
-                </button>
+            <div className={cn(
+              "px-4 py-2 rounded-xl font-bold flex items-center gap-2",
+              isBalanced ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400" : "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400"
+            )}>
+              {isBalanced ? (
+                <>
+                  <Check className="w-5 h-5" /> Balanced
+                </>
+              ) : (
+                <>
+                  <X className="w-5 h-5" /> Out of Balance: ₱{Math.abs(totalDr - totalCr).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </>
               )}
             </div>
           </div>

@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { ShoppingCart, Plus, Trash2, Settings, X, Check } from 'lucide-react';
-import { PageHeader } from '../ui/PageHeader';
-import { useAccounting } from '../../context/AccountingContext';
-import { JournalColumn, JournalEntry } from '../../types';
-import { cn } from '../../lib/utils';
+import { PageHeader } from './ui/PageHeader';
+import { useAccounting } from '../context/AccountingContext';
+import { JournalColumn, JournalEntry } from '../types';
+import { cn } from '../lib/utils';
 
 export const DEFAULT_PJ_COLUMNS: JournalColumn[] = [
   { id: 'date', name: 'Date', type: 'text', category: 'None', isSystem: true },
@@ -16,7 +16,7 @@ export const DEFAULT_PJ_COLUMNS: JournalColumn[] = [
   { id: 'accounts_payable', name: 'Accounts Payable', type: 'number', category: 'Cr', isSystem: false },
 ];
 
-export function PurchasesJournalModal() {
+export function PurchasesJournal() {
   const { currentClient, currentClientId, saveClient } = useAccounting();
   
   const [isEditingHeaders, setIsEditingHeaders] = useState(false);

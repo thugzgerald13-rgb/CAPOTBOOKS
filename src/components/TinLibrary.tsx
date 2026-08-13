@@ -1,11 +1,11 @@
 import { useState, useRef } from 'react';
-import { PageHeader } from '../ui/PageHeader';
-import { useAccounting } from '../../context/AccountingContext';
-import { formatTIN } from '../../lib/utils';
+import { PageHeader } from './ui/PageHeader';
+import { useAccounting } from '../context/AccountingContext';
+import { formatTIN } from '../lib/utils';
 import { Building2, Search, Trash2, Plus, Users, Factory, Upload } from 'lucide-react';
-import { cn } from '../../lib/utils';
+import { cn } from '../lib/utils';
 
-export function TinLibraryModal() {
+export function TinLibrary() {
   const { currentClient, currentClientId, saveClient, showToast } = useAccounting();
   const [activeTab, setActiveTab] = useState<'customers' | 'suppliers'>('customers');
   

@@ -1,16 +1,16 @@
 import React, { useState, useMemo } from 'react';
-import { PageHeader } from '../ui/PageHeader';
-import { useAccounting } from '../../context/AccountingContext';
+import { PageHeader } from './ui/PageHeader';
+import { useAccounting } from '../context/AccountingContext';
 import { 
   Boxes, Plus, Search, Trash2, Edit3, CheckCircle, 
   AlertTriangle, History, DollarSign, ArrowUpDown, 
   TrendingUp, ClipboardList, PackageCheck, PackageX,
   RefreshCw, Layers, MapPin, Tag
 } from 'lucide-react';
-import { InventoryItem, InventoryMovement, Client } from '../../types';
+import { InventoryItem, InventoryMovement, Client } from '../types';
 
-export function InventoryModal() {
-  const { currentClient, saveClient, activeModal, openModal } = useAccounting();
+export function Inventory() {
+  const { currentClient, saveClient, activePage, navigateToPage } = useAccounting();
 
   // Tab state
   const [activeTab, setActiveTab] = useState<'registry' | 'movements' | 'alerts'>('registry');
@@ -931,7 +931,7 @@ export function InventoryModal() {
         </div>
       )}
 
-      {/* Adjustment Form Modal Overlay */}
+      {/* Adjustment Form Dialog Overlay */}
       {isAdjFormOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
           <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl overflow-hidden shadow-2xl p-6 space-y-4 animate-in zoom-in-95 duration-150">

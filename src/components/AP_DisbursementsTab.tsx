@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Client, PayableInvoice, BankAccount, SupplierAdvance, CheckVoucher, MiscellaneousPayment } from '../../types';
+import { Client, PayableInvoice, BankAccount, SupplierAdvance, CheckVoucher, MiscellaneousPayment } from '../types';
 import { CreditCard, Landmark, Eye, Printer, Trash, RefreshCw, Plus, Check, ShieldAlert, FileText, ArrowDownCircle, ArrowLeftRight } from 'lucide-react';
 
 interface APDisbursementsTabProps {
@@ -27,7 +27,7 @@ export function APDisbursementsTab({
   const [selectedBankId, setSelectedBankId] = useState('');
   const [issuedCheckNo, setIssuedCheckNo] = useState('');
   
-  // Voucher modal drawer/viewer
+  // Voucher detail drawer/viewer
   const [viewingVoucher, setViewingVoucher] = useState<CheckVoucher | null>(null);
 
   // Clearing form states

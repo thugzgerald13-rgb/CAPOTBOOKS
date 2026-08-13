@@ -17,7 +17,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
-  const { openModal, setCurrentDat, setHistoryTab, setBirFormTab, syncData, isSyncing } = useAccounting();
+  const { navigateToPage, setCurrentDat, setHistoryTab, setBirFormTab, syncData, isSyncing } = useAccounting();
   const { user, isAdmin, userRole, signOut } = useAuth();
   const [isTransactionsOpen, setIsTransactionsOpen] = useState(false);
   const [isReportsOpen, setIsReportsOpen] = useState(false);
@@ -54,12 +54,12 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     setIsDevOpen(dropdown === 'dev' ? !isDevOpen : false);
   };
 
-  const handleNavClick = (modalId: string, historyType?: string) => {
+  const handleNavClick = (pageId: string, historyType?: string) => {
     if (historyType) {
       setHistoryTab(historyType);
     }
 
-    openModal(modalId);
+    navigateToPage(pageId);
 
     if (!historyType) {
       setIsOpen(false);
@@ -114,7 +114,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
         <div className="flex-1 overflow-y-auto py-4 px-3 flex flex-col gap-1 custom-scrollbar">
           <button
             onClick={() => {
-              openModal(null);
+              navigateToPage(null);
               setIsOpen(false);
             }}
             className="flex items-center gap-3 px-4 py-3 text-sm font-bold text-blue-700 dark:text-blue-400 rounded-xl bg-blue-50/60 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-all w-full text-left group mb-1"
@@ -160,7 +160,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   </button>
                   <button
                     onClick={() => {
-                      openModal('billing');
+                      navigateToPage('billing');
                       setIsOpen(false);
                     }}
                     className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left"
@@ -181,7 +181,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   <button
                     onClick={() => {
                         setCurrentDat(null);
-                        openModal('purchases');
+                        navigateToPage('purchases');
                         setIsOpen(false);
                     }}
                     className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left"
@@ -191,7 +191,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   </button>
                   <button
                     onClick={() => {
-                      openModal('journal-voucher');
+                      navigateToPage('journal-voucher');
                       setIsOpen(false);
                     }}
                     className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left"
@@ -250,7 +250,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               >
                 <button
                   onClick={() => {
-                    openModal('compliance-tracker');
+                    navigateToPage('compliance-tracker');
                     setIsOpen(false);
                   }}
                   className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-emerald-600 dark:text-emerald-400 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/10 border border-emerald-100/30 hover:bg-emerald-100/50 dark:hover:bg-emerald-900/20 transition-all w-full text-left"
@@ -261,7 +261,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                 <button
                   onClick={() => {
                     setBirFormTab('2550Q');
-                    openModal('bir-forms');
+                    navigateToPage('bir-forms');
                     setIsOpen(false);
                   }}
                   className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left"

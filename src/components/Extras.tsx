@@ -1,21 +1,21 @@
 import { useState, useEffect } from 'react';
-import { PageHeader } from '../ui/PageHeader';
-import { useAccounting } from '../../context/AccountingContext';
-import { useAuth } from '../../context/AuthContext';
+import { PageHeader } from './ui/PageHeader';
+import { useAccounting } from '../context/AccountingContext';
+import { useAuth } from '../context/AuthContext';
 import { Users, TrendingUp, Key, Lightbulb, BookOpen, BookText, LineChart, Scale, Plus, Building2, Save, X, RotateCcw, Library, FileText, Receipt, ShoppingCart, Banknote, Wallet, CreditCard, Trash2 } from 'lucide-react';
-import { Client, BusinessProfile } from '../../types';
-import { RDO_CODES } from '../../lib/utils';
+import { Client, BusinessProfile } from '../types';
+import { RDO_CODES } from '../lib/utils';
 
-export function ExtraModals() {
+export function Extras() {
   const { 
     clients, 
     currentClientId, 
     setCurrentClientId, 
     addClient, 
-    openModal, 
+    navigateToPage, 
     currentClient, 
     saveClient, 
-    activeModal, 
+    activePage, 
     deleteClient,
     businessProfile,
     saveBusinessProfile
@@ -29,23 +29,23 @@ export function ExtraModals() {
   const [editingBusiness, setEditingBusiness] = useState<BusinessProfile | null>(null);
   const [newBusinessName, setNewBusinessName] = useState('');
 
-  // Sychronize when business profile modal opens/updates
+  // Synchronize when the business profile page opens/updates
   useEffect(() => {
-    if (activeModal === 'business') {
+    if (activePage === 'business') {
       if (businessProfile) {
         setEditingBusiness({ ...businessProfile });
       } else {
         setEditingBusiness(null);
       }
     }
-  }, [activeModal, businessProfile]);
+  }, [activePage, businessProfile]);
 
   useEffect(() => {
-    if (activeModal === null) {
+    if (activePage === null) {
       setEditingClient(null);
       setEditingBusiness(null);
     }
-  }, [activeModal]);
+  }, [activePage]);
 
   const handleEditClient = (client: Client) => {
     setEditingClient({ ...client });
@@ -113,7 +113,7 @@ export function ExtraModals() {
   
   return (
     <>
-      {activeModal === 'clients' && (
+      {activePage === 'clients' && (
         <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
           <PageHeader title="Client Profiles" icon={<Users className="text-blue-500" />} />
           <div className="p-4 md:p-6 flex-1">
@@ -505,7 +505,7 @@ export function ExtraModals() {
                   <button
                     onClick={() => {
                       setCurrentClientId(client.id);
-                      openModal(null);
+                      navigateToPage(null);
                     }}
                     className="mt-2 text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline text-left"
                   >
@@ -520,7 +520,7 @@ export function ExtraModals() {
         </div>
       )}
 
-      {activeModal === 'business' && (
+      {activePage === 'business' && (
         <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
           <PageHeader title="Business Profiles" icon={<Building2 className="text-blue-500" />} />
           <div className="p-4 md:p-6 flex-1">
@@ -530,7 +530,7 @@ export function ExtraModals() {
             <div className="bg-slate-300 dark:bg-slate-800 p-2 border-b border-slate-400 dark:border-slate-700 flex justify-between items-center mb-4">
               <span className="text-sm font-bold text-slate-700 dark:text-slate-300">Company Information - {editingBusiness.name}</span>
               <button 
-                onClick={() => openModal(null)}
+                onClick={() => navigateToPage(null)}
                 className="hover:bg-slate-400 dark:hover:bg-slate-700 rounded p-1"
               >
                 <X className="w-4 h-4" />
@@ -839,7 +839,7 @@ export function ExtraModals() {
                 <RotateCcw className="w-4 h-4" /> Revert
               </button>
               <button 
-                onClick={() => openModal(null)}
+                onClick={() => navigateToPage(null)}
                 className="bg-slate-200 dark:bg-slate-700 font-bold px-6 py-2 rounded border border-slate-400 dark:border-slate-600 shadow-sm hover:bg-slate-300 dark:hover:bg-slate-600 flex items-center gap-2"
               >
                 Close
@@ -873,13 +873,13 @@ export function ExtraModals() {
         </div>
       )}
 
-      {activeModal === 'reports' && (
+      {activePage === 'reports' && (
         <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
           <PageHeader title="Accounting Reports" icon={<TrendingUp className="text-indigo-500" />} />
           <div className="p-4 md:p-6 flex-1">
          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
            <button 
-             onClick={() => openModal('pl')}
+             onClick={() => navigateToPage('pl')}
              className="bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-100 dark:border-indigo-800 p-6 rounded-2xl text-left hover:bg-indigo-100 transition-colors"
            >
              <div className="flex items-center gap-3 mb-2">
@@ -889,7 +889,7 @@ export function ExtraModals() {
              <p className="text-xs text-slate-600 dark:text-slate-400">View your income, expenses, and net profit results for a specific period.</p>
            </button>
            <button 
-             onClick={() => openModal('trialbalance')}
+             onClick={() => navigateToPage('trialbalance')}
              className="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-700 p-6 rounded-2xl text-left hover:bg-slate-100 transition-colors"
            >
              <div className="flex items-center gap-3 mb-2">
@@ -911,13 +911,13 @@ export function ExtraModals() {
         </div>
       )}
 
-      {activeModal === 'books' && (
+      {activePage === 'books' && (
         <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
           <PageHeader title="Accounting Books" icon={<Library className="text-cyan-500" />} />
           <div className="p-4 md:p-6 flex-1">
          <div className="grid grid-cols-1 gap-4">
            <button 
-             onClick={() => openModal('journal')}
+             onClick={() => navigateToPage('journal')}
              className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:border-cyan-500 transition-all group"
            >
              <div className="flex items-center gap-4">
@@ -933,7 +933,7 @@ export function ExtraModals() {
            </button>
 
            <button 
-             onClick={() => openModal('ledger')}
+             onClick={() => navigateToPage('ledger')}
              className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:border-cyan-500 transition-all group"
            >
              <div className="flex items-center gap-4">
@@ -957,7 +957,7 @@ export function ExtraModals() {
         </div>
       )}
 
-      {activeModal === 'taxnotes' && (
+      {activePage === 'taxnotes' && (
         <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
           <PageHeader title="Tax Notes & Estimates" icon={<Lightbulb className="text-yellow-500" />} />
           <div className="p-4 md:p-6 flex-1">
@@ -976,7 +976,7 @@ export function ExtraModals() {
       )}
 
       {/* Placeholders for deep accounting features that were blank in the original HTML */}
-      {activeModal === 'trialbalance' && (
+      {activePage === 'trialbalance' && (
         <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
           <PageHeader title="Trial Balance" icon={<Scale />} />
           <div className="p-4 md:p-6 flex-1">
@@ -988,7 +988,7 @@ export function ExtraModals() {
         </div>
       )}
 
-      {activeModal === 'sales-journal' && (
+      {activePage === 'sales-journal' && (
         <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
           <PageHeader title="Sales Journal" icon={<Receipt className="text-emerald-500" />} />
           <div className="p-4 md:p-6 flex-1">

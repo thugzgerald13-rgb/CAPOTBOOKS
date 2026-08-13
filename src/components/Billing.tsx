@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { PageHeader } from '../ui/PageHeader';
-import { useAccounting } from '../../context/AccountingContext';
-import { formatTIN } from '../../lib/utils';
+import { PageHeader } from './ui/PageHeader';
+import { useAccounting } from '../context/AccountingContext';
+import { formatTIN } from '../lib/utils';
 import { CreditCard, Plus, Trash2, RefreshCw, CheckCircle2 } from 'lucide-react';
-import { DEFAULT_CRJ_COLUMNS } from './CashReceiptsJournalModal';
-import { BillingInvoice, JournalEntry } from '../../types';
+import { DEFAULT_CRJ_COLUMNS } from './CashReceiptsJournal';
+import { BillingInvoice, JournalEntry } from '../types';
 
 const CASH_RECEIPT_PAYMENT_TYPES = ['Cash', 'Check', 'E-Payment', 'Bank Transfer'];
 
@@ -16,7 +16,7 @@ function addInterval(dateStr: string, frequency: 'Monthly' | 'Quarterly' | 'Annu
   return d.toISOString().split('T')[0];
 }
 
-export function BillingModal() {
+export function Billing() {
   const { currentClient, currentClientId, saveClient, showToast } = useAccounting();
 
   const today = new Date().toISOString().split('T')[0];

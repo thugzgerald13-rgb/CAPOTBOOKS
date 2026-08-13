@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
-import { PageHeader } from '../ui/PageHeader';
-import { useAccounting } from '../../context/AccountingContext';
-import { formatTIN, generateCSV, MONTHS, getMonthName } from '../../lib/utils';
+import { PageHeader } from './ui/PageHeader';
+import { useAccounting } from '../context/AccountingContext';
+import { formatTIN, generateCSV, MONTHS, getMonthName } from '../lib/utils';
 import { ShoppingCart, Plus, ArrowLeft, FolderClock, ChevronsLeft, ChevronsRight, ChevronLeft, ChevronRight, PlusCircle, Trash2 } from 'lucide-react';
-import { cn } from '../../lib/utils';
-import { DEFAULT_ACCOUNTS } from './ChartOfAccountsModal';
+import { cn } from '../lib/utils';
+import { DEFAULT_ACCOUNTS } from './ChartOfAccounts';
 
-export function PurchasesModal() {
-  const { currentClient, currentClientId, currentDat, saveClient, showToast, setCurrentDat, openModal } = useAccounting();
+export function Purchases() {
+  const { currentClient, currentClientId, currentDat, saveClient, showToast, setCurrentDat, navigateToPage } = useAccounting();
   
   // Single record state (similar to original but react-friendly)
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -528,7 +528,7 @@ export function PurchasesModal() {
                <Plus className="w-5 h-5" /> {viewIndex !== null ? 'Update Entry' : 'Add Entry'}
              </button>
              <button 
-               onClick={() => openModal(null)} 
+               onClick={() => navigateToPage(null)} 
                className="bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-bold px-6 py-2.5 rounded-xl transition-colors flex items-center gap-2"
              >
                <ArrowLeft className="w-5 h-5" /> Cancel

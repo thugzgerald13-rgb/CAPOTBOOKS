@@ -1,28 +1,23 @@
 import React, { useState } from 'react';
-import { Wallet, Plus, Trash2, Settings, X, Check } from 'lucide-react';
-import { PageHeader } from '../ui/PageHeader';
-import { useAccounting } from '../../context/AccountingContext';
-import { JournalColumn, JournalEntry } from '../../types';
-import { cn } from '../../lib/utils';
+import { Wallet, Plus, Trash2, Settings, X, Edit, Loader, Check } from 'lucide-react';
+import { PageHeader } from './ui/PageHeader';
+import { useAccounting } from '../context/AccountingContext';
+import { JournalColumn, CashReceipt } from '../types';
+import { cn } from '../lib/utils';
 
-export const DEFAULT_CDJ_COLUMNS: JournalColumn[] = [
+export const DEFAULT_CRJ_COLUMNS: JournalColumn[] = [
   { id: 'date', name: 'Date', type: 'text', category: 'None', isSystem: true },
-  { id: 'payee', name: 'Payee', type: 'text', category: 'None', isSystem: true },
-  { id: 'account_title', name: 'Account Title', type: 'text', category: 'None', isSystem: true },
-  { id: 'amount', name: 'Amount Dr(Cr)', type: 'number', category: 'Dr', isSystem: false },
-  { id: 'cash', name: 'Cash', type: 'number', category: 'Cr', isSystem: false },
-  { id: 'input_tax', name: 'Input Tax', type: 'number', category: 'Dr', isSystem: false },
-  { id: 'direct_labor', name: 'Direct Labor', type: 'number', category: 'Dr', isSystem: false },
-  { id: 'light_water', name: 'Light & Water', type: 'number', category: 'Dr', isSystem: false },
-  { id: 'materials', name: 'Materials', type: 'number', category: 'Dr', isSystem: false },
-  { id: 'office_supplies', name: 'Office Supplies', type: 'number', category: 'Dr', isSystem: false },
-  { id: 'gasoline', name: 'Gasoline', type: 'number', category: 'Dr', isSystem: false },
-  { id: 'telecom', name: 'Telecom', type: 'number', category: 'Dr', isSystem: false },
-  { id: 'repairs', name: 'Repairs & Maintenance', type: 'number', category: 'Dr', isSystem: false },
-  { id: 'representation', name: 'Representation', type: 'number', category: 'Dr', isSystem: false },
+  { id: 'reference', name: 'Reference', type: 'text', category: 'None', isSystem: true },
+  { id: 'description', name: 'Account Credited / Description', type: 'text', category: 'None', isSystem: true },
+  { id: 'post_ref', name: 'Post. Ref.', type: 'text', category: 'None', isSystem: true },
+  { id: 'sales_disc', name: 'Sales Discount', type: 'number', category: 'Dr', isSystem: false },
+  { id: 'cash', name: 'Cash', type: 'number', category: 'Dr', isSystem: false },
+  { id: 'ar', name: 'Accounts Receivable', type: 'number', category: 'Cr', isSystem: false },
+  { id: 'sales', name: 'Sales', type: 'number', category: 'Cr', isSystem: false },
+  { id: 'sundry', name: 'Sundry Accounts', type: 'number', category: 'Cr', isSystem: false },
 ];
 
-export function CashDisbursementsJournalModal() {
+export function CashReceiptsJournal() {
   const { currentClient, currentClientId, saveClient, activeDevice } = useAccounting();
   
   const [isEditingHeaders, setIsEditingHeaders] = useState(false);
@@ -31,15 +26,15 @@ export function CashDisbursementsJournalModal() {
 
   if (!currentClient || !currentClientId) return null;
 
-  const columns = currentClient.cdjColumns || DEFAULT_CDJ_COLUMNS;
-  const entries = currentClient.cdjEntries || [];
+  const columns = currentClient.crjColumns || DEFAULT_CRJ_COLUMNS;
+  const entries = currentClient.crjEntries || [];
 
   const handleSaveColumns = (newCols: JournalColumn[]) => {
-    saveClient(currentClientId, { ...currentClient, cdjColumns: newCols });
+    saveClient(currentClientId, { ...currentClient, crjColumns: newCols });
   };
 
-  const handleSaveEntries = (newEntries: JournalEntry[]) => {
-    saveClient(currentClientId, { ...currentClient, cdjEntries: newEntries });
+  const handleSaveEntries = (newEntries: CashReceipt[]) => {
+    saveClient(currentClientId, { ...currentClient, crjEntries: newEntries });
   };
 
   const addColumn = () => {
@@ -62,7 +57,7 @@ export function CashDisbursementsJournalModal() {
   };
 
   const addEntry = () => {
-    const newEntry: JournalEntry = {
+    const newEntry: CashReceipt = {
       id: crypto.randomUUID(),
       values: {}
     };
@@ -104,12 +99,12 @@ export function CashDisbursementsJournalModal() {
 
   return (
     <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
-      <PageHeader title="Cash Disbursements Journal" icon={<Wallet />} />
+      <PageHeader title="Cash Receipts Journal" icon={<Wallet />} />
       <div className="p-4 md:p-6 flex-1">
       <div className="p-6">
         <div className="flex justify-between items-center mb-6">
           <div className="flex items-center gap-4">
-             <p className="text-slate-500 dark:text-slate-400">Record cash disbursements in detail.</p>
+             <p className="text-slate-500 dark:text-slate-400">Record cash receipts in detail.</p>
              <button 
                onClick={() => setIsEditingHeaders(!isEditingHeaders)}
                className={cn("px-3 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5", 
@@ -231,7 +226,7 @@ export function CashDisbursementsJournalModal() {
                               updateEntry(entry.id, col.id, parseFloat(raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
                             }
                           }}
-                          className="w-32 text-right bg-transparent border-b border-dashed border-slate-200 hover:border-slate-400 dark:border-slate-700/60 dark:hover:border-slate-500 focus:border-cyan-500 font-mono text-xs px-1/2 py-0.5 outline-none font-bold text-slate-800 dark:text-slate-200"
+                          className="w-32 text-right bg-transparent border-b border-dashed border-slate-200 hover:border-slate-400 dark:border-slate-700/60 dark:hover:border-slate-500 focus:border-cyan-500 font-mono text-xs px-1 py-0.5 outline-none font-bold text-slate-800 dark:text-slate-200"
                           placeholder="0.00"
                         />
                       </div>

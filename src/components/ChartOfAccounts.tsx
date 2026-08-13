@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { BookOpen, Plus, Trash2, RefreshCcw, Edit2, ClipboardList, Check, X, Columns, ArrowUpDown } from 'lucide-react';
-import { PageHeader } from '../ui/PageHeader';
-import { useAccounting } from '../../context/AccountingContext';
-import { CoaAccount } from '../../types';
-import { cn } from '../../lib/utils';
+import { PageHeader } from './ui/PageHeader';
+import { useAccounting } from '../context/AccountingContext';
+import { CoaAccount } from '../types';
+import { cn } from '../lib/utils';
 
 export const DEFAULT_ACCOUNTS: CoaAccount[] = [
   { id: '1000', name: 'Cash on Hand', type: 'Asset', subType: 'Current Assets', normalSide: 'debit' },
@@ -87,7 +87,7 @@ export function resequenceAccounts(
   return arranged;
 }
 
-export function ChartOfAccountsModal() {
+export function ChartOfAccounts() {
   const { currentClient, currentClientId, saveClient, showToast } = useAccounting();
   const [isAdding, setIsAdding] = useState(false);
   const [typeFilter, setTypeFilter] = useState('All');

@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { PageHeader } from '../ui/PageHeader';
-import { useAccounting } from '../../context/AccountingContext';
+import { PageHeader } from './ui/PageHeader';
+import { useAccounting } from '../context/AccountingContext';
 import { FileSignature, Plus, Trash2, Check, X, ChevronDown, ChevronUp } from 'lucide-react';
-import { DEFAULT_GJ_COLUMNS } from './GeneralJournalModal';
-import { JournalVoucher, JournalVoucherLine, JournalEntry } from '../../types';
+import { DEFAULT_GJ_COLUMNS } from './GeneralJournal';
+import { JournalVoucher as JournalVoucherType, JournalVoucherLine, JournalEntry } from '../types';
 
 interface DraftLine {
   id: string;
@@ -15,7 +15,7 @@ interface DraftLine {
 
 const newDraftLine = (): DraftLine => ({ id: crypto.randomUUID(), accountId: '', accountName: '', debit: '', credit: '' });
 
-export function JournalVoucherModal() {
+export function JournalVoucher() {
   const { currentClient, currentClientId, saveClient, showToast } = useAccounting();
 
   const today = new Date().toISOString().split('T')[0];
@@ -47,7 +47,7 @@ export function JournalVoucherModal() {
     updateLine(id, { accountId, accountName: acct?.name || '' });
   };
 
-  const buildGjEntries = (voucher: JournalVoucher): JournalEntry[] => {
+  const buildGjEntries = (voucher: JournalVoucherType): JournalEntry[] => {
     const columns = currentClient.gjColumns || DEFAULT_GJ_COLUMNS;
     const colIds = new Set(columns.map(c => c.id));
     return voucher.lines.map(line => {
@@ -84,7 +84,7 @@ export function JournalVoucherModal() {
       credit: parseFloat(l.credit) || 0
     }));
 
-    const newVoucher: JournalVoucher = {
+    const newVoucher: JournalVoucherType = {
       id: crypto.randomUUID(),
       date,
       reference,
