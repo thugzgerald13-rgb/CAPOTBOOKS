@@ -570,10 +570,10 @@ export function ChartOfAccounts() {
   };
 
   return (
-    <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
+    <div className="w-full flex flex-col">
       <PageHeader title="Chart of Accounts" icon={<BookOpen />} />
       <div className="p-4 md:p-6 flex-1">
-      <div className="p-4 sm:p-6 bg-slate-50 dark:bg-slate-950/20 max-h-[85vh] overflow-y-auto">
+      <div className="p-4 sm:p-6 bg-slate-50 dark:bg-slate-950/20">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
           <div>
             <p className="text-slate-500 dark:text-slate-400 text-sm">
