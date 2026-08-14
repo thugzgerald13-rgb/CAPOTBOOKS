@@ -229,7 +229,7 @@ export function TinLibrary() {
   };
 
   return (
-    <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
+    <div className="w-full flex flex-col">
       <PageHeader title="TIN Library" icon={<Building2 className="w-5 h-5 text-purple-500" />} />
       <div className="p-4 md:p-6 flex-1">
       <div className="flex gap-2 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl mb-6">

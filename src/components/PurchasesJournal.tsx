@@ -97,7 +97,7 @@ export function PurchasesJournal() {
   const isBalanced = Math.abs(totalDr - totalCr) < 0.01;
 
   return (
-    <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
+    <div className="w-full flex flex-col">
       <PageHeader title="Purchase Journal" icon={<ShoppingCart />} />
       <div className="p-4 md:p-6 flex-1">
       <div className="p-6">

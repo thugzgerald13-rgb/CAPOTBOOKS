@@ -392,7 +392,7 @@ export function Inventory() {
   const lowStockList = inventoryItems.filter(i => i.stockLevel > 0 && i.stockLevel <= i.reorderPoint);
 
   return (
-    <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
+    <div className="w-full flex flex-col">
       <PageHeader title="Inventory & Stock Valuation" icon={<Boxes className="text-amber-500 w-5 h-5" />} />
       <div className="p-4 md:p-6 flex-1">
       <div className="flex flex-col gap-6 font-sans">

@@ -114,7 +114,7 @@ export function Extras() {
   return (
     <>
       {activePage === 'clients' && (
-        <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
+        <div className="w-full flex flex-col">
           <PageHeader title="Client Profiles" icon={<Users className="text-blue-500" />} />
           <div className="p-4 md:p-6 flex-1">
         {editingClient ? (
@@ -521,7 +521,7 @@ export function Extras() {
       )}
 
       {activePage === 'business' && (
-        <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
+        <div className="w-full flex flex-col">
           <PageHeader title="Business Profiles" icon={<Building2 className="text-blue-500" />} />
           <div className="p-4 md:p-6 flex-1">
         {editingBusiness ? (
@@ -874,7 +874,7 @@ export function Extras() {
       )}
 
       {activePage === 'reports' && (
-        <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
+        <div className="w-full flex flex-col">
           <PageHeader title="Accounting Reports" icon={<TrendingUp className="text-indigo-500" />} />
           <div className="p-4 md:p-6 flex-1">
          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -912,7 +912,7 @@ export function Extras() {
       )}
 
       {activePage === 'books' && (
-        <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
+        <div className="w-full flex flex-col">
           <PageHeader title="Accounting Books" icon={<Library className="text-cyan-500" />} />
           <div className="p-4 md:p-6 flex-1">
          <div className="grid grid-cols-1 gap-4">
@@ -958,7 +958,7 @@ export function Extras() {
       )}
 
       {activePage === 'taxnotes' && (
-        <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
+        <div className="w-full flex flex-col">
           <PageHeader title="Tax Notes & Estimates" icon={<Lightbulb className="text-yellow-500" />} />
           <div className="p-4 md:p-6 flex-1">
          <div className="bg-yellow-50 dark:bg-yellow-900/10 border border-yellow-200 dark:border-yellow-800 p-6 rounded-2xl flex flex-col gap-4">
@@ -977,7 +977,7 @@ export function Extras() {
 
       {/* Placeholders for deep accounting features that were blank in the original HTML */}
       {activePage === 'trialbalance' && (
-        <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
+        <div className="w-full flex flex-col">
           <PageHeader title="Trial Balance" icon={<Scale />} />
           <div className="p-4 md:p-6 flex-1">
          <p className="text-center p-8 text-slate-500">Trial Balance computation based on Journal and Ledger.</p>
@@ -989,7 +989,7 @@ export function Extras() {
       )}
 
       {activePage === 'sales-journal' && (
-        <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
+        <div className="w-full flex flex-col">
           <PageHeader title="Sales Journal" icon={<Receipt className="text-emerald-500" />} />
           <div className="p-4 md:p-6 flex-1">
          <div className="p-2">

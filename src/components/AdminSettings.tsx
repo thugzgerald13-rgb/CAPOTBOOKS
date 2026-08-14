@@ -65,7 +65,7 @@ export function AdminSettings() {
   if (!isAdmin) return null;
 
   return (
-    <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
+    <div className="w-full flex flex-col">
       <PageHeader title="Developer System Config" icon={<ShieldAlert className="text-emerald-500" />} />
       <div className="p-4 md:p-6 flex-1">
       <div className="p-6 overflow-y-auto max-h-[80vh]">

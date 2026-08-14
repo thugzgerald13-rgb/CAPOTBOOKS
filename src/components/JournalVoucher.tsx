@@ -112,7 +112,7 @@ export function JournalVoucher() {
   };
 
   return (
-    <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
+    <div className="w-full flex flex-col">
       <PageHeader title="Journal Voucher" icon={<FileSignature className="w-5 h-5 text-cyan-500" />} />
       <div className="p-4 md:p-6 flex-1">
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-100 dark:border-slate-700">

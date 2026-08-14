@@ -549,7 +549,7 @@ export function BIRForms() {
   const yearsList = [2026, 2025, 2024, 2023];
 
   return (
-    <div className="w-full bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8 flex flex-col overflow-hidden">
+    <div className="w-full flex flex-col">
       <PageHeader title="Philippine BIR Tax Declarations" icon={<FileText className="text-blue-600 w-5 h-5" />} />
       <div className="p-4 md:p-6 flex-1">
       <div className="flex flex-col lg:flex-row gap-6 font-sans">
@@ -976,7 +976,7 @@ export function BIRForms() {
         </div>
 
         {/* Right Active BIR Form Rendering Sheet */}
-        <div className="flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden shadow-sm flex flex-col max-h-[85vh] print:max-h-full print:border-none print:shadow-none">
+        <div className="flex-1 bg-white dark:bg-slate-900 flex flex-col print:max-h-full">
           
           <div className="p-3 bg-indigo-50/50 dark:bg-slate-800/40 border-b border-indigo-100 dark:border-slate-800 text-slate-500 text-[10px] font-bold uppercase tracking-wider flex items-center gap-2 select-none print:hidden">
             <CheckCircle2 className="w-4 h-4 text-indigo-500" /> Complete layout validation passed. Official BIR color formatting loaded.

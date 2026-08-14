@@ -228,10 +228,6 @@ export default function AccountsPayable() {
     showToast(`Saved ${memoType} Memo ${memoId} & updated invoice balance`);
   };
 
-  const handleClose = () => {
-    navigateToPage(null);
-  };
-
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP' }).format(val);
   };
@@ -241,7 +237,7 @@ export default function AccountsPayable() {
       <motion.div 
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="bg-slate-100 dark:bg-slate-905 bg-[whitesmoke] dark:bg-slate-900 w-full h-[85vh] rounded-3xl flex flex-col shadow-sm overflow-hidden border border-slate-200 dark:border-slate-700"
+        className="bg-slate-100 dark:bg-slate-905 bg-[whitesmoke] dark:bg-slate-900 w-full h-[85vh] flex flex-col overflow-hidden"
       >
         {/* Primary Header Banner */}
         <div className="p-6 bg-white dark:bg-slate-900 border-b border-slate-200/80 dark:border-slate-800 flex items-center justify-between shrink-0">
@@ -261,13 +257,6 @@ export default function AccountsPayable() {
               </h2>
             </div>
           </div>
-          <button 
-            onClick={handleClose}
-            className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 rounded-full transition-all"
-            title="Back to Dashboard"
-          >
-            <ArrowLeft className="w-5 h-5 font-bold" />
-          </button>
         </div>
 
         {/* Work Desk Body splits into Sidebar Tabs & Active Screen Panels */}
