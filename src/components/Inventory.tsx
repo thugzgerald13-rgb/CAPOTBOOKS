@@ -5,9 +5,9 @@ import {
   Boxes, Plus, Search, Trash2, Edit3, CheckCircle, 
   AlertTriangle, History, DollarSign, ArrowUpDown, 
   TrendingUp, ClipboardList, PackageCheck, PackageX,
-  RefreshCw, Layers, MapPin, Tag
+  RefreshCw, Layers, MapPin, Tag, X
 } from 'lucide-react';
-import { InventoryItem, InventoryMovement, Client } from '../types';
+import { InventoryItem, InventoryMovement, InventoryColumn, Client } from '../types';
 
 export function Inventory() {
   const { currentClient, saveClient, activePage, navigateToPage } = useAccounting();
@@ -47,139 +47,15 @@ export function Inventory() {
   // Default Categories
   const CATEGORIES = ['Merchandise', 'Raw Materials', 'Work in Progress', 'Finished Goods', 'Services', 'Office Supplies'];
 
-  // Initialize client's inventory arrays safely with default professional data if they do not exist
+  // Initialize client's inventory items from real saved data (no mock/sample data)
   const inventoryItems: InventoryItem[] = useMemo(() => {
     if (!currentClient) return [];
-    if (currentClient.inventoryItems && currentClient.inventoryItems.length > 0) {
-      return currentClient.inventoryItems;
-    }
-    // Return gorgeous pre-populated items of a mock technology trade hub
-    return [
-      {
-        id: 'inv_1',
-        code: 'PRD-DSK-01',
-        name: 'Ergonomic Standing Desk',
-        sku: 'DSK-ERG-01',
-        category: 'Merchandise',
-        unitOfMeasure: 'pcs',
-        costPrice: 8500,
-        sellingPrice: 14000,
-        stockLevel: 4,
-        reorderPoint: 5,
-        location: 'Aisle B-4',
-        description: 'Premium height-adjustable electric work desk.'
-      },
-      {
-        id: 'inv_2',
-        code: 'PRD-CHR-02',
-        name: 'Mesh High-Back Office Chair',
-        sku: 'CHR-MSH-02',
-        category: 'Merchandise',
-        unitOfMeasure: 'pcs',
-        costPrice: 4200,
-        sellingPrice: 6900,
-        stockLevel: 18,
-        reorderPoint: 10,
-        location: 'Aisle C-2',
-        description: 'Quality breathable ergonomic desk chair.'
-      },
-      {
-        id: 'inv_3',
-        code: 'PRD-LPT-03',
-        name: 'Pro Laptop 15-inch M3',
-        sku: 'LPT-PRO-03',
-        category: 'Finished Goods',
-        unitOfMeasure: 'pcs',
-        costPrice: 25000,
-        sellingPrice: 38000,
-        stockLevel: 12,
-        reorderPoint: 5,
-        location: 'Vault-B',
-        description: 'State-of-the-art office work notebook computers.'
-      },
-      {
-        id: 'inv_4',
-        code: 'PRD-HUB-04',
-        name: 'Multiport USB-C Hub Adapter',
-        sku: 'USB-HUB-04',
-        category: 'Merchandise',
-        unitOfMeasure: 'pcs',
-        costPrice: 1200,
-        sellingPrice: 2200,
-        stockLevel: 0,
-        reorderPoint: 3,
-        location: 'Shelf E-1',
-        description: '8-in-1 dongle with HDMI & Ethernet ports.'
-      }
-    ];
+    return currentClient.inventoryItems || [];
   }, [currentClient]);
 
   const inventoryMovements: InventoryMovement[] = useMemo(() => {
     if (!currentClient) return [];
-    if (currentClient.inventoryMovements && currentClient.inventoryMovements.length > 0) {
-      return currentClient.inventoryMovements;
-    }
-    // Match the dates elegantly with mock history logs
-    const today = new Date();
-    const prevDate = (days: number) => {
-      const d = new Date(today);
-      d.setDate(d.getDate() - days);
-      return d.toISOString().split('T')[0];
-    };
-    return [
-      {
-        id: 'mov_1',
-        itemId: 'inv_1',
-        itemName: 'Ergonomic Standing Desk',
-        itemCode: 'PRD-DSK-01',
-        date: prevDate(5),
-        type: 'Inbound',
-        qty: 10,
-        unitCost: 8500,
-        totalValue: 85000,
-        reference: 'RR-2026-0034',
-        notes: 'Initial warehouse replenishment order.'
-      },
-      {
-        id: 'mov_2',
-        itemId: 'inv_1',
-        itemName: 'Ergonomic Standing Desk',
-        itemCode: 'PRD-DSK-01',
-        date: prevDate(3),
-        type: 'Outbound',
-        qty: 6,
-        unitCost: 8500,
-        totalValue: 51000,
-        reference: 'SI-2026-1049',
-        notes: 'Sale to corporate client HQ.'
-      },
-      {
-        id: 'mov_3',
-        itemId: 'inv_4',
-        itemName: 'Multiport USB-C Hub Adapter',
-        itemCode: 'PRD-HUB-04',
-        date: prevDate(2),
-        type: 'Inbound',
-        qty: 25,
-        unitCost: 1200,
-        totalValue: 30000,
-        reference: 'RR-2026-0041',
-        notes: 'Replenishing highly demanded inventory.'
-      },
-      {
-        id: 'mov_4',
-        itemId: 'inv_4',
-        itemName: 'Multiport USB-C Hub Adapter',
-        itemCode: 'PRD-HUB-04',
-        date: prevDate(1),
-        type: 'Outbound',
-        qty: 25,
-        unitCost: 1200,
-        totalValue: 30000,
-        reference: 'SI-2026-1052',
-        notes: 'Fulfillment of large enterprise supply basket.'
-      }
-    ];
+    return currentClient.inventoryMovements || [];
   }, [currentClient]);
 
   // Make sure client's data matches
@@ -319,6 +195,38 @@ export function Inventory() {
     const updated = inventoryItems.filter(item => item.id !== itemId);
     const updatedMovs = inventoryMovements.filter(mov => mov.itemId !== itemId);
     await syncWithCloud(updated, updatedMovs);
+  };
+
+  // Custom Column Handlers (user-defined extra fields on the registry table)
+  const customColumns: InventoryColumn[] = currentClient?.inventoryColumns || [];
+
+  const handleAddColumn = async () => {
+    if (!currentClient) return;
+    const label = window.prompt('New column name (e.g. Supplier, Warranty Period):');
+    if (!label || !label.trim()) return;
+    const id = 'col_' + Date.now();
+    const updatedColumns = [...customColumns, { id, label: label.trim() }];
+    await saveClient(currentClient.id, { ...currentClient, inventoryColumns: updatedColumns });
+  };
+
+  const handleDeleteColumn = async (columnId: string, columnLabel: string) => {
+    if (!currentClient) return;
+    if (!confirm(`Delete column "${columnLabel}"? This removes its data from every item.`)) return;
+    const updatedColumns = customColumns.filter(c => c.id !== columnId);
+    const updatedItems = inventoryItems.map(item => {
+      if (!item.customFields || !(columnId in item.customFields)) return item;
+      const { [columnId]: _removed, ...rest } = item.customFields;
+      return { ...item, customFields: rest };
+    });
+    await saveClient(currentClient.id, { ...currentClient, inventoryColumns: updatedColumns, inventoryItems: updatedItems });
+  };
+
+  const handleCustomFieldChange = async (itemId: string, columnId: string, value: string) => {
+    if (!currentClient) return;
+    const updatedItems = inventoryItems.map(item =>
+      item.id === itemId ? { ...item, customFields: { ...(item.customFields || {}), [columnId]: value } } : item
+    );
+    await saveClient(currentClient.id, { ...currentClient, inventoryItems: updatedItems });
   };
 
   // Stock Adjustment Handlers
@@ -514,6 +422,13 @@ export function Inventory() {
                   {CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                 </select>
               </div>
+
+              <button
+                onClick={handleAddColumn}
+                className="flex items-center gap-1.5 px-3 py-2.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 rounded-xl transition shrink-0"
+              >
+                <Plus className="w-3.5 h-3.5" /> Add Column
+              </button>
             </div>
 
             {/* Catalog Table */}
@@ -530,13 +445,27 @@ export function Inventory() {
                       <th className="px-6 py-4 text-right">MSRP / Unit</th>
                       <th className="px-6 py-4 text-center">In Stock</th>
                       <th className="px-6 py-4 text-right">Total Asset Worth</th>
+                      {customColumns.map(col => (
+                        <th key={col.id} className="px-6 py-4">
+                          <div className="flex items-center gap-1.5">
+                            {col.label}
+                            <button
+                              onClick={() => handleDeleteColumn(col.id, col.label)}
+                              className="text-slate-300 hover:text-rose-500 transition"
+                              title={`Delete column "${col.label}"`}
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        </th>
+                      ))}
                       <th className="px-6 py-4 text-center">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-sm font-medium">
                     {filteredItems.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="text-center py-16 text-slate-400">
+                        <td colSpan={9 + customColumns.length} className="text-center py-16 text-slate-400">
                           <Boxes className="w-12 h-12 mx-auto mb-3 opacity-30" />
                           <p className="text-sm font-semibold">No stock catalog items matched your filters.</p>
                           <p className="text-xs opacity-75 mt-1">Try refining search parameters or register a new SKU product.</p>
@@ -584,6 +513,21 @@ export function Inventory() {
                             <td className="px-6 py-4 text-right font-mono font-bold text-emerald-600">
                               ₱{totalCostValue.toLocaleString(undefined, {minimumFractionDigits: 2})}
                             </td>
+                            {customColumns.map(col => (
+                              <td key={col.id} className="px-6 py-4">
+                                <input
+                                  type="text"
+                                  defaultValue={item.customFields?.[col.id] || ''}
+                                  onBlur={e => {
+                                    if (e.target.value !== (item.customFields?.[col.id] || '')) {
+                                      handleCustomFieldChange(item.id, col.id, e.target.value);
+                                    }
+                                  }}
+                                  placeholder="—"
+                                  className="w-full min-w-[100px] bg-transparent border border-transparent hover:border-slate-200 dark:hover:border-slate-700 focus:border-blue-500 rounded-lg px-2 py-1 text-xs outline-none transition"
+                                />
+                              </td>
+                            ))}
                             <td className="px-6 py-4 text-center">
                               <div className="flex items-center justify-center gap-1.5">
                                 <button 
