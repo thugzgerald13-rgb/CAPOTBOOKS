@@ -159,6 +159,7 @@ export interface Client {
   miscellaneousPayments?: MiscellaneousPayment[];
   inventoryItems?: InventoryItem[];
   inventoryMovements?: InventoryMovement[];
+  inventoryColumns?: InventoryColumn[];
   taxDeadlines?: TaxDeadline[];
   billingInvoices?: BillingInvoice[];
   journalVouchers?: JournalVoucher[];
@@ -193,6 +194,12 @@ export interface InventoryItem {
   stockLevel: number;
   reorderPoint: number;
   location?: string;
+  customFields?: Record<string, string>;
+}
+
+export interface InventoryColumn {
+  id: string;
+  label: string;
 }
 
 export interface InventoryMovement {
