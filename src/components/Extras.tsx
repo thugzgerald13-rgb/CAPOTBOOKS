@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { useAuth } from '../context/AuthContext';
-import { Users, TrendingUp, Key, Lightbulb, BookOpen, BookText, LineChart, Scale, Plus, Building2, Save, X, RotateCcw, Library, FileText, Receipt, ShoppingCart, Banknote, Wallet, CreditCard, Trash2, Landmark, ArrowLeftRight } from 'lucide-react';
+import { Users, TrendingUp, Key, Lightbulb, BookOpen, BookText, LineChart, Scale, Plus, Building2, Save, X, RotateCcw, Library, FileText, Receipt, ShoppingCart, Banknote, Wallet, CreditCard, Trash2 } from 'lucide-react';
 import { Client, BusinessProfile } from '../types';
 import { RDO_CODES } from '../lib/utils';
 
@@ -985,32 +985,6 @@ export function Extras() {
             <strong>Debits:</strong> ₱{salesTotal.toLocaleString()} &nbsp; | &nbsp; <strong>Credits:</strong> ₱{purchasesTotal.toLocaleString()}
          </div>
       </div>
-        </div>
-      )}
-
-      {activePage === 'balancesheet' && (
-        <div className="w-full flex flex-col">
-          <PageHeader title="Balance Sheet" icon={<Landmark className="text-amber-600" />} />
-          <div className="p-4 md:p-6 flex-1">
-            <div className="text-center py-16 text-slate-400">
-              <Landmark className="w-10 h-10 mx-auto mb-3 opacity-30" />
-              <p className="font-bold text-slate-500">Coming Soon</p>
-              <p className="text-xs mt-1 max-w-sm mx-auto">View your assets, liabilities, and equity as of a chosen date. This report isn't built yet.</p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {activePage === 'cashflow' && (
-        <div className="w-full flex flex-col">
-          <PageHeader title="Cash Flow" icon={<ArrowLeftRight className="text-blue-600" />} />
-          <div className="p-4 md:p-6 flex-1">
-            <div className="text-center py-16 text-slate-400">
-              <ArrowLeftRight className="w-10 h-10 mx-auto mb-3 opacity-30" />
-              <p className="font-bold text-slate-500">Coming Soon</p>
-              <p className="text-xs mt-1 max-w-sm mx-auto">Track the flow of cash in and out of your business over a period. This report isn't built yet.</p>
-            </div>
-          </div>
         </div>
       )}
 

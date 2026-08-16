@@ -146,6 +146,8 @@ export interface Client {
   gjEntries?: JournalEntry[];
   glAccounts?: GeneralLedgerAccount[];
   plData?: ProfitAndLossData;
+  bsData?: BalanceSheetData;
+  cfData?: CashFlowData;
   folders?: AppFolder[];
   files?: AppFile[];
   payableInvoices?: PayableInvoice[];
@@ -274,6 +276,46 @@ export interface ProfitAndLossData {
   costOfRevenue: ProfitAndLossLine[];
   operatingExpenses: ProfitAndLossLine[];
   provisionForIncomeTax: string;
+}
+
+export interface BalanceSheetLine {
+  id: string;
+  particulars: string;
+  amount: string;
+  priorAmount: string;
+}
+
+export interface BalanceSheetData {
+  companyName: string;
+  address: string;
+  reportName: string;
+  asOfDate: string;
+  currentYearLabel: string;
+  priorYearLabel: string;
+  currentAssets: BalanceSheetLine[];
+  ppe: BalanceSheetLine[];
+  currentLiabilities: BalanceSheetLine[];
+  capital: BalanceSheetLine[];
+  certifiedBy: string;
+}
+
+export interface CashFlowLine {
+  id: string;
+  particulars: string;
+  amount: string;
+  priorAmount: string;
+}
+
+export interface CashFlowData {
+  companyName: string;
+  reportName: string;
+  period: string;
+  comparativeNote: string;
+  operatingActivities: CashFlowLine[];
+  investingActivities: CashFlowLine[];
+  financingActivities: CashFlowLine[];
+  cashBeginning: string;
+  cashBeginningPrior: string;
 }
 
 export interface GeneralLedgerEntry {

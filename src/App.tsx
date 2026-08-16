@@ -17,6 +17,8 @@ import { PurchasesJournal } from './components/PurchasesJournal';
 import { GeneralJournal } from './components/GeneralJournal';
 import { GeneralLedger } from './components/GeneralLedger';
 import { ProfitAndLoss } from './components/ProfitAndLoss';
+import { BalanceSheet } from './components/BalanceSheet';
+import { CashFlow } from './components/CashFlow';
 import { Extras } from './components/Extras';
 import { AdminSettings } from './components/AdminSettings';
 import { FileManager } from './components/FileManager';
@@ -103,8 +105,8 @@ function AppLayout() {
             <Route path="/books" element={<Extras />} />
             <Route path="/taxnotes" element={<Extras />} />
             <Route path="/trialbalance" element={<Extras />} />
-            <Route path="/balancesheet" element={<Extras />} />
-            <Route path="/cashflow" element={<Extras />} />
+            <Route path="/balancesheet" element={<BalanceSheet />} />
+            <Route path="/cashflow" element={<CashFlow />} />
             <Route path="/sales-journal" element={<Extras />} />
             <Route path="/files" element={<FileManager />} />
             <Route path="/inventory" element={<Inventory />} />
