@@ -6,7 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { 
   Users, Building2, BookText, BookOpen, 
   LineChart, Scale, Receipt, ShoppingCart, 
-  TrendingUp, FileText, Library, Lightbulb, FolderClock, History,
+  TrendingUp, FileText, Library, FolderClock, History,
   ChevronDown, LayoutGrid, Settings, Key, Banknote, Wallet, CreditCard, ShieldAlert, RefreshCw, LogOut, Shield, FolderUp,
   Boxes, CheckCircle2, FileSignature, Home
 } from 'lucide-react';
@@ -431,13 +431,6 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   >
                     <Building2 className="w-4 h-4" />
                     TIN Library
-                  </button>
-                  <button
-                    onClick={() => handleNavClick('taxnotes')}
-                    className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-all w-full text-left"
-                  >
-                    <Lightbulb className="w-4 h-4" />
-                    Tax Notes & RDO
                   </button>
                   <button
                     onClick={() => {
