@@ -12,8 +12,8 @@ export function Header({ onMenuClick }: HeaderProps) {
 
   return (
     <div className="bg-gradient-to-br from-blue-700 object-cover to-blue-900 text-white rounded-2xl p-5 md:p-6 mb-6 shadow-lg border-l-4 border-yellow-400 flex flex-col gap-3">
-      <div className="flex justify-between items-center flex-wrap gap-4">
-        <div className="flex items-center gap-3">
+      <div className="flex justify-between items-start flex-wrap gap-4">
+        <div className="flex items-start gap-3">
           <button 
             className="md:hidden p-2 bg-white/10 hover:bg-white/20 rounded-xl transition-colors"
             onClick={onMenuClick}
@@ -48,4 +48,3 @@ export function Header({ onMenuClick }: HeaderProps) {
     </div>
   );
 }
-
