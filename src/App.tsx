@@ -41,7 +41,7 @@ function AppLayout() {
       
       <main className="flex-1 flex flex-col h-screen overflow-y-auto w-full relative">
         <Header onMenuClick={() => setIsSidebarOpen(true)} />
-        <div className="p-4 md:p-8 pt-[1.5px] max-w-[1400px] mx-auto w-full">
+        <div className="px-4 md:px-8 pt-[1.5px] pb-1 md:pb-2 max-w-[1400px] mx-auto w-full">
           {!activePage && (
             hasClients ? (
               <Dashboard />
@@ -78,37 +78,39 @@ function AppLayout() {
             route, so navigating away actually unmounts the previous page
             (fresh state each visit) instead of keeping ~20 components alive
             and toggling visibility. */}
-        <Routes>
-          <Route path="/sales" element={<Sales />} />
-          <Route path="/billing" element={<Billing />} />
-          <Route path="/journal-voucher" element={<JournalVoucher />} />
-          <Route path="/purchases" element={<Purchases />} />
-          <Route path="/tinlibrary" element={<TinLibrary />} />
-          <Route path="/history" element={<History />} />
-          <Route path="/coa" element={<ChartOfAccounts />} />
-          <Route path="/cash-receipt" element={<CashReceiptsJournal />} />
-          <Route path="/cash-disbursement" element={<CashDisbursementsJournal />} />
-          <Route path="/purchase-journal" element={<PurchasesJournal />} />
-          <Route path="/journal" element={<GeneralJournal />} />
-          <Route path="/ledger" element={<GeneralLedger />} />
-          <Route path="/pl" element={<ProfitAndLoss />} />
-          <Route path="/admin-settings" element={<AdminSettings />} />
-          {/* Extras bundles several related pages in one file; each gets
-              its own route but they all mount the same component, which
-              internally shows only the section matching the current route. */}
-          <Route path="/clients" element={<Extras />} />
-          <Route path="/business" element={<Extras />} />
-          <Route path="/reports" element={<Extras />} />
-          <Route path="/books" element={<Extras />} />
-          <Route path="/taxnotes" element={<Extras />} />
-          <Route path="/trialbalance" element={<Extras />} />
-          <Route path="/sales-journal" element={<Extras />} />
-          <Route path="/files" element={<FileManager />} />
-          <Route path="/inventory" element={<Inventory />} />
-          <Route path="/bir-forms" element={<BIRForms />} />
-          <Route path="/compliance-tracker" element={<ComplianceTracker />} />
-          <Route path="/ap-workspace" element={<AccountsPayable />} />
-        </Routes>
+        <div className="px-4 md:px-8 pt-[1.5px] pb-4 md:pb-8 max-w-[1400px] mx-auto w-full">
+          <Routes>
+            <Route path="/sales" element={<Sales />} />
+            <Route path="/billing" element={<Billing />} />
+            <Route path="/journal-voucher" element={<JournalVoucher />} />
+            <Route path="/purchases" element={<Purchases />} />
+            <Route path="/tinlibrary" element={<TinLibrary />} />
+            <Route path="/history" element={<History />} />
+            <Route path="/coa" element={<ChartOfAccounts />} />
+            <Route path="/cash-receipt" element={<CashReceiptsJournal />} />
+            <Route path="/cash-disbursement" element={<CashDisbursementsJournal />} />
+            <Route path="/purchase-journal" element={<PurchasesJournal />} />
+            <Route path="/journal" element={<GeneralJournal />} />
+            <Route path="/ledger" element={<GeneralLedger />} />
+            <Route path="/pl" element={<ProfitAndLoss />} />
+            <Route path="/admin-settings" element={<AdminSettings />} />
+            {/* Extras bundles several related pages in one file; each gets
+                its own route but they all mount the same component, which
+                internally shows only the section matching the current route. */}
+            <Route path="/clients" element={<Extras />} />
+            <Route path="/business" element={<Extras />} />
+            <Route path="/reports" element={<Extras />} />
+            <Route path="/books" element={<Extras />} />
+            <Route path="/taxnotes" element={<Extras />} />
+            <Route path="/trialbalance" element={<Extras />} />
+            <Route path="/sales-journal" element={<Extras />} />
+            <Route path="/files" element={<FileManager />} />
+            <Route path="/inventory" element={<Inventory />} />
+            <Route path="/bir-forms" element={<BIRForms />} />
+            <Route path="/compliance-tracker" element={<ComplianceTracker />} />
+            <Route path="/ap-workspace" element={<AccountsPayable />} />
+          </Routes>
+        </div>
       </main>
     </div>
   );
