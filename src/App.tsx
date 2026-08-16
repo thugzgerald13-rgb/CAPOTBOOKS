@@ -41,7 +41,7 @@ function AppLayout() {
       
       <main className="flex-1 flex flex-col h-screen overflow-y-auto w-full relative">
         <Header onMenuClick={() => setIsSidebarOpen(true)} />
-        <div className="p-4 md:p-8 pt-1.5 max-w-[1400px] mx-auto w-full">
+        <div className="p-4 md:p-8 pt-[1.5px] max-w-[1400px] mx-auto w-full">
           {!activePage && (
             hasClients ? (
               <Dashboard />
