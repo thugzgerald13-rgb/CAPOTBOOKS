@@ -7,8 +7,8 @@ import {
   Users, Building2, BookText, BookOpen, 
   LineChart, Scale, Receipt, ShoppingCart, 
   TrendingUp, FileText, Library, FolderClock, History,
-  ChevronDown, LayoutGrid, Settings, Key, Banknote, Wallet, CreditCard, ShieldAlert, RefreshCw, LogOut, Shield, FolderUp,
-  Boxes, CheckCircle2, FileSignature, Home
+  ChevronDown, Settings, Key, Banknote, Wallet, CreditCard, ShieldAlert, RefreshCw, LogOut, Shield, FolderUp,
+  Boxes, CheckCircle2, FileSignature, Home, Landmark, ArrowLeftRight
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -77,9 +77,10 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   ];
 
   const reportItems = [
-    { id: 'pl', label: 'Profit & Loss', icon: TrendingUp },
     { id: 'trialbalance', label: 'Trial Balance', icon: Scale },
-    { id: 'reports', label: 'All Reports Dashboard', icon: LayoutGrid },
+    { id: 'balancesheet', label: 'Balance Sheet', icon: Landmark },
+    { id: 'pl', label: 'Profit & Loss', icon: TrendingUp },
+    { id: 'cashflow', label: 'Cash Flow', icon: ArrowLeftRight },
   ];
 
   const bookItems = [

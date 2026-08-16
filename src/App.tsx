@@ -103,6 +103,8 @@ function AppLayout() {
             <Route path="/books" element={<Extras />} />
             <Route path="/taxnotes" element={<Extras />} />
             <Route path="/trialbalance" element={<Extras />} />
+            <Route path="/balancesheet" element={<Extras />} />
+            <Route path="/cashflow" element={<Extras />} />
             <Route path="/sales-journal" element={<Extras />} />
             <Route path="/files" element={<FileManager />} />
             <Route path="/inventory" element={<Inventory />} />
