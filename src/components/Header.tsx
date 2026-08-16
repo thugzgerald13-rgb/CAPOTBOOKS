@@ -11,35 +11,37 @@ export function Header({ onMenuClick }: HeaderProps) {
   const { user, isAdmin, signOut } = useAuth();
 
   return (
-    <div className="relative bg-gradient-to-br from-blue-700 object-cover to-blue-900 text-white rounded-2xl p-5 md:p-6 mb-6 shadow-lg border-l-4 border-yellow-400 min-h-[90px]">
-      {/* Company name pinned to the top-left corner */}
-      <div className="absolute top-4 left-5 md:left-6 flex items-start gap-3">
-        <button 
-          className="md:hidden p-2 bg-white/10 hover:bg-white/20 rounded-xl transition-colors"
-          onClick={onMenuClick}
-          aria-label="Toggle menu"
-        >
-          <Menu className="w-5 h-5" />
-        </button>
-        <div className="flex flex-col">
-          <h1 className="text-xl md:text-2xl font-bold flex flex-wrap items-center gap-3">
-            <span className="hidden sm:inline">📊</span> 
-            {currentClient ? (currentClient.registeredName || currentClient.tradeName || 'CAPO Accounting Setup') : 'CAPO Accounting Setup'}
-          </h1>
-          {isSyncing && (
-            <span className="text-[10px] text-blue-200 animate-pulse flex items-center gap-1 mt-1 font-bold uppercase tracking-widest pl-9">
-              <span className="w-1 h-1 bg-blue-200 rounded-full animate-ping"></span>
-              Syncing with Cloud...
-            </span>
-          )}
+    // sticky + top-0 + z-30 keeps this bar frozen at the top of the
+    // scrollable <main> in App.tsx while the page content scrolls under it
+    <div className="sticky top-0 z-30 bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur-sm border-b border-slate-200 dark:border-slate-700 -mx-4 md:-mx-8 px-4 md:px-8 mb-6">
+      <div className="flex items-center justify-between gap-4 py-4">
+        {/* Company name — pinned top-left */}
+        <div className="flex items-center gap-3">
+          <button
+            className="md:hidden p-2 bg-slate-200/60 dark:bg-white/10 hover:bg-slate-300/60 dark:hover:bg-white/20 rounded-xl transition-colors"
+            onClick={onMenuClick}
+            aria-label="Toggle menu"
+          >
+            <Menu className="w-5 h-5 text-slate-700 dark:text-white" />
+          </button>
+          <div className="flex flex-col">
+            <h1 className="text-xl md:text-2xl font-bold flex flex-wrap items-center gap-2 text-slate-800 dark:text-white">
+              <span className="hidden sm:inline">📊</span>
+              {currentClient ? (currentClient.registeredName || currentClient.tradeName || 'CAPO Accounting Setup') : 'CAPO Accounting Setup'}
+            </h1>
+            {isSyncing && (
+              <span className="text-[10px] text-blue-500 dark:text-blue-300 animate-pulse flex items-center gap-1 font-bold uppercase tracking-widest">
+                <span className="w-1 h-1 bg-blue-500 dark:bg-blue-300 rounded-full animate-ping"></span>
+                Syncing with Cloud...
+              </span>
+            )}
+          </div>
         </div>
-      </div>
 
-      {/* Dark/Light toggle pinned to the top-right corner */}
-      <div className="absolute top-4 right-5 md:right-6">
+        {/* Dark/Light toggle — pinned top-right */}
         <button
           onClick={() => setDarkMode(!isDarkMode)}
-          className="flex items-center gap-2 bg-white/10 hover:bg-white/20 px-4 py-2 rounded-full text-sm font-medium transition-colors border border-white/10"
+          className="flex items-center gap-2 bg-slate-200/60 dark:bg-white/10 hover:bg-slate-300/60 dark:hover:bg-white/20 px-4 py-2 rounded-full text-sm font-medium transition-colors border border-slate-300 dark:border-white/10 text-slate-700 dark:text-white"
         >
           {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
           {isDarkMode ? 'Light' : 'Dark'}
