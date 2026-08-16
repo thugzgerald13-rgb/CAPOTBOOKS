@@ -11,11 +11,12 @@ export function Header({ onMenuClick }: HeaderProps) {
   const { user, isAdmin, signOut } = useAuth();
 
   return (
-    // sticky + top-0 + z-30 keeps this bar frozen at the top of the
-    // scrollable <main> in App.tsx while the page content scrolls under it
-    <div className="sticky top-0 z-30 bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur-sm border-b border-slate-200 dark:border-slate-700 -mx-4 md:-mx-8 px-4 md:px-8 mb-6">
-      <div className="flex items-center justify-between gap-4 py-4">
-        {/* Company name — pinned top-left */}
+    // sticky + top-0 + z-30 keeps this bar frozen at the very top of the
+    // scrollable <main> in App.tsx (it's now a direct child of <main>,
+    // rendered before the padded content) while the page scrolls under it
+    <div className="sticky top-0 z-30 w-full bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur-sm border-b border-slate-200 dark:border-slate-700">
+      <div className="max-w-[1400px] mx-auto flex items-center justify-between gap-4 px-4 md:px-8 py-3">
+        {/* Company name — pinned top-left, no icon */}
         <div className="flex items-center gap-3">
           <button
             className="md:hidden p-2 bg-slate-200/60 dark:bg-white/10 hover:bg-slate-300/60 dark:hover:bg-white/20 rounded-xl transition-colors"
@@ -26,7 +27,6 @@ export function Header({ onMenuClick }: HeaderProps) {
           </button>
           <div className="flex flex-col">
             <h1 className="text-xl md:text-2xl font-bold flex flex-wrap items-center gap-2 text-slate-800 dark:text-white">
-              <span className="hidden sm:inline">📊</span>
               {currentClient ? (currentClient.registeredName || currentClient.tradeName || 'CAPO Accounting Setup') : 'CAPO Accounting Setup'}
             </h1>
             {isSyncing && (
