@@ -168,7 +168,7 @@ export function BalanceSheet() {
 
   return (
     <div className="w-full flex flex-col">
-      <PageHeader title="Balance Sheet" icon={<Landmark className="text-amber-500" />} />
+      <PageHeader title="Balance Sheet" icon={<Landmark className="text-amber-500" />} centered />
       <div className="p-4 md:p-6 flex-1">
       <div className="p-8 text-sm">
 

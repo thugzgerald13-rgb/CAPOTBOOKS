@@ -161,7 +161,7 @@ export function CashFlow() {
 
   return (
     <div className="w-full flex flex-col">
-      <PageHeader title="Cash Flow" icon={<ArrowLeftRight className="text-blue-500" />} />
+      <PageHeader title="Cash Flow" icon={<ArrowLeftRight className="text-blue-500" />} centered />
       <div className="p-4 md:p-6 flex-1">
       <div className="p-8 text-sm">
 

@@ -978,7 +978,7 @@ export function Extras() {
       {/* Placeholders for deep accounting features that were blank in the original HTML */}
       {activePage === 'trialbalance' && (
         <div className="w-full flex flex-col">
-          <PageHeader title="Trial Balance" icon={<Scale />} />
+          <PageHeader title="Trial Balance" icon={<Scale />} centered />
           <div className="p-4 md:p-6 flex-1">
          <p className="text-center p-8 text-slate-500">Trial Balance computation based on Journal and Ledger.</p>
          <div className="bg-slate-100 dark:bg-slate-800 p-4 rounded-xl text-center font-mono">

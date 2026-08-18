@@ -83,7 +83,7 @@ export function ProfitAndLoss() {
 
   return (
     <div className="w-full flex flex-col">
-      <PageHeader title="Profit & Loss" icon={<TrendingUp className="text-emerald-500" />} />
+      <PageHeader title="Profit & Loss" icon={<TrendingUp className="text-emerald-500" />} centered />
       <div className="p-4 md:p-6 flex-1">
       <div className="p-8 text-sm">
         

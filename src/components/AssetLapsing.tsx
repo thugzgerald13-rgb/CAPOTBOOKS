@@ -89,7 +89,7 @@ export function AssetLapsing() {
 
   return (
     <div className="w-full flex flex-col">
-      <PageHeader title="Asset Lapsing Schedule" icon={<Wrench className="text-orange-500" />} />
+      <PageHeader title="Asset Lapsing Schedule" icon={<Wrench className="text-orange-500" />} centered />
       <div className="p-4 md:p-6 flex-1">
 
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
