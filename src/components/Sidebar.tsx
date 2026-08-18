@@ -40,6 +40,17 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     } catch {
       // ignore storage errors (e.g. private browsing)
     }
+
+    // Close any open dropdowns when the rail collapses so submenus don't
+    // linger, disconnected from their (now icon-only) parent.
+    if (isCollapsed) {
+      setIsTransactionsOpen(false);
+      setIsReportsOpen(false);
+      setIsFormsOpen(false);
+      setIsSettingsOpen(false);
+      setIsBooksOpen(false);
+      setIsDevOpen(false);
+    }
   }, [isCollapsed]);
 
   const sidebarRef = useRef<HTMLDivElement>(null);
