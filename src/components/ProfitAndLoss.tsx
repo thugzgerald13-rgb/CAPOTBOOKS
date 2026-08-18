@@ -93,14 +93,14 @@ export function ProfitAndLoss() {
             type="text" 
             value={plData.companyName}
             onChange={(e) => updateData({ companyName: e.target.value })}
-            className="text-xl font-bold text-center uppercase tracking-wide bg-transparent border-b border-transparent hover:border-slate-300 focus:border-cyan-500 focus:outline-none w-full max-w-md mx-auto"
+            className="text-xl font-bold text-center uppercase tracking-wide bg-transparent border-b border-transparent hover:border-slate-300 focus:border-cyan-500 focus:outline-none block w-full max-w-md mx-auto"
             placeholder="COMPANY NAME"
           />
           <input 
             type="text" 
             value={plData.address}
             onChange={(e) => updateData({ address: e.target.value })}
-            className="text-center bg-transparent border-b border-transparent hover:border-slate-300 focus:border-cyan-500 focus:outline-none w-full max-w-md mx-auto mt-1"
+            className="text-center bg-transparent border-b border-transparent hover:border-slate-300 focus:border-cyan-500 focus:outline-none block w-full max-w-md mx-auto mt-1"
             placeholder="Company Address"
           />
           
@@ -109,14 +109,14 @@ export function ProfitAndLoss() {
               type="text" 
               value={plData.reportName}
               onChange={(e) => updateData({ reportName: e.target.value })}
-              className="text-lg font-medium text-center uppercase bg-transparent border-b border-transparent hover:border-slate-300 focus:border-cyan-500 focus:outline-none w-full max-w-md mx-auto"
+              className="text-lg font-medium text-center uppercase bg-transparent border-b border-transparent hover:border-slate-300 focus:border-cyan-500 focus:outline-none block w-full max-w-md mx-auto"
               placeholder="INCOME STATEMENT"
             />
             <input 
               type="text" 
               value={plData.period}
               onChange={(e) => updateData({ period: e.target.value })}
-              className="text-center font-medium bg-transparent border-b border-transparent hover:border-slate-300 focus:border-cyan-500 focus:outline-none w-full max-w-md mx-auto mt-1"
+              className="text-center font-medium bg-transparent border-b border-transparent hover:border-slate-300 focus:border-cyan-500 focus:outline-none block w-full max-w-md mx-auto mt-1"
               placeholder="For the period ended..."
             />
           </div>
