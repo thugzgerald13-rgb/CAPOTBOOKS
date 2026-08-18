@@ -162,6 +162,7 @@ export interface Client {
   inventoryItems?: InventoryItem[];
   inventoryMovements?: InventoryMovement[];
   inventoryColumns?: InventoryColumn[];
+  assetLapsingSchedule?: AssetLapsingEntry[];
   taxDeadlines?: TaxDeadline[];
   billingInvoices?: BillingInvoice[];
   journalVouchers?: JournalVoucher[];
@@ -202,6 +203,16 @@ export interface InventoryItem {
 export interface InventoryColumn {
   id: string;
   label: string;
+}
+
+export interface AssetLapsingEntry {
+  id: string;
+  datePurchased: string;
+  invoiceNo: string;
+  description: string;
+  cost: number;
+  usefulLifeYears: number;
+  salvageValue: number;
 }
 
 export interface InventoryMovement {

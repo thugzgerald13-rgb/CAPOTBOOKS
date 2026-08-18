@@ -8,7 +8,7 @@ import {
   LineChart, Scale, Receipt, ShoppingCart, 
   TrendingUp, FileText, Library, FolderClock, History,
   ChevronDown, Settings, Key, Banknote, Wallet, CreditCard, ShieldAlert, RefreshCw, LogOut, Shield, FolderUp,
-  Boxes, CheckCircle2, FileSignature, Home, Landmark, ArrowLeftRight
+  Boxes, CheckCircle2, FileSignature, Home, Landmark, ArrowLeftRight, Wrench
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -81,6 +81,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     { id: 'balancesheet', label: 'Balance Sheet', icon: Landmark },
     { id: 'pl', label: 'Profit & Loss', icon: TrendingUp },
     { id: 'cashflow', label: 'Cash Flow', icon: ArrowLeftRight },
+    { id: 'assetlapsing', label: 'Asset Lapsing', icon: Wrench },
   ];
 
   const bookItems = [
