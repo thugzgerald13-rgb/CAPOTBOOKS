@@ -171,7 +171,7 @@ export function CashFlow() {
             type="text"
             value={cfData.companyName}
             onChange={(e) => updateData({ companyName: e.target.value })}
-            className="text-xl font-bold text-center uppercase tracking-wide bg-transparent border-b border-transparent hover:border-slate-300 focus:border-cyan-500 focus:outline-none w-full max-w-md mx-auto"
+            className="text-xl font-bold text-center uppercase tracking-wide bg-transparent border-b border-transparent hover:border-slate-300 focus:border-cyan-500 focus:outline-none block w-full max-w-md mx-auto"
             placeholder="COMPANY NAME"
           />
           <div className="mt-6">
@@ -179,19 +179,19 @@ export function CashFlow() {
               type="text"
               value={cfData.reportName}
               onChange={(e) => updateData({ reportName: e.target.value })}
-              className="text-lg font-medium text-center uppercase bg-transparent border-b border-transparent hover:border-slate-300 focus:border-cyan-500 focus:outline-none w-full max-w-md mx-auto"
+              className="text-lg font-medium text-center uppercase bg-transparent border-b border-transparent hover:border-slate-300 focus:border-cyan-500 focus:outline-none block w-full max-w-md mx-auto"
             />
             <input
               type="text"
               value={cfData.period}
               onChange={(e) => updateData({ period: e.target.value })}
-              className="text-center font-medium bg-transparent border-b border-transparent hover:border-slate-300 focus:border-cyan-500 focus:outline-none w-full max-w-md mx-auto mt-1"
+              className="text-center font-medium bg-transparent border-b border-transparent hover:border-slate-300 focus:border-cyan-500 focus:outline-none block w-full max-w-md mx-auto mt-1"
             />
             <input
               type="text"
               value={cfData.comparativeNote}
               onChange={(e) => updateData({ comparativeNote: e.target.value })}
-              className="text-center text-xs text-slate-500 bg-transparent border-b border-transparent hover:border-slate-300 focus:border-cyan-500 focus:outline-none w-full max-w-md mx-auto mt-1"
+              className="text-center text-xs text-slate-500 bg-transparent border-b border-transparent hover:border-slate-300 focus:border-cyan-500 focus:outline-none block w-full max-w-md mx-auto mt-1"
             />
           </div>
         </div>
