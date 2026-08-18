@@ -7,7 +7,7 @@ import {
   Users, Building2, BookText, BookOpen, 
   LineChart, Scale, Receipt, ShoppingCart, 
   TrendingUp, FileText, Library, FolderClock, History,
-  ChevronDown, Settings, Key, Banknote, Wallet, CreditCard, ShieldAlert, RefreshCw, LogOut, Shield, FolderUp,
+  ChevronDown, ChevronLeft, ChevronRight, Settings, Key, Banknote, Wallet, CreditCard, ShieldAlert, RefreshCw, LogOut, Shield, FolderUp,
   Boxes, CheckCircle2, FileSignature, Home, Landmark, ArrowLeftRight, Wrench
 } from 'lucide-react';
 
@@ -15,6 +15,8 @@ interface SidebarProps {
   isOpen: boolean;
   setIsOpen: (open: boolean) => void;
 }
+
+const SIDEBAR_COLLAPSE_KEY = 'capot-sidebar-collapsed';
 
 export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   const { navigateToPage, setCurrentDat, setHistoryTab, setBirFormTab, syncData, isSyncing } = useAccounting();
@@ -25,6 +27,20 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isBooksOpen, setIsBooksOpen] = useState(false);
   const [isDevOpen, setIsDevOpen] = useState(false);
+
+  // Desktop-only collapse (icon rail). Mobile keeps the existing slide-in drawer behavior.
+  const [isCollapsed, setIsCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === 'true';
+  });
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(SIDEBAR_COLLAPSE_KEY, String(isCollapsed));
+    } catch {
+      // ignore storage errors (e.g. private browsing)
+    }
+  }, [isCollapsed]);
 
   const sidebarRef = useRef<HTMLDivElement>(null);
 
@@ -46,6 +62,18 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   }, []);
 
   const toggleDropdown = (dropdown: string) => {
+    // If the rail is collapsed, expand it first and open the requested section
+    // rather than toggling a submenu the user can't see.
+    if (isCollapsed) {
+      setIsCollapsed(false);
+      setIsTransactionsOpen(dropdown === 'transactions');
+      setIsBooksOpen(dropdown === 'books');
+      setIsReportsOpen(dropdown === 'reports');
+      setIsFormsOpen(dropdown === 'forms');
+      setIsSettingsOpen(dropdown === 'settings');
+      setIsDevOpen(dropdown === 'dev');
+      return;
+    }
     setIsTransactionsOpen(dropdown === 'transactions' ? !isTransactionsOpen : false);
     setIsBooksOpen(dropdown === 'books' ? !isBooksOpen : false);
     setIsReportsOpen(dropdown === 'reports' ? !isReportsOpen : false);
@@ -104,41 +132,63 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
       )}
 
       <div ref={sidebarRef} className={cn(
-        "fixed md:static inset-y-0 left-0 w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col z-50 transform transition-transform duration-300 md:translate-x-0 h-screen",
+        "fixed md:static inset-y-0 left-0 w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col z-50 transform transition-all duration-300 md:translate-x-0 h-screen",
+        isCollapsed ? "md:w-20" : "md:w-64",
         isOpen ? "translate-x-0" : "-translate-x-full"
       )}>
-        <div className="p-6 border-b border-slate-200 dark:border-slate-800 text-center shrink-0">
-          <h2 className="text-2xl font-black tracking-tighter text-blue-900 dark:text-blue-400 flex items-center justify-center">
-            CAPOT<span className="text-amber-500 italic">BOOKS</span>
+        <div className="relative p-6 border-b border-slate-200 dark:border-slate-800 text-center shrink-0 overflow-hidden">
+          <h2 className="text-2xl font-black tracking-tighter text-blue-900 dark:text-blue-400 flex items-center justify-center whitespace-nowrap">
+            <span className={cn(isCollapsed && "md:hidden")}>
+              CAPOT<span className="text-amber-500 italic">BOOKS</span>
+            </span>
+            <span className={cn("hidden", isCollapsed && "md:inline")}>
+              C<span className="text-amber-500 italic">B</span>
+            </span>
           </h2>
+
+          {/* Desktop-only collapse toggle */}
+          <button
+            onClick={() => setIsCollapsed(!isCollapsed)}
+            className="hidden md:flex items-center justify-center absolute -right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400 transition-all z-10"
+            title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+            aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          >
+            {isCollapsed ? <ChevronRight className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />}
+          </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto py-4 px-3 flex flex-col gap-1 custom-scrollbar">
+        <div className={cn("flex-1 overflow-y-auto py-4 px-3 flex flex-col gap-1 custom-scrollbar", isCollapsed && "md:px-2")}>
           <button
             onClick={() => {
               navigateToPage(null);
               setIsOpen(false);
             }}
-            className="flex items-center gap-3 px-4 py-3 text-sm font-bold text-blue-700 dark:text-blue-400 rounded-xl bg-blue-50/60 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-all w-full text-left group mb-1"
+            title={isCollapsed ? "Dashboard" : undefined}
+            className={cn(
+              "flex items-center gap-3 px-4 py-3 text-sm font-bold text-blue-700 dark:text-blue-400 rounded-xl bg-blue-50/60 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-all w-full text-left group mb-1",
+              isCollapsed && "md:justify-center md:px-2"
+            )}
           >
-            <Home className="w-5 h-5 opacity-80 group-hover:opacity-100 transition-opacity" />
-            Dashboard
+            <Home className="w-5 h-5 opacity-80 group-hover:opacity-100 transition-opacity shrink-0" />
+            <span className={cn(isCollapsed && "md:hidden")}>Dashboard</span>
           </button>
 
           {/* Transactions Collapsible Dropdown (Income + Expenses + Transaction History, merged) */}
           <div className="flex flex-col">
             <button
               onClick={() => toggleDropdown('transactions')}
+              title={isCollapsed ? "Transactions" : undefined}
               className={cn(
                 "flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl transition-all w-full text-left group",
-                isTransactionsOpen ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800"
+                isTransactionsOpen ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
+                isCollapsed && "md:justify-center md:px-2"
               )}
             >
               <div className="flex items-center gap-3">
-                <History className="w-5 h-5 opacity-70 group-hover:opacity-100 transition-opacity" />
-                <span>Transactions</span>
+                <History className="w-5 h-5 opacity-70 group-hover:opacity-100 transition-opacity shrink-0" />
+                <span className={cn(isCollapsed && "md:hidden")}>Transactions</span>
               </div>
-              <ChevronDown className={cn("w-4 h-4 transition-transform duration-300", isTransactionsOpen ? "rotate-180" : "")} />
+              <ChevronDown className={cn("w-4 h-4 transition-transform duration-300", isTransactionsOpen ? "rotate-180" : "", isCollapsed && "md:hidden")} />
             </button>
 
             <AnimatePresence>
@@ -229,16 +279,18 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
           <div className="flex flex-col">
             <button
               onClick={() => toggleDropdown('forms')}
+              title={isCollapsed ? "Compliance" : undefined}
               className={cn(
                 "flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl transition-all w-full text-left group",
-                isFormsOpen ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800"
+                isFormsOpen ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
+                isCollapsed && "md:justify-center md:px-2"
               )}
             >
               <div className="flex items-center gap-3">
-                <FileText className="w-5 h-5 opacity-70 group-hover:opacity-100 transition-opacity" />
-                <span>Compliance</span>
+                <FileText className="w-5 h-5 opacity-70 group-hover:opacity-100 transition-opacity shrink-0" />
+                <span className={cn(isCollapsed && "md:hidden")}>Compliance</span>
               </div>
-              <ChevronDown className={cn("w-4 h-4 transition-transform duration-300", isFormsOpen ? "rotate-180" : "")} />
+              <ChevronDown className={cn("w-4 h-4 transition-transform duration-300", isFormsOpen ? "rotate-180" : "", isCollapsed && "md:hidden")} />
             </button>
 
             <AnimatePresence>
@@ -282,10 +334,14 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               <button
                 key={item.id}
                 onClick={() => handleNavClick(item.id)}
-                className="flex items-center gap-3 px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800 dark:hover:text-blue-400 transition-all w-full text-left group"
+                title={isCollapsed ? item.label : undefined}
+                className={cn(
+                  "flex items-center gap-3 px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800 dark:hover:text-blue-400 transition-all w-full text-left group",
+                  isCollapsed && "md:justify-center md:px-2"
+                )}
               >
-                <Icon className="w-5 h-5 opacity-70 group-hover:opacity-100 transition-opacity" />
-                {item.label}
+                <Icon className="w-5 h-5 opacity-70 group-hover:opacity-100 transition-opacity shrink-0" />
+                <span className={cn(isCollapsed && "md:hidden")}>{item.label}</span>
               </button>
             );
           })}
@@ -294,16 +350,18 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
           <div className="flex flex-col">
             <button
               onClick={() => toggleDropdown('reports')}
+              title={isCollapsed ? "Reports" : undefined}
               className={cn(
                 "flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl transition-all w-full text-left group",
-                isReportsOpen ? "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800"
+                isReportsOpen ? "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
+                isCollapsed && "md:justify-center md:px-2"
               )}
             >
               <div className="flex items-center gap-3">
-                <FileText className="w-5 h-5 opacity-70 group-hover:opacity-100 transition-opacity" />
-                <span>Reports</span>
+                <FileText className="w-5 h-5 opacity-70 group-hover:opacity-100 transition-opacity shrink-0" />
+                <span className={cn(isCollapsed && "md:hidden")}>Reports</span>
               </div>
-              <ChevronDown className={cn("w-4 h-4 transition-transform duration-300", isReportsOpen ? "rotate-180" : "")} />
+              <ChevronDown className={cn("w-4 h-4 transition-transform duration-300", isReportsOpen ? "rotate-180" : "", isCollapsed && "md:hidden")} />
             </button>
 
             <AnimatePresence>
@@ -337,16 +395,18 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
           <div className="flex flex-col">
             <button
               onClick={() => toggleDropdown('books')}
+              title={isCollapsed ? "Books" : undefined}
               className={cn(
                 "flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl transition-all w-full text-left group",
-                isBooksOpen ? "bg-cyan-50 text-cyan-700 dark:bg-cyan-900/20 dark:text-cyan-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800"
+                isBooksOpen ? "bg-cyan-50 text-cyan-700 dark:bg-cyan-900/20 dark:text-cyan-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
+                isCollapsed && "md:justify-center md:px-2"
               )}
             >
               <div className="flex items-center gap-3">
-                <Library className="w-5 h-5 opacity-70 group-hover:opacity-100 transition-opacity" />
-                <span>Books</span>
+                <Library className="w-5 h-5 opacity-70 group-hover:opacity-100 transition-opacity shrink-0" />
+                <span className={cn(isCollapsed && "md:hidden")}>Books</span>
               </div>
-              <ChevronDown className={cn("w-4 h-4 transition-transform duration-300", isBooksOpen ? "rotate-180" : "")} />
+              <ChevronDown className={cn("w-4 h-4 transition-transform duration-300", isBooksOpen ? "rotate-180" : "", isCollapsed && "md:hidden")} />
             </button>
 
             <AnimatePresence>
@@ -380,16 +440,18 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
           <div className="flex flex-col">
             <button
               onClick={() => toggleDropdown('settings')}
+              title={isCollapsed ? "Settings" : undefined}
               className={cn(
                 "flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl transition-all w-full text-left group",
-                isSettingsOpen ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800"
+                isSettingsOpen ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
+                isCollapsed && "md:justify-center md:px-2"
               )}
             >
               <div className="flex items-center gap-3">
-                <Settings className="w-5 h-5 opacity-70 group-hover:opacity-100 transition-opacity" />
-                <span>Settings</span>
+                <Settings className="w-5 h-5 opacity-70 group-hover:opacity-100 transition-opacity shrink-0" />
+                <span className={cn(isCollapsed && "md:hidden")}>Settings</span>
               </div>
-              <ChevronDown className={cn("w-4 h-4 transition-transform duration-300", isSettingsOpen ? "rotate-180" : "")} />
+              <ChevronDown className={cn("w-4 h-4 transition-transform duration-300", isSettingsOpen ? "rotate-180" : "", isCollapsed && "md:hidden")} />
             </button>
 
             <AnimatePresence>
@@ -455,16 +517,18 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
             <div className="flex flex-col mt-4 pt-4 border-t border-slate-200 dark:border-slate-800">
               <button
                 onClick={() => toggleDropdown('dev')}
+                title={isCollapsed ? "Developer Tools" : undefined}
                 className={cn(
                   "flex items-center justify-between px-4 py-3 text-sm font-medium rounded-xl transition-all w-full text-left group",
-                  isDevOpen ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400" : "text-emerald-600 dark:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/10"
+                  isDevOpen ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400" : "text-emerald-600 dark:text-emerald-500 hover:bg-emerald-50 dark:hover:bg-emerald-900/10",
+                  isCollapsed && "md:justify-center md:px-2"
                 )}
               >
                 <div className="flex items-center gap-3">
-                  <ShieldAlert className="w-5 h-5 opacity-70 group-hover:opacity-100 transition-opacity" />
-                  <span>Developer Tools</span>
+                  <ShieldAlert className="w-5 h-5 opacity-70 group-hover:opacity-100 transition-opacity shrink-0" />
+                  <span className={cn(isCollapsed && "md:hidden")}>Developer Tools</span>
                 </div>
-                <ChevronDown className={cn("w-4 h-4 transition-transform duration-300", isDevOpen ? "rotate-180" : "")} />
+                <ChevronDown className={cn("w-4 h-4 transition-transform duration-300", isDevOpen ? "rotate-180" : "", isCollapsed && "md:hidden")} />
               </button>
 
               <AnimatePresence>
@@ -501,19 +565,29 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
         </div>
 
         {user && (
-          <div className="p-4 border-t border-slate-200 dark:border-slate-800 shrink-0 flex flex-col gap-2 bg-slate-50 dark:bg-slate-900/50">
-            <div className="text-xs text-slate-500 dark:text-slate-400 truncate text-center font-medium bg-slate-100 dark:bg-slate-800 py-2 px-3 rounded-lg mx-1 flex items-center justify-center gap-2" title={user.email || ''}>
-               <span className="truncate">{user.email}</span>
+          <div className={cn("p-4 border-t border-slate-200 dark:border-slate-800 shrink-0 flex flex-col gap-2 bg-slate-50 dark:bg-slate-900/50", isCollapsed && "md:px-2")}>
+            <div
+              className={cn(
+                "text-xs text-slate-500 dark:text-slate-400 truncate text-center font-medium bg-slate-100 dark:bg-slate-800 py-2 px-3 rounded-lg mx-1 flex items-center justify-center gap-2",
+                isCollapsed && "md:px-2 md:mx-0"
+              )}
+              title={user.email || ''}
+            >
+               <span className={cn("truncate", isCollapsed && "md:hidden")}>{user.email}</span>
                {isAdmin && (
                  <Shield className="w-3 h-3 text-emerald-500 shrink-0" title="Developer" />
                )}
             </div>
             <button
               onClick={signOut}
-              className="flex items-center justify-center gap-2 w-full bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/10 dark:text-red-400 dark:hover:bg-red-900/30 py-2.5 rounded-xl text-sm font-bold transition-all shadow-sm"
+              title={isCollapsed ? "Logout" : undefined}
+              className={cn(
+                "flex items-center justify-center gap-2 w-full bg-red-50 text-red-600 hover:bg-red-100 dark:bg-red-900/10 dark:text-red-400 dark:hover:bg-red-900/30 py-2.5 rounded-xl text-sm font-bold transition-all shadow-sm",
+                isCollapsed && "md:px-2"
+              )}
             >
-              <LogOut className="w-4 h-4" />
-              <span>Logout</span>
+              <LogOut className="w-4 h-4 shrink-0" />
+              <span className={cn(isCollapsed && "md:hidden")}>Logout</span>
             </button>
           </div>
         )}
