@@ -28,7 +28,7 @@ export function Purchases() {
 
   // Derive available accounts from Chart of Accounts
   const coaAccounts = (() => {
-    let accs = currentClient?.accounts || [];
+    let accs = (currentClient?.accounts || []).filter(a => !a.hidden);
     if (accs.length === 0) accs = DEFAULT_ACCOUNTS;
     if (currentDat) {
       return accs.filter(a => expenseType === 'Capital Goods' ? (a.type.toLowerCase() === 'asset' || a.type.toLowerCase() === 'assets') : (a.type.toLowerCase() === 'expense' || a.type.toLowerCase() === 'expenses'));
