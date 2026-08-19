@@ -5,6 +5,7 @@ import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { CoaAccount } from '../types';
 import { cn } from '../lib/utils';
+import { balanceFor } from '../lib/accountingBalances';
 
 export const DEFAULT_ACCOUNTS: CoaAccount[] = [
   { id: '1000', name: 'Cash on Hand', type: 'Asset', normalSide: 'debit' },
@@ -767,52 +768,9 @@ export function ChartOfAccounts() {
     if (result) showToast(`Moved "${result.nameA}" down.`);
   };
 
-  // Dynamically calculate actual real-time balances from active journals / ledger
-  const getAccountBalance = (account: CoaAccount) => {
-    let balance = 0;
-
-    // 1. Check General Ledger entries if they match this account name or id (case-insensitive)
-    if (currentClient.glAccounts) {
-      const glMatch = currentClient.glAccounts.find(g => 
-        g.accountTitle.trim().toLowerCase() === account.name.trim().toLowerCase() ||
-        g.accountTitle.trim().toLowerCase().includes(account.id.trim().toLowerCase())
-      );
-      if (glMatch && glMatch.entries) {
-        glMatch.entries.forEach(e => {
-          const d = parseFloat(e.debit.replace(/,/g, ''));
-          const c = parseFloat(e.credit.replace(/,/g, ''));
-          const drVal = isNaN(d) ? 0 : d;
-          const crVal = isNaN(c) ? 0 : c;
-          if (account.normalSide === 'debit') {
-            balance += (drVal - crVal);
-          } else {
-            balance += (crVal - drVal);
-          }
-        });
-        if (balance !== 0) return balance;
-      }
-    }
-
-    // 2. Fallbacks: Check Purchases matching account name for Accounts Payable
-    if (currentClient.purchases && (account.name.toLowerCase() === 'accounts payable' || account.id === '2000')) {
-      const totalPurchases = currentClient.purchases.reduce((sum, p) => sum + (p.amount || 0), 0);
-      return totalPurchases;
-    }
-    if (currentClient.purchases) {
-      const expenseMatchTotal = currentClient.purchases
-        .filter(p => p.accountTitle.trim().toLowerCase() === account.name.trim().toLowerCase())
-        .reduce((sum, p) => sum + (p.amount || 0), 0);
-      if (expenseMatchTotal > 0) return expenseMatchTotal;
-    }
-
-    // 3. Check Sales matching account name for Sales Revenue
-    if (currentClient.sales && (account.name.toLowerCase() === 'sales revenue' || account.id === '4000')) {
-      const totalSales = currentClient.sales.reduce((sum, s) => sum + (s.amount || 0), 0);
-      return totalSales;
-    }
-
-    return 0;
-  };
+  // Single source of truth: opening balance + all General Ledger activity.
+  // The same balance calculation is consumed by the financial statements and Trial Balance.
+  const getAccountBalance = (account: CoaAccount) => balanceFor(currentClient, account.id)?.balance || 0;
 
   return (
     <div className="w-full flex flex-col">
