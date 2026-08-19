@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { BookOpen, Plus, Trash2, RefreshCcw, Edit2, ClipboardList, Check, X, Columns, ArrowUpDown, Upload } from 'lucide-react';
+import { BookOpen, Plus, Trash2, RefreshCcw, Edit2, ClipboardList, Check, X, Columns, ArrowUpDown, Upload, Eye, EyeOff } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
@@ -137,6 +137,7 @@ export function ChartOfAccounts() {
   const { currentClient, currentClientId, saveClient, showToast } = useAccounting();
   const [isAdding, setIsAdding] = useState(false);
   const [typeFilter, setTypeFilter] = useState('All');
+  const [showHidden, setShowHidden] = useState(false);
   
   const [newCode, setNewCode] = useState('');
   const [newName, setNewName] = useState('');
@@ -166,6 +167,8 @@ export function ChartOfAccounts() {
   const [editSubType, setEditSubType] = useState('');
   const [editNormalSide, setEditNormalSide] = useState<'debit' | 'credit'>('debit');
   const [editParentId, setEditParentId] = useState('');
+  const [editOpeningBalance, setEditOpeningBalance] = useState('');
+  const [editModalTab, setEditModalTab] = useState<'details' | 'openingBalance'>('details');
   const [swappingId, setSwappingId] = useState<string | null>(null);
 
   const coaColumns = useMemo(() => {
@@ -287,9 +290,12 @@ export function ChartOfAccounts() {
     );
   }, [accounts, editType, editingId]);
 
-  const filteredAccounts = typeFilter === 'All'
+  const filteredAccounts = (typeFilter === 'All'
     ? accounts
-    : accounts.filter(a => a.type.toLowerCase() === typeFilter.toLowerCase());
+    : accounts.filter(a => a.type.toLowerCase() === typeFilter.toLowerCase())
+  ).filter(a => showHidden || !a.hidden);
+
+  const hiddenCount = accounts.filter(a => a.hidden).length;
 
   const handleSaveAccounts = (updatedAccounts: CoaAccount[], coaFormat?: 'numeric' | 'alphanumeric') => {
     const format = coaFormat || currentClient.coaFormat || 'numeric';
@@ -299,6 +305,11 @@ export function ChartOfAccounts() {
       accounts: resequenced,
       coaFormat: format
     });
+  };
+
+  const handleToggleHidden = (id: string) => {
+    const updatedAccounts = accounts.map(a => a.id === id ? { ...a, hidden: !a.hidden } : a);
+    handleSaveAccounts(updatedAccounts);
   };
 
   const applyPreset = (format: 'numeric' | 'alphanumeric') => {
@@ -460,6 +471,7 @@ export function ChartOfAccounts() {
           subType: editSubType || undefined,
           normalSide: editNormalSide,
           parentId: editParentId || undefined,
+          openingBalance: editOpeningBalance !== '' ? parseFloat(editOpeningBalance) || 0 : undefined,
           ...customFields
         };
       } else if (a.parentId === oldId) {
@@ -475,6 +487,8 @@ export function ChartOfAccounts() {
     setEditingId(null);
     setEditParentId('');
     setEditCustomValues({});
+    setEditOpeningBalance('');
+    setEditModalTab('details');
   };
 
   const handleSwapConfirm = (idA: string, idB: string) => {
@@ -758,7 +772,7 @@ export function ChartOfAccounts() {
         {showColumnManager && (
           <div className="mb-6 p-4 sm:p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-sm">
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-sm font-bold text-slate-850 dark:text-slate-250 uppercase tracking-wider flex items-center gap-2">
+              <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wider flex items-center gap-2">
                 <Columns className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
                 Configure Table Columns (Categories)
               </h3>
@@ -781,7 +795,7 @@ export function ChartOfAccounts() {
                 return (
                   <div 
                     key={col.id} 
-                    className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-850 rounded-xl border border-slate-150 dark:border-slate-800 shadow-sm transition-all"
+                    className="flex items-center justify-between p-3 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm transition-all"
                   >
                     {isEditingThis ? (
                       <div className="flex items-center gap-1.5 w-full">
@@ -840,7 +854,7 @@ export function ChartOfAccounts() {
                               </button>
                             </>
                           ) : (
-                            <span className="text-[9px] bg-slate-250 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold px-2 py-0.5 rounded select-none uppercase tracking-wide">
+                            <span className="text-[9px] bg-slate-200 dark:bg-slate-800 text-slate-500 dark:text-slate-400 font-bold px-2 py-0.5 rounded select-none uppercase tracking-wide">
                               Locked
                             </span>
                           )}
@@ -1011,7 +1025,34 @@ export function ChartOfAccounts() {
                   <X className="w-5 h-5" />
                 </button>
               </div>
+
+              {/* Tabs */}
+              <div className="flex items-center gap-1 mb-4 border-b border-slate-200 dark:border-slate-700">
+                <button
+                  onClick={() => setEditModalTab('details')}
+                  className={cn(
+                    "px-3 py-2 text-xs font-bold uppercase tracking-wide border-b-2 -mb-px transition-colors",
+                    editModalTab === 'details'
+                      ? "border-blue-500 text-blue-600 dark:text-blue-400"
+                      : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                  )}
+                >
+                  Details
+                </button>
+                <button
+                  onClick={() => setEditModalTab('openingBalance')}
+                  className={cn(
+                    "px-3 py-2 text-xs font-bold uppercase tracking-wide border-b-2 -mb-px transition-colors",
+                    editModalTab === 'openingBalance'
+                      ? "border-blue-500 text-blue-600 dark:text-blue-400"
+                      : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                  )}
+                >
+                  Opening Balance
+                </button>
+              </div>
               
+              {editModalTab === 'details' ? (
               <div className="flex flex-col gap-4 mb-6 max-h-[50vh] overflow-y-auto pr-1">
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Account Code</label>
@@ -1101,7 +1142,24 @@ export function ChartOfAccounts() {
                   </div>
                 ))}
               </div>
-              
+              ) : (
+              <div className="flex flex-col gap-4 mb-6 max-h-[50vh] overflow-y-auto pr-1">
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Opening Balance (₱)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={editOpeningBalance}
+                    onChange={e => setEditOpeningBalance(e.target.value)}
+                    className="w-full form-input font-mono"
+                    placeholder="0.00"
+                  />
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
+                    Sets the starting balance for this account as of the beginning of the accounting period. This value is stored with the account but is not shown on the Chart of Accounts page.
+                  </p>
+                </div>
+              </div>
+              )}
               <div className="flex gap-3 justify-end pt-4 border-t border-slate-100 dark:border-slate-700">
                 <button 
                   onClick={() => setEditingId(null)}
@@ -1144,7 +1202,7 @@ export function ChartOfAccounts() {
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border-b border-slate-200 dark:border-slate-800">
             <div className="flex items-center gap-2.5">
               <ClipboardList className="text-slate-500 dark:text-slate-400 w-5 h-5" />
-              <h2 className="text-base font-bold text-slate-850 dark:text-slate-100">
+              <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">
                 Chart of Accounts
               </h2>
             </div>
@@ -1157,7 +1215,7 @@ export function ChartOfAccounts() {
                   id="type-filter"
                   value={typeFilter}
                   onChange={(e) => setTypeFilter(e.target.value)}
-                  className="text-xs font-semibold py-1.5 px-3 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-755 rounded-lg text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                  className="text-xs font-semibold py-1.5 px-3 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
                 >
                   <option value="All">All Account Types</option>
                   {ACCOUNT_TYPES.map(t => (
@@ -1165,6 +1223,23 @@ export function ChartOfAccounts() {
                   ))}
                 </select>
               </div>
+
+              {hiddenCount > 0 && (
+                <button
+                  onClick={() => setShowHidden(!showHidden)}
+                  className={cn(
+                    "text-xs font-bold py-1.5 px-3 rounded-lg flex items-center gap-1.5 transition-colors border",
+                    showHidden
+                      ? "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-900/50 text-blue-600 dark:text-blue-400"
+                      : "bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300"
+                  )}
+                  title={showHidden ? "Hide hidden accounts from the list" : "Show hidden accounts"}
+                >
+                  {showHidden ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
+                  {showHidden ? `Showing Hidden (${hiddenCount})` : `${hiddenCount} Hidden`}
+                </button>
+              )}
+
 
               <button 
                 id="add-account-btn"
@@ -1180,7 +1255,7 @@ export function ChartOfAccounts() {
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
               <thead>
-                <tr className="bg-slate-50 dark:bg-slate-850 border-b border-slate-250 dark:border-slate-850 text-[10.5px] font-bold text-slate-500 uppercase tracking-widest">
+                <tr className="bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 text-[10.5px] font-bold text-slate-500 uppercase tracking-widest">
                   {coaColumns.map(col => {
                     let widthClass = "";
                     if (col.id === 'id') widthClass = "w-[100px]";
@@ -1212,7 +1287,10 @@ export function ChartOfAccounts() {
                     return (
                       <tr 
                         key={account.id} 
-                        className="group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors"
+                        className={cn(
+                          "group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors",
+                          account.hidden && "opacity-50"
+                        )}
                       >
                         {coaColumns.map(col => {
                           if (col.id === 'id') {
@@ -1224,7 +1302,7 @@ export function ChartOfAccounts() {
                           }
                           if (col.id === 'name') {
                             return (
-                              <td key={col.id} className="px-4 py-3.5 font-sans font-medium text-slate-850 dark:text-slate-200 text-xs sm:text-sm">
+                              <td key={col.id} className="px-4 py-3.5 font-sans font-medium text-slate-800 dark:text-slate-200 text-xs sm:text-sm">
                                 <div className="flex items-start gap-2">
                                   {account.parentId && (
                                     <span className="text-slate-400 dark:text-slate-500 font-mono text-base ml-2 select-none">↳</span>
@@ -1297,6 +1375,13 @@ export function ChartOfAccounts() {
                             ) : (
                               <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2 shrink-0">
                                 <button
+                                  onClick={() => handleToggleHidden(account.id)}
+                                  className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-slate-500 dark:text-slate-400 transition-colors"
+                                  title={account.hidden ? "Unhide Account" : "Hide Account"}
+                                >
+                                  {account.hidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                </button>
+                                <button
                                   onClick={() => setSwappingId(account.id)}
                                   className="p-1 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 rounded text-indigo-500 transition-colors"
                                   title="Swap/Switch Account Code and Order"
@@ -1312,6 +1397,8 @@ export function ChartOfAccounts() {
                                     setEditSubType(account.subType || '');
                                     setEditNormalSide(account.normalSide || getNormalSide(account.type));
                                     setEditParentId(account.parentId || '');
+                                    setEditOpeningBalance(account.openingBalance !== undefined ? String(account.openingBalance) : '');
+                                    setEditModalTab('details');
 
                                     // Collect custom fields
                                     const editingMap: Record<string, string> = {};
