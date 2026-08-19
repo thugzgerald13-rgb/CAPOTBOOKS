@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { formatTIN, MONTHS, getMonthName } from '../lib/utils';
-import { Receipt, Plus, FolderClock } from 'lucide-react';
+import { Receipt, Plus } from 'lucide-react';
 import { DEFAULT_CRJ_COLUMNS } from './CashReceiptsJournal';
 import { JournalEntry } from '../types';
 
@@ -12,8 +12,6 @@ const SALES_JOURNAL_PAYMENT_TYPES = ['Credit Card', 'On Account'];
 export function Sales() {
   const { currentClient, currentClientId, currentDat, setCurrentDat, saveClient, showToast } = useAccounting();
 
-  const currentYear = new Date().getFullYear();
-  const periodYears = Array.from({ length: 11 }, (_, i) => currentYear - 10 + i);
   
   // Form State
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -163,41 +161,6 @@ export function Sales() {
     <div className="w-full flex flex-col">
       <PageHeader title="Income" icon={<Receipt className="w-5 h-5 text-emerald-500" />} />
       <div className="p-4 md:p-6 flex-1">
-      <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between bg-slate-100 dark:bg-slate-800 p-4 rounded-2xl mb-6 gap-4 border border-slate-200 dark:border-slate-700">
-        <div className="flex flex-wrap items-center gap-2 font-bold text-slate-700 dark:text-slate-300">
-          <FolderClock className="w-5 h-5 text-cyan-500" />
-          <span>Period:</span>
-          <select
-            value={currentDat?.month || new Date().getMonth() + 1}
-            onChange={e => {
-              const month = parseInt(e.target.value);
-              const year = currentDat?.year || currentYear;
-              setCurrentDat({ month, year, formatted: `${getMonthName(month)} ${year}` });
-            }}
-            className="px-3 py-1.5 rounded-lg text-sm font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 outline-none"
-          >
-            {MONTHS.map((m, i) => (
-              <option key={m} value={i + 1}>{m}</option>
-            ))}
-          </select>
-          <select
-            value={currentDat?.year || currentYear}
-            onChange={e => {
-              const year = parseInt(e.target.value);
-              const month = currentDat?.month || new Date().getMonth() + 1;
-              setCurrentDat({ month, year, formatted: `${getMonthName(month)} ${year}` });
-            }}
-            className="px-3 py-1.5 rounded-lg text-sm font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 outline-none"
-          >
-            {periodYears.map(y => (
-              <option key={y} value={y}>{y}</option>
-            ))}
-          </select>
-          {!currentDat && (
-            <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">Pick a period to enable saving</span>
-          )}
-        </div>
-      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-100 dark:border-slate-700">
         <div>
