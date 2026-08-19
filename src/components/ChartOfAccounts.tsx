@@ -389,6 +389,9 @@ export function ChartOfAccounts() {
   };
 
   // Parses an uploaded CSV/XLSX/XLS file for "Account Title" and "Account Type" columns.
+  // Any other columns in the file that share a header/column name with an existing
+  // Chart of Accounts column (Sub-Type, Normal Entry, or any custom column) are matched
+  // and their values are imported too.
   // Prompts the user to choose whether to overwrite (replace) the current Chart of Accounts
   // entirely, or just merge in the new accounts alongside the existing ones.
   const handleUploadFile = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -415,6 +418,21 @@ export function ChartOfAccounts() {
           alert('Could not find "Account Title" and "Account Type" columns in the uploaded file. Please check the header row and try again.');
           return;
         }
+
+        // Match any remaining uploaded columns (Sub-Type, Normal Entry, custom columns, etc.)
+        // to the Chart of Accounts columns that share the same header/column name.
+        const otherColumns = coaColumns.filter(col => col.id !== 'id' && col.id !== 'name' && col.id !== 'type');
+        const matchedColumnKeys: Record<string, string> = {}; // coaColumn.id -> uploaded file header key
+        otherColumns.forEach(col => {
+          const aliases = new Set<string>([
+            col.name.toLowerCase().replace(/[^a-z]/g, ''),
+            col.id.toLowerCase().replace(/[^a-z]/g, ''),
+          ]);
+          if (col.id === 'subType') aliases.add('subtype');
+          if (col.id === 'normalSide') { aliases.add('normalentry'); aliases.add('normalside'); aliases.add('entry'); }
+          const fileKey = findColumnKey(rows[0], Array.from(aliases));
+          if (fileKey) matchedColumnKeys[col.id] = fileKey;
+        });
 
         // Ask whether to overwrite the current CoA or merge the upload into it
         const overwrite = accounts.length > 0
@@ -444,12 +462,26 @@ export function ChartOfAccounts() {
           usedIds.add(id);
           existingNames.add(name.toLowerCase());
 
+          // Pull in values from any matched columns (overrides the auto-derived Sub-Type/Normal Entry when present)
+          const matchedValues: Record<string, any> = {};
+          Object.entries(matchedColumnKeys).forEach(([colId, fileKey]) => {
+            const rawValue = String(row[fileKey] ?? '').trim();
+            if (!rawValue) return;
+            if (colId === 'normalSide') {
+              const v = rawValue.toLowerCase();
+              if (v === 'debit' || v === 'credit') matchedValues.normalSide = v;
+            } else {
+              matchedValues[colId] = rawValue;
+            }
+          });
+
           newAccounts.push({
             id,
             name,
             type,
             subType,
             normalSide: getNormalSide(type),
+            ...matchedValues,
           });
         });
 
