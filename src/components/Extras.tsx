@@ -133,8 +133,8 @@ export function Extras() {
             <div className="flex-1 overflow-y-auto px-4">
               <h2 className="text-2xl font-bold text-red-800 mb-6 border-b border-red-200 pb-2">Owner's Information</h2>
 
-              <div className="grid grid-cols-12 gap-4 mb-4">
-                <div className="col-span-5">
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 mb-4">
+                <div className="sm:col-span-5">
                   <label className="form-label">Tin:</label>
                   <div className="flex items-center gap-1">
                     <input 
@@ -177,7 +177,7 @@ export function Extras() {
                     />
                   </div>
                 </div>
-                <div className="col-span-7">
+                <div className="sm:col-span-7">
                   <label className="form-label">Taxpayer Classification:</label>
                   <select 
                     value={editingClient.taxpayerClassification || ''}
@@ -207,7 +207,7 @@ export function Extras() {
 
               <div className="mb-4">
                 <label className="form-label">Taxpayer Name:</label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <div className="flex flex-col items-center">
                     <input 
                       type="text" 
@@ -253,7 +253,7 @@ export function Extras() {
 
               <div className="bg-slate-200 dark:bg-slate-800/80 p-4 rounded border border-slate-300 dark:border-slate-700 mb-4">
                 <label className="form-label text-slate-800 dark:text-slate-300 mb-3 font-bold">Registered/Business Address:</label>
-                <div className="grid grid-cols-3 gap-2 mb-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
                   <div className="flex flex-col items-center">
                     <input 
                       value={editingClient.substreet || ''} 
@@ -279,7 +279,7 @@ export function Extras() {
                     <span className="text-[10px] text-slate-500 mt-1 uppercase font-bold text-center">Barangay</span>
                   </div>
                 </div>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <div className="flex flex-col items-center">
                     <input 
                       value={editingClient.district || ''} 
@@ -307,8 +307,8 @@ export function Extras() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-12 gap-4 items-end mb-6">
-                <div className="col-span-4">
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-end mb-6">
+                <div className="sm:col-span-4">
                   <label className="form-label">Contact Number:</label>
                   <input
                     type="text"
@@ -317,7 +317,7 @@ export function Extras() {
                     className="form-input border-slate-400 dark:border-slate-600"
                   />
                 </div>
-                <div className="col-span-5">
+                <div className="sm:col-span-5">
                   <label className="form-label">Registered Email Address:</label>
                   <input
                     type="email"
@@ -326,7 +326,7 @@ export function Extras() {
                     className="form-input border-slate-400 dark:border-slate-600"
                   />
                 </div>
-                <div className="col-span-3 flex items-center gap-4 py-3">
+                <div className="sm:col-span-3 flex items-center gap-4 py-3">
                   <label className="flex items-center gap-2 cursor-pointer group">
                     <input
                       type="radio"
@@ -348,7 +348,7 @@ export function Extras() {
                     <span className="text-xs font-bold uppercase tracking-tight">Government</span>
                   </label>
                 </div>
-                <div className="col-span-12 -mt-2 mb-2">
+                <div className="sm:col-span-12 -mt-2 mb-2">
                   <label className="flex items-center gap-2 cursor-pointer group w-max">
                     <input
                       type="checkbox"
@@ -361,8 +361,8 @@ export function Extras() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-12 gap-4 items-end mb-6">
-                <div className="col-span-3">
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-end mb-6">
+                <div className="sm:col-span-3">
                   <label className="form-label">RDO Code:</label>
                   <select 
                     value={editingClient.rdoCode || ''}
@@ -375,7 +375,7 @@ export function Extras() {
                     ))}
                   </select>
                 </div>
-                <div className="col-span-5 flex items-center gap-6 py-3 px-2">
+                <div className="sm:col-span-5 flex items-center gap-6 py-3 px-2">
                   <label className="flex items-center gap-2 cursor-pointer group">
                     <input 
                       type="radio" 
@@ -397,7 +397,7 @@ export function Extras() {
                     <span className="text-xs font-bold uppercase tracking-tight">Fiscal</span>
                   </label>
                 </div>
-                <div className="col-span-4">
+                <div className="sm:col-span-4">
                   <label className="form-label">Fiscal Month End:</label>
                   <select 
                     disabled={editingClient.accountingType !== 'Fiscal'}
@@ -540,8 +540,8 @@ export function Extras() {
             <div className="flex-1 overflow-y-auto px-4">
               <h2 className="text-2xl font-bold text-red-800 mb-6 border-b border-red-200 pb-2">Business Information</h2>
 
-              <div className="grid grid-cols-12 gap-4 mb-4">
-                <div className="col-span-5">
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 mb-4">
+                <div className="sm:col-span-5">
                   <label className="form-label">Tin:</label>
                   <div className="flex items-center gap-1">
                     <input 
@@ -584,7 +584,7 @@ export function Extras() {
                     />
                   </div>
                 </div>
-                <div className="col-span-7">
+                <div className="sm:col-span-7">
                   <label className="form-label">Taxpayer Classification:</label>
                   <select 
                     value={editingBusiness.taxpayerClassification || ''}
@@ -614,7 +614,7 @@ export function Extras() {
 
               <div className="mb-4">
                 <label className="form-label">Taxpayer Name:</label>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <div className="flex flex-col items-center">
                     <input 
                       type="text" 
@@ -660,7 +660,7 @@ export function Extras() {
 
               <div className="bg-slate-200 dark:bg-slate-800/80 p-4 rounded border border-slate-300 dark:border-slate-700 mb-4">
                 <label className="form-label text-slate-800 dark:text-slate-300 mb-3 font-bold">Registered/Business Address:</label>
-                <div className="grid grid-cols-3 gap-2 mb-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
                   <div className="flex flex-col items-center">
                     <input 
                       value={editingBusiness.substreet || ''} 
@@ -686,7 +686,7 @@ export function Extras() {
                     <span className="text-[10px] text-slate-500 mt-1 uppercase font-bold text-center">Barangay</span>
                   </div>
                 </div>
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   <div className="flex flex-col items-center">
                     <input 
                       value={editingBusiness.district || ''} 
@@ -714,8 +714,8 @@ export function Extras() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-12 gap-4 items-end mb-6">
-                <div className="col-span-4">
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-end mb-6">
+                <div className="sm:col-span-4">
                   <label className="form-label">Contact Number:</label>
                   <input
                     type="text"
@@ -724,7 +724,7 @@ export function Extras() {
                     className="form-input border-slate-400 dark:border-slate-600"
                   />
                 </div>
-                <div className="col-span-5">
+                <div className="sm:col-span-5">
                   <label className="form-label">Registered Email Address:</label>
                   <input
                     type="email"
@@ -733,7 +733,7 @@ export function Extras() {
                     className="form-input border-slate-400 dark:border-slate-600"
                   />
                 </div>
-                <div className="col-span-3 flex items-center gap-4 py-3">
+                <div className="sm:col-span-3 flex items-center gap-4 py-3">
                   <label className="flex items-center gap-2 cursor-pointer group">
                     <input
                       type="radio"
@@ -755,7 +755,7 @@ export function Extras() {
                     <span className="text-xs font-bold uppercase tracking-tight">Government</span>
                   </label>
                 </div>
-                <div className="col-span-12 -mt-2 mb-2">
+                <div className="sm:col-span-12 -mt-2 mb-2">
                   <label className="flex items-center gap-2 cursor-pointer group w-max">
                     <input
                       type="checkbox"
@@ -768,8 +768,8 @@ export function Extras() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-12 gap-4 items-end mb-6">
-                <div className="col-span-3">
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-end mb-6">
+                <div className="sm:col-span-3">
                   <label className="form-label">RDO Code:</label>
                   <select 
                     value={editingBusiness.rdoCode || ''}
@@ -782,7 +782,7 @@ export function Extras() {
                     ))}
                   </select>
                 </div>
-                <div className="col-span-5 flex items-center gap-6 py-3 px-2">
+                <div className="sm:col-span-5 flex items-center gap-6 py-3 px-2">
                   <label className="flex items-center gap-2 cursor-pointer group">
                      <input 
                        type="radio" 
@@ -804,7 +804,7 @@ export function Extras() {
                      <span className="text-xs font-bold uppercase tracking-tight">Fiscal</span>
                   </label>
                 </div>
-                <div className="col-span-4">
+                <div className="sm:col-span-4">
                   <label className="form-label">Fiscal Month End:</label>
                   <select 
                     disabled={editingBusiness.accountingType !== 'Fiscal'}
