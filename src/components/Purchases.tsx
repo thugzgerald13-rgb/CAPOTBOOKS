@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { formatTIN, generateCSV, MONTHS, getMonthName } from '../lib/utils';
-import { ShoppingCart, Plus, ArrowLeft, FolderClock, ChevronsLeft, ChevronsRight, ChevronLeft, ChevronRight, PlusCircle, Trash2 } from 'lucide-react';
+import { ShoppingCart, Plus, ArrowLeft, ChevronsLeft, ChevronsRight, ChevronLeft, ChevronRight, PlusCircle, Trash2 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { DEFAULT_ACCOUNTS } from './ChartOfAccounts';
 
@@ -277,57 +277,6 @@ export function Purchases() {
     <div className="w-full flex flex-col">
       <PageHeader title={currentDat ? "Expense Data Entry Screen (DAT)" : "Expense Data Entry Screen"} icon={<ShoppingCart className="w-5 h-5 text-amber-500" />} />
       <div className="p-4 md:p-6 flex-1">
-      <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between bg-slate-100 dark:bg-slate-800 p-4 rounded-2xl mb-6 gap-4 border border-slate-200 dark:border-slate-700">
-        <div className="flex flex-wrap items-center gap-2 font-bold text-slate-700 dark:text-slate-300">
-          <FolderClock className="w-5 h-5 text-cyan-500" />
-          <span>Period:</span>
-          <select
-            value={currentDat?.month || new Date().getMonth() + 1}
-            onChange={e => {
-              const month = parseInt(e.target.value);
-              const year = currentDat?.year || new Date().getFullYear();
-              setCurrentDat({ month, year, formatted: `${getMonthName(month)} ${year}` });
-            }}
-            className="px-3 py-1.5 rounded-lg text-sm font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 outline-none"
-          >
-            {MONTHS.map((m, i) => (
-              <option key={m} value={i + 1}>{m}</option>
-            ))}
-          </select>
-          <select
-            value={currentDat?.year || new Date().getFullYear()}
-            onChange={e => {
-              const year = parseInt(e.target.value);
-              const month = currentDat?.month || new Date().getMonth() + 1;
-              setCurrentDat({ month, year, formatted: `${getMonthName(month)} ${year}` });
-            }}
-            className="px-3 py-1.5 rounded-lg text-sm font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 outline-none"
-          >
-            {Array.from({ length: 11 }, (_, i) => new Date().getFullYear() - 10 + i).map(y => (
-              <option key={y} value={y}>{y}</option>
-            ))}
-          </select>
-          {currentDat ? (
-            <div className="flex items-center gap-2 ml-2 pl-4 border-l border-slate-300 dark:border-slate-600">
-              <span className="text-sm font-bold text-slate-700 dark:text-slate-300 whitespace-nowrap">Seq #:</span>
-              <input
-                type="text"
-                readOnly
-                value={sequenceNumber}
-                className="w-14 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg text-center font-bold text-amber-600 py-1.5 focus:outline-none shadow-inner"
-              />
-              <button
-                onClick={() => setCurrentDat(null)}
-                className="text-xs text-slate-400 hover:text-rose-500 font-semibold underline"
-              >
-                Clear
-              </button>
-            </div>
-          ) : (
-            <span className="text-[10px] text-slate-400 font-semibold">Optional — entries will use their own transaction date if left unset</span>
-          )}
-        </div>
-      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-100 dark:border-slate-700 relative">
         <div className="lg:col-span-3 pb-2 mb-2 border-b border-slate-200 dark:border-slate-700 flex flex-col md:flex-row gap-4 justify-between">
