@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { BookOpen, Plus, Trash2, RefreshCcw, Edit2, ClipboardList, Check, X, Columns, ArrowUpDown, Upload, Eye, EyeOff } from 'lucide-react';
+import { BookOpen, Plus, Trash2, RefreshCcw, Edit2, ClipboardList, Check, X, Columns, ArrowUp, ArrowDown, Upload, Eye, EyeOff } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
@@ -169,7 +169,6 @@ export function ChartOfAccounts() {
   const [editParentId, setEditParentId] = useState('');
   const [editOpeningBalance, setEditOpeningBalance] = useState('');
   const [editModalTab, setEditModalTab] = useState<'details' | 'openingBalance'>('details');
-  const [swappingId, setSwappingId] = useState<string | null>(null);
 
   // Sub-Type filter (options depend on the selected Account Type filter)
   const [subTypeFilter, setSubTypeFilter] = useState('All');
@@ -568,12 +567,14 @@ export function ChartOfAccounts() {
     setEditModalTab('details');
   };
 
-  const handleSwapConfirm = (idA: string, idB: string) => {
-    if (idA === idB) return;
-    
+  // Swaps two accounts' codes (and their sub-account branches) so they trade positions in the CoA order.
+  // Returns the swapped account names on success, or null if the swap couldn't be performed.
+  const performAccountSwap = (idA: string, idB: string): { nameA: string; nameB: string } | null => {
+    if (idA === idB) return null;
+
     const accountA = accounts.find(a => a.id === idA);
     const accountB = accounts.find(a => a.id === idB);
-    if (!accountA || !accountB) return;
+    if (!accountA || !accountB) return null;
 
     // Helper to find common prefix and construct a swapped code
     const getSwappedCode = (oldId: string, oldParentId: string, newParentId: string): string => {
@@ -730,8 +731,27 @@ export function ChartOfAccounts() {
     });
 
     handleSaveAccounts(swappedAccounts);
-    setSwappingId(null);
-    showToast(`Swapped "${accountA.name}" branch and "${accountB.name}" branch together with their subaccounts successfully!`);
+    return { nameA: accountA.name, nameB: accountB.name };
+  };
+
+  // Moves an account up one position by swapping codes with the account directly above it
+  // in the currently displayed (filtered) list.
+  const handleMoveUp = (id: string) => {
+    const idx = filteredAccounts.findIndex(a => a.id === id);
+    if (idx <= 0) return; // already at the top or not found
+    const neighbor = filteredAccounts[idx - 1];
+    const result = performAccountSwap(id, neighbor.id);
+    if (result) showToast(`Moved "${result.nameA}" up.`);
+  };
+
+  // Moves an account down one position by swapping codes with the account directly below it
+  // in the currently displayed (filtered) list.
+  const handleMoveDown = (id: string) => {
+    const idx = filteredAccounts.findIndex(a => a.id === id);
+    if (idx === -1 || idx >= filteredAccounts.length - 1) return; // already at the bottom or not found
+    const neighbor = filteredAccounts[idx + 1];
+    const result = performAccountSwap(id, neighbor.id);
+    if (result) showToast(`Moved "${result.nameA}" down.`);
   };
 
   // Dynamically calculate actual real-time balances from active journals / ledger
@@ -1255,24 +1275,6 @@ export function ChartOfAccounts() {
           </div>
         )}
 
-        {/* Swapping Active Banner */}
-        {swappingId && (
-          <div className="flex justify-between items-center bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-800 p-4 rounded-xl mb-4 text-xs font-semibold text-indigo-800 dark:text-indigo-200 shadow-sm animate-pulse">
-            <div className="flex items-center gap-2.5">
-              <ArrowUpDown className="w-4 h-4 text-indigo-600 dark:text-indigo-400 animate-bounce shrink-0" />
-              <span>
-                Swapping active: Select another account below to swap with <strong>{accounts.find(a => a.id === swappingId)?.name} ({swappingId})</strong> to change positions and trade corresponding Account Codes.
-              </span>
-            </div>
-            <button 
-              onClick={() => setSwappingId(null)}
-              className="px-3 py-1.5 bg-white dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold transition-colors shadow-sm ml-4 shrink-0"
-            >
-              Cancel Swap Mode
-            </button>
-          </div>
-        )}
-
         {/* Chart of Accounts card layout matching image exactly */}
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
           {/* Card Header */}
@@ -1374,7 +1376,7 @@ export function ChartOfAccounts() {
                     </td>
                   </tr>
                 ) : (
-                  filteredAccounts.map(account => {
+                  filteredAccounts.map((account, index) => {
                     const balanceValue = getAccountBalance(account);
 
                     const parentAccount = account.parentId ? accounts.find(a => a.id === account.parentId) : null;
@@ -1462,77 +1464,74 @@ export function ChartOfAccounts() {
                               ₱ {balanceValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </span>
                             
-                            {swappingId ? (
-                              <div className="flex items-center gap-1.5 ml-2 shrink-0">
-                                {account.id === swappingId ? (
-                                  <button
-                                    onClick={() => setSwappingId(null)}
-                                    className="px-2.5 py-1 text-[11px] font-bold text-red-600 bg-red-50 hover:bg-red-100 dark:text-red-400 dark:bg-red-950/20 dark:hover:bg-red-950/40 border border-red-200 dark:border-red-900/50 rounded-lg transition-colors flex items-center gap-1 shrink-0"
-                                    title="Cancel swap mode"
-                                  >
-                                    <X className="w-3 h-3" /> Cancel
-                                  </button>
-                                ) : (
-                                  <button
-                                    onClick={() => handleSwapConfirm(swappingId, account.id)}
-                                    className="px-2.5 py-1 text-[11px] font-bold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 dark:text-indigo-400 dark:bg-indigo-950/20 dark:hover:bg-indigo-950/45 border border-indigo-200 dark:border-indigo-900/50 rounded-lg transition-colors flex items-center gap-1 shrink-0"
-                                    title={`Swap with ${accounts.find(a => a.id === swappingId)?.name}`}
-                                  >
-                                    <ArrowUpDown className="w-3 h-3" /> Swap Here
-                                  </button>
+                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2 shrink-0">
+                              <button
+                                onClick={() => handleToggleHidden(account.id)}
+                                className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-slate-500 dark:text-slate-400 transition-colors"
+                                title={account.hidden ? "Unhide Account" : "Hide Account"}
+                              >
+                                {account.hidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                              </button>
+                              <button
+                                onClick={() => handleMoveUp(account.id)}
+                                disabled={index === 0}
+                                className={cn(
+                                  "p-1 rounded transition-colors",
+                                  index === 0
+                                    ? "text-slate-300 dark:text-slate-700 cursor-not-allowed"
+                                    : "hover:bg-indigo-100 dark:hover:bg-indigo-900/40 text-indigo-500"
                                 )}
-                              </div>
-                            ) : (
-                              <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity ml-2 shrink-0">
-                                <button
-                                  onClick={() => handleToggleHidden(account.id)}
-                                  className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-slate-500 dark:text-slate-400 transition-colors"
-                                  title={account.hidden ? "Unhide Account" : "Hide Account"}
-                                >
-                                  {account.hidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                                </button>
-                                <button
-                                  onClick={() => setSwappingId(account.id)}
-                                  className="p-1 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 rounded text-indigo-500 transition-colors"
-                                  title="Swap/Switch Account Code and Order"
-                                >
-                                  <ArrowUpDown className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    setEditingId(account.id);
-                                    setEditCode(account.id);
-                                    setEditName(account.name);
-                                    setEditType(account.type);
-                                    setEditSubType(account.subType || '');
-                                    setEditNormalSide(account.normalSide || getNormalSide(account.type));
-                                    setEditParentId(account.parentId || '');
-                                    setEditOpeningBalance(account.openingBalance !== undefined ? String(account.openingBalance) : '');
-                                    setEditModalTab('details');
+                                title="Move Up"
+                              >
+                                <ArrowUp className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => handleMoveDown(account.id)}
+                                disabled={index === filteredAccounts.length - 1}
+                                className={cn(
+                                  "p-1 rounded transition-colors",
+                                  index === filteredAccounts.length - 1
+                                    ? "text-slate-300 dark:text-slate-700 cursor-not-allowed"
+                                    : "hover:bg-indigo-100 dark:hover:bg-indigo-900/40 text-indigo-500"
+                                )}
+                                title="Move Down"
+                              >
+                                <ArrowDown className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setEditingId(account.id);
+                                  setEditCode(account.id);
+                                  setEditName(account.name);
+                                  setEditType(account.type);
+                                  setEditSubType(account.subType || '');
+                                  setEditNormalSide(account.normalSide || getNormalSide(account.type));
+                                  setEditParentId(account.parentId || '');
+                                  setEditOpeningBalance(account.openingBalance !== undefined ? String(account.openingBalance) : '');
+                                  setEditModalTab('details');
 
-                                    // Collect custom fields
-                                    const editingMap: Record<string, string> = {};
-                                    coaColumns.forEach(c => {
-                                      if (!c.isSystem && c.id !== 'subType' && c.id !== 'normalSide') {
-                                        editingMap[c.id] = account[c.id] || '';
-                                      }
-                                    });
-                                    setEditCustomValues(editingMap);
-                                  }}
-                                  className="p-1 hover:bg-blue-100 dark:hover:bg-blue-900/40 rounded text-blue-500 transition-colors"
-                                  title="Edit Account"
-                                >
-                                  <Edit2 className="w-3.5 h-3.5" />
-                                </button>
-                                <button 
-                                  onClick={() => handleDelete(account.id)}
-                                  className="p-1 hover:bg-red-100 dark:hover:bg-red-900/40 rounded text-red-500 transition-colors"
-                                  title="Delete Account"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            )}
+                                  // Collect custom fields
+                                  const editingMap: Record<string, string> = {};
+                                  coaColumns.forEach(c => {
+                                    if (!c.isSystem && c.id !== 'subType' && c.id !== 'normalSide') {
+                                      editingMap[c.id] = account[c.id] || '';
+                                    }
+                                  });
+                                  setEditCustomValues(editingMap);
+                                }}
+                                className="p-1 hover:bg-blue-100 dark:hover:bg-blue-900/40 rounded text-blue-500 transition-colors"
+                                title="Edit Account"
+                              >
+                                <Edit2 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                onClick={() => handleDelete(account.id)}
+                                className="p-1 hover:bg-red-100 dark:hover:bg-red-900/40 rounded text-red-500 transition-colors"
+                                title="Delete Account"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
                           </div>
                         </td>
                       </tr>
