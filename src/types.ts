@@ -62,6 +62,8 @@ export interface CoaAccount {
   subType?: string;
   normalSide?: 'debit' | 'credit';
   parentId?: string;
+  hidden?: boolean;
+  openingBalance?: number;
   [key: string]: any;
 }
 
@@ -307,6 +309,7 @@ export interface BalanceSheetData {
   ppe: BalanceSheetLine[];
   currentLiabilities: BalanceSheetLine[];
   capital: BalanceSheetLine[];
+  certifiedBy: string;
 }
 
 export interface CashFlowLine {
@@ -501,4 +504,3 @@ export interface MiscellaneousPayment {
   expenseCategory: string; // e.g., Utilities, Rent, Office Supplies
   description: string;
 }
-
