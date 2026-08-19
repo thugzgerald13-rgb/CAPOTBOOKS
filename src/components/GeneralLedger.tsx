@@ -1,34 +1,85 @@
-import React, { useState } from 'react';
-import { LineChart, Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { LineChart, Plus, Trash2, ChevronDown, ChevronUp, Layers } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { GeneralLedgerAccount, GeneralLedgerEntry } from '../types';
+import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA } from './ChartOfAccounts';
 import { cn } from '../lib/utils';
 
 export function GeneralLedger() {
-  const { currentClient, currentClientId, saveClient } = useAccounting();
+  const { currentClient, currentClientId, saveClient, showToast } = useAccounting();
   
-  const [newAccountTitle, setNewAccountTitle] = useState('');
+  const [selectedAccountId, setSelectedAccountId] = useState('');
+  const [typeFilter, setTypeFilter] = useState('All');
   const [expandedAccounts, setExpandedAccounts] = useState<Record<string, boolean>>({});
 
   if (!currentClient || !currentClientId) return null;
 
   const accounts = currentClient.glAccounts || [];
 
+  // Source of truth for accounts is the Chart of Accounts, so every Account Type
+  // set up there (Asset, Liabilities, Equity, Revenue, Costs, Expense, or any
+  // custom type) is available to pick from here — not just a fixed/hardcoded list.
+  const coaAccounts = useMemo(() => {
+    const list = currentClient.accounts && currentClient.accounts.length > 0
+      ? currentClient.accounts
+      : (currentClient.coaFormat === 'alphanumeric' ? DEFAULT_ACCOUNTS_ALPHA : DEFAULT_ACCOUNTS);
+    return list.filter(a => !a.hidden);
+  }, [currentClient.accounts, currentClient.coaFormat]);
+
+  // Distinct Account Types present in the Chart of Accounts, used to build the
+  // Type filter below so every type in the CoA is browsable here too.
+  const availableTypes = useMemo(() => {
+    const types = coaAccounts.map(a => a.type).filter((t): t is string => !!t && t.trim() !== '');
+    return Array.from(new Set(types)).sort((a, b) => a.localeCompare(b));
+  }, [coaAccounts]);
+
+  const addableAccounts = coaAccounts.filter(a => !accounts.some(g => g.accountId === a.id));
+
+  const filteredAccounts = typeFilter === 'All'
+    ? accounts
+    : accounts.filter(a => (a.accountType || '').toLowerCase() === typeFilter.toLowerCase());
+
   const handleSaveAccounts = (newAccounts: GeneralLedgerAccount[]) => {
     saveClient(currentClientId, { ...currentClient, glAccounts: newAccounts });
   };
 
   const addAccount = () => {
-    if (!newAccountTitle) return;
+    if (!selectedAccountId) return;
+    const coaAccount = coaAccounts.find(a => a.id === selectedAccountId);
+    if (!coaAccount) return;
+    if (accounts.some(g => g.accountId === coaAccount.id)) {
+      showToast(`${coaAccount.name} is already in the General Ledger.`);
+      return;
+    }
     const newAccount: GeneralLedgerAccount = {
       id: crypto.randomUUID(),
-      accountTitle: newAccountTitle,
+      accountTitle: coaAccount.name,
+      accountId: coaAccount.id,
+      accountType: coaAccount.type,
       entries: []
     };
     handleSaveAccounts([...accounts, newAccount]);
-    setNewAccountTitle('');
+    setSelectedAccountId('');
     setExpandedAccounts({ ...expandedAccounts, [newAccount.id]: true });
+  };
+
+  // Populates the ledger with every Chart of Accounts entry that isn't already
+  // here, guaranteeing every Account Type from the CoA is represented.
+  const addAllAccounts = () => {
+    if (addableAccounts.length === 0) {
+      showToast("All Chart of Accounts entries are already in the General Ledger.");
+      return;
+    }
+    const newEntries: GeneralLedgerAccount[] = addableAccounts.map(a => ({
+      id: crypto.randomUUID(),
+      accountTitle: a.name,
+      accountId: a.id,
+      accountType: a.type,
+      entries: []
+    }));
+    handleSaveAccounts([...accounts, ...newEntries]);
+    showToast(`Added ${newEntries.length} account${newEntries.length === 1 ? '' : 's'} from the Chart of Accounts.`);
   };
 
   const deleteAccount = (id: string) => {
@@ -92,29 +143,54 @@ export function GeneralLedger() {
       <PageHeader title="General Ledger" icon={<LineChart />} />
       <div className="p-4 md:p-6 flex-1">
       <div className="p-6">
-        <div className="flex justify-between items-center mb-6">
-          <p className="text-slate-500 dark:text-slate-400">Record general ledger transactions manually.</p>
-          <div className="flex items-center gap-3">
-            <input 
-              type="text" 
-              value={newAccountTitle} 
-              onChange={e => setNewAccountTitle(e.target.value)} 
+        <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-3 mb-6">
+          <p className="text-slate-500 dark:text-slate-400">Ledger accounts are pulled from your Chart of Accounts, so every Account Type set up there is available here.</p>
+          <div className="flex flex-wrap items-center gap-3">
+            {availableTypes.length > 1 && (
+              <select
+                value={typeFilter}
+                onChange={e => setTypeFilter(e.target.value)}
+                className="form-input text-sm py-2"
+                title="Filter by Account Type"
+              >
+                <option value="All">All Types</option>
+                {availableTypes.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            )}
+            <select
+              value={selectedAccountId}
+              onChange={e => setSelectedAccountId(e.target.value)}
               className="form-input text-sm py-2 min-w-[250px]"
-              placeholder="e.g. CASH IN BANK / ON HAND"
-              onKeyDown={e => e.key === 'Enter' && addAccount()}
-            />
+            >
+              <option value="">Select an account from the Chart of Accounts…</option>
+              {availableTypes.map(type => (
+                <optgroup key={type} label={type}>
+                  {addableAccounts.filter(a => a.type === type).map(a => (
+                    <option key={a.id} value={a.id}>{a.id} — {a.name}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
             <button 
               onClick={addAccount}
-              disabled={!newAccountTitle}
+              disabled={!selectedAccountId}
               className="bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white font-bold px-4 py-2 rounded-xl transition-colors flex items-center gap-2"
             >
               <Plus className="w-4 h-4" /> Add Account
+            </button>
+            <button
+              onClick={addAllAccounts}
+              disabled={addableAccounts.length === 0}
+              className="bg-slate-600 hover:bg-slate-700 disabled:opacity-50 text-white font-bold px-4 py-2 rounded-xl transition-colors flex items-center gap-2"
+              title="Add every Chart of Accounts entry not yet in the ledger"
+            >
+              <Layers className="w-4 h-4" /> Add All from CoA
             </button>
           </div>
         </div>
 
         <div className="space-y-6">
-          {accounts.map(account => {
+          {filteredAccounts.map(account => {
             const isExpanded = expandedAccounts[account.id] ?? true;
             
             // Calculate ending balance
@@ -135,9 +211,16 @@ export function GeneralLedger() {
                   className="bg-slate-100 dark:bg-slate-800 px-4 py-3 flex justify-between items-center cursor-pointer border-b border-slate-200 dark:border-slate-700"
                   onClick={() => toggleAccount(account.id)}
                 >
-                  <h3 className="font-bold text-slate-800 dark:text-slate-200 tracking-wider uppercase text-sm">
-                    {account.accountTitle}
-                  </h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-bold text-slate-800 dark:text-slate-200 tracking-wider uppercase text-sm">
+                      {account.accountTitle}
+                    </h3>
+                    {account.accountType && (
+                      <span className="text-[10px] font-bold px-2 py-0.5 bg-cyan-100 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300 rounded uppercase tracking-wide">
+                        {account.accountType}
+                      </span>
+                    )}
+                  </div>
                   <div className="flex items-center gap-4">
                     <span className="text-xs font-bold px-2 py-1 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded">
                       Bal: ₱ {balance >= 0 ? balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : `(${(balance * -1).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`}
@@ -309,11 +392,17 @@ export function GeneralLedger() {
               </div>
             );
           })}
-          
+
           {accounts.length === 0 && (
             <div className="text-center py-12 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl border-dashed">
-              <p className="text-slate-500 dark:text-slate-400">No ledger accounts created yet.</p>
-              <p className="text-sm mt-2 text-slate-400">Add an account above to start entering transactions.</p>
+              <p className="text-slate-500 dark:text-slate-400">No ledger accounts yet.</p>
+              <p className="text-sm mt-2 text-slate-400">Pick an account from the Chart of Accounts above, or click "Add All from CoA" to bring in every account type at once.</p>
+            </div>
+          )}
+
+          {accounts.length > 0 && filteredAccounts.length === 0 && (
+            <div className="text-center py-12 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl border-dashed">
+              <p className="text-slate-500 dark:text-slate-400">No ledger accounts match the "{typeFilter}" filter.</p>
             </div>
           )}
         </div>
