@@ -351,6 +351,15 @@ export interface GeneralLedgerAccount {
   accountId?: string;
   accountType?: string;
   entries: GeneralLedgerEntry[];
+  // Beginning balance for this ledger account, sourced live from the matching
+  // Chart of Accounts entry's opening balance. Not persisted on this record —
+  // recomputed from the CoA each render so edits to the opening balance in the
+  // CoA are reflected here immediately.
+  openingBalance?: number;
+  // Which side (debit or credit) the opening balance normally sits on, also
+  // sourced from the Chart of Accounts entry, used to place the beginning
+  // balance in the correct column of the ledger.
+  normalSide?: 'debit' | 'credit';
 }
 
 export interface JournalColumn {
