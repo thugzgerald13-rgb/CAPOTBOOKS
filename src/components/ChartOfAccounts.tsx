@@ -7,46 +7,38 @@ import { CoaAccount } from '../types';
 import { cn } from '../lib/utils';
 
 export const DEFAULT_ACCOUNTS: CoaAccount[] = [
-  { id: '1000', name: 'Cash on Hand', type: 'Asset', subType: 'Current Assets', normalSide: 'debit' },
-  { id: '1100', name: 'Accounts Receivable', type: 'Asset', subType: 'Current Assets', normalSide: 'debit' },
-  { id: '1200', name: 'Creditable Withholding Tax', type: 'Asset', subType: 'Current Assets', normalSide: 'debit' },
-  { id: '1300', name: 'Inventory', type: 'Asset', subType: 'Current Assets', normalSide: 'debit' },
-  { id: '2000', name: 'Accounts Payable', type: 'Liability', subType: 'Current Liabilities', normalSide: 'credit' },
-  { id: '2100', name: 'VAT Output Payable', type: 'Liability', subType: 'Current Liabilities', normalSide: 'credit' },
-  { id: '2200', name: 'VAT Input Receivable', type: 'Asset', subType: 'Current Assets', normalSide: 'debit' },
-  { id: '2300', name: 'Withholding Tax Payable', type: 'Liability', subType: 'Current Liabilities', normalSide: 'credit' },
+  { id: '1000', name: 'Cash on Hand', type: 'Asset', normalSide: 'debit' },
+  { id: '1100', name: 'Accounts Receivable', type: 'Asset', normalSide: 'debit' },
+  { id: '1200', name: 'Creditable Withholding Tax', type: 'Asset', normalSide: 'debit' },
+  { id: '1300', name: 'Inventory', type: 'Asset', normalSide: 'debit' },
+  { id: '2000', name: 'Accounts Payable', type: 'Liabilities', normalSide: 'credit' },
+  { id: '2100', name: 'VAT Output Payable', type: 'Liabilities', normalSide: 'credit' },
+  { id: '2200', name: 'VAT Input Receivable', type: 'Asset', normalSide: 'debit' },
+  { id: '2300', name: 'Withholding Tax Payable', type: 'Liabilities', normalSide: 'credit' },
   { id: '3000', name: 'Capital Stock', type: 'Equity', normalSide: 'credit' },
   { id: '3100', name: 'Retained Earnings', type: 'Equity', normalSide: 'credit' },
   { id: '4000', name: 'Sales Revenue', type: 'Revenue', normalSide: 'credit' },
-  { id: '5000', name: 'Cost of Goods Sold', type: 'Expense', subType: 'Costs', normalSide: 'debit' },
-  { id: '5100', name: 'Operating Expenses', type: 'Expense', subType: 'Administrative expense', normalSide: 'debit' },
+  { id: '5000', name: 'Cost of Goods Sold', type: 'Costs', normalSide: 'debit' },
+  { id: '5100', name: 'Operating Expenses', type: 'Expense', normalSide: 'debit' },
 ];
 
 export const DEFAULT_ACCOUNTS_ALPHA: CoaAccount[] = [
-  { id: 'COH-1000', name: 'Cash on Hand', type: 'Asset', subType: 'Current Assets', normalSide: 'debit' },
-  { id: 'ACR-1100', name: 'Accounts Receivable', type: 'Asset', subType: 'Current Assets', normalSide: 'debit' },
-  { id: 'CWT-1200', name: 'Creditable Withholding Tax', type: 'Asset', subType: 'Current Assets', normalSide: 'debit' },
-  { id: 'INV-1300', name: 'Inventory', type: 'Asset', subType: 'Current Assets', normalSide: 'debit' },
-  { id: 'ACP-2000', name: 'Accounts Payable', type: 'Liability', subType: 'Current Liabilities', normalSide: 'credit' },
-  { id: 'VOP-2100', name: 'VAT Output Payable', type: 'Liability', subType: 'Current Liabilities', normalSide: 'credit' },
-  { id: 'VIR-2200', name: 'VAT Input Receivable', type: 'Asset', subType: 'Current Assets', normalSide: 'debit' },
-  { id: 'WTP-2300', name: 'Withholding Tax Payable', type: 'Liability', subType: 'Current Liabilities', normalSide: 'credit' },
+  { id: 'COH-1000', name: 'Cash on Hand', type: 'Asset', normalSide: 'debit' },
+  { id: 'ACR-1100', name: 'Accounts Receivable', type: 'Asset', normalSide: 'debit' },
+  { id: 'CWT-1200', name: 'Creditable Withholding Tax', type: 'Asset', normalSide: 'debit' },
+  { id: 'INV-1300', name: 'Inventory', type: 'Asset', normalSide: 'debit' },
+  { id: 'ACP-2000', name: 'Accounts Payable', type: 'Liabilities', normalSide: 'credit' },
+  { id: 'VOP-2100', name: 'VAT Output Payable', type: 'Liabilities', normalSide: 'credit' },
+  { id: 'VIR-2200', name: 'VAT Input Receivable', type: 'Asset', normalSide: 'debit' },
+  { id: 'WTP-2300', name: 'Withholding Tax Payable', type: 'Liabilities', normalSide: 'credit' },
   { id: 'CAP-3000', name: 'Capital Stock', type: 'Equity', normalSide: 'credit' },
   { id: 'RET-3100', name: 'Retained Earnings', type: 'Equity', normalSide: 'credit' },
   { id: 'REV-4000', name: 'Sales Revenue', type: 'Revenue', normalSide: 'credit' },
-  { id: 'CGS-5000', name: 'Cost of Goods Sold', type: 'Expense', subType: 'Costs', normalSide: 'debit' },
-  { id: 'OPE-5100', name: 'Operating Expenses', type: 'Expense', subType: 'Administrative expense', normalSide: 'debit' },
+  { id: 'CGS-5000', name: 'Cost of Goods Sold', type: 'Costs', normalSide: 'debit' },
+  { id: 'OPE-5100', name: 'Operating Expenses', type: 'Expense', normalSide: 'debit' },
 ];
 
-const ACCOUNT_TYPES = ['Asset', 'Liability', 'Equity', 'Revenue', 'Expense'];
-
-const SUBTYPES_BY_TYPE: Record<string, string[]> = {
-  Asset: ['Current Assets', 'Noncurrent Assets'],
-  Liability: ['Current Liabilities', 'Noncurrent Liabilities'],
-  Expense: ['Costs', 'Selling expense', 'Administrative expense'],
-  Equity: [],
-  Revenue: []
-};
+const ACCOUNT_TYPES = ['Asset', 'Liabilities', 'Equity', 'Revenue', 'Costs', 'Expense'];
 
 export function getNormalSide(type: string): 'debit' | 'credit' {
   const t = type.toLowerCase();
@@ -56,14 +48,14 @@ export function getNormalSide(type: string): 'debit' | 'credit' {
   return 'credit';
 }
 
-// Maps a free-text account type (from an uploaded file) to a canonical CoA type + optional sub-type
-function normalizeUploadedType(raw: string): { type: string; subType?: string } {
+// Maps a free-text account type (from an uploaded file) to a canonical CoA type
+function normalizeUploadedType(raw: string): { type: string } {
   const t = (raw || '').trim().toLowerCase();
   if (t === 'asset' || t === 'assets') return { type: 'Asset' };
-  if (t === 'liability' || t === 'liabilities') return { type: 'Liability' };
+  if (t === 'liability' || t === 'liabilities') return { type: 'Liabilities' };
   if (t === 'equity') return { type: 'Equity' };
   if (t === 'revenue' || t === 'income') return { type: 'Revenue' };
-  if (t === 'cost' || t === 'costs') return { type: 'Expense', subType: 'Costs' };
+  if (t === 'cost' || t === 'costs') return { type: 'Costs' };
   if (t === 'expense' || t === 'expenses') return { type: 'Expense' };
   // Fallback: keep whatever was typed, capitalized, so it isn't silently dropped
   return { type: raw.trim() ? raw.trim() : 'Asset' };
@@ -71,10 +63,11 @@ function normalizeUploadedType(raw: string): { type: string; subType?: string } 
 
 const TYPE_BASE_CODE: Record<string, number> = {
   Asset: 1000,
-  Liability: 2000,
+  Liabilities: 2000,
   Equity: 3000,
   Revenue: 4000,
-  Expense: 5000,
+  Costs: 5000,
+  Expense: 5100,
 };
 
 // Generates a unique account code for an uploaded row, following the client's numeric/alphanumeric preference
@@ -142,7 +135,6 @@ export function ChartOfAccounts() {
   const [newCode, setNewCode] = useState('');
   const [newName, setNewName] = useState('');
   const [newType, setNewType] = useState('Asset');
-  const [newSubType, setNewSubType] = useState('Current Assets');
   const [newNormalSide, setNewNormalSide] = useState<'debit' | 'credit'>('debit');
   const [newParentId, setNewParentId] = useState('');
 
@@ -178,7 +170,6 @@ export function ChartOfAccounts() {
   const [editCode, setEditCode] = useState('');
   const [editName, setEditName] = useState('');
   const [editType, setEditType] = useState('Asset');
-  const [editSubType, setEditSubType] = useState('');
   const [editNormalSide, setEditNormalSide] = useState<'debit' | 'credit'>('debit');
   const [editParentId, setEditParentId] = useState('');
   const [editOpeningBalance, setEditOpeningBalance] = useState('');
@@ -190,7 +181,6 @@ export function ChartOfAccounts() {
       { id: 'id', name: 'Code', isSystem: true },
       { id: 'name', name: 'Account Title', isSystem: true },
       { id: 'type', name: 'Account Type', isSystem: true },
-      { id: 'subType', name: 'Sub-Type', isSystem: false },
       { id: 'normalSide', name: 'Normal Entry', isSystem: false }
     ];
     return currentClient?.coaColumns || defaultColumns;
@@ -257,23 +247,15 @@ export function ChartOfAccounts() {
     };
   }, [presetsRef]);
 
-  // Adjust normal side and default sub-type automatically when type changes in adding form
+  // Adjust normal side automatically when type changes in adding form
   useEffect(() => {
     setNewNormalSide(getNormalSide(newType));
-    const subTypes = SUBTYPES_BY_TYPE[newType] || [];
-    setNewSubType(subTypes[0] || '');
     setNewParentId('');
   }, [newType]);
 
-  // Adjust normal side and default sub-type automatically when type changes in editing form
+  // Adjust normal side automatically when type changes in editing form
   useEffect(() => {
     setEditNormalSide(getNormalSide(editType));
-    const subTypes = SUBTYPES_BY_TYPE[editType] || [];
-    if (subTypes.length > 0 && !subTypes.includes(editSubType)) {
-      setEditSubType(subTypes[0]);
-    } else if (subTypes.length === 0) {
-      setEditSubType('');
-    }
   }, [editType]);
 
   if (!currentClient || !currentClientId) return null;
@@ -321,14 +303,6 @@ export function ChartOfAccounts() {
 
   const hiddenCount = accounts.filter(a => a.hidden).length;
 
-  // Updates just the Sub-Type of a single account inline from the table row
-  const handleInlineSubTypeChange = (accountId: string, subType: string) => {
-    const updatedAccounts = accounts.map(a =>
-      a.id === accountId ? { ...a, subType: subType || undefined } : a
-    );
-    handleSaveAccounts(updatedAccounts);
-  };
-
   const handleSaveAccounts = (updatedAccounts: CoaAccount[], coaFormat?: 'numeric' | 'alphanumeric') => {
     const format = coaFormat || currentClient.coaFormat || 'numeric';
     const resequenced = resequenceAccounts(updatedAccounts, format);
@@ -375,7 +349,6 @@ export function ChartOfAccounts() {
       id: newCode, 
       name: newName, 
       type: newType, 
-      subType: newSubType || undefined,
       normalSide: newNormalSide,
       parentId: newParentId || undefined,
       ...customFields
@@ -392,7 +365,7 @@ export function ChartOfAccounts() {
 
   // Parses an uploaded CSV/XLSX/XLS file for "Account Title" and "Account Type" columns.
   // Any other columns in the file that share a header/column name with an existing
-  // Chart of Accounts column (Sub-Type, Normal Entry, or any custom column) are matched
+  // Chart of Accounts column (Normal Entry or any custom column) are matched
   // and their values are imported too.
   // Prompts the user to choose whether to overwrite (replace) the current Chart of Accounts
   // entirely, or just merge in the new accounts alongside the existing ones.
@@ -429,7 +402,7 @@ export function ChartOfAccounts() {
         // so it needs its own lookup rather than relying on the coaColumns matching loop below.
         const openingBalanceKey = findColumnKey(rows[0], ['openingbalance', 'openbalance', 'beginningbalance', 'balance']);
 
-        // Match any remaining uploaded columns (Sub-Type, Normal Entry, custom columns, etc.)
+        // Match any remaining uploaded columns (Normal Entry, custom columns, etc.)
         // to the Chart of Accounts columns that share the same header/column name.
         const otherColumns = coaColumns.filter(col => col.id !== 'id' && col.id !== 'name' && col.id !== 'type');
         const matchedColumnKeys: Record<string, string> = {}; // coaColumn.id -> uploaded file header key
@@ -438,7 +411,6 @@ export function ChartOfAccounts() {
             col.name.toLowerCase().replace(/[^a-z]/g, ''),
             col.id.toLowerCase().replace(/[^a-z]/g, ''),
           ]);
-          if (col.id === 'subType') aliases.add('subtype');
           if (col.id === 'normalSide') { aliases.add('normalentry'); aliases.add('normalside'); aliases.add('entry'); }
           const fileKey = findColumnKey(rows[0], Array.from(aliases));
           if (fileKey) matchedColumnKeys[col.id] = fileKey;
@@ -485,7 +457,7 @@ export function ChartOfAccounts() {
       if (!name || !rawType) { skipped++; return; }
       if (existingNames.has(name.toLowerCase())) { skipped++; return; }
 
-      const { type, subType } = normalizeUploadedType(rawType);
+      const { type } = normalizeUploadedType(rawType);
 
       // Use the account code from the file when the file has one and it isn't already
       // taken; otherwise fall back to auto-generating one so nothing is left without a code.
@@ -529,7 +501,6 @@ export function ChartOfAccounts() {
         id,
         name,
         type,
-        subType,
         normalSide: getNormalSide(type),
         ...(openingBalance !== undefined ? { openingBalance } : {}),
         ...matchedValues,
@@ -587,7 +558,6 @@ export function ChartOfAccounts() {
           id: editCode,
           name: editName,
           type: editType,
-          subType: editSubType || undefined,
           normalSide: editNormalSide,
           parentId: editParentId || undefined,
           openingBalance: editOpeningBalance !== '' ? parseFloat(editOpeningBalance) || 0 : undefined,
@@ -1130,19 +1100,6 @@ export function ChartOfAccounts() {
                   </select>
                 </div>
 
-                {coaColumns.some(col => col.id === 'subType') && SUBTYPES_BY_TYPE[newType]?.length > 0 && (
-                  <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Sub-Type</label>
-                    <select 
-                      value={newSubType} 
-                      onChange={e => setNewSubType(e.target.value)} 
-                      className="w-full form-input"
-                    >
-                      {SUBTYPES_BY_TYPE[newType].map(st => <option key={st} value={st}>{st}</option>)}
-                    </select>
-                  </div>
-                )}
-
                 {coaColumns.some(col => col.id === 'normalSide') && (
                   <div>
                     <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Normal Entry</label>
@@ -1158,7 +1115,7 @@ export function ChartOfAccounts() {
                 )}
 
                 {/* Dynamically Render Custom Columns / Categories */}
-                {coaColumns.filter(col => !col.isSystem && col.id !== 'subType' && col.id !== 'normalSide').map(col => (
+                {coaColumns.filter(col => !col.isSystem && col.id !== 'normalSide').map(col => (
                   <div key={col.id}>
                     <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">{col.name}</label>
                     <input 
@@ -1280,19 +1237,6 @@ export function ChartOfAccounts() {
                   </select>
                 </div>
 
-                {coaColumns.some(col => col.id === 'subType') && SUBTYPES_BY_TYPE[editType]?.length > 0 && (
-                  <div>
-                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Sub-Type</label>
-                    <select 
-                      value={editSubType} 
-                      onChange={e => setEditSubType(e.target.value)} 
-                      className="w-full form-input"
-                    >
-                      {SUBTYPES_BY_TYPE[editType].map(st => <option key={st} value={st}>{st}</option>)}
-                    </select>
-                  </div>
-                )}
-
                 {coaColumns.some(col => col.id === 'normalSide') && (
                   <div>
                     <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Normal Entry</label>
@@ -1308,7 +1252,7 @@ export function ChartOfAccounts() {
                 )}
 
                 {/* Dynamically Render Custom Columns / Categories */}
-                {coaColumns.filter(col => !col.isSystem && col.id !== 'subType' && col.id !== 'normalSide').map(col => (
+                {coaColumns.filter(col => !col.isSystem && col.id !== 'normalSide').map(col => (
                   <div key={col.id}>
                     <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">{col.name}</label>
                     <input 
@@ -1424,7 +1368,6 @@ export function ChartOfAccounts() {
                     let widthClass = "";
                     if (col.id === 'id') widthClass = "w-[100px]";
                     if (col.id === 'type') widthClass = "w-[130px]";
-                    if (col.id === 'subType') widthClass = "w-[160px]";
                     if (col.id === 'normalSide') widthClass = "w-[120px]";
                     return (
                       <th key={col.id} className={cn("px-4 py-3", widthClass)}>
@@ -1490,28 +1433,6 @@ export function ChartOfAccounts() {
                               </td>
                             );
                           }
-                          if (col.id === 'subType') {
-                            const subTypeOptions = SUBTYPES_BY_TYPE[account.type] || [];
-                            return (
-                              <td key={col.id} className="px-4 py-3.5 text-slate-600 dark:text-slate-300 text-xs sm:text-sm" onClick={e => e.stopPropagation()}>
-                                {subTypeOptions.length > 0 ? (
-                                  <select
-                                    value={account.subType || ''}
-                                    onChange={e => handleInlineSubTypeChange(account.id, e.target.value)}
-                                    className="text-xs font-medium py-1 px-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
-                                    title="Change Sub-Type"
-                                  >
-                                    <option value="">— No Sub-Type —</option>
-                                    {subTypeOptions.map(st => (
-                                      <option key={st} value={st}>{st}</option>
-                                    ))}
-                                  </select>
-                                ) : (
-                                  <span className="text-slate-400 dark:text-slate-600">—</span>
-                                )}
-                              </td>
-                            );
-                          }
                           if (col.id === 'normalSide') {
                             return (
                               <td key={col.id} className="px-4 py-3.5 text-slate-500 dark:text-slate-400 text-sm capitalize">
@@ -1571,7 +1492,6 @@ export function ChartOfAccounts() {
                                   setEditCode(account.id);
                                   setEditName(account.name);
                                   setEditType(account.type);
-                                  setEditSubType(account.subType || '');
                                   setEditNormalSide(account.normalSide || getNormalSide(account.type));
                                   setEditParentId(account.parentId || '');
                                   setEditOpeningBalance(account.openingBalance !== undefined ? String(account.openingBalance) : '');
@@ -1580,7 +1500,7 @@ export function ChartOfAccounts() {
                                   // Collect custom fields
                                   const editingMap: Record<string, string> = {};
                                   coaColumns.forEach(c => {
-                                    if (!c.isSystem && c.id !== 'subType' && c.id !== 'normalSide') {
+                                    if (!c.isSystem && c.id !== 'normalSide') {
                                       editingMap[c.id] = account[c.id] || '';
                                     }
                                   });
