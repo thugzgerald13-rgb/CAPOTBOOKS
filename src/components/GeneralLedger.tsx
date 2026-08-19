@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { LineChart, Plus, Trash2, ChevronDown, ChevronUp, Layers } from 'lucide-react';
+import { LineChart, Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { GeneralLedgerAccount, GeneralLedgerEntry } from '../types';
@@ -7,25 +7,41 @@ import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA } from './ChartOfAccounts';
 import { cn } from '../lib/utils';
 
 export function GeneralLedger() {
-  const { currentClient, currentClientId, saveClient, showToast } = useAccounting();
-  
-  const [selectedAccountId, setSelectedAccountId] = useState('');
+  const { currentClient, currentClientId, saveClient } = useAccounting();
+
   const [typeFilter, setTypeFilter] = useState('All');
   const [expandedAccounts, setExpandedAccounts] = useState<Record<string, boolean>>({});
 
   if (!currentClient || !currentClientId) return null;
 
-  const accounts = currentClient.glAccounts || [];
+  const storedAccounts = currentClient.glAccounts || [];
 
-  // Source of truth for accounts is the Chart of Accounts, so every Account Type
-  // set up there (Asset, Liabilities, Equity, Revenue, Costs, Expense, or any
-  // custom type) is available to pick from here — not just a fixed/hardcoded list.
+  // Source of truth is the Chart of Accounts — every account title added there
+  // (of any Account Type: Asset, Liabilities, Equity, Revenue, Costs, Expense,
+  // or any custom type) automatically appears here, with no manual add step.
   const coaAccounts = useMemo(() => {
     const list = currentClient.accounts && currentClient.accounts.length > 0
       ? currentClient.accounts
       : (currentClient.coaFormat === 'alphanumeric' ? DEFAULT_ACCOUNTS_ALPHA : DEFAULT_ACCOUNTS);
     return list.filter(a => !a.hidden);
   }, [currentClient.accounts, currentClient.coaFormat]);
+
+  // Merge: one ledger row per Chart of Accounts entry, keyed by account code
+  // (accountId). Title/Type always reflect the current CoA data (so renames in
+  // the CoA show up here immediately); entries are pulled from whatever's been
+  // saved for that account so far.
+  const accounts: GeneralLedgerAccount[] = useMemo(() => {
+    return coaAccounts.map(coaAcct => {
+      const existing = storedAccounts.find(g => g.accountId === coaAcct.id);
+      return {
+        id: coaAcct.id,
+        accountTitle: coaAcct.name,
+        accountId: coaAcct.id,
+        accountType: coaAcct.type,
+        entries: existing?.entries || []
+      };
+    });
+  }, [coaAccounts, storedAccounts]);
 
   // Distinct Account Types present in the Chart of Accounts, used to build the
   // Type filter below so every type in the CoA is browsable here too.
@@ -34,104 +50,56 @@ export function GeneralLedger() {
     return Array.from(new Set(types)).sort((a, b) => a.localeCompare(b));
   }, [coaAccounts]);
 
-  const addableAccounts = coaAccounts.filter(a => !accounts.some(g => g.accountId === a.id));
-
   const filteredAccounts = typeFilter === 'All'
     ? accounts
     : accounts.filter(a => (a.accountType || '').toLowerCase() === typeFilter.toLowerCase());
 
-  const handleSaveAccounts = (newAccounts: GeneralLedgerAccount[]) => {
-    saveClient(currentClientId, { ...currentClient, glAccounts: newAccounts });
-  };
+  // Applies a mutation to one account's entries and persists the full set,
+  // creating a storage record for that Chart of Accounts entry on first write.
+  const mutateEntries = (accountId: string, mutate: (entries: GeneralLedgerEntry[]) => GeneralLedgerEntry[]) => {
+    const coaAcct = coaAccounts.find(a => a.id === accountId);
+    const existing = storedAccounts.find(g => g.accountId === accountId);
+    const currentEntries = existing?.entries || [];
+    const updatedEntries = mutate(currentEntries);
 
-  const addAccount = () => {
-    if (!selectedAccountId) return;
-    const coaAccount = coaAccounts.find(a => a.id === selectedAccountId);
-    if (!coaAccount) return;
-    if (accounts.some(g => g.accountId === coaAccount.id)) {
-      showToast(`${coaAccount.name} is already in the General Ledger.`);
-      return;
+    let updatedStored: GeneralLedgerAccount[];
+    if (existing) {
+      updatedStored = storedAccounts.map(g => g.accountId === accountId ? { ...g, entries: updatedEntries } : g);
+    } else {
+      updatedStored = [...storedAccounts, {
+        id: accountId,
+        accountTitle: coaAcct?.name || '',
+        accountId,
+        accountType: coaAcct?.type,
+        entries: updatedEntries
+      }];
     }
-    const newAccount: GeneralLedgerAccount = {
-      id: crypto.randomUUID(),
-      accountTitle: coaAccount.name,
-      accountId: coaAccount.id,
-      accountType: coaAccount.type,
-      entries: []
-    };
-    handleSaveAccounts([...accounts, newAccount]);
-    setSelectedAccountId('');
-    setExpandedAccounts({ ...expandedAccounts, [newAccount.id]: true });
-  };
-
-  // Populates the ledger with every Chart of Accounts entry that isn't already
-  // here, guaranteeing every Account Type from the CoA is represented.
-  const addAllAccounts = () => {
-    if (addableAccounts.length === 0) {
-      showToast("All Chart of Accounts entries are already in the General Ledger.");
-      return;
-    }
-    const newEntries: GeneralLedgerAccount[] = addableAccounts.map(a => ({
-      id: crypto.randomUUID(),
-      accountTitle: a.name,
-      accountId: a.id,
-      accountType: a.type,
-      entries: []
-    }));
-    handleSaveAccounts([...accounts, ...newEntries]);
-    showToast(`Added ${newEntries.length} account${newEntries.length === 1 ? '' : 's'} from the Chart of Accounts.`);
-  };
-
-  const deleteAccount = (id: string) => {
-    if (confirm("Are you sure you want to delete this account and all its entries?")) {
-      handleSaveAccounts(accounts.filter(a => a.id !== id));
-    }
+    saveClient(currentClientId, { ...currentClient, glAccounts: updatedStored });
   };
 
   const addEntry = (accountId: string) => {
-    const updated = accounts.map(a => {
-      if (a.id === accountId) {
-        return {
-          ...a,
-          entries: [
-            ...a.entries,
-            {
-              id: crypto.randomUUID(),
-              dateDr: '', particularsDr: '', refDr: '', debit: '',
-              dateCr: '', particularsCr: '', refCr: '', credit: ''
-            }
-          ]
-        };
+    mutateEntries(accountId, entries => [
+      ...entries,
+      {
+        id: crypto.randomUUID(),
+        dateDr: '', particularsDr: '', refDr: '', debit: '',
+        dateCr: '', particularsCr: '', refCr: '', credit: ''
       }
-      return a;
-    });
-    handleSaveAccounts(updated);
+    ]);
   };
 
   const updateEntry = (accountId: string, entryId: string, field: keyof GeneralLedgerEntry, value: string) => {
-    const updated = accounts.map(a => {
-      if (a.id === accountId) {
-        return {
-          ...a,
-          entries: a.entries.map(e => e.id === entryId ? { ...e, [field]: value } : e)
-        };
-      }
-      return a;
-    });
-    handleSaveAccounts(updated);
+    mutateEntries(accountId, entries => entries.map(e => e.id === entryId ? { ...e, [field]: value } : e));
   };
 
   const deleteEntry = (accountId: string, entryId: string) => {
-    const updated = accounts.map(a => {
-      if (a.id === accountId) {
-        return {
-          ...a,
-          entries: a.entries.filter(e => e.id !== entryId)
-        };
-      }
-      return a;
-    });
-    handleSaveAccounts(updated);
+    mutateEntries(accountId, entries => entries.filter(e => e.id !== entryId));
+  };
+
+  const clearEntries = (accountId: string, accountTitle: string) => {
+    if (confirm(`Clear all entries for "${accountTitle}"? This account will stay in the ledger since it's part of the Chart of Accounts.`)) {
+      mutateEntries(accountId, () => []);
+    }
   };
 
   const toggleAccount = (id: string) => {
@@ -144,49 +112,18 @@ export function GeneralLedger() {
       <div className="p-4 md:p-6 flex-1">
       <div className="p-6">
         <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-3 mb-6">
-          <p className="text-slate-500 dark:text-slate-400">Ledger accounts are pulled from your Chart of Accounts, so every Account Type set up there is available here.</p>
-          <div className="flex flex-wrap items-center gap-3">
-            {availableTypes.length > 1 && (
-              <select
-                value={typeFilter}
-                onChange={e => setTypeFilter(e.target.value)}
-                className="form-input text-sm py-2"
-                title="Filter by Account Type"
-              >
-                <option value="All">All Types</option>
-                {availableTypes.map(t => <option key={t} value={t}>{t}</option>)}
-              </select>
-            )}
+          <p className="text-slate-500 dark:text-slate-400">Ledger accounts mirror your Chart of Accounts automatically — add an account there and it appears here.</p>
+          {availableTypes.length > 1 && (
             <select
-              value={selectedAccountId}
-              onChange={e => setSelectedAccountId(e.target.value)}
-              className="form-input text-sm py-2 min-w-[250px]"
+              value={typeFilter}
+              onChange={e => setTypeFilter(e.target.value)}
+              className="form-input text-sm py-2"
+              title="Filter by Account Type"
             >
-              <option value="">Select an account from the Chart of Accounts…</option>
-              {availableTypes.map(type => (
-                <optgroup key={type} label={type}>
-                  {addableAccounts.filter(a => a.type === type).map(a => (
-                    <option key={a.id} value={a.id}>{a.id} — {a.name}</option>
-                  ))}
-                </optgroup>
-              ))}
+              <option value="All">All Types</option>
+              {availableTypes.map(t => <option key={t} value={t}>{t}</option>)}
             </select>
-            <button 
-              onClick={addAccount}
-              disabled={!selectedAccountId}
-              className="bg-cyan-600 hover:bg-cyan-700 disabled:opacity-50 text-white font-bold px-4 py-2 rounded-xl transition-colors flex items-center gap-2"
-            >
-              <Plus className="w-4 h-4" /> Add Account
-            </button>
-            <button
-              onClick={addAllAccounts}
-              disabled={addableAccounts.length === 0}
-              className="bg-slate-600 hover:bg-slate-700 disabled:opacity-50 text-white font-bold px-4 py-2 rounded-xl transition-colors flex items-center gap-2"
-              title="Add every Chart of Accounts entry not yet in the ledger"
-            >
-              <Layers className="w-4 h-4" /> Add All from CoA
-            </button>
-          </div>
+          )}
         </div>
 
         <div className="space-y-6">
@@ -225,12 +162,15 @@ export function GeneralLedger() {
                     <span className="text-xs font-bold px-2 py-1 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded">
                       Bal: ₱ {balance >= 0 ? balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : `(${(balance * -1).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`}
                     </span>
-                    <button 
-                      onClick={(e) => { e.stopPropagation(); deleteAccount(account.id); }}
-                      className="text-slate-400 hover:text-red-500 transition-colors"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    {account.entries.length > 0 && (
+                      <button 
+                        onClick={(e) => { e.stopPropagation(); clearEntries(account.accountId!, account.accountTitle); }}
+                        className="text-slate-400 hover:text-red-500 transition-colors"
+                        title="Clear Entries"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                     {isExpanded ? <ChevronUp className="w-5 h-5 text-slate-500" /> : <ChevronDown className="w-5 h-5 text-slate-500" />}
                   </div>
                 </div>
@@ -262,7 +202,7 @@ export function GeneralLedger() {
                               <input 
                                 type="text"
                                 value={entry.dateDr}
-                                onChange={e => updateEntry(account.id, entry.id, 'dateDr', e.target.value)}
+                                onChange={e => updateEntry(account.accountId!, entry.id, 'dateDr', e.target.value)}
                                 className="w-full bg-transparent border border-transparent hover:border-slate-300 dark:hover:border-slate-600 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded px-2 py-1 transition-all outline-none"
                               />
                             </td>
@@ -270,7 +210,7 @@ export function GeneralLedger() {
                               <input 
                                 type="text"
                                 value={entry.particularsDr}
-                                onChange={e => updateEntry(account.id, entry.id, 'particularsDr', e.target.value)}
+                                onChange={e => updateEntry(account.accountId!, entry.id, 'particularsDr', e.target.value)}
                                 className="w-full bg-transparent border border-transparent hover:border-slate-300 dark:hover:border-slate-600 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded px-2 py-1 transition-all outline-none"
                               />
                             </td>
@@ -278,7 +218,7 @@ export function GeneralLedger() {
                               <input 
                                 type="text"
                                 value={entry.refDr}
-                                onChange={e => updateEntry(account.id, entry.id, 'refDr', e.target.value)}
+                                onChange={e => updateEntry(account.accountId!, entry.id, 'refDr', e.target.value)}
                                 className="w-full bg-transparent border border-transparent hover:border-slate-300 dark:hover:border-slate-600 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded px-2 py-1 transition-all outline-none"
                               />
                             </td>
@@ -288,13 +228,13 @@ export function GeneralLedger() {
                                 value={entry.debit}
                                 onChange={e => {
                                   if (/^[0-9.,-]*$/.test(e.target.value)) {
-                                    updateEntry(account.id, entry.id, 'debit', e.target.value);
+                                    updateEntry(account.accountId!, entry.id, 'debit', e.target.value);
                                   }
                                 }}
                                 onBlur={e => {
                                   const raw = e.target.value.replace(/,/g, '');
                                   if (raw && !isNaN(parseFloat(raw))) {
-                                    updateEntry(account.id, entry.id, 'debit', parseFloat(raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+                                    updateEntry(account.accountId!, entry.id, 'debit', parseFloat(raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
                                   }
                                 }}
                                 className="w-full bg-transparent border border-transparent hover:border-slate-300 dark:hover:border-slate-600 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded px-2 py-1 outline-none text-right font-mono"
@@ -307,7 +247,7 @@ export function GeneralLedger() {
                               <input 
                                 type="text"
                                 value={entry.dateCr}
-                                onChange={e => updateEntry(account.id, entry.id, 'dateCr', e.target.value)}
+                                onChange={e => updateEntry(account.accountId!, entry.id, 'dateCr', e.target.value)}
                                 className="w-full bg-transparent border border-transparent hover:border-slate-300 dark:hover:border-slate-600 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded px-2 py-1 transition-all outline-none"
                               />
                             </td>
@@ -315,7 +255,7 @@ export function GeneralLedger() {
                               <input 
                                 type="text"
                                 value={entry.particularsCr}
-                                onChange={e => updateEntry(account.id, entry.id, 'particularsCr', e.target.value)}
+                                onChange={e => updateEntry(account.accountId!, entry.id, 'particularsCr', e.target.value)}
                                 className="w-full bg-transparent border border-transparent hover:border-slate-300 dark:hover:border-slate-600 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded px-2 py-1 transition-all outline-none"
                               />
                             </td>
@@ -323,7 +263,7 @@ export function GeneralLedger() {
                               <input 
                                 type="text"
                                 value={entry.refCr}
-                                onChange={e => updateEntry(account.id, entry.id, 'refCr', e.target.value)}
+                                onChange={e => updateEntry(account.accountId!, entry.id, 'refCr', e.target.value)}
                                 className="w-full bg-transparent border border-transparent hover:border-slate-300 dark:hover:border-slate-600 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded px-2 py-1 transition-all outline-none"
                               />
                             </td>
@@ -333,13 +273,13 @@ export function GeneralLedger() {
                                 value={entry.credit}
                                 onChange={e => {
                                   if (/^[0-9.,-]*$/.test(e.target.value)) {
-                                    updateEntry(account.id, entry.id, 'credit', e.target.value);
+                                    updateEntry(account.accountId!, entry.id, 'credit', e.target.value);
                                   }
                                 }}
                                 onBlur={e => {
                                   const raw = e.target.value.replace(/,/g, '');
                                   if (raw && !isNaN(parseFloat(raw))) {
-                                    updateEntry(account.id, entry.id, 'credit', parseFloat(raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+                                    updateEntry(account.accountId!, entry.id, 'credit', parseFloat(raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
                                   }
                                 }}
                                 className="w-full bg-transparent border border-transparent hover:border-slate-300 dark:hover:border-slate-600 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded px-2 py-1 outline-none text-right font-mono"
@@ -348,7 +288,7 @@ export function GeneralLedger() {
                             </td>
                             <td className="px-2 py-1 text-center">
                               <button 
-                                onClick={() => deleteEntry(account.id, entry.id)}
+                                onClick={() => deleteEntry(account.accountId!, entry.id)}
                                 className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors opacity-0 group-hover:opacity-100"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -361,7 +301,7 @@ export function GeneralLedger() {
                         <tr>
                           <td colSpan={10} className="px-3 py-2 bg-slate-50 dark:bg-slate-800/30">
                             <button 
-                              onClick={() => addEntry(account.id)}
+                              onClick={() => addEntry(account.accountId!)}
                               className="text-xs font-bold text-cyan-600 hover:text-cyan-700 dark:text-cyan-400 dark:hover:text-cyan-300 flex items-center gap-1"
                             >
                               <Plus className="w-3.5 h-3.5" /> Add Row
@@ -395,8 +335,8 @@ export function GeneralLedger() {
 
           {accounts.length === 0 && (
             <div className="text-center py-12 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl border-dashed">
-              <p className="text-slate-500 dark:text-slate-400">No ledger accounts yet.</p>
-              <p className="text-sm mt-2 text-slate-400">Pick an account from the Chart of Accounts above, or click "Add All from CoA" to bring in every account type at once.</p>
+              <p className="text-slate-500 dark:text-slate-400">No accounts in the Chart of Accounts yet.</p>
+              <p className="text-sm mt-2 text-slate-400">Add an account title in the Chart of Accounts and it will appear here automatically.</p>
             </div>
           )}
 
