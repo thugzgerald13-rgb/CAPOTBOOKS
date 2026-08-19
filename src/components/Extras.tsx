@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { Users, TrendingUp, Key, Lightbulb, BookOpen, BookText, LineChart, Scale, Plus, Building2, Save, X, RotateCcw, Library, FileText, Receipt, ShoppingCart, Banknote, Wallet, CreditCard, Trash2 } from 'lucide-react';
 import { Client, BusinessProfile } from '../types';
 import { RDO_CODES } from '../lib/utils';
+import { getAccountBalances, getCurrentYear, formatAccountAmount } from '../lib/accountingBalances';
 
 export function Extras() {
   const { 
@@ -980,11 +981,59 @@ export function Extras() {
         <div className="w-full flex flex-col">
           <PageHeader title="Trial Balance" icon={<Scale />} centered />
           <div className="p-4 md:p-6 flex-1">
-         <p className="text-center p-8 text-slate-500">Trial Balance computation based on Journal and Ledger.</p>
-         <div className="bg-slate-100 dark:bg-slate-800 p-4 rounded-xl text-center font-mono">
-            <strong>Debits:</strong> ₱{salesTotal.toLocaleString()} &nbsp; | &nbsp; <strong>Credits:</strong> ₱{purchasesTotal.toLocaleString()}
-         </div>
-      </div>
+            {currentClient ? (() => {
+              const year = getCurrentYear(currentClient);
+              const balances = getAccountBalances(currentClient, year);
+              const totalDebit = balances.reduce((n, x) => n + Math.max(0, x.currentYearBalance), 0);
+              const totalCredit = balances.reduce((n, x) => n + Math.max(0, -x.currentYearBalance), 0);
+              return (
+                <div className="max-w-4xl mx-auto">
+                  <div className="text-center mb-6">
+                    <h2 className="font-bold text-lg uppercase">{currentClient.tradeName || currentClient.name}</h2>
+                    <p className="text-sm text-slate-500">Trial Balance — Current Year {year}</p>
+                  </div>
+                  <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-slate-50 dark:bg-slate-800/60 font-bold">
+                          <th className="px-4 py-3 text-left">Account</th>
+                          <th className="px-4 py-3 text-left">Type</th>
+                          <th className="px-4 py-3 text-right">Debit</th>
+                          <th className="px-4 py-3 text-right">Credit</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {balances.map(x => {
+                          const debit = Math.max(0, x.currentYearBalance);
+                          const credit = Math.max(0, -x.currentYearBalance);
+                          return (
+                            <tr key={x.account.id} className="border-t border-slate-100 dark:border-slate-800">
+                              <td className="px-4 py-2">{x.account.id} — {x.account.name}</td>
+                              <td className="px-4 py-2">{x.account.type}</td>
+                              <td className="px-4 py-2 text-right font-mono">{debit ? formatAccountAmount(debit) : ''}</td>
+                              <td className="px-4 py-2 text-right font-mono">{credit ? formatAccountAmount(credit) : ''}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-slate-100 dark:bg-slate-800 font-bold border-t-2">
+                          <td className="px-4 py-3" colSpan={2}>TOTAL</td>
+                          <td className="px-4 py-3 text-right font-mono">{formatAccountAmount(totalDebit)}</td>
+                          <td className="px-4 py-3 text-right font-mono">{formatAccountAmount(totalCredit)}</td>
+                        </tr>
+                      </tfoot>
+                    </table>
+                  </div>
+                  <div className={`mt-4 p-3 rounded-lg text-center font-bold ${Math.abs(totalDebit - totalCredit) < 0.01 ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+                    {Math.abs(totalDebit - totalCredit) < 0.01 ? 'BALANCED' : `OUT OF BALANCE — Difference: ${formatAccountAmount(totalDebit - totalCredit)}`}
+                  </div>
+                </div>
+              );
+            })() : (
+              <p className="text-center p-8 text-slate-500">Select a client to view the trial balance.</p>
+            )}
+          </div>
         </div>
       )}
 

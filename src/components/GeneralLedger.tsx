@@ -5,6 +5,7 @@ import { useAccounting } from '../context/AccountingContext';
 import { GeneralLedgerAccount, GeneralLedgerEntry } from '../types';
 import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide } from './ChartOfAccounts';
 import { cn } from '../lib/utils';
+import { getRunningBalances, formatAccountAmount } from '../lib/accountingBalances';
 
 export function GeneralLedger() {
   const { currentClient, currentClientId, saveClient } = useAccounting();
@@ -199,6 +200,7 @@ export function GeneralLedger() {
                           <th className="px-3 py-2 border-b border-slate-200 dark:border-slate-700 w-20">REF NO.</th>
                           <th className="px-3 py-2 border-b border-slate-200 dark:border-slate-700 text-right w-24">CREDIT</th>
                           <th className="px-2 py-2 border-b border-slate-200 dark:border-slate-700 w-10 text-center"></th>
+                          <th className="px-3 py-2 border-b border-slate-200 dark:border-slate-700 text-right w-28">RUNNING BALANCE</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
@@ -221,10 +223,15 @@ export function GeneralLedger() {
                             <td className="px-2 py-1.5 text-right font-mono">
                               {!openingIsDebit ? openingBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}
                             </td>
+                            <td className="px-3 py-1.5 text-right font-mono font-semibold">
+                              {formatAccountAmount((openingIsDebit ? openingBalance : -openingBalance))}
+                            </td>
                             <td className="px-2 py-1.5"></td>
                           </tr>
                         )}
-                        {account.entries.map((entry, idx) => (
+                        {account.entries.map((entry, idx) => {
+                          const running = runningBalances[idx]?.balance ?? 0;
+                          return (
                           <tr key={entry.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 group">
                             <td className="px-3 py-1.5 text-center text-slate-400 font-mono border-r border-slate-200 dark:border-slate-700">{idx + 1}</td>
                             
@@ -317,6 +324,9 @@ export function GeneralLedger() {
                                 placeholder="0.00"
                               />
                             </td>
+                            <td className="px-3 py-1 text-right font-mono font-semibold">
+                              {formatAccountAmount(running)}
+                            </td>
                             <td className="px-2 py-1 text-center">
                               <button 
                                 onClick={() => deleteEntry(account.accountId!, entry.id)}
@@ -326,11 +336,12 @@ export function GeneralLedger() {
                               </button>
                             </td>
                           </tr>
-                        ))}
+                          );
+                        })}
                       </tbody>
                       <tfoot>
                         <tr>
-                          <td colSpan={10} className="px-3 py-2 bg-slate-50 dark:bg-slate-800/30">
+                          <td colSpan={11} className="px-3 py-2 bg-slate-50 dark:bg-slate-800/30">
                             <button 
                               onClick={() => addEntry(account.accountId!)}
                               className="text-xs font-bold text-cyan-600 hover:text-cyan-700 dark:text-cyan-400 dark:hover:text-cyan-300 flex items-center gap-1"
@@ -353,6 +364,7 @@ export function GeneralLedger() {
                                 (balance * -1).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
                               ) : ''}
                             </td>
+                            <td className="px-3 py-2 text-right font-mono">{formatAccountAmount(balance)}</td>
                             <td></td>
                           </tr>
                         )}
