@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { BookOpen, Plus, Trash2, RefreshCcw, Edit2, ClipboardList, Check, X, Columns, ArrowUpDown } from 'lucide-react';
+import { BookOpen, Plus, Trash2, RefreshCcw, Edit2, ClipboardList, Check, X, Columns, ArrowUpDown, Upload } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { CoaAccount } from '../types';
@@ -53,6 +54,51 @@ export function getNormalSide(type: string): 'debit' | 'credit' {
     return 'debit';
   }
   return 'credit';
+}
+
+// Maps a free-text account type (from an uploaded file) to a canonical CoA type + optional sub-type
+function normalizeUploadedType(raw: string): { type: string; subType?: string } {
+  const t = (raw || '').trim().toLowerCase();
+  if (t === 'asset' || t === 'assets') return { type: 'Asset' };
+  if (t === 'liability' || t === 'liabilities') return { type: 'Liability' };
+  if (t === 'equity') return { type: 'Equity' };
+  if (t === 'revenue' || t === 'income') return { type: 'Revenue' };
+  if (t === 'cost' || t === 'costs') return { type: 'Expense', subType: 'Costs' };
+  if (t === 'expense' || t === 'expenses') return { type: 'Expense' };
+  // Fallback: keep whatever was typed, capitalized, so it isn't silently dropped
+  return { type: raw.trim() ? raw.trim() : 'Asset' };
+}
+
+const TYPE_BASE_CODE: Record<string, number> = {
+  Asset: 1000,
+  Liability: 2000,
+  Equity: 3000,
+  Revenue: 4000,
+  Expense: 5000,
+};
+
+// Generates a unique account code for an uploaded row, following the client's numeric/alphanumeric preference
+function generateUploadedAccountId(name: string, type: string, usedIds: Set<string>, format: 'numeric' | 'alphanumeric'): string {
+  const base = TYPE_BASE_CODE[type] ?? 9000;
+  let num = base;
+  while (usedIds.has(String(num))) num += 10;
+
+  if (format === 'alphanumeric') {
+    const letters = name.replace(/[^a-zA-Z]/g, '').toUpperCase().padEnd(3, 'X').slice(0, 3) || 'GEN';
+    let candidate = `${letters}-${num}`;
+    while (usedIds.has(candidate)) {
+      num += 10;
+      candidate = `${letters}-${num}`;
+    }
+    return candidate;
+  }
+
+  return String(num);
+}
+
+// Finds a column key in an uploaded row object matching one of the given normalized aliases
+function findColumnKey(row: Record<string, any>, aliases: string[]): string | undefined {
+  return Object.keys(row).find(key => aliases.includes(key.toLowerCase().replace(/[^a-z]/g, '')));
 }
 
 export function resequenceAccounts(
@@ -109,6 +155,9 @@ export function ChartOfAccounts() {
 
   const [showPresets, setShowPresets] = useState(false);
   const presetsRef = useRef<HTMLDivElement>(null);
+
+  const [isUploading, setIsUploading] = useState(false);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editCode, setEditCode] = useState('');
@@ -296,6 +345,78 @@ export function ChartOfAccounts() {
     setNewNormalSide('debit');
     setNewParentId('');
     setNewCustomValues({});
+  };
+
+  // Parses an uploaded CSV/XLSX/XLS file for "Account Title" and "Account Type" columns
+  // and appends any new accounts found to the Chart of Accounts.
+  const handleUploadFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      try {
+        const data = evt.target?.result;
+        const workbook = XLSX.read(data, { type: 'array' });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows: Record<string, any>[] = XLSX.utils.sheet_to_json(firstSheet, { defval: '' });
+
+        if (rows.length === 0) {
+          alert("The uploaded file appears to be empty.");
+          return;
+        }
+
+        const titleKey = findColumnKey(rows[0], ['accounttitle', 'accountname', 'title', 'name']);
+        const typeKey = findColumnKey(rows[0], ['accounttype', 'type']);
+
+        if (!titleKey || !typeKey) {
+          alert('Could not find "Account Title" and "Account Type" columns in the uploaded file. Please check the header row and try again.');
+          return;
+        }
+
+        const format = currentClient.coaFormat || 'numeric';
+        const usedIds = new Set(accounts.map(a => a.id));
+        const existingNames = new Set(accounts.map(a => a.name.trim().toLowerCase()));
+
+        const newAccounts: CoaAccount[] = [];
+        let skipped = 0;
+
+        rows.forEach(row => {
+          const name = String(row[titleKey] || '').trim();
+          const rawType = String(row[typeKey] || '').trim();
+          if (!name || !rawType) { skipped++; return; }
+          if (existingNames.has(name.toLowerCase())) { skipped++; return; }
+
+          const { type, subType } = normalizeUploadedType(rawType);
+          const id = generateUploadedAccountId(name, type, usedIds, format);
+          usedIds.add(id);
+          existingNames.add(name.toLowerCase());
+
+          newAccounts.push({
+            id,
+            name,
+            type,
+            subType,
+            normalSide: getNormalSide(type),
+          });
+        });
+
+        if (newAccounts.length === 0) {
+          showToast(skipped > 0 ? "No new accounts added — all rows were duplicates or incomplete." : "No valid rows found in the file.");
+          return;
+        }
+
+        handleSaveAccounts([...accounts, ...newAccounts]);
+        showToast(`Uploaded ${newAccounts.length} account${newAccounts.length === 1 ? '' : 's'}${skipped > 0 ? ` (${skipped} skipped)` : ''}.`);
+      } catch (err) {
+        alert("Couldn't read that file. Please upload a CSV, XLS, or XLSX file with 'Account Title' and 'Account Type' columns.");
+      } finally {
+        setIsUploading(false);
+        if (uploadInputRef.current) uploadInputRef.current.value = '';
+      }
+    };
+    setIsUploading(true);
+    reader.readAsArrayBuffer(file);
   };
 
   const handleDelete = (id: string) => {
@@ -614,7 +735,23 @@ export function ChartOfAccounts() {
             </div>
           </div>
           
-          <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 justify-end self-stretch sm:self-auto" />
+          <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 justify-end self-stretch sm:self-auto">
+            <input
+              ref={uploadInputRef}
+              type="file"
+              accept=".csv,.xlsx,.xls"
+              onChange={handleUploadFile}
+              className="hidden"
+            />
+            <button
+              onClick={() => uploadInputRef.current?.click()}
+              disabled={isUploading}
+              className="text-xs font-bold text-slate-600 dark:text-slate-300 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors disabled:opacity-50"
+              title="Upload a CSV or Excel file with 'Account Title' and 'Account Type' columns"
+            >
+              <Upload className="w-3.5 h-3.5" /> {isUploading ? 'Uploading...' : 'Upload Chart of Accounts'}
+            </button>
+          </div>
         </div>
 
         {/* Dynamic Column/Category Manager Section */}
