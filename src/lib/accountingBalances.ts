@@ -66,6 +66,43 @@ export function getAccountBalances(client: Client, year = getCurrentYear(client)
   });
 }
 
+/**
+ * Returns the automatic, up-to-date ending balance for a single Chart of
+ * Accounts entry, derived entirely from that account's opening balance plus
+ * every General Ledger entry posted to it. Because it always recomputes from
+ * the live General Ledger (rather than reading a stored value), the Chart of
+ * Accounts' Running Balance column stays in sync automatically whenever
+ * entries are added, edited, or removed in the General Ledger.
+ */
+export function balanceFor(client: Client, accountId: string): AccountBalance | undefined {
+  const account = getCoaAccounts(client).find(a => a.id === accountId)
+    || (client.accounts || []).find(a => a.id === accountId);
+  if (!account) return undefined;
+
+  const gl = client.glAccounts || [];
+  const g = gl.find(x => x.accountId === account.id || x.id === account.id);
+  const opening = Number(account.openingBalance) || 0;
+  const normal = account.normalSide || getNormalSide(account.type || '');
+  let debit = normal === 'debit' ? opening : 0;
+  let credit = normal === 'credit' ? opening : 0;
+  let currentYearDebit = 0;
+  let currentYearCredit = 0;
+  const year = getCurrentYear(client);
+
+  (g?.entries || []).forEach(e => {
+    const d = num(e.debit);
+    const c = num(e.credit);
+    debit += d;
+    credit += c;
+    if (entryYear(e.dateDr) === year) currentYearDebit += d;
+    if (entryYear(e.dateCr) === year) currentYearCredit += c;
+  });
+
+  const balance = debit - credit;
+  const currentYearBalance = (normal === 'debit' ? opening : -opening) + currentYearDebit - currentYearCredit;
+  return { account, debit, credit, balance, currentYearDebit, currentYearCredit, currentYearBalance };
+}
+
 export function getRunningBalances(client: Client, account: CoaAccount): { entryId: string; debit: number; credit: number; balance: number }[] {
   const gl = client.glAccounts || [];
   const g = gl.find(x => x.accountId === account.id || x.id === account.id);
