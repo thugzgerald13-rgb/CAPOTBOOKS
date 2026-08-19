@@ -28,7 +28,7 @@ export function JournalVoucher() {
 
   if (!currentClient || !currentClientId) return null;
 
-  const accounts = currentClient.accounts || [];
+  const accounts = (currentClient.accounts || []).filter(a => !a.hidden);
   const vouchers = currentClient.journalVouchers || [];
 
   const totalDebit = lines.reduce((s, l) => s + (parseFloat(l.debit) || 0), 0);
