@@ -171,6 +171,12 @@ export function ChartOfAccounts() {
   const [editModalTab, setEditModalTab] = useState<'details' | 'openingBalance'>('details');
   const [swappingId, setSwappingId] = useState<string | null>(null);
 
+  // Multi-select state for bulk deletion
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set<string>());
+
+  // Sub-Type filter (options depend on the selected Account Type filter)
+  const [subTypeFilter, setSubTypeFilter] = useState('All');
+
   const coaColumns = useMemo(() => {
     const defaultColumns = [
       { id: 'id', name: 'Code', isSystem: true },
@@ -290,12 +296,82 @@ export function ChartOfAccounts() {
     );
   }, [accounts, editType, editingId]);
 
+  // Sub-type options available for the current Account Type filter.
+  // When "All Account Types" is selected, offer every known sub-type across all types.
+  const availableFilterSubTypes = useMemo(() => {
+    if (typeFilter === 'All') {
+      const all = Object.values(SUBTYPES_BY_TYPE).flat();
+      return Array.from(new Set(all));
+    }
+    return SUBTYPES_BY_TYPE[typeFilter] || [];
+  }, [typeFilter]);
+
+  // Reset the sub-type filter whenever it's no longer valid for the selected Account Type
+  useEffect(() => {
+    if (subTypeFilter !== 'All' && !availableFilterSubTypes.includes(subTypeFilter)) {
+      setSubTypeFilter('All');
+    }
+  }, [availableFilterSubTypes, subTypeFilter]);
+
   const filteredAccounts = (typeFilter === 'All'
     ? accounts
     : accounts.filter(a => a.type.toLowerCase() === typeFilter.toLowerCase())
-  ).filter(a => showHidden || !a.hidden);
+  )
+    .filter(a => subTypeFilter === 'All' || (a.subType || '') === subTypeFilter)
+    .filter(a => showHidden || !a.hidden);
 
   const hiddenCount = accounts.filter(a => a.hidden).length;
+
+  // Selection helpers for bulk deletion
+  const allVisibleSelected = filteredAccounts.length > 0 && filteredAccounts.every(a => selectedIds.has(a.id));
+  const someVisibleSelected = filteredAccounts.some(a => selectedIds.has(a.id));
+
+  const toggleSelectAll = () => {
+    setSelectedIds(prev => {
+      if (allVisibleSelected) {
+        // Deselect only the currently visible accounts
+        const next = new Set(prev);
+        filteredAccounts.forEach(a => next.delete(a.id));
+        return next;
+      }
+      const next = new Set(prev);
+      filteredAccounts.forEach(a => next.add(a.id));
+      return next;
+    });
+  };
+
+  const toggleSelectOne = (id: string) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleBulkDelete = () => {
+    if (selectedIds.size === 0) return;
+    const willOrphanChildren = accounts.some(a => a.parentId && selectedIds.has(a.parentId) && !selectedIds.has(a.id));
+    const question = willOrphanChildren
+      ? `Are you sure you want to delete ${selectedIds.size} selected account(s)? Some have sub-accounts that will become top-level main accounts.`
+      : `Are you sure you want to delete ${selectedIds.size} selected account(s)? This cannot be undone.`;
+    if (confirm(question)) {
+      const updatedAccounts = accounts
+        .filter(a => !selectedIds.has(a.id))
+        .map(a => (a.parentId && selectedIds.has(a.parentId)) ? { ...a, parentId: undefined } : a);
+      handleSaveAccounts(updatedAccounts);
+      showToast(`Deleted ${selectedIds.size} account(s).`);
+      setSelectedIds(new Set());
+    }
+  };
+
+  // Updates just the Sub-Type of a single account inline from the table row
+  const handleInlineSubTypeChange = (accountId: string, subType: string) => {
+    const updatedAccounts = accounts.map(a =>
+      a.id === accountId ? { ...a, subType: subType || undefined } : a
+    );
+    handleSaveAccounts(updatedAccounts);
+  };
 
   const handleSaveAccounts = (updatedAccounts: CoaAccount[], coaFormat?: 'numeric' | 'alphanumeric') => {
     const format = coaFormat || currentClient.coaFormat || 'numeric';
@@ -1224,6 +1300,34 @@ export function ChartOfAccounts() {
                 </select>
               </div>
 
+              {/* Sub-Type Filter — options depend on the selected Account Type above */}
+              {availableFilterSubTypes.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Sub-Type:</span>
+                  <select
+                    id="subtype-filter"
+                    value={subTypeFilter}
+                    onChange={(e) => setSubTypeFilter(e.target.value)}
+                    className="text-xs font-semibold py-1.5 px-3 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                  >
+                    <option value="All">All Sub-Types</option>
+                    {availableFilterSubTypes.map(st => (
+                      <option key={st} value={st}>{st}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {selectedIds.size > 0 && (
+                <button
+                  onClick={handleBulkDelete}
+                  className="text-xs font-bold py-1.5 px-3 rounded-lg flex items-center gap-1.5 transition-colors border bg-red-50 hover:bg-red-100 dark:bg-red-950/30 border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400"
+                  title="Delete all selected accounts"
+                >
+                  <Trash2 className="w-3.5 h-3.5" /> Delete Selected ({selectedIds.size})
+                </button>
+              )}
+
               {hiddenCount > 0 && (
                 <button
                   onClick={() => setShowHidden(!showHidden)}
@@ -1256,6 +1360,16 @@ export function ChartOfAccounts() {
             <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 text-[10.5px] font-bold text-slate-500 uppercase tracking-widest">
+                  <th className="px-4 py-3 w-[36px]">
+                    <input
+                      type="checkbox"
+                      checked={allVisibleSelected}
+                      ref={el => { if (el) el.indeterminate = !allVisibleSelected && someVisibleSelected; }}
+                      onChange={toggleSelectAll}
+                      className="w-3.5 h-3.5 rounded border-slate-300 dark:border-slate-600 text-red-600 focus:ring-red-500 cursor-pointer"
+                      title="Select all visible accounts"
+                    />
+                  </th>
                   {coaColumns.map(col => {
                     let widthClass = "";
                     if (col.id === 'id') widthClass = "w-[100px]";
@@ -1268,13 +1382,13 @@ export function ChartOfAccounts() {
                       </th>
                     );
                   })}
-                  <th className="px-4 py-3 text-right w-[150px]">Balance</th>
+                  <th className="px-4 py-3 text-right w-[150px]">Running Balance</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
                 {filteredAccounts.length === 0 ? (
                   <tr>
-                    <td colSpan={coaColumns.length + 1} className="px-4 py-12 text-center text-slate-500 text-sm">
+                    <td colSpan={coaColumns.length + 2} className="px-4 py-12 text-center text-slate-500 text-sm">
                       No accounts found matching the filter criteria.
                     </td>
                   </tr>
@@ -1292,6 +1406,15 @@ export function ChartOfAccounts() {
                           account.hidden && "opacity-50"
                         )}
                       >
+                        <td className="px-4 py-3.5">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(account.id)}
+                            onChange={() => toggleSelectOne(account.id)}
+                            className="w-3.5 h-3.5 rounded border-slate-300 dark:border-slate-600 text-red-600 focus:ring-red-500 cursor-pointer"
+                            title={`Select ${account.name}`}
+                          />
+                        </td>
                         {coaColumns.map(col => {
                           if (col.id === 'id') {
                             return (
@@ -1327,9 +1450,24 @@ export function ChartOfAccounts() {
                             );
                           }
                           if (col.id === 'subType') {
+                            const subTypeOptions = SUBTYPES_BY_TYPE[account.type] || [];
                             return (
-                              <td key={col.id} className="px-4 py-3.5 text-slate-600 dark:text-slate-300 text-xs sm:text-sm">
-                                {account.subType || <span className="text-slate-400 dark:text-slate-600">—</span>}
+                              <td key={col.id} className="px-4 py-3.5 text-slate-600 dark:text-slate-300 text-xs sm:text-sm" onClick={e => e.stopPropagation()}>
+                                {subTypeOptions.length > 0 ? (
+                                  <select
+                                    value={account.subType || ''}
+                                    onChange={e => handleInlineSubTypeChange(account.id, e.target.value)}
+                                    className="text-xs font-medium py-1 px-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
+                                    title="Change Sub-Type"
+                                  >
+                                    <option value="">— No Sub-Type —</option>
+                                    {subTypeOptions.map(st => (
+                                      <option key={st} value={st}>{st}</option>
+                                    ))}
+                                  </select>
+                                ) : (
+                                  <span className="text-slate-400 dark:text-slate-600">—</span>
+                                )}
                               </td>
                             );
                           }
