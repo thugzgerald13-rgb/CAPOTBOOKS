@@ -160,6 +160,20 @@ export function ChartOfAccounts() {
   const [isUploading, setIsUploading] = useState(false);
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
+  // Holds a parsed upload waiting on the user's Override-vs-Merge choice (see the modal
+  // rendered near the bottom of this component). A native window.confirm() was used here
+  // previously, but it's unreliable inside embedded/sandboxed preview frames (it can be
+  // auto-dismissed and silently return false), which made "Override" appear broken.
+  const [showUploadChoice, setShowUploadChoice] = useState(false);
+  const [pendingUploadRows, setPendingUploadRows] = useState<Record<string, any>[] | null>(null);
+  const [pendingUploadKeys, setPendingUploadKeys] = useState<{
+    titleKey: string;
+    typeKey: string;
+    codeKey?: string;
+    openingBalanceKey?: string;
+    matchedColumnKeys: Record<string, string>;
+  } | null>(null);
+
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editCode, setEditCode] = useState('');
   const [editName, setEditName] = useState('');
@@ -418,6 +432,14 @@ export function ChartOfAccounts() {
           return;
         }
 
+        // Account Code column — read separately since "id" is intentionally excluded from
+        // matchedColumnKeys below (it's handled specially so codes aren't blindly overwritten).
+        const codeKey = findColumnKey(rows[0], ['code', 'accountcode', 'accountno', 'accountnumber', 'acctcode', 'accountid']);
+
+        // Opening Balance column — not part of coaColumns (it's a dedicated field on the account),
+        // so it needs its own lookup rather than relying on the coaColumns matching loop below.
+        const openingBalanceKey = findColumnKey(rows[0], ['openingbalance', 'openbalance', 'beginningbalance', 'balance']);
+
         // Match any remaining uploaded columns (Sub-Type, Normal Entry, custom columns, etc.)
         // to the Chart of Accounts columns that share the same header/column name.
         const otherColumns = coaColumns.filter(col => col.id !== 'id' && col.id !== 'name' && col.id !== 'type');
@@ -433,68 +455,12 @@ export function ChartOfAccounts() {
           if (fileKey) matchedColumnKeys[col.id] = fileKey;
         });
 
-        // Ask whether to overwrite the current CoA or merge the upload into it
-        const overwrite = accounts.length > 0
-          ? confirm(
-              `You currently have ${accounts.length} account(s) in your Chart of Accounts.\n\n` +
-              `Click OK to OVERRIDE and replace the current Chart of Accounts entirely with this file.\n` +
-              `Click Cancel to keep your existing accounts and just ADD the new accounts from this file.`
-            )
-          : false;
-
-        const format = currentClient.coaFormat || 'numeric';
-        const baseAccounts = overwrite ? [] : accounts;
-        const usedIds = new Set(baseAccounts.map(a => a.id));
-        const existingNames = new Set(baseAccounts.map(a => a.name.trim().toLowerCase()));
-
-        const newAccounts: CoaAccount[] = [];
-        let skipped = 0;
-
-        rows.forEach(row => {
-          const name = String(row[titleKey] || '').trim();
-          const rawType = String(row[typeKey] || '').trim();
-          if (!name || !rawType) { skipped++; return; }
-          if (existingNames.has(name.toLowerCase())) { skipped++; return; }
-
-          const { type, subType } = normalizeUploadedType(rawType);
-          const id = generateUploadedAccountId(name, type, usedIds, format);
-          usedIds.add(id);
-          existingNames.add(name.toLowerCase());
-
-          // Pull in values from any matched columns (overrides the auto-derived Sub-Type/Normal Entry when present)
-          const matchedValues: Record<string, any> = {};
-          Object.entries(matchedColumnKeys).forEach(([colId, fileKey]) => {
-            const rawValue = String(row[fileKey] ?? '').trim();
-            if (!rawValue) return;
-            if (colId === 'normalSide') {
-              const v = rawValue.toLowerCase();
-              if (v === 'debit' || v === 'credit') matchedValues.normalSide = v;
-            } else {
-              matchedValues[colId] = rawValue;
-            }
-          });
-
-          newAccounts.push({
-            id,
-            name,
-            type,
-            subType,
-            normalSide: getNormalSide(type),
-            ...matchedValues,
-          });
-        });
-
-        if (newAccounts.length === 0) {
-          showToast(skipped > 0 ? "No new accounts added — all rows were duplicates or incomplete." : "No valid rows found in the file.");
-          return;
-        }
-
-        handleSaveAccounts([...baseAccounts, ...newAccounts]);
-        showToast(
-          overwrite
-            ? `Chart of Accounts overridden with ${newAccounts.length} account${newAccounts.length === 1 ? '' : 's'}${skipped > 0 ? ` (${skipped} skipped)` : ''}.`
-            : `Uploaded ${newAccounts.length} account${newAccounts.length === 1 ? '' : 's'}${skipped > 0 ? ` (${skipped} skipped)` : ''}.`
-        );
+        // Defer applying the import until the user picks Override or Merge in the modal below.
+        // (Previously this used window.confirm(), which can silently auto-resolve to "false"
+        // in embedded/sandboxed preview frames — making the Override option look broken.)
+        setPendingUploadRows(rows);
+        setPendingUploadKeys({ titleKey, typeKey, codeKey, openingBalanceKey, matchedColumnKeys });
+        setShowUploadChoice(true);
       } catch (err) {
         alert("Couldn't read that file. Please upload a CSV, XLS, or XLSX file with 'Account Title' and 'Account Type' columns.");
       } finally {
@@ -504,6 +470,94 @@ export function ChartOfAccounts() {
     };
     setIsUploading(true);
     reader.readAsArrayBuffer(file);
+  };
+
+  // Applies the parsed upload once the user has chosen Override or Merge in the modal.
+  const applyPendingUpload = (overwrite: boolean) => {
+    const rows = pendingUploadRows;
+    const keys = pendingUploadKeys;
+    setShowUploadChoice(false);
+    setPendingUploadRows(null);
+    setPendingUploadKeys(null);
+    if (!rows || !keys) return;
+
+    const { titleKey, typeKey, codeKey, openingBalanceKey, matchedColumnKeys } = keys;
+    const format = currentClient.coaFormat || 'numeric';
+    const baseAccounts = overwrite ? [] : accounts;
+    const usedIds = new Set(baseAccounts.map(a => a.id));
+    const existingNames = new Set(baseAccounts.map(a => a.name.trim().toLowerCase()));
+
+    const newAccounts: CoaAccount[] = [];
+    let skipped = 0;
+
+    rows.forEach(row => {
+      const name = String(row[titleKey] || '').trim();
+      const rawType = String(row[typeKey] || '').trim();
+      if (!name || !rawType) { skipped++; return; }
+      if (existingNames.has(name.toLowerCase())) { skipped++; return; }
+
+      const { type, subType } = normalizeUploadedType(rawType);
+
+      // Use the account code from the file when the file has one and it isn't already
+      // taken; otherwise fall back to auto-generating one so nothing is left without a code.
+      let id = '';
+      if (codeKey) {
+        const rawCode = String(row[codeKey] ?? '').trim();
+        if (rawCode && !usedIds.has(rawCode)) {
+          id = rawCode;
+        }
+      }
+      if (!id) {
+        id = generateUploadedAccountId(name, type, usedIds, format);
+      }
+      usedIds.add(id);
+      existingNames.add(name.toLowerCase());
+
+      // Pull in values from any matched columns (overrides the auto-derived Sub-Type/Normal Entry when present)
+      const matchedValues: Record<string, any> = {};
+      Object.entries(matchedColumnKeys).forEach(([colId, fileKey]) => {
+        const rawValue = String(row[fileKey] ?? '').trim();
+        if (!rawValue) return;
+        if (colId === 'normalSide') {
+          const v = rawValue.toLowerCase();
+          if (v === 'debit' || v === 'credit') matchedValues.normalSide = v;
+        } else {
+          matchedValues[colId] = rawValue;
+        }
+      });
+
+      // Opening Balance, if the file has a matching column
+      let openingBalance: number | undefined;
+      if (openingBalanceKey) {
+        const rawBalance = String(row[openingBalanceKey] ?? '').trim().replace(/,/g, '');
+        if (rawBalance !== '') {
+          const parsedBalance = parseFloat(rawBalance);
+          if (!isNaN(parsedBalance)) openingBalance = parsedBalance;
+        }
+      }
+
+      newAccounts.push({
+        id,
+        name,
+        type,
+        subType,
+        normalSide: getNormalSide(type),
+        ...(openingBalance !== undefined ? { openingBalance } : {}),
+        ...matchedValues,
+      });
+    });
+
+    if (newAccounts.length === 0) {
+      showToast(skipped > 0 ? "No new accounts added — all rows were duplicates or incomplete." : "No valid rows found in the file.");
+      return;
+    }
+
+    handleSaveAccounts([...baseAccounts, ...newAccounts]);
+    showToast(
+      overwrite
+        ? `Chart of Accounts overridden with ${newAccounts.length} account${newAccounts.length === 1 ? '' : 's'}${skipped > 0 ? ` (${skipped} skipped)` : ''}.`
+        : `Uploaded ${newAccounts.length} account${newAccounts.length === 1 ? '' : 's'}${skipped > 0 ? ` (${skipped} skipped)` : ''}.`
+    );
   };
 
   const handleDelete = (id: string) => {
@@ -981,6 +1035,48 @@ export function ChartOfAccounts() {
               >
                 <Plus className="w-3.5 h-3.5" /> Add Column
               </button>
+            </div>
+          </div>
+        )}
+
+        {showUploadChoice && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+            <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl w-full max-w-md shadow-2xl border border-slate-200 dark:border-slate-700">
+              <div className="flex justify-between items-center mb-3">
+                <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">
+                  Apply Uploaded Chart of Accounts
+                </h3>
+                <button
+                  onClick={() => { setShowUploadChoice(false); setPendingUploadRows(null); setPendingUploadKeys(null); }}
+                  className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg text-slate-400"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
+                You currently have {accounts.length} account{accounts.length === 1 ? '' : 's'} in your Chart of Accounts.
+                Choose whether to override (replace everything) or merge (keep existing accounts and add the new ones).
+              </p>
+              <div className="flex flex-col gap-2.5">
+                <button
+                  onClick={() => applyPendingUpload(true)}
+                  className="w-full bg-red-600 hover:bg-red-700 text-white font-bold text-sm px-4 py-2.5 rounded-lg transition-colors"
+                >
+                  Override — Replace Current Chart of Accounts
+                </button>
+                <button
+                  onClick={() => applyPendingUpload(false)}
+                  className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm px-4 py-2.5 rounded-lg transition-colors"
+                >
+                  Merge — Keep Existing and Add New Accounts
+                </button>
+                <button
+                  onClick={() => { setShowUploadChoice(false); setPendingUploadRows(null); setPendingUploadKeys(null); }}
+                  className="w-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-200 font-bold text-sm px-4 py-2.5 rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           </div>
         )}
