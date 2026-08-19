@@ -345,6 +345,11 @@ export interface GeneralLedgerEntry {
 export interface GeneralLedgerAccount {
   id: string;
   accountTitle: string;
+  // Links this ledger account back to its Chart of Accounts entry so the General
+  // Ledger can show/filter by Account Type. Optional for backward compatibility
+  // with ledger accounts created before this link existed.
+  accountId?: string;
+  accountType?: string;
   entries: GeneralLedgerEntry[];
 }
 
