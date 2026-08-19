@@ -956,19 +956,23 @@ export function History() {
 
         {/* Footer Summary */}
         {!['slp', 'sls'].includes(activeTab) && (
-          <div className="grid grid-cols-2 gap-4">
-            <div className="bg-amber-50 dark:bg-amber-900/20 p-4 rounded-xl border border-amber-100 dark:border-amber-800/50">
-              <span className="block text-xs uppercase font-bold text-amber-600 dark:text-amber-400 mb-1">Period Total Expenses</span>
-              <span className="text-xl font-black text-amber-700 dark:text-amber-300">
-                ₱{purchases.reduce((sum, p) => sum + p.amount, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-              </span>
-            </div>
-            <div className="bg-emerald-50 dark:bg-emerald-900/20 p-4 rounded-xl border border-emerald-100 dark:border-emerald-800/50">
-              <span className="block text-xs uppercase font-bold text-emerald-600 dark:text-emerald-400 mb-1">Period Total Income</span>
-              <span className="text-xl font-black text-emerald-700 dark:text-emerald-300">
-                ₱{sales.reduce((sum, s) => sum + s.amount, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-              </span>
-            </div>
+          <div className={cn("grid gap-4", activeTab === 'expenses' || activeTab === 'income' ? "grid-cols-1" : "grid-cols-2")}>
+            {activeTab !== 'income' && (
+              <div className="bg-amber-50 dark:bg-amber-900/20 p-4 rounded-xl border border-amber-100 dark:border-amber-800/50">
+                <span className="block text-xs uppercase font-bold text-amber-600 dark:text-amber-400 mb-1">Period Total Expenses</span>
+                <span className="text-xl font-black text-amber-700 dark:text-amber-300">
+                  ₱{purchases.reduce((sum, p) => sum + p.amount, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+            )}
+            {activeTab !== 'expenses' && (
+              <div className="bg-emerald-50 dark:bg-emerald-900/20 p-4 rounded-xl border border-emerald-100 dark:border-emerald-800/50">
+                <span className="block text-xs uppercase font-bold text-emerald-600 dark:text-emerald-400 mb-1">Period Total Income</span>
+                <span className="text-xl font-black text-emerald-700 dark:text-emerald-300">
+                  ₱{sales.reduce((sum, s) => sum + s.amount, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+            )}
           </div>
         )}
       </div>
