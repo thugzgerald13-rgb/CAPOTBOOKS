@@ -26,8 +26,6 @@ export function Purchases() {
   const [transactionDetails, setTransactionDetails] = useState('');
   const [inputTax, setInputTax] = useState(0);
 
-  const [selectedAccountType, setSelectedAccountType] = useState('Expenses');
-
   // Derive available accounts from Chart of Accounts
   const coaAccounts = (() => {
     let accs = currentClient?.accounts || [];
@@ -35,16 +33,10 @@ export function Purchases() {
     if (currentDat) {
       return accs.filter(a => expenseType === 'Capital Goods' ? (a.type.toLowerCase() === 'asset' || a.type.toLowerCase() === 'assets') : (a.type.toLowerCase() === 'expense' || a.type.toLowerCase() === 'expenses'));
     } else {
-      const t = selectedAccountType.toLowerCase();
+      // Payment for: always limited to Assets, Costs, and Expenses accounts
       return accs.filter(a => {
         const at = a.type.toLowerCase();
-        if (t === 'assets') return at === 'asset' || at === 'assets';
-        if (t === 'liabilities') return at === 'liability' || at === 'liabilities';
-        if (t === 'equity') return at === 'equity';
-        if (t === 'income') return at === 'income' || at === 'revenue';
-        if (t === 'costs') return at === 'costs' || at === 'cost' || at === 'expense' || at === 'expenses';
-        if (t === 'expenses') return at === 'expense' || at === 'expenses' || at === 'costs';
-        return at === t;
+        return at === 'asset' || at === 'assets' || at === 'costs' || at === 'cost' || at === 'expense' || at === 'expenses';
       });
     }
   })();
@@ -58,7 +50,7 @@ export function Purchases() {
     } else {
       setAccountTitle('');
     }
-  }, [expenseType, selectedAccountType, coaAccounts, accountTitle]);
+  }, [expenseType, coaAccounts, accountTitle]);
 
   const [dateWarning, setDateWarning] = useState<string | null>(null);
   const [sequenceNumber, setSequenceNumber] = useState(1);
@@ -413,26 +405,8 @@ export function Purchases() {
           </div>
         )}
 
-        {!currentDat && (
-          <div className="lg:col-span-1">
-            <label className="form-label text-blue-500">Account Type</label>
-            <select 
-              value={selectedAccountType} 
-              onChange={e => setSelectedAccountType(e.target.value)} 
-              className="form-input"
-            >
-              <option value="Assets">Assets</option>
-              <option value="Liabilities">Liabilities</option>
-              <option value="Equity">Equity</option>
-              <option value="Income">Income</option>
-              <option value="Costs">Costs</option>
-              <option value="Expenses">Expenses</option>
-            </select>
-          </div>
-        )}
-
         <div className={currentDat ? "lg:col-span-2" : "lg:col-span-3 md:col-span-2"}>
-          <label className="form-label">{currentDat ? "Account Title" : "Header Account"}</label>
+          <label className="form-label">{currentDat ? "Account Title" : "Payment for"}</label>
           <select value={accountTitle} onChange={e => setAccountTitle(e.target.value)} className="form-input bg-blue-50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-900/50 font-bold text-blue-800 dark:text-blue-300">
             {coaAccounts.map(account => (
               <option key={account.id} value={account.name}>{account.name}</option>
