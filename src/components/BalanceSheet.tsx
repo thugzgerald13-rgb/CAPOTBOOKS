@@ -46,7 +46,6 @@ export function BalanceSheet() {
       line('Adjustments'),
       line('Drawings'),
     ],
-    certifiedBy: ''
   };
 
   const bsData = currentClient.bsData || defaultData;
@@ -240,17 +239,6 @@ export function BalanceSheet() {
               <div className="w-28 text-right font-mono px-2 font-bold">{formatNum(totalLiabilitiesAndCapital, true)}</div>
               <div className="w-28 text-right font-mono px-2 text-slate-500">{formatNum(totalLiabilitiesAndCapitalPrior, true)}</div>
             </div>
-          </div>
-
-          <div className="pt-8">
-            <div className="text-xs uppercase font-bold text-slate-500 mb-1">Certified Correct:</div>
-            <input
-              type="text"
-              value={bsData.certifiedBy}
-              onChange={e => updateData({ certifiedBy: e.target.value })}
-              placeholder="Name of preparer"
-              className="w-64 bg-transparent border-b border-slate-300 dark:border-slate-700 focus:border-cyan-500 focus:outline-none px-1 py-1 text-sm mt-4"
-            />
           </div>
         </div>
       </div>

@@ -307,7 +307,6 @@ export interface BalanceSheetData {
   ppe: BalanceSheetLine[];
   currentLiabilities: BalanceSheetLine[];
   capital: BalanceSheetLine[];
-  certifiedBy: string;
 }
 
 export interface CashFlowLine {
