@@ -2,12 +2,11 @@ import { useState, useEffect } from 'react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { formatTIN, generateCSV, MONTHS, getMonthName } from '../lib/utils';
-import { ShoppingCart, Plus, ArrowLeft, ChevronsLeft, ChevronsRight, ChevronLeft, ChevronRight, PlusCircle, Trash2 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { ShoppingCart, Plus, Trash2 } from 'lucide-react';
 import { DEFAULT_ACCOUNTS } from './ChartOfAccounts';
 
 export function Purchases() {
-  const { currentClient, currentClientId, currentDat, saveClient, showToast, setCurrentDat, navigateToPage } = useAccounting();
+  const { currentClient, currentClientId, currentDat, saveClient, showToast, setCurrentDat } = useAccounting();
   
   // Single record state (similar to original but react-friendly)
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -425,14 +424,7 @@ export function Purchases() {
           />
         </div>
 
-        <div className="lg:col-span-3 flex justify-between items-center mt-2 border-t border-slate-200 dark:border-slate-700 pt-4">
-           <div className="flex gap-4 items-center">
-             <span className="text-sm font-semibold text-slate-500">Computed Input Tax:</span>
-             <span className="text-xl font-bold font-mono text-blue-600 dark:text-blue-400">
-                ₱ {inputTax.toLocaleString(undefined, { minimumFractionDigits: 2 })}
-             </span>
-           </div>
-           
+        <div className="lg:col-span-3 flex justify-end items-center mt-2 border-t border-slate-200 dark:border-slate-700 pt-4">
            <div className="flex gap-3">
              {viewIndex !== null && (
                <button 
@@ -450,55 +442,7 @@ export function Purchases() {
              <button onClick={handleAddPurchase} className="bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold px-8 py-2.5 rounded-xl transition-colors shadow-sm shadow-amber-500/20 flex items-center gap-2">
                <Plus className="w-5 h-5" /> {viewIndex !== null ? 'Update Entry' : 'Add Entry'}
              </button>
-             <button 
-               onClick={() => navigateToPage(null)} 
-               className="bg-slate-200 hover:bg-slate-300 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-bold px-6 py-2.5 rounded-xl transition-colors flex items-center gap-2"
-             >
-               <ArrowLeft className="w-5 h-5" /> Cancel
-             </button>
            </div>
-        </div>
-
-        <div className="lg:col-span-3 flex flex-wrap justify-center gap-2 mt-4 pt-4 border-t border-slate-200 dark:border-slate-700">
-          <button 
-            onClick={() => loadPurchase(0)} 
-            disabled={periodPurchases.length === 0}
-            className="flex items-center gap-1 px-4 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-          >
-            <ChevronsLeft className="w-4 h-4" /> Top
-          </button>
-          <button 
-            onClick={() => loadPurchase((viewIndex === null ? periodPurchases.length : viewIndex) - 1)} 
-            disabled={periodPurchases.length === 0 || viewIndex === 0}
-            className="flex items-center gap-1 px-4 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-          >
-            <ChevronLeft className="w-4 h-4" /> Previous
-          </button>
-          <button 
-            onClick={() => loadPurchase(viewIndex === null ? 0 : viewIndex + 1)} 
-            disabled={periodPurchases.length === 0 || (viewIndex !== null && viewIndex >= periodPurchases.length - 1)}
-            className="flex items-center gap-1 px-4 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-          >
-            Next <ChevronRight className="w-4 h-4" />
-          </button>
-          <button 
-            onClick={() => loadPurchase(periodPurchases.length - 1)} 
-            disabled={periodPurchases.length === 0 || viewIndex === periodPurchases.length - 1}
-            className="flex items-center gap-1 px-4 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
-          >
-            Last <ChevronsRight className="w-4 h-4" />
-          </button>
-          <button 
-            onClick={handleAddNew} 
-            className={cn(
-              "flex items-center gap-1 px-4 py-2 rounded-lg text-sm font-bold transition-all ml-2",
-              viewIndex === null 
-                ? "bg-amber-100 text-amber-700 border border-amber-200" 
-                : "bg-blue-100 text-blue-700 border border-blue-200 hover:bg-blue-200"
-            )}
-          >
-            <PlusCircle className="w-4 h-4" /> New Entry
-          </button>
         </div>
       </div>
 
