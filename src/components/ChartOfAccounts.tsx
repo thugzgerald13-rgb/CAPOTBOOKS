@@ -184,8 +184,6 @@ export function ChartOfAccounts() {
   const [editOpeningBalance, setEditOpeningBalance] = useState('');
   const [editModalTab, setEditModalTab] = useState<'details' | 'openingBalance'>('details');
 
-  // Sub-Type filter (options depend on the selected Account Type filter)
-  const [subTypeFilter, setSubTypeFilter] = useState('All');
 
   const coaColumns = useMemo(() => {
     const defaultColumns = [
@@ -306,28 +304,19 @@ export function ChartOfAccounts() {
     );
   }, [accounts, editType, editingId]);
 
-  // Sub-type options available for the current Account Type filter.
-  // When "All Account Types" is selected, offer every known sub-type across all types.
-  const availableFilterSubTypes = useMemo(() => {
-    if (typeFilter === 'All') {
-      const all = Object.values(SUBTYPES_BY_TYPE).flat();
-      return Array.from(new Set(all));
-    }
-    return SUBTYPES_BY_TYPE[typeFilter] || [];
-  }, [typeFilter]);
-
-  // Reset the sub-type filter whenever it's no longer valid for the selected Account Type
-  useEffect(() => {
-    if (subTypeFilter !== 'All' && !availableFilterSubTypes.includes(subTypeFilter)) {
-      setSubTypeFilter('All');
-    }
-  }, [availableFilterSubTypes, subTypeFilter]);
+  // Account Type filter options — derived from the actual Account Type values
+  // present in the Chart of Accounts data, so the filter always reflects what's
+  // really in the table (including any custom/free-text types from an upload)
+  // rather than a fixed, hardcoded list.
+  const availableFilterTypes = useMemo(() => {
+    const types = accounts.map(a => a.type).filter((t): t is string => !!t && t.trim() !== '');
+    return Array.from(new Set(types)).sort((a, b) => a.localeCompare(b));
+  }, [accounts]);
 
   const filteredAccounts = (typeFilter === 'All'
     ? accounts
     : accounts.filter(a => a.type.toLowerCase() === typeFilter.toLowerCase())
   )
-    .filter(a => subTypeFilter === 'All' || (a.subType || '') === subTypeFilter)
     .filter(a => showHidden || !a.hidden);
 
   const hiddenCount = accounts.filter(a => a.hidden).length;
@@ -1383,7 +1372,7 @@ export function ChartOfAccounts() {
             </div>
             
             <div className="flex flex-wrap items-center gap-3">
-              {/* Account Type Filter */}
+              {/* Account Type Filter — options come from the Account Type column data */}
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Filter:</span>
                 <select
@@ -1393,29 +1382,11 @@ export function ChartOfAccounts() {
                   className="text-xs font-semibold py-1.5 px-3 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
                 >
                   <option value="All">All Account Types</option>
-                  {ACCOUNT_TYPES.map(t => (
-                    <option key={t} value={t}>{t}s</option>
+                  {availableFilterTypes.map(t => (
+                    <option key={t} value={t}>{t}</option>
                   ))}
                 </select>
               </div>
-
-              {/* Sub-Type Filter — options depend on the selected Account Type above */}
-              {availableFilterSubTypes.length > 0 && (
-                <div className="flex items-center gap-2">
-                  <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Sub-Type:</span>
-                  <select
-                    id="subtype-filter"
-                    value={subTypeFilter}
-                    onChange={(e) => setSubTypeFilter(e.target.value)}
-                    className="text-xs font-semibold py-1.5 px-3 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
-                  >
-                    <option value="All">All Sub-Types</option>
-                    {availableFilterSubTypes.map(st => (
-                      <option key={st} value={st}>{st}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
 
               {hiddenCount > 0 && (
                 <button
