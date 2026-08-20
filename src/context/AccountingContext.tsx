@@ -1,10 +1,11 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Client, BusinessProfile, DatSelection } from '../types';
 import { supabase } from '../lib/supabase';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { useAuth } from './AuthContext';
 import { handleSupabaseError, OperationType } from '../lib/supabaseUtils';
+import { syncGeneralLedger } from '../lib/glPosting';
 
 interface AccountingContextType {
   clients: Record<string, Client>;
@@ -787,7 +788,16 @@ export function AccountingProvider({
     );
   }
 
-  const currentClient = currentClientId ? clients[currentClientId] : null;
+  // Every account title's General Ledger entries are derived here so that
+  // ANY change anywhere in the books (a sale, a purchase, a CRJ/CDJ/PJ row,
+  // a journal voucher) is immediately reflected per-account in the General
+  // Ledger — and everything built on it (Chart of Accounts balances, P&L,
+  // Balance Sheet). See src/lib/glPosting.ts.
+  const rawCurrentClient = currentClientId ? clients[currentClientId] : null;
+  const currentClient = useMemo(
+    () => (rawCurrentClient ? syncGeneralLedger(rawCurrentClient) : null),
+    [rawCurrentClient]
+  );
 
   return (
     <AccountingContext.Provider
