@@ -256,6 +256,102 @@ function postPurchases(client: Client, accounts: CoaAccount[]): Posting[] {
 }
 
 // ---------------------------------------------------------------------------
+// Source: Cash Disbursements Journal auto-entries — every payment made in
+// cash elsewhere in the app (a cash-basis Purchase, or a Journal Voucher
+// that credits Cash) is a cash disbursement, so it belongs in the Cash
+// Disbursements Journal even if nobody typed it there directly. These rows
+// are generated here and merged into `cdjEntries`; see
+// `syncCashDisbursementsJournal` below. They're excluded from
+// `postColumnarJournal`'s own CDJ pass (via the `cdjManualOnly` filter in
+// `computeAutoPostings`) because their source (Purchases / Journal Vouchers)
+// already posts straight to the General Ledger on its own — including them
+// again here would double-post the same cash-out to the ledger.
+// ---------------------------------------------------------------------------
+
+function cashPurchasesToCdjEntries(client: Client): JournalEntry[] {
+  return (client.purchases || [])
+    .filter(p => p.paymentMethod === 'Cash')
+    .map(p => {
+      const net = Number(p.amount) || 0;
+      const tax = Number(p.inputTax) || 0;
+      const total = net + tax;
+      if (total <= 0) return null;
+      const entry: JournalEntry = {
+        id: `cdj-auto:purchase:${p.id}`,
+        auto: true,
+        autoSource: 'Purchases',
+        values: {
+          date: p.date,
+          payee: p.supplierName,
+          account_title: p.accountTitle,
+          amount: net > 0 ? two(net) : '',
+          cash: two(total),
+          input_tax: tax > 0 ? two(tax) : '',
+        },
+      };
+      return entry;
+    })
+    .filter((e): e is JournalEntry => e !== null);
+}
+
+function cashJournalVouchersToCdjEntries(client: Client, accounts: CoaAccount[]): JournalEntry[] {
+  const cashAccount = findAccountByLabel('Cash', accounts);
+  if (!cashAccount) return [];
+
+  const entries: JournalEntry[] = [];
+  (client.journalVouchers || []).forEach(v => {
+    const creditLines = v.lines.filter(l => l.credit > 0);
+    if (creditLines.length === 0) return;
+    // Only treat this voucher as a cash disbursement when every credit line
+    // on it is the Cash account — a mixed voucher (e.g. Cr Cash + Cr Notes
+    // Payable) isn't a straightforward "paid in cash" transaction, so it's
+    // left for manual entry instead of guessed at.
+    const isCashOnlyCredit = creditLines.every(l => l.accountId === cashAccount.id);
+    if (!isCashOnlyCredit) return;
+
+    v.lines.filter(l => l.debit > 0).forEach(l => {
+      entries.push({
+        id: `cdj-auto:jv:${v.id}:${l.id}`,
+        auto: true,
+        autoSource: 'Journal Voucher',
+        values: {
+          date: v.date,
+          payee: v.memo || v.reference,
+          account_title: l.accountName,
+          amount: two(l.debit),
+          cash: two(l.debit),
+        },
+      });
+    });
+  });
+  return entries;
+}
+
+/**
+ * Returns the client with its Cash Disbursements Journal (`cdjEntries`)
+ * synced: every manually-typed row is kept untouched, plus a freshly
+ * regenerated set of auto-posted rows for cash payments recorded elsewhere
+ * (cash-basis Purchases, and Journal Vouchers that credit Cash). Safe to
+ * call repeatedly — it's idempotent and cheap enough to run on every
+ * save/read, and should run before `syncGeneralLedger` so the ledger picks
+ * up these auto-posted rows too.
+ */
+export function syncCashDisbursementsJournal(client: Client): Client {
+  const accounts = getCoaAccounts(client);
+  const autoEntries = [
+    ...cashPurchasesToCdjEntries(client),
+    ...cashJournalVouchersToCdjEntries(client, accounts),
+  ];
+  const manualEntries = (client.cdjEntries || []).filter(e => !e.auto);
+
+  if (autoEntries.length === 0 && manualEntries.length === (client.cdjEntries || []).length) {
+    return client; // nothing auto-generated, nothing to strip — avoid needless churn
+  }
+
+  return { ...client, cdjEntries: [...autoEntries, ...manualEntries] };
+}
+
+// ---------------------------------------------------------------------------
 // Merge: compute every auto-posting, group by account, and combine with the
 // user's manually-typed entries (auto entries never overwrite manual ones).
 // ---------------------------------------------------------------------------
@@ -283,7 +379,12 @@ export function computeAutoPostings(client: Client): Posting[] {
     overrides: CRJ_LABEL_OVERRIDES,
   });
 
-  const cdj = postColumnarJournal(client.cdjEntries || [], client.cdjColumns || DEFAULT_CDJ_COLUMNS, accounts, {
+  // Only the manually-typed CDJ rows are posted from here — rows that were
+  // themselves auto-generated from Purchases/Journal Vouchers are posted to
+  // the GL directly by postPurchases()/postJournalVouchers() below, so
+  // including them again here would double-post the same cash-out.
+  const cdjManualEntries = (client.cdjEntries || []).filter(e => !e.auto);
+  const cdj = postColumnarJournal(cdjManualEntries, client.cdjColumns || DEFAULT_CDJ_COLUMNS, accounts, {
     prefix: 'cdj',
     sourceLabel: 'Cash Disbursements Journal',
     dateCol: 'date',
