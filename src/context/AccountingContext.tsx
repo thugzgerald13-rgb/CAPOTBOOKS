@@ -13,6 +13,7 @@ interface AccountingContextType {
   currentClient: Client | null;
   businessProfile: BusinessProfile | null;
   isDarkMode: boolean;
+  isSidebarCollapsed: boolean;
   activePage: string | null;
   currentDat: DatSelection | null;
   historyTab: string;
@@ -23,6 +24,7 @@ interface AccountingContextType {
   syncData: () => Promise<void>;
 
   setDarkMode: (value: boolean) => void;
+  setSidebarCollapsed: (value: boolean) => void;
   navigateToPage: (page: string | null) => void;
   setHistoryTab: (tab: string) => void;
   setBirFormTab: (tab: string) => void;
@@ -40,9 +42,6 @@ interface AccountingContextType {
 }
 
 const AccountingContext = createContext<AccountingContextType | undefined>(undefined);
-
-const LOCAL_STORAGE_KEY = 'capo_accounting_v14_react';
-const OLD_STORAGE_KEY = 'capo_accounting_v13_react';
 
 const defaultBusinessProfile = (name: string): BusinessProfile => ({
   id: 'client_owner',
@@ -115,6 +114,7 @@ export function AccountingProvider({
   const [currentClientId, setCurrentClientId] = useState<string | null>(null);
   const [businessProfile, setBusinessProfile] = useState<BusinessProfile | null>(null);
   const [isDarkMode, setDarkMode] = useState(false);
+  const [isSidebarCollapsed, setSidebarCollapsed] = useState(false);
   // activePage is derived from the URL route, so every page has its own
   // real URL: browser back/forward and refresh-to-stay-there both work.
   // '/' (or no path) means no page is active (Dashboard shows).
@@ -156,38 +156,16 @@ export function AccountingProvider({
     if (!user || !isReady) return;
     setIsSyncing(true);
 
-    const keysToMigrate = [LOCAL_STORAGE_KEY, OLD_STORAGE_KEY];
-    let totalMigrated = 0;
-
     try {
-      for (const key of keysToMigrate) {
-        const saved = localStorage.getItem(key);
-        if (!saved) continue;
+      const { data, error } = await supabase.from('clients').select('id, data').eq('user_id', user.id);
+      if (error) throw error;
 
-        const localData = JSON.parse(saved) as Record<string, Client>;
-        const localIds = Object.keys(localData);
-        if (localIds.length === 0) continue;
-
-        console.log(`Manual sync: migrating ${key}...`);
-        const rows = localIds.map((id) => ({
-          id,
-          user_id: user.id,
-          data: localData[id],
-          updated_at: new Date().toISOString(),
-        }));
-
-        const { error } = await supabase.from('clients').upsert(rows, { onConflict: 'id' });
-        if (error) throw error;
-
-        totalMigrated += rows.length;
-        localStorage.removeItem(key);
-      }
-
-      if (totalMigrated > 0) {
-        showToast(`Successfully synced ${totalMigrated} items to cloud`);
-      } else {
-        showToast('Cloud sync complete (no new local changes found)');
-      }
+      const cloudClients: Record<string, Client> = {};
+      (data || []).forEach((row) => {
+        cloudClients[row.id] = row.data as Client;
+      });
+      setClients(cloudClients);
+      showToast('Cloud sync complete');
     } catch (e) {
       console.error('Manual sync failed', e);
       showToast('Sync failed. Check console for details.');
@@ -196,22 +174,14 @@ export function AccountingProvider({
     }
   };
 
-  // Initialize UI preferences (Dark Mode)
-  useEffect(() => {
-    const darkMode = localStorage.getItem('capo_dark_mode') === 'true';
-    setDarkMode(darkMode);
-  }, []);
-
   // Sync dark mode class and cloud pref
   useEffect(() => {
     if (isDarkMode) {
       document.documentElement.classList.add('dark');
       document.body.classList.add('dark');
-      localStorage.setItem('capo_dark_mode', 'true');
     } else {
       document.documentElement.classList.remove('dark');
       document.body.classList.remove('dark');
-      localStorage.setItem('capo_dark_mode', 'false');
     }
 
     // Sync to cloud if logged in
@@ -230,54 +200,52 @@ export function AccountingProvider({
     }
   }, [isDarkMode, user, isReady]);
 
-  // Load dark mode from cloud if available
+  // Sync sidebar-collapsed pref to cloud
+  useEffect(() => {
+    if (user && isReady) {
+      const syncPref = async () => {
+        try {
+          const { error } = await supabase
+            .from('profiles')
+            .upsert(
+              { id: user.id, sidebar_collapsed: isSidebarCollapsed, updated_at: new Date().toISOString() },
+              { onConflict: 'id' }
+            );
+          if (error) throw error;
+        } catch (e) {
+          console.error('Failed to sync sidebar pref', e);
+        }
+      };
+      syncPref();
+    }
+  }, [isSidebarCollapsed, user, isReady]);
+
+  // Load dark mode + sidebar-collapsed prefs from cloud
   useEffect(() => {
     const loadCloudPrefs = async () => {
       if (user && isReady) {
         try {
           const { data, error } = await supabase
             .from('profiles')
-            .select('is_dark_mode')
+            .select('is_dark_mode, sidebar_collapsed')
             .eq('id', user.id)
             .maybeSingle();
           if (error) throw error;
           if (data && typeof data.is_dark_mode === 'boolean') {
             setDarkMode(data.is_dark_mode);
           }
+          if (data && typeof data.sidebar_collapsed === 'boolean') {
+            setSidebarCollapsed(data.sidebar_collapsed);
+          }
         } catch (e) {
-          console.error('Failed to load theme pref', e);
+          console.error('Failed to load theme/sidebar prefs', e);
         }
       }
     };
     loadCloudPrefs();
   }, [user, isReady]);
 
-  // Synchronous initial load of local storage on startup for instant UI responsiveness
-  useEffect(() => {
-    const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        setClients(parsed);
-        const keys = Object.keys(parsed);
-        if (keys.length > 0) setCurrentClientId(keys[0]);
-      } catch (e) {
-        console.error('Local storage parse error on startup', e);
-      }
-    }
-    const savedBiz = localStorage.getItem('capo_business_profile_react');
-    if (savedBiz) {
-      try {
-        setBusinessProfile(JSON.parse(savedBiz));
-      } catch (e) {}
-    } else {
-      const defaultBiz = defaultBusinessProfile('My Business Organization');
-      setBusinessProfile(defaultBiz);
-      localStorage.setItem('capo_business_profile_react', JSON.stringify(defaultBiz));
-    }
-  }, []);
-
-  // Real-time Supabase Sync & Local Fallback
+  // Real-time Supabase Sync (Supabase is the single source of truth — no local database)
   useEffect(() => {
     if (!user) {
       setIsReady(true);
@@ -302,50 +270,11 @@ export function AccountingProvider({
     }, 12000);
 
     const mergeCloudClients = (cloudClients: Record<string, Client>) => {
-      setClients((prev) => {
-        const merged = { ...cloudClients };
+      setClients(cloudClients);
 
-        const keysToCheck = [LOCAL_STORAGE_KEY, OLD_STORAGE_KEY];
-        keysToCheck.forEach((key) => {
-          const saved = localStorage.getItem(key);
-          if (saved) {
-            try {
-              const localData = JSON.parse(saved) as Record<string, Client>;
-              Object.keys(localData).forEach((id) => {
-                const localClient = localData[id];
-                if (!merged[id]) {
-                  console.log(`Merging local record ${id} from ${key}`);
-                  merged[id] = localClient;
-                } else {
-                  const cloudClient = merged[id];
-                  if (
-                    localClient.accounts &&
-                    localClient.accounts.length > 0 &&
-                    (!cloudClient.accounts || cloudClient.accounts.length === 0)
-                  ) {
-                    console.log(`Merging local chart of accounts for client ${id}`);
-                    merged[id] = {
-                      ...cloudClient,
-                      accounts: localClient.accounts,
-                      coaFormat: localClient.coaFormat || cloudClient.coaFormat,
-                    };
-                  }
-                }
-              });
-            } catch (e) {}
-          }
-        });
-
-        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(merged));
-        return merged;
-      });
-
-      setClients((currentMerged) => {
-        if (Object.keys(currentMerged).length > 0 && !currentClientId) {
-          setCurrentClientId(Object.keys(currentMerged)[0]);
-        }
-        return currentMerged;
-      });
+      if (Object.keys(cloudClients).length > 0 && !currentClientId) {
+        setCurrentClientId(Object.keys(cloudClients)[0]);
+      }
     };
 
     const initClients = async () => {
@@ -379,7 +308,6 @@ export function AccountingProvider({
                   const row = payload.new as { id: string; data: Client };
                   next[row.id] = row.data;
                 }
-                localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(next));
                 return next;
               });
             }
@@ -451,45 +379,6 @@ export function AccountingProvider({
     };
   }, [user?.id]);
 
-  // Automatic Migration: Local -> Cloud
-  useEffect(() => {
-    const migrateData = async () => {
-      if (!user || !isReady) return;
-
-      const keysToMigrate = [LOCAL_STORAGE_KEY, OLD_STORAGE_KEY];
-
-      for (const key of keysToMigrate) {
-        const saved = localStorage.getItem(key);
-        if (!saved) continue;
-
-        try {
-          const localData = JSON.parse(saved) as Record<string, Client>;
-          const localIds = Object.keys(localData);
-          if (localIds.length === 0) continue;
-
-          console.log(`Checking for local data in ${key} to migrate...`);
-          const rows = localIds.map((id) => ({
-            id,
-            user_id: user.id,
-            data: localData[id],
-            updated_at: new Date().toISOString(),
-          }));
-
-          const { error } = await supabase.from('clients').upsert(rows, { onConflict: 'id' });
-          if (error) throw error;
-
-          console.log(`Successfully migrated ${rows.length} records from ${key} to cloud.`);
-          showToast(`Synced ${rows.length} items to cloud`);
-          localStorage.removeItem(key);
-        } catch (e) {
-          console.error(`Migration failed for ${key}`, e);
-        }
-      }
-    };
-
-    migrateData();
-  }, [user, isReady]);
-
   // Sync Business Profile to client_owner for any role
   useEffect(() => {
     if (businessProfile) {
@@ -503,14 +392,10 @@ export function AccountingProvider({
       if (needsSync) {
         const matchingClient = buildMatchingClient(businessProfile, existing);
 
-        setClients((prev) => {
-          const next = {
-            ...prev,
-            client_owner: matchingClient,
-          };
-          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(next));
-          return next;
-        });
+        setClients((prev) => ({
+          ...prev,
+          client_owner: matchingClient,
+        }));
 
         if (!currentClientId) {
           setCurrentClientId('client_owner');
@@ -537,14 +422,10 @@ export function AccountingProvider({
       userId: user ? user.id : undefined,
     };
 
-    setClients((prev) => {
-      const next = {
-        ...prev,
-        [id]: updatedClient,
-      };
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(next));
-      return next;
-    });
+    setClients((prev) => ({
+      ...prev,
+      [id]: updatedClient,
+    }));
 
     if (user) {
       try {
@@ -559,8 +440,6 @@ export function AccountingProvider({
       } catch (error) {
         await handleSupabaseError(error, OperationType.UPDATE, `clients/${id}`);
       }
-    } else {
-      showToast('Profile updated');
     }
   };
 
@@ -581,17 +460,13 @@ export function AccountingProvider({
       files: [],
     } as Client;
 
-    setClients((prev) => {
-      const next = {
-        ...prev,
-        [newId]: {
-          ...newClient,
-          userId: user ? user.id : undefined,
-        },
-      };
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(next));
-      return next;
-    });
+    setClients((prev) => ({
+      ...prev,
+      [newId]: {
+        ...newClient,
+        userId: user ? user.id : undefined,
+      },
+    }));
     setCurrentClientId(newId);
 
     if (user) {
@@ -604,30 +479,13 @@ export function AccountingProvider({
       } catch (error) {
         await handleSupabaseError(error, OperationType.CREATE, `clients/${newId}`);
       }
-    } else {
-      showToast('Client added');
     }
   };
 
   const deleteClient = async (id: string) => {
-    const keys = [LOCAL_STORAGE_KEY, OLD_STORAGE_KEY];
-    keys.forEach((key) => {
-      const saved = localStorage.getItem(key);
-      if (saved) {
-        try {
-          const localData = JSON.parse(saved) as Record<string, Client>;
-          if (localData[id]) {
-            delete localData[id];
-            localStorage.setItem(key, JSON.stringify(localData));
-          }
-        } catch (e) {}
-      }
-    });
-
     setClients((prev) => {
       const updated = { ...prev };
       delete updated[id];
-      localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(updated));
       return updated;
     });
 
@@ -675,14 +533,10 @@ export function AccountingProvider({
             { onConflict: 'id' }
           );
 
-        setClients((prev) => {
-          const next = {
-            ...prev,
-            client_owner: matchingClient,
-          };
-          localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(next));
-          return next;
-        });
+        setClients((prev) => ({
+          ...prev,
+          client_owner: matchingClient,
+        }));
 
         if (!currentClientId) {
           setCurrentClientId('client_owner');
@@ -692,22 +546,6 @@ export function AccountingProvider({
       } catch (error) {
         await handleSupabaseError(error, OperationType.UPDATE, `business_profiles/${user.id}`);
       }
-    } else {
-      localStorage.setItem('capo_business_profile_react', JSON.stringify(profileData));
-
-      const existing = clients['client_owner'];
-      const matchingClient = buildMatchingClient(profileData, existing);
-
-      setClients((prev) => {
-        const next = {
-          ...prev,
-          client_owner: matchingClient,
-        };
-        localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(next));
-        return next;
-      });
-      setCurrentClientId('client_owner');
-      showToast('Business Profile updated');
     }
   };
 
@@ -767,18 +605,11 @@ export function AccountingProvider({
             <button
               onClick={async () => {
                 await supabase.auth.signOut();
-                localStorage.clear();
                 window.location.reload();
               }}
               className="w-full py-4 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-300 rounded-2xl font-bold transition-all"
             >
               Reset and Sign Out
-            </button>
-            <button
-              onClick={() => setSyncError(null)}
-              className="w-full py-2 text-slate-400 hover:text-slate-500 text-xs font-medium transition-all"
-            >
-              Skip and Use Local Mode
             </button>
           </div>
         </div>
@@ -802,13 +633,6 @@ export function AccountingProvider({
               We're connecting to the cloud to ensure your records are up to date.
             </p>
           </div>
-
-          <button
-            onClick={() => setIsReady(true)}
-            className="mt-4 px-6 py-2 text-slate-400 hover:text-blue-500 text-xs font-semibold uppercase tracking-widest transition-colors"
-          >
-            Skip and start offline
-          </button>
         </div>
       </div>
     );
@@ -822,6 +646,7 @@ export function AccountingProvider({
         currentClient,
         businessProfile,
         isDarkMode,
+        isSidebarCollapsed,
         activePage,
         currentDat,
         historyTab,
@@ -831,6 +656,7 @@ export function AccountingProvider({
         syncError,
         syncData,
         setDarkMode,
+        setSidebarCollapsed,
         navigateToPage,
         setHistoryTab,
         setBirFormTab,
