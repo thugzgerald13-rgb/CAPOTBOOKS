@@ -382,6 +382,15 @@ export interface JournalColumn {
 export interface JournalEntry {
   id: string;
   values: Record<string, any>;
+  // When true, this entry was generated automatically — e.g. a cash purchase
+  // or a Journal Voucher that credits Cash, auto-recorded into the Cash
+  // Disbursements Journal — rather than typed directly into the journal.
+  // Auto-posted entries are regenerated every time their source changes, so
+  // they're read-only here — edit them at the source instead.
+  auto?: boolean;
+  // Human-readable label for where an auto-posted entry came from, e.g.
+  // "Purchases" or "Journal Voucher". Undefined for manually-entered entries.
+  autoSource?: string;
 }
 
 export type CashReceipt = JournalEntry;
