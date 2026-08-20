@@ -114,6 +114,10 @@ export function AccountingProvider({
   const [currentClientId, setCurrentClientId] = useState<string | null>(null);
   const [businessProfile, setBusinessProfile] = useState<BusinessProfile | null>(null);
   const [isDarkMode, setDarkMode] = useState(false);
+  // Guards against writing the default isDarkMode/isSidebarCollapsed state
+  // back to Supabase before the saved values have actually been loaded
+  // from the 'profiles' table (see effects below).
+  const [cloudPrefsLoaded, setCloudPrefsLoaded] = useState(false);
   const [isSidebarCollapsed, setSidebarCollapsed] = useState(false);
   // activePage is derived from the URL route, so every page has its own
   // real URL: browser back/forward and refresh-to-stay-there both work.
@@ -174,6 +178,52 @@ export function AccountingProvider({
     }
   };
 
+  // Reset the "loaded" guard whenever the logged-in user changes (login,
+  // logout, or switching accounts), so we re-load that user's prefs before
+  // allowing any writes back to Supabase.
+  useEffect(() => {
+    setCloudPrefsLoaded(false);
+  }, [user?.id]);
+
+  // Load dark mode + sidebar-collapsed prefs from cloud.
+  // This must finish (and set cloudPrefsLoaded) BEFORE the sync effects
+  // below are allowed to write anything, otherwise the default state
+  // (isDarkMode=false) gets written to Supabase first and clobbers the
+  // saved value — which is what was causing dark mode to revert on refresh.
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadCloudPrefs = async () => {
+      if (user && isReady) {
+        try {
+          const { data, error } = await supabase
+            .from('profiles')
+            .select('is_dark_mode, sidebar_collapsed')
+            .eq('id', user.id)
+            .maybeSingle();
+          if (error) throw error;
+          if (!cancelled) {
+            if (data && typeof data.is_dark_mode === 'boolean') {
+              setDarkMode(data.is_dark_mode);
+            }
+            if (data && typeof data.sidebar_collapsed === 'boolean') {
+              setSidebarCollapsed(data.sidebar_collapsed);
+            }
+          }
+        } catch (e) {
+          console.error('Failed to load theme/sidebar prefs', e);
+        } finally {
+          if (!cancelled) setCloudPrefsLoaded(true);
+        }
+      }
+    };
+    loadCloudPrefs();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, isReady]);
+
   // Sync dark mode class and cloud pref
   useEffect(() => {
     if (isDarkMode) {
@@ -184,8 +234,9 @@ export function AccountingProvider({
       document.body.classList.remove('dark');
     }
 
-    // Sync to cloud if logged in
-    if (user && isReady) {
+    // Only write to Supabase once we've loaded the saved value for this
+    // user - otherwise we'd overwrite it with the default before it's read.
+    if (user && isReady && cloudPrefsLoaded) {
       const syncPref = async () => {
         try {
           const { error } = await supabase
@@ -198,11 +249,11 @@ export function AccountingProvider({
       };
       syncPref();
     }
-  }, [isDarkMode, user, isReady]);
+  }, [isDarkMode, user, isReady, cloudPrefsLoaded]);
 
   // Sync sidebar-collapsed pref to cloud
   useEffect(() => {
-    if (user && isReady) {
+    if (user && isReady && cloudPrefsLoaded) {
       const syncPref = async () => {
         try {
           const { error } = await supabase
@@ -218,32 +269,7 @@ export function AccountingProvider({
       };
       syncPref();
     }
-  }, [isSidebarCollapsed, user, isReady]);
-
-  // Load dark mode + sidebar-collapsed prefs from cloud
-  useEffect(() => {
-    const loadCloudPrefs = async () => {
-      if (user && isReady) {
-        try {
-          const { data, error } = await supabase
-            .from('profiles')
-            .select('is_dark_mode, sidebar_collapsed')
-            .eq('id', user.id)
-            .maybeSingle();
-          if (error) throw error;
-          if (data && typeof data.is_dark_mode === 'boolean') {
-            setDarkMode(data.is_dark_mode);
-          }
-          if (data && typeof data.sidebar_collapsed === 'boolean') {
-            setSidebarCollapsed(data.sidebar_collapsed);
-          }
-        } catch (e) {
-          console.error('Failed to load theme/sidebar prefs', e);
-        }
-      }
-    };
-    loadCloudPrefs();
-  }, [user, isReady]);
+  }, [isSidebarCollapsed, user, isReady, cloudPrefsLoaded]);
 
   // Real-time Supabase Sync (Supabase is the single source of truth — no local database)
   useEffect(() => {
