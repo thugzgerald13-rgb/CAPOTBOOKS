@@ -340,6 +340,15 @@ export interface GeneralLedgerEntry {
   particularsCr: string;
   refCr: string;
   credit: string;
+  // When true, this entry was generated automatically from a source journal
+  // (Cash Receipts/Disbursements Journal, Purchases Journal, Journal Voucher,
+  // or the Purchases module) rather than typed directly into the General
+  // Ledger. Auto-posted entries are regenerated every time their source
+  // changes, so they're read-only here — edit them at the source instead.
+  auto?: boolean;
+  // Human-readable label for where an auto-posted entry came from, e.g.
+  // "Cash Receipts Journal". Undefined for manually-entered entries.
+  autoSource?: string;
 }
 
 export interface GeneralLedgerAccount {
