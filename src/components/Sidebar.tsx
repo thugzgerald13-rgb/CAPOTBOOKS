@@ -16,10 +16,17 @@ interface SidebarProps {
   setIsOpen: (open: boolean) => void;
 }
 
-const SIDEBAR_COLLAPSE_KEY = 'capot-sidebar-collapsed';
-
 export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
-  const { navigateToPage, setCurrentDat, setHistoryTab, setBirFormTab, syncData, isSyncing } = useAccounting();
+  const {
+    navigateToPage,
+    setCurrentDat,
+    setHistoryTab,
+    setBirFormTab,
+    syncData,
+    isSyncing,
+    isSidebarCollapsed: isCollapsed,
+    setSidebarCollapsed: setIsCollapsed,
+  } = useAccounting();
   const { user, isAdmin, userRole, signOut } = useAuth();
   const [isTransactionsOpen, setIsTransactionsOpen] = useState(false);
   const [isReportsOpen, setIsReportsOpen] = useState(false);
@@ -28,19 +35,10 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   const [isBooksOpen, setIsBooksOpen] = useState(false);
   const [isDevOpen, setIsDevOpen] = useState(false);
 
-  // Desktop-only collapse (icon rail). Mobile keeps the existing slide-in drawer behavior.
-  const [isCollapsed, setIsCollapsed] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    return window.localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === 'true';
-  });
-
+  // Desktop-only collapse (icon rail). Mobile keeps the existing slide-in drawer
+  // behavior. Collapse state itself now lives in AccountingContext, synced to
+  // the Supabase `profiles` table — this effect just reacts to it locally.
   useEffect(() => {
-    try {
-      window.localStorage.setItem(SIDEBAR_COLLAPSE_KEY, String(isCollapsed));
-    } catch {
-      // ignore storage errors (e.g. private browsing)
-    }
-
     // Close any open dropdowns when the rail collapses so submenus don't
     // linger, disconnected from their (now icon-only) parent.
     if (isCollapsed) {
