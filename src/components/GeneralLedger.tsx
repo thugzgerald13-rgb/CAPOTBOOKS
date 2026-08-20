@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { LineChart, Plus, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
-import { GeneralLedgerAccount, GeneralLedgerEntry } from '../types';
+import { CoaAccount, GeneralLedgerAccount, GeneralLedgerEntry } from '../types';
 import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide } from './ChartOfAccounts';
 import { cn } from '../lib/utils';
 import { getRunningBalances, formatAccountAmount } from '../lib/accountingBalances';
@@ -102,8 +102,10 @@ export function GeneralLedger() {
   };
 
   const clearEntries = (accountId: string, accountTitle: string) => {
-    if (confirm(`Clear all entries for "${accountTitle}"? This account will stay in the ledger since it's part of the Chart of Accounts.`)) {
-      mutateEntries(accountId, () => []);
+    if (confirm(`Clear all manually-entered entries for "${accountTitle}"? Entries auto-posted from the CRJ/CDJ/PJ, Purchases, or Journal Vouchers aren't affected — edit those at the source instead.`)) {
+      // Auto-posted rows aren't user data — they're regenerated from their
+      // source journal every time — so only manual entries are removed here.
+      mutateEntries(accountId, entries => entries.filter(e => e.auto));
     }
   };
 
@@ -117,7 +119,7 @@ export function GeneralLedger() {
       <div className="p-4 md:p-6 flex-1">
       <div className="p-6">
         <div className="flex flex-col md:flex-row md:justify-between md:items-center gap-3 mb-6">
-          <p className="text-slate-500 dark:text-slate-400">Ledger accounts mirror your Chart of Accounts automatically — add an account there and it appears here.</p>
+          <p className="text-slate-500 dark:text-slate-400">Ledger accounts mirror your Chart of Accounts automatically — add an account there and it appears here. Entries tagged <span className="font-bold text-cyan-600 dark:text-cyan-400">Auto</span> are posted automatically from the Cash Receipts/Disbursements Journals, Purchases Journal, Purchases, and Journal Vouchers; add rows manually for anything else.</p>
           {availableTypes.length > 1 && (
             <select
               value={typeFilter}
@@ -151,7 +153,18 @@ export function GeneralLedger() {
             });
             
             const balance = totalDr - totalCr;
-            
+
+            // Running balance per row, including entries auto-posted from the
+            // Cash Receipts/Disbursements Journals, Purchases Journal,
+            // Purchases module, and Journal Vouchers (see src/lib/glPosting.ts).
+            const runningBalances = getRunningBalances(currentClient, {
+              id: account.accountId || account.id,
+              name: account.accountTitle,
+              type: account.accountType || '',
+              normalSide: account.normalSide,
+              openingBalance: account.openingBalance,
+            } as CoaAccount);
+
             return (
               <div key={account.id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
                 <div 
@@ -172,11 +185,11 @@ export function GeneralLedger() {
                     <span className="text-xs font-bold px-2 py-1 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded">
                       Bal: ₱ {balance >= 0 ? balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : `(${(balance * -1).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`}
                     </span>
-                    {account.entries.length > 0 && (
+                    {account.entries.some(e => !e.auto) && (
                       <button 
                         onClick={(e) => { e.stopPropagation(); clearEntries(account.accountId!, account.accountTitle); }}
                         className="text-slate-400 hover:text-red-500 transition-colors"
-                        title="Clear Entries"
+                        title="Clear manually-entered entries"
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -231,38 +244,50 @@ export function GeneralLedger() {
                         )}
                         {account.entries.map((entry, idx) => {
                           const running = runningBalances[idx]?.balance ?? 0;
+                          const isAuto = !!entry.auto;
+                          const inputCls = cn(
+                            "w-full bg-transparent border border-transparent rounded px-2 py-1 transition-all outline-none",
+                            isAuto
+                              ? "text-slate-500 dark:text-slate-400 cursor-default"
+                              : "hover:border-slate-300 dark:hover:border-slate-600 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
+                          );
                           return (
-                          <tr key={entry.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 group">
+                          <tr key={entry.id} className={cn("group", isAuto ? "bg-cyan-50/40 dark:bg-cyan-950/10" : "hover:bg-slate-50/50 dark:hover:bg-slate-800/20")}>
                             <td className="px-3 py-1.5 text-center text-slate-400 font-mono border-r border-slate-200 dark:border-slate-700">{idx + 1}</td>
                             
                             {/* DEBIT SIDE */}
                             <td className="px-2 py-1 border-r border-slate-100 dark:border-slate-800">
                               <input 
                                 type="text"
+                                readOnly={isAuto}
                                 value={entry.dateDr}
                                 onChange={e => updateEntry(account.accountId!, entry.id, 'dateDr', e.target.value)}
-                                className="w-full bg-transparent border border-transparent hover:border-slate-300 dark:hover:border-slate-600 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded px-2 py-1 transition-all outline-none"
+                                className={inputCls}
                               />
                             </td>
                             <td className="px-2 py-1 border-r border-slate-100 dark:border-slate-800">
                               <input 
                                 type="text"
+                                readOnly={isAuto}
                                 value={entry.particularsDr}
                                 onChange={e => updateEntry(account.accountId!, entry.id, 'particularsDr', e.target.value)}
-                                className="w-full bg-transparent border border-transparent hover:border-slate-300 dark:hover:border-slate-600 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded px-2 py-1 transition-all outline-none"
+                                title={isAuto ? `Auto-posted from ${entry.autoSource}` : undefined}
+                                className={inputCls}
                               />
                             </td>
                             <td className="px-2 py-1 border-r border-slate-100 dark:border-slate-800">
                               <input 
                                 type="text"
+                                readOnly={isAuto}
                                 value={entry.refDr}
                                 onChange={e => updateEntry(account.accountId!, entry.id, 'refDr', e.target.value)}
-                                className="w-full bg-transparent border border-transparent hover:border-slate-300 dark:hover:border-slate-600 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded px-2 py-1 transition-all outline-none"
+                                className={inputCls}
                               />
                             </td>
                             <td className="px-2 py-1 border-r border-slate-300 dark:border-slate-600">
                               <input 
                                 type="text"
+                                readOnly={isAuto}
                                 value={entry.debit}
                                 onChange={e => {
                                   if (/^[0-9.,-]*$/.test(e.target.value)) {
@@ -275,7 +300,7 @@ export function GeneralLedger() {
                                     updateEntry(account.accountId!, entry.id, 'debit', parseFloat(raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
                                   }
                                 }}
-                                className="w-full bg-transparent border border-transparent hover:border-slate-300 dark:hover:border-slate-600 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded px-2 py-1 outline-none text-right font-mono"
+                                className={cn(inputCls, "text-right font-mono")}
                                 placeholder="0.00"
                               />
                             </td>
@@ -284,30 +309,35 @@ export function GeneralLedger() {
                             <td className="px-2 py-1 border-r border-slate-100 dark:border-slate-800">
                               <input 
                                 type="text"
+                                readOnly={isAuto}
                                 value={entry.dateCr}
                                 onChange={e => updateEntry(account.accountId!, entry.id, 'dateCr', e.target.value)}
-                                className="w-full bg-transparent border border-transparent hover:border-slate-300 dark:hover:border-slate-600 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded px-2 py-1 transition-all outline-none"
+                                className={inputCls}
                               />
                             </td>
                             <td className="px-2 py-1 border-r border-slate-100 dark:border-slate-800">
                               <input 
                                 type="text"
+                                readOnly={isAuto}
                                 value={entry.particularsCr}
                                 onChange={e => updateEntry(account.accountId!, entry.id, 'particularsCr', e.target.value)}
-                                className="w-full bg-transparent border border-transparent hover:border-slate-300 dark:hover:border-slate-600 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded px-2 py-1 transition-all outline-none"
+                                title={isAuto ? `Auto-posted from ${entry.autoSource}` : undefined}
+                                className={inputCls}
                               />
                             </td>
                             <td className="px-2 py-1 border-r border-slate-100 dark:border-slate-800">
                               <input 
                                 type="text"
+                                readOnly={isAuto}
                                 value={entry.refCr}
                                 onChange={e => updateEntry(account.accountId!, entry.id, 'refCr', e.target.value)}
-                                className="w-full bg-transparent border border-transparent hover:border-slate-300 dark:hover:border-slate-600 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded px-2 py-1 transition-all outline-none"
+                                className={inputCls}
                               />
                             </td>
                             <td className="px-2 py-1">
                               <input 
                                 type="text"
+                                readOnly={isAuto}
                                 value={entry.credit}
                                 onChange={e => {
                                   if (/^[0-9.,-]*$/.test(e.target.value)) {
@@ -320,7 +350,7 @@ export function GeneralLedger() {
                                     updateEntry(account.accountId!, entry.id, 'credit', parseFloat(raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
                                   }
                                 }}
-                                className="w-full bg-transparent border border-transparent hover:border-slate-300 dark:hover:border-slate-600 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded px-2 py-1 outline-none text-right font-mono"
+                                className={cn(inputCls, "text-right font-mono")}
                                 placeholder="0.00"
                               />
                             </td>
@@ -328,12 +358,21 @@ export function GeneralLedger() {
                               {formatAccountAmount(running)}
                             </td>
                             <td className="px-2 py-1 text-center">
-                              <button 
-                                onClick={() => deleteEntry(account.accountId!, entry.id)}
-                                className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors opacity-0 group-hover:opacity-100"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                              {isAuto ? (
+                                <span
+                                  title={`Auto-posted from ${entry.autoSource} — edit at the source`}
+                                  className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-cyan-100 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300"
+                                >
+                                  Auto
+                                </span>
+                              ) : (
+                                <button 
+                                  onClick={() => deleteEntry(account.accountId!, entry.id)}
+                                  className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors opacity-0 group-hover:opacity-100"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
                             </td>
                           </tr>
                           );
