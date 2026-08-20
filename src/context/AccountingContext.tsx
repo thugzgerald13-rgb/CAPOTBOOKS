@@ -446,10 +446,10 @@ export function AccountingProvider({
 
     return () => {
       clearTimeout(timeout);
-      clientsChannel?.unsubscribe();
-      bizChannel?.unsubscribe();
+      if (clientsChannel) supabase.removeChannel(clientsChannel);
+      if (bizChannel) supabase.removeChannel(bizChannel);
     };
-  }, [user]);
+  }, [user?.id]);
 
   // Automatic Migration: Local -> Cloud
   useEffect(() => {
