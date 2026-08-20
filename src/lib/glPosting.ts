@@ -242,12 +242,25 @@ function postPurchases(client: Client, accounts: CoaAccount[]): Posting[] {
     }
 
     const total = netAmount + inputTax;
-    if (total > 0) {
+    const wht = p.withholdingOption === 'with' ? (Number(p.whtAmount) || 0) : 0;
+    const cashDue = total - wht;
+
+    if (cashDue > 0) {
       const creditAcct = findAccountByLabel('Cash', accounts);
       if (creditAcct) {
         postings.push({
           accountId: creditAcct.id,
-          entry: makeLeg(`purchase:${p.id}:credit`, 'credit', total, p.date, particulars, ref, 'Purchases'),
+          entry: makeLeg(`purchase:${p.id}:credit`, 'credit', cashDue, p.date, particulars, ref, 'Purchases'),
+        });
+      }
+    }
+
+    if (wht > 0) {
+      const whtAcct = findAccountByLabel('Withholding Tax Payable - Expanded', accounts);
+      if (whtAcct) {
+        postings.push({
+          accountId: whtAcct.id,
+          entry: makeLeg(`purchase:${p.id}:wht`, 'credit', wht, p.date, particulars, ref, 'Purchases'),
         });
       }
     }
@@ -275,7 +288,9 @@ function cashPurchasesToCdjEntries(client: Client): JournalEntry[] {
       const net = Number(p.amount) || 0;
       const tax = Number(p.inputTax) || 0;
       const total = net + tax;
-      if (total <= 0) return null;
+      const wht = p.withholdingOption === 'with' ? (Number(p.whtAmount) || 0) : 0;
+      const cashDue = total - wht;
+      if (cashDue <= 0) return null;
       const entry: JournalEntry = {
         id: `cdj-auto:purchase:${p.id}`,
         auto: true,
@@ -285,7 +300,7 @@ function cashPurchasesToCdjEntries(client: Client): JournalEntry[] {
           payee: p.supplierName,
           account_title: p.accountTitle,
           amount: net > 0 ? two(net) : '',
-          cash: two(total),
+          cash: two(cashDue),
           input_tax: tax > 0 ? two(tax) : '',
         },
       };
