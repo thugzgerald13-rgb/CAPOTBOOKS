@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { formatTIN, generateCSV, MONTHS, getMonthName } from '../lib/utils';
@@ -30,7 +30,7 @@ export function Purchases() {
   const [inputTax, setInputTax] = useState(0);
 
   // Derive available accounts from Chart of Accounts
-  const coaAccounts = (() => {
+  const coaAccounts = useMemo(() => {
     let accs = (currentClient?.accounts || []).filter(a => !a.hidden);
     if (accs.length === 0) accs = DEFAULT_ACCOUNTS;
     if (currentDat) {
@@ -42,18 +42,22 @@ export function Purchases() {
         return at === 'asset' || at === 'assets' || at === 'costs' || at === 'cost' || at === 'expense' || at === 'expenses';
       });
     }
-  })();
+  }, [currentClient?.accounts, currentDat, expenseType]);
 
-  // Reset account title when expense type changes, if not already in list
+  // Default the "Payment for" / "Account Title" field to the first matching
+  // account whenever the expense-type category changes (or on first load).
+  // This intentionally does NOT run on every keystroke — the field is a
+  // free-type combobox (type a name, or pick one from the suggestions), so
+  // typing something that isn't yet an exact account name must never get
+  // silently overwritten.
   useEffect(() => {
     if (coaAccounts.length > 0) {
-      if (!coaAccounts.find(a => a.name === accountTitle)) {
-        setAccountTitle(coaAccounts[0].name);
-      }
+      setAccountTitle(prev => coaAccounts.find(a => a.name === prev) ? prev : coaAccounts[0].name);
     } else {
       setAccountTitle('');
     }
-  }, [expenseType, coaAccounts, accountTitle]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expenseType, currentDat, coaAccounts]);
 
   // Let users customize the "Payment for" account list right from this tab —
   // adding a new Chart of Accounts entry or removing the currently selected
@@ -536,11 +540,20 @@ export function Purchases() {
               </div>
             )}
           </div>
-          <select value={accountTitle} onChange={e => setAccountTitle(e.target.value)} className="form-input bg-blue-50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-900/50 font-bold text-blue-800 dark:text-blue-300">
+          <input
+            type="text"
+            list="payment-for-suggestions"
+            value={accountTitle}
+            onChange={e => setAccountTitle(e.target.value)}
+            placeholder="Type or choose an account..."
+            autoComplete="off"
+            className="form-input bg-blue-50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-900/50 font-bold text-blue-800 dark:text-blue-300"
+          />
+          <datalist id="payment-for-suggestions">
             {coaAccounts.map(account => (
-              <option key={account.id} value={account.name}>{account.name}</option>
+              <option key={account.id} value={account.name} />
             ))}
-          </select>
+          </datalist>
 
           {showAddPaymentAccount && (
             <div className="mt-2 p-3 bg-emerald-50 dark:bg-emerald-900/10 border border-emerald-200 dark:border-emerald-900/50 rounded-xl flex flex-col sm:flex-row gap-2 items-stretch sm:items-end">
