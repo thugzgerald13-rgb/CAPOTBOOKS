@@ -720,6 +720,32 @@ export function AccountingProvider({
     navigate(page ? `/${page}` : '/');
   };
 
+  // Every account title's General Ledger entries are derived here so that
+  // ANY change anywhere in the books (a sale, a purchase, a CRJ/CDJ/PJ row,
+  // a journal voucher) is immediately reflected per-account in the General
+  // Ledger — and everything built on it (Chart of Accounts balances, P&L,
+  // Balance Sheet). See src/lib/glPosting.ts.
+  //
+  // The Cash Disbursements Journal is synced first so that every cash
+  // payment recorded elsewhere (a cash-basis Purchase, a Journal Voucher
+  // that credits Cash) is auto-recorded there too — then the General Ledger
+  // sync runs on top of that so the ledger reflects those rows as well.
+  //
+  // NOTE: this useMemo (and every other hook in this component) must run on
+  // every render, so it's declared BEFORE the `syncError` / `!isReady` early
+  // returns below. Putting a hook after a conditional `return` means the
+  // hook simply isn't called on renders that hit the early return — as soon
+  // as `syncError` or `isReady` flips (or any other early-return condition
+  // changes), React sees a different number of hooks between renders and
+  // throws "Rendered more/fewer hooks than during the previous render"
+  // (React error #310), which crashes the entire app since this provider
+  // wraps everything.
+  const rawCurrentClient = currentClientId ? clients[currentClientId] : null;
+  const currentClient = useMemo(
+    () => (rawCurrentClient ? syncGeneralLedger(syncCashDisbursementsJournal(rawCurrentClient)) : null),
+    [rawCurrentClient]
+  );
+
   if (syncError) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 px-6">
@@ -787,22 +813,6 @@ export function AccountingProvider({
       </div>
     );
   }
-
-  // Every account title's General Ledger entries are derived here so that
-  // ANY change anywhere in the books (a sale, a purchase, a CRJ/CDJ/PJ row,
-  // a journal voucher) is immediately reflected per-account in the General
-  // Ledger — and everything built on it (Chart of Accounts balances, P&L,
-  // Balance Sheet). See src/lib/glPosting.ts.
-  //
-  // The Cash Disbursements Journal is synced first so that every cash
-  // payment recorded elsewhere (a cash-basis Purchase, a Journal Voucher
-  // that credits Cash) is auto-recorded there too — then the General Ledger
-  // sync runs on top of that so the ledger reflects those rows as well.
-  const rawCurrentClient = currentClientId ? clients[currentClientId] : null;
-  const currentClient = useMemo(
-    () => (rawCurrentClient ? syncGeneralLedger(syncCashDisbursementsJournal(rawCurrentClient)) : null),
-    [rawCurrentClient]
-  );
 
   return (
     <AccountingContext.Provider
