@@ -4,7 +4,7 @@ import { useAccounting } from '../context/AccountingContext';
 import { formatTIN, generateCSV, MONTHS, getMonthName } from '../lib/utils';
 import { ShoppingCart, Plus, Trash2, X } from 'lucide-react';
 import { DEFAULT_ACCOUNTS, getNormalSide, resequenceAccounts } from './ChartOfAccounts';
-import { cn } from '../lib/utils';
+import { ATC_SCHEDULE } from '../lib/atcSchedule';
 
 export function Purchases() {
   const { currentClient, currentClientId, currentDat, saveClient, showToast, setCurrentDat } = useAccounting();
@@ -21,6 +21,9 @@ export function Purchases() {
   const [amount, setAmount] = useState('');
   const [netAmount, setNetAmount] = useState(0);
   const [vatType, setVatType] = useState('vat');
+  const [withholdingOption, setWithholdingOption] = useState<'w/o' | 'with'>('w/o');
+  const [atcCode, setAtcCode] = useState('');
+  const [whtAmount, setWhtAmount] = useState(0);
   const [expenseType, setExpenseType] = useState('Capital Goods');
   const [accountTitle, setAccountTitle] = useState('');
   const [transactionDetails, setTransactionDetails] = useState('');
@@ -106,20 +109,6 @@ export function Purchases() {
     showToast(`Account "${name}" added.`);
   };
 
-  const handleRemovePaymentAccount = () => {
-    if (!currentClient || !currentClientId || !accountTitle) return;
-    const baseAccounts = currentClient.accounts && currentClient.accounts.length > 0 ? currentClient.accounts : DEFAULT_ACCOUNTS;
-    const target = baseAccounts.find(a => a.name === accountTitle);
-    if (!target) return;
-    if (!confirm(`Remove "${target.name}" from the Chart of Accounts? This cannot be undone.`)) return;
-    const updatedAccounts = baseAccounts
-      .filter(a => a.id !== target.id)
-      .map(a => a.parentId === target.id ? { ...a, parentId: undefined } : a);
-    const format = currentClient.coaFormat || 'numeric';
-    saveClient(currentClientId, { ...currentClient, accounts: resequenceAccounts(updatedAccounts, format), coaFormat: format });
-    showToast(`Account "${target.name}" removed.`);
-  };
-
   const [dateWarning, setDateWarning] = useState<string | null>(null);
   const [sequenceNumber, setSequenceNumber] = useState(1);
 
@@ -166,6 +155,8 @@ export function Purchases() {
       const gross = p.vatType === 'vat' ? (p.amount + (p.inputTax || 0)) : p.amount;
       setAmount(gross.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
       setVatType(p.vatType);
+      setWithholdingOption(p.withholdingOption || 'w/o');
+      setAtcCode(p.atcCode || '');
       setExpenseType(p.expenseType);
       setAccountTitle(p.accountTitle);
       
@@ -206,6 +197,29 @@ export function Purchases() {
       setInputTax(0);
     }
   }, [amount, vatType]);
+
+  // Default to the first ATC in the schedule whenever "With Withholdings" is
+  // selected and no ATC has been chosen yet.
+  useEffect(() => {
+    if (withholdingOption === 'with' && !atcCode && ATC_SCHEDULE.length > 0) {
+      setAtcCode(ATC_SCHEDULE[0].code);
+    }
+    if (withholdingOption === 'w/o' && atcCode) {
+      setAtcCode('');
+    }
+  }, [withholdingOption, atcCode]);
+
+  // Re-compute withholding tax amount (per the BIR Schedule of Alphanumeric
+  // Tax Codes) whenever the net amount, withholding option, or selected ATC
+  // changes.
+  useEffect(() => {
+    if (withholdingOption === 'with' && atcCode) {
+      const entry = ATC_SCHEDULE.find(e => e.code === atcCode);
+      setWhtAmount(entry ? netAmount * entry.rate : 0);
+    } else {
+      setWhtAmount(0);
+    }
+  }, [withholdingOption, atcCode, netAmount]);
 
   // Auto-fill from supplier library
   useEffect(() => {
@@ -274,6 +288,10 @@ export function Purchases() {
       supplierAddress,
       amount: netAmount,
       vatType,
+      withholdingOption,
+      atcCode: withholdingOption === 'with' ? atcCode : null,
+      whtRate: withholdingOption === 'with' ? (ATC_SCHEDULE.find(e => e.code === atcCode)?.rate ?? null) : null,
+      whtAmount: withholdingOption === 'with' ? whtAmount : 0,
       expenseType,
       accountTitle,
       transactionDetails,
@@ -436,6 +454,35 @@ export function Purchases() {
         </div>
 
         <div>
+           <label className="form-label text-red-500">Withholding Tax *</label>
+           <select value={withholdingOption} onChange={e => setWithholdingOption(e.target.value as 'w/o' | 'with')} className="form-input bg-slate-100 dark:bg-slate-900 border-slate-300">
+             <option value="w/o">W/O Withholdings</option>
+             <option value="with">With Withholdings</option>
+           </select>
+        </div>
+
+        {withholdingOption === 'with' && (
+          <div className="lg:col-span-2">
+            <label className="form-label text-red-500">ATC / Nature of Income Payment *</label>
+            <select value={atcCode} onChange={e => setAtcCode(e.target.value)} className="form-input bg-slate-100 dark:bg-slate-900 border-slate-300">
+              {ATC_SCHEDULE.map(entry => (
+                <option key={entry.code} value={entry.code}>
+                  {entry.code} — {entry.nature}{entry.qualifier ? ` (${entry.qualifier})` : ''} — {entry.rateLabel} [{entry.party}]
+                </option>
+              ))}
+            </select>
+            <p className="text-[11px] text-slate-400 mt-1">Rates per the BIR Schedule of Alphanumeric Tax Codes (ATC).</p>
+          </div>
+        )}
+
+        {withholdingOption === 'with' && (
+          <div>
+            <label className="form-label text-slate-500">Withholding Tax (₱)</label>
+            <input type="text" readOnly value={whtAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="form-input bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold cursor-not-allowed" />
+          </div>
+        )}
+
+        <div>
           <label className="form-label text-red-500">Gross Amount (₱) *</label>
           <input 
             type="text" 
@@ -485,20 +532,6 @@ export function Purchases() {
                   title="Add a new account"
                 >
                   <Plus className="w-3.5 h-3.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={handleRemovePaymentAccount}
-                  disabled={!accountTitle}
-                  className={cn(
-                    "p-1 rounded transition-colors",
-                    !accountTitle
-                      ? "text-slate-300 dark:text-slate-700 cursor-not-allowed"
-                      : "hover:bg-red-100 dark:hover:bg-red-900/30 text-red-500"
-                  )}
-                  title="Remove selected account"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
                 </button>
               </div>
             )}
