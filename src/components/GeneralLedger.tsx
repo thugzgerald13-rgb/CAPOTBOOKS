@@ -13,19 +13,22 @@ export function GeneralLedger() {
   const [typeFilter, setTypeFilter] = useState('All');
   const [expandedAccounts, setExpandedAccounts] = useState<Record<string, boolean>>({});
 
-  if (!currentClient || !currentClientId) return null;
-
-  const storedAccounts = currentClient.glAccounts || [];
+  const storedAccounts = currentClient?.glAccounts || [];
 
   // Source of truth is the Chart of Accounts — every account title added there
   // (of any Account Type: Asset, Liabilities, Equity, Revenue, Costs, Expense,
   // or any custom type) automatically appears here, with no manual add step.
+  //
+  // NOTE: these useMemo hooks must run on every render (never after an early
+  // `return`) or React throws "Rendered more/fewer hooks than during the
+  // previous render" the moment currentClient toggles between null/defined.
   const coaAccounts = useMemo(() => {
+    if (!currentClient) return [];
     const list = currentClient.accounts && currentClient.accounts.length > 0
       ? currentClient.accounts
       : (currentClient.coaFormat === 'alphanumeric' ? DEFAULT_ACCOUNTS_ALPHA : DEFAULT_ACCOUNTS);
     return list.filter(a => !a.hidden);
-  }, [currentClient.accounts, currentClient.coaFormat]);
+  }, [currentClient]);
 
   // Merge: one ledger row per Chart of Accounts entry, keyed by account code
   // (accountId). Title/Type always reflect the current CoA data (so renames in
@@ -54,6 +57,8 @@ export function GeneralLedger() {
     const types = coaAccounts.map(a => a.type).filter((t): t is string => !!t && t.trim() !== '');
     return Array.from(new Set(types)).sort((a, b) => a.localeCompare(b));
   }, [coaAccounts]);
+
+  if (!currentClient || !currentClientId) return null;
 
   const filteredAccounts = typeFilter === 'All'
     ? accounts
