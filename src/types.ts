@@ -22,6 +22,10 @@ export interface Purchase {
   accountTitle: string;
   transactionDetails?: string;
   inputTax: number;
+  withholdingOption?: 'w/o' | 'with';
+  atcCode?: string | null;
+  whtRate?: number | null;
+  whtAmount?: number;
 }
 
 export interface Sale {
