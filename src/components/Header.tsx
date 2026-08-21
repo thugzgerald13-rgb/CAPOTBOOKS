@@ -27,7 +27,11 @@ export function Header({ onMenuClick }: HeaderProps) {
           </button>
           <div className="flex flex-col">
             <h1 className="text-xl md:text-2xl font-bold flex flex-wrap items-center gap-2 text-slate-800 dark:text-white">
-              {currentClient ? (currentClient.registeredName || currentClient.tradeName || 'CAPO Accounting Setup') : 'CAPO Accounting Setup'}
+              {currentClient
+                ? (currentClient.taxpayerClassification === 'Individual'
+                    ? (currentClient.tradeName || currentClient.registeredName || 'CAPO Accounting Setup')
+                    : (currentClient.registeredName || currentClient.tradeName || 'CAPO Accounting Setup'))
+                : 'CAPO Accounting Setup'}
             </h1>
             {isSyncing && (
               <span className="text-[10px] text-blue-500 dark:text-blue-300 animate-pulse flex items-center gap-1 font-bold uppercase tracking-widest">
