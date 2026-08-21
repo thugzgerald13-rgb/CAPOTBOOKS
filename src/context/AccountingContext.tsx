@@ -449,6 +449,44 @@ export function AccountingProvider({
             });
         }
       }
+
+      // Clean up stray client records that duplicate the accountant's own business profile
+      // (e.g. leftover entries created before owner-profile syncing existed). These should
+      // never be listed as a client, so remove any non-owner client that matches the
+      // business profile by name.
+      const normalizedBizName = businessProfile.name?.trim().toLowerCase();
+      if (normalizedBizName) {
+        const strayIds = Object.values(clients)
+          .filter(
+            (client: Client) =>
+              client.id !== ownerId && client.name?.trim().toLowerCase() === normalizedBizName
+          )
+          .map((client: Client) => client.id);
+
+        if (strayIds.length > 0) {
+          setClients((prev) => {
+            const updated = { ...prev };
+            strayIds.forEach((id) => delete updated[id]);
+            return updated;
+          });
+
+          if (currentClientId && strayIds.includes(currentClientId)) {
+            setCurrentClientId(ownerId);
+          }
+
+          if (isReady) {
+            strayIds.forEach((id) => {
+              supabase
+                .from('clients')
+                .delete()
+                .eq('id', id)
+                .then(({ error }) => {
+                  if (error) console.error('Cleaning up stray owner-duplicate client failed:', error);
+                });
+            });
+          }
+        }
+      }
     }
   }, [businessProfile, clients, currentClientId, user, isReady]);
 
