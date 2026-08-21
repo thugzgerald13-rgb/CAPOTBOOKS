@@ -3,9 +3,10 @@ import { PageHeader } from './ui/PageHeader';
 import { Combobox } from './ui/Combobox';
 import { useAccounting } from '../context/AccountingContext';
 import { formatTIN, generateCSV, MONTHS, getMonthName } from '../lib/utils';
-import { ShoppingCart, Plus, Trash2, X } from 'lucide-react';
+import { ShoppingCart, Plus, Trash2, X, Paperclip, Download } from 'lucide-react';
 import { DEFAULT_ACCOUNTS, getNormalSide, resequenceAccounts } from './ChartOfAccounts';
 import { ATC_SCHEDULE } from '../lib/atcSchedule';
+import type { Purchase } from '../types';
 
 export function Purchases() {
   const { currentClient, currentClientId, currentDat, saveClient, showToast, setCurrentDat } = useAccounting();
@@ -29,7 +30,135 @@ export function Purchases() {
   const [accountTitle, setAccountTitle] = useState('');
   const [transactionDetails, setTransactionDetails] = useState('');
   const [inputTax, setInputTax] = useState(0);
-  const [attachment, setAttachment] = useState<{ name: string; type: string; size: number; content: string } | null>(null);
+  const [selectedAccountType, setSelectedAccountType] = useState('');
+  const [attachment, setAttachment] = useState<Purchase['attachment'] | null>(null);
+
+  const fileToDataUrl = (blob: Blob): Promise<string> => new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+
+  const optimizeImage = async (file: File): Promise<Blob> => {
+    try {
+      const bitmap = await createImageBitmap(file);
+      const maxDimension = 2200;
+      const scale = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height));
+      const width = Math.max(1, Math.round(bitmap.width * scale));
+      const height = Math.max(1, Math.round(bitmap.height * scale));
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Canvas unavailable');
+      ctx.drawImage(bitmap, 0, 0, width, height);
+      bitmap.close();
+      const optimized = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/webp', 0.82));
+      if (!optimized || optimized.size >= file.size) return file;
+      return optimized;
+    } catch {
+      return file;
+    }
+  };
+
+  const compressPdf = async (file: File): Promise<{ blob: Blob; compression: 'gzip' | 'none' }> => {
+    try {
+      if (!('CompressionStream' in window)) return { blob: file, compression: 'none' };
+      const stream = file.stream().pipeThrough(new CompressionStream('gzip'));
+      const compressed = await new Response(stream).blob();
+      return compressed.size < file.size ? { blob: compressed, compression: 'gzip' } : { blob: file, compression: 'none' };
+    } catch {
+      return { blob: file, compression: 'none' };
+    }
+  };
+
+  const handleAttachmentChange = async (file?: File) => {
+    if (!file) return;
+    if (!(file.type.startsWith('image/') || file.type === 'application/pdf')) {
+      alert('Please upload an image or PDF file.');
+      return;
+    }
+    try {
+      const isOptimizableImage = file.type.startsWith('image/') && !['image/gif', 'image/svg+xml'].includes(file.type);
+      const processed = file.type === 'application/pdf' ? await compressPdf(file) : { blob: isOptimizableImage ? await optimizeImage(file) : file, compression: 'none' as const };
+      const dataUrl = await fileToDataUrl(processed.blob);
+      const optimizedType = processed.compression === 'gzip' ? 'application/gzip' : (processed.blob.type || file.type);
+      setAttachment({
+        name: file.name,
+        type: optimizedType,
+        originalType: file.type,
+        size: processed.blob.size,
+        originalSize: file.size,
+        compression: processed.compression,
+        content: dataUrl,
+      });
+    } catch {
+      alert('Unable to process the attachment. Please try another file.');
+    }
+  };
+
+  const downloadAttachment = async (file: Purchase['attachment']) => {
+    if (!file?.content) return;
+    try {
+      if (file.compression === 'gzip') {
+        if (!('DecompressionStream' in window)) throw new Error('DecompressionStream unavailable');
+        const response = await fetch(file.content);
+        const compressed = await response.blob();
+        const restoredStream = compressed.stream().pipeThrough(new DecompressionStream('gzip'));
+        const restored = await new Response(restoredStream).blob();
+        const url = URL.createObjectURL(new Blob([restored], { type: file.originalType }));
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = file.name;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+        return;
+      }
+
+      if (!file.originalType.startsWith('image/') || file.type === file.originalType) {
+        const link = document.createElement('a');
+        link.href = file.content;
+        link.download = file.name;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        return;
+      }
+
+      const image = new Image();
+      image.src = file.content;
+      await new Promise<void>((resolve, reject) => {
+        image.onload = () => resolve();
+        image.onerror = () => reject(new Error('Unable to restore image format'));
+      });
+      const canvas = document.createElement('canvas');
+      canvas.width = image.naturalWidth;
+      canvas.height = image.naturalHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Canvas unavailable');
+      ctx.drawImage(image, 0, 0);
+      const restored = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, file.originalType, 0.92));
+      if (!restored) throw new Error('Unable to restore image');
+      const url = URL.createObjectURL(restored);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = file.name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      const link = document.createElement('a');
+      link.href = file.content;
+      link.download = file.name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    }
+  };
 
   // Derive available accounts from Chart of Accounts
   const coaAccounts = useMemo(() => {
@@ -262,29 +391,6 @@ export function Purchases() {
     }
   }, [date, currentDat]);
 
-  const handleAttachmentChange = (file: File | undefined) => {
-    if (!file) {
-      setAttachment(null);
-      return;
-    }
-    if (!(file.type.startsWith('image/') || file.type === 'application/pdf')) {
-      alert('Please upload an image or PDF file.');
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setAttachment({
-          name: file.name,
-          type: file.type,
-          size: file.size,
-          content: reader.result
-        });
-      }
-    };
-    reader.readAsDataURL(file);
-  };
-
   const handleAddPurchase = () => {
     if (!currentClient || !currentClientId) return;
     
@@ -323,7 +429,7 @@ export function Purchases() {
       accountTitle,
       transactionDetails,
       inputTax,
-      attachment
+      attachment: attachment || undefined
     };
 
     // Auto-add to TIN Library if new
@@ -538,11 +644,6 @@ export function Purchases() {
           <input type="text" readOnly value={netAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="form-input bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold cursor-not-allowed" />
         </div>
 
-        <div>
-          <label className="form-label text-slate-500">Input VAT (₱)</label>
-          <input type="text" readOnly value={inputTax.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="form-input bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold cursor-not-allowed" />
-        </div>
-
         {currentDat && (
           <div className="lg:col-span-1">
             <label className="form-label">Expense Class</label>
@@ -619,32 +720,22 @@ export function Purchases() {
           )}
         </div>
 
-        <div className="lg:col-span-1">
-          <label className="form-label">Attachment</label>
+        <div className="lg:col-span-1 md:col-span-1">
+          <label className="form-label flex items-center gap-1"><Paperclip className="w-3.5 h-3.5" /> Attachment</label>
           <div className="flex items-center gap-2">
-            <label className="form-input cursor-pointer flex items-center justify-between gap-2 text-sm font-medium">
-              <span className="truncate">{attachment ? attachment.name : "Upload image or PDF"}</span>
-              <input
-                type="file"
-                accept="image/*,application/pdf"
-                onChange={e => handleAttachmentChange(e.target.files?.[0])}
-                className="hidden"
-              />
+            <label className="form-input cursor-pointer flex items-center justify-center gap-2 font-medium text-sm hover:bg-slate-50 dark:hover:bg-slate-800">
+              <Paperclip className="w-4 h-4" /> Upload image/PDF
+              <input type="file" accept="image/*,.pdf,application/pdf" className="hidden" onChange={e => { void handleAttachmentChange(e.target.files?.[0]); e.currentTarget.value = ''; }} />
             </label>
             {attachment && (
-              <button
-                type="button"
-                onClick={() => setAttachment(null)}
-                className="p-2 rounded-lg text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700"
-                title="Remove attachment"
-              >
-                <X className="w-4 h-4" />
+              <button type="button" onClick={() => downloadAttachment(attachment)} className="p-2 rounded-lg border border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700" title="Download attachment">
+                <Download className="w-4 h-4" />
               </button>
             )}
           </div>
           {attachment && (
-            <p className="text-[11px] text-slate-400 mt-1">
-              {(attachment.size / 1024 / 1024).toFixed(2)} MB
+            <p className="text-[11px] text-slate-500 mt-1 truncate" title={attachment.name}>
+              {attachment.name} · {(attachment.size / 1024).toFixed(0)} KB{attachment.originalSize && attachment.originalSize > attachment.size ? ` · optimized from ${(attachment.originalSize / 1024).toFixed(0)} KB` : ''}
             </p>
           )}
         </div>
