@@ -33,10 +33,16 @@ export function AuthProvider({
   const [loading, setLoading] = useState(true);
   const [userRole, setUserRoleState] = useState<string | null>(null);
 
-  // Hardcode the developer's email as superuser for now
+  // Hardcode the developer's email as superuser for now.
+  // Falls back to the literal address below if VITE_ADMIN_EMAIL isn't baked
+  // into the build (Vite inlines import.meta.env.* at BUILD time, not
+  // runtime — if a deploy pipeline doesn't pass that var through at build
+  // time, this would silently end up `undefined` and make the admin check
+  // unreliable). Compared case/whitespace-insensitively so it can't be
+  // tripped up by a stray capital letter either.
   const DEVELOPER_EMAIL =
-    import.meta.env.VITE_ADMIN_EMAIL;
-  const isAdmin = user?.email === DEVELOPER_EMAIL;
+    (import.meta.env.VITE_ADMIN_EMAIL || 'thugz.gerald13@gmail.com').trim().toLowerCase();
+  const isAdmin = !!user?.email && user.email.trim().toLowerCase() === DEVELOPER_EMAIL;
 
   useEffect(() => {
     const syncUser = async (usr: User) => {
