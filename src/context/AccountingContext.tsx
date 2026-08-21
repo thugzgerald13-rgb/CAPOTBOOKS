@@ -741,7 +741,19 @@ export function AccountingProvider({
     );
   }
 
-  if (!isReady) {
+  // `isReady` only means "clients have loaded from Supabase". Which client
+  // is actually active still depends on a *second* round-trip
+  // (cloudPrefsLoaded -> the restore effect above picking currentClientId).
+  // Rendering as soon as `isReady` flips true - before that second step
+  // finishes - is what let AppLayout/Header mount with currentClient still
+  // null, briefly showing the "CAPO Accounting Setup" fallback title before
+  // swapping to the real client name. So the gate below also waits for
+  // cloudPrefsLoaded, and - if there are clients to restore - for
+  // currentClientId to actually be picked.
+  const dataFullyReady =
+    isReady && (!user || cloudPrefsLoaded) && (Object.keys(clients).length === 0 || !!currentClientId);
+
+  if (!dataFullyReady) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 px-6">
         <div className="flex flex-col items-center gap-6 max-w-sm w-full text-center">
