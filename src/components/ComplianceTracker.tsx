@@ -9,7 +9,7 @@ import { getComplianceStatusInfo } from '../lib/complianceUtils';
 import { generateStandardDeadlines } from './BIRForms';
 
 export function ComplianceTracker() {
-  const { currentClient, currentClientId, setCurrentClientId, clients, businessProfile, activePage, navigateToPage, setBirFormTab, saveClient, currentDat } = useAccounting();
+  const { currentClient, currentClientId, setCurrentClientId, clients, businessProfile, activePage, navigateToPage, setBirFormTab, saveClient, currentDat, ownerClientId } = useAccounting();
 
   // Dynamically determine today's simulated date
   const getSimulatedToday = () => {
@@ -38,12 +38,12 @@ export function ComplianceTracker() {
   const [filingDatePaid, setFilingDatePaid] = useState<string>('');
   const [filingNotes, setFilingNotes] = useState<string>('');
 
-  // Automatically select 'client_owner' if no active client is selected
+  // Automatically select the user's own-business client if no active client is selected
   useEffect(() => {
-    if (activePage === 'compliance-tracker' && !currentClientId) {
-      setCurrentClientId('client_owner');
+    if (activePage === 'compliance-tracker' && !currentClientId && ownerClientId) {
+      setCurrentClientId(ownerClientId);
     }
-  }, [activePage, currentClientId, setCurrentClientId]);
+  }, [activePage, currentClientId, setCurrentClientId, ownerClientId]);
 
   // Automatically initialize BIR compliance deadlines for the selected active client
   useEffect(() => {
@@ -289,14 +289,14 @@ export function ComplianceTracker() {
               >
                 {/* Own business option */}
                 {businessProfile ? (
-                  <option value="client_owner">🏢 Own Business: {businessProfile.name}</option>
+                  <option value={ownerClientId || ''}>🏢 Own Business: {businessProfile.name}</option>
                 ) : (
-                  <option value="client_owner">🏢 Own Business (Unconfigured)</option>
+                  <option value={ownerClientId || ''}>🏢 Own Business (Unconfigured)</option>
                 )}
                 
                 {/* List other clients if available */}
                 {clients && (Object.values(clients) as Client[])
-                  .filter((c: Client) => c.id !== 'client_owner')
+                  .filter((c: Client) => c.id !== ownerClientId)
                   .map((client: Client) => (
                     <option key={client.id} value={client.id}>
                       👤 Client: {client.registeredName || client.name}

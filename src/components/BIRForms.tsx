@@ -181,7 +181,7 @@ export function generateStandardDeadlines(year: number): TaxDeadline[] {
 }
 
 export function BIRForms() {
-  const { currentClient, currentClientId, setCurrentClientId, clients, businessProfile, activePage, navigateToPage, birFormTab, saveClient, currentDat } = useAccounting();
+  const { currentClient, currentClientId, setCurrentClientId, clients, businessProfile, activePage, navigateToPage, birFormTab, saveClient, currentDat, ownerClientId } = useAccounting();
 
   // Active form choice: '2550Q' | '1701Q' | '2551Q' | '1601-C' | '0619-E' | '1601-EQ'
   const [activeFormType, setActiveFormType] = useState<'2550Q' | '1701Q' | '2551Q' | '1601-C' | '0619-E' | '1601-EQ'>('2550Q');
@@ -252,12 +252,12 @@ export function BIRForms() {
     }
   }, [activePage, birFormTab]);
 
-  // Automatically select 'client_owner' if no active client is selected
+  // Automatically select the user's own-business client if no active client is selected
   useEffect(() => {
-    if ((activePage === 'bir-forms' || activePage?.startsWith('bir-')) && !currentClientId) {
-      setCurrentClientId('client_owner');
+    if ((activePage === 'bir-forms' || activePage?.startsWith('bir-')) && !currentClientId && ownerClientId) {
+      setCurrentClientId(ownerClientId);
     }
-  }, [activePage, currentClientId, setCurrentClientId]);
+  }, [activePage, currentClientId, setCurrentClientId, ownerClientId]);
 
   // Utility to determine date quarter
   const getQuarterNum = (dateStr: string) => {
@@ -567,14 +567,14 @@ export function BIRForms() {
               >
                 {/* Own business option */}
                 {businessProfile ? (
-                  <option value="client_owner">🏢 Own Business: {businessProfile.name}</option>
+                  <option value={ownerClientId || ''}>🏢 Own Business: {businessProfile.name}</option>
                 ) : (
-                  <option value="client_owner">🏢 Own Business (Unconfigured)</option>
+                  <option value={ownerClientId || ''}>🏢 Own Business (Unconfigured)</option>
                 )}
                 
                 {/* List other clients if available */}
                 {clients && (Object.values(clients) as Client[])
-                  .filter((c: Client) => c.id !== 'client_owner')
+                  .filter((c: Client) => c.id !== ownerClientId)
                   .map((client: Client) => (
                     <option key={client.id} value={client.id}>
                       👤 Client: {client.registeredName || client.name}

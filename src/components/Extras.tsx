@@ -19,7 +19,8 @@ export function Extras() {
     activePage, 
     deleteClient,
     businessProfile,
-    saveBusinessProfile
+    saveBusinessProfile,
+    ownerClientId
   } = useAccounting();
   const { userRole } = useAuth();
   const [newClientName, setNewClientName] = useState('');
@@ -453,7 +454,7 @@ export function Extras() {
             
              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
               {Object.values(clients)
-                .filter((client: Client) => client.id !== 'client_owner')
+                .filter((client: Client) => client.id !== ownerClientId)
                 .map((client: Client) => (
                 <div
                   key={client.id}
