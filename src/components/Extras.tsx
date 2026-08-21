@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { useAuth } from '../context/AuthContext';
-import { Users, TrendingUp, Key, Lightbulb, BookOpen, BookText, LineChart, Scale, Plus, Building2, Save, X, RotateCcw, Library, FileText, Receipt, ShoppingCart, Banknote, Wallet, CreditCard, Trash2 } from 'lucide-react';
+import { Users, TrendingUp, Key, Lightbulb, BookOpen, BookText, LineChart, Scale, Plus, Building2, Save, X, RotateCcw, Library, FileText, Receipt, ShoppingCart, Banknote, Wallet, CreditCard, Trash2, Pencil } from 'lucide-react';
 import { Client, BusinessProfile } from '../types';
 import { RDO_CODES } from '../lib/utils';
 import { getAccountBalances, getCurrentYear, formatAccountAmount } from '../lib/accountingBalances';
@@ -25,18 +25,24 @@ export function Extras() {
   const { userRole } = useAuth();
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  // Once a profile is saved, its fields lock (gray out/disabled) until the
+  // Edit button is pressed again.
+  const [isClientLocked, setIsClientLocked] = useState(false);
 
   // Dedicated management state for own business profile
   const [editingBusiness, setEditingBusiness] = useState<BusinessProfile | null>(null);
   const [newBusinessName, setNewBusinessName] = useState('');
+  const [isBusinessLocked, setIsBusinessLocked] = useState(false);
 
   // Synchronize when the business profile page opens/updates
   useEffect(() => {
     if (activePage === 'business') {
       if (businessProfile) {
         setEditingBusiness({ ...businessProfile });
+        setIsBusinessLocked(true);
       } else {
         setEditingBusiness(null);
+        setIsBusinessLocked(false);
       }
     }
   }, [activePage, businessProfile]);
@@ -45,23 +51,30 @@ export function Extras() {
     if (activePage === null) {
       setEditingClient(null);
       setEditingBusiness(null);
+      setIsClientLocked(false);
+      setIsBusinessLocked(false);
     }
   }, [activePage]);
 
   const handleEditClient = (client: Client) => {
     setEditingClient({ ...client });
+    // Existing profiles open read-only; the accountant must press Edit to change them.
+    setIsClientLocked(true);
   };
 
   const handleSaveProfile = () => {
     if (editingClient) {
       saveClient(editingClient.id, editingClient);
-      setEditingClient(null);
+      // Stay on the form (grayed out) instead of closing, so the accountant
+      // can confirm what was saved; Edit re-enables the fields.
+      setIsClientLocked(true);
     }
   };
 
   const handleSaveBusinessProfile = () => {
     if (editingBusiness) {
       saveBusinessProfile(editingBusiness);
+      setIsBusinessLocked(true);
     }
   };
 
@@ -89,6 +102,7 @@ export function Extras() {
       };
       saveBusinessProfile(newBiz);
       setEditingBusiness(newBiz);
+      setIsBusinessLocked(true);
       setNewBusinessName('');
     }
   };
@@ -139,7 +153,7 @@ export function Extras() {
               </button>
             </div>
 
-            <div className="flex-1 overflow-y-auto px-4">
+            <fieldset disabled={isClientLocked} className="flex-1 overflow-y-auto px-4 border-0 m-0 p-0 disabled:opacity-60 transition-opacity">
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 mb-4">
                 <div className="sm:col-span-5">
                   <label className="form-label">Tin:</label>
@@ -418,24 +432,39 @@ export function Extras() {
                   </select>
                 </div>
               </div>
-            </div>
+            </fieldset>
 
             {/* Form Footer */}
             <div className="border-t border-slate-300 dark:border-slate-700 pt-4 flex justify-end gap-3 px-4">
               <button 
                 onClick={handleSaveProfile}
-                className="bg-slate-200 dark:bg-slate-700 font-bold px-6 py-2 rounded border border-slate-400 dark:border-slate-600 shadow-sm hover:bg-slate-300 dark:hover:bg-slate-600 flex items-center gap-2"
+                disabled={isClientLocked}
+                className="bg-slate-200 dark:bg-slate-700 font-bold px-6 py-2 rounded border border-slate-400 dark:border-slate-600 shadow-sm hover:bg-slate-300 dark:hover:bg-slate-600 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Save className="w-4 h-4" /> Save
               </button>
+              <button
+                onClick={() => setIsClientLocked(false)}
+                disabled={!isClientLocked}
+                className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-2 rounded shadow-sm flex items-center gap-2 transition disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:dark:bg-slate-700 disabled:text-slate-700 disabled:dark:text-slate-300"
+              >
+                <Pencil className="w-4 h-4" /> Edit
+              </button>
               <button 
-                onClick={() => setEditingClient({...clients[editingClient.id]})}
-                className="bg-slate-200 dark:bg-slate-700 font-bold px-6 py-2 rounded border border-slate-400 dark:border-slate-600 shadow-sm hover:bg-slate-300 dark:hover:bg-slate-600 flex items-center gap-2"
+                onClick={() => {
+                  setEditingClient({...clients[editingClient.id]});
+                  setIsClientLocked(true);
+                }}
+                disabled={isClientLocked}
+                className="bg-slate-200 dark:bg-slate-700 font-bold px-6 py-2 rounded border border-slate-400 dark:border-slate-600 shadow-sm hover:bg-slate-300 dark:hover:bg-slate-600 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <RotateCcw className="w-4 h-4" /> Revert
               </button>
               <button 
-                onClick={() => setEditingClient(null)}
+                onClick={() => {
+                  setEditingClient(null);
+                  setIsClientLocked(false);
+                }}
                 className="bg-slate-200 dark:bg-slate-700 font-bold px-6 py-2 rounded border border-slate-400 dark:border-slate-600 shadow-sm hover:bg-slate-300 dark:hover:bg-slate-600 flex items-center gap-2"
               >
                 Close
@@ -558,7 +587,7 @@ export function Extras() {
           <div className="p-4 md:p-6 flex-1">
         {editingBusiness ? (
           <div className="bg-slate-100 dark:bg-slate-900 -m-6 p-6 h-full min-h-[600px] flex flex-col font-sans">
-            <div className="flex-1 overflow-y-auto px-4">
+            <fieldset disabled={isBusinessLocked} className="flex-1 overflow-y-auto px-4 border-0 m-0 p-0 disabled:opacity-60 transition-opacity">
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 mb-4">
                 <div className="sm:col-span-5">
                   <label className="form-label">Tin:</label>
@@ -837,29 +866,42 @@ export function Extras() {
                   </select>
                 </div>
               </div>
-            </div>
+            </fieldset>
 
             {/* Form Footer */}
             <div className="border-t border-slate-300 dark:border-slate-700 pt-4 flex justify-end items-center gap-3 px-4">
               <div className="flex gap-3">
                 <button 
                   onClick={handleSaveBusinessProfile}
-                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-2 rounded shadow-sm flex items-center gap-2 transition"
+                  disabled={isBusinessLocked}
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-2 rounded shadow-sm flex items-center gap-2 transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Save className="w-4 h-4" /> Save
+                </button>
+                <button
+                  onClick={() => setIsBusinessLocked(false)}
+                  disabled={!isBusinessLocked}
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-2 rounded shadow-sm flex items-center gap-2 transition disabled:opacity-50 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:dark:bg-slate-700 disabled:text-slate-700 disabled:dark:text-slate-300"
+                >
+                  <Pencil className="w-4 h-4" /> Edit
                 </button>
                 <button 
                   onClick={() => {
                     if (businessProfile) {
                       setEditingBusiness({ ...businessProfile });
+                      setIsBusinessLocked(true);
                     }
                   }}
-                  className="bg-slate-200 dark:bg-slate-700 font-bold px-6 py-2 rounded border border-slate-400 dark:border-slate-600 shadow-sm hover:bg-slate-300 dark:hover:bg-slate-600 flex items-center gap-2"
+                  disabled={isBusinessLocked}
+                  className="bg-slate-200 dark:bg-slate-700 font-bold px-6 py-2 rounded border border-slate-400 dark:border-slate-600 shadow-sm hover:bg-slate-300 dark:hover:bg-slate-600 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <RotateCcw className="w-4 h-4" /> Revert
                 </button>
                 <button 
-                  onClick={() => navigateToPage(null)}
+                  onClick={() => {
+                    navigateToPage(null);
+                    setIsBusinessLocked(false);
+                  }}
                   className="bg-slate-200 dark:bg-slate-700 font-bold px-6 py-2 rounded border border-slate-400 dark:border-slate-600 shadow-sm hover:bg-slate-300 dark:hover:bg-slate-600 flex items-center gap-2"
                 >
                   Close
