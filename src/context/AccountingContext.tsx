@@ -12,6 +12,9 @@ interface AccountingContextType {
   currentClientId: string | null;
   currentClient: Client | null;
   businessProfile: BusinessProfile | null;
+  // The id of the "own business" pseudo-client, scoped to the current user.
+  // Use this instead of the old hardcoded 'client_owner' literal.
+  ownerClientId: string | null;
   isDarkMode: boolean;
   isSidebarCollapsed: boolean;
   activePage: string | null;
@@ -43,8 +46,14 @@ interface AccountingContextType {
 
 const AccountingContext = createContext<AccountingContextType | undefined>(undefined);
 
+// clients.id is a single global primary key (not scoped by user_id), so a
+// shared literal like 'client_owner' would only ever be usable by one user
+// in the whole database - RLS blocks everyone else from claiming it. Scope
+// the "owner" client's id to the user themselves instead.
+const ownerClientId = (userId: string) => `client_owner_${userId}`;
+
 const defaultBusinessProfile = (name: string): BusinessProfile => ({
-  id: 'client_owner',
+  id: name, // placeholder, immediately overwritten with user.id by the caller
   name,
   tin: '000-000-000-000',
   taxpayerClassification: 'Individual',
@@ -64,9 +73,9 @@ const defaultBusinessProfile = (name: string): BusinessProfile => ({
   fiscalMonthEnd: 12,
 });
 
-const buildMatchingClient = (profileData: BusinessProfile, existing: Client | undefined): Client =>
+const buildMatchingClient = (profileData: BusinessProfile, existing: Client | undefined, ownerId: string): Client =>
   ({
-    id: 'client_owner',
+    id: ownerId,
     name: profileData.name,
     tin: profileData.tin || '',
     taxpayerClassification: profileData.taxpayerClassification || '',
@@ -405,10 +414,11 @@ export function AccountingProvider({
     };
   }, [user?.id]);
 
-  // Sync Business Profile to client_owner for any role
+  // Sync Business Profile to the current user's owner client
   useEffect(() => {
-    if (businessProfile) {
-      const existing = clients['client_owner'];
+    if (businessProfile && user) {
+      const ownerId = ownerClientId(user.id);
+      const existing = clients[ownerId];
       const needsSync =
         !existing ||
         existing.name !== businessProfile.name ||
@@ -416,26 +426,26 @@ export function AccountingProvider({
         existing.registeredName !== (businessProfile.registeredName || businessProfile.name);
 
       if (needsSync) {
-        const matchingClient = buildMatchingClient(businessProfile, existing);
+        const matchingClient = buildMatchingClient(businessProfile, existing, ownerId);
 
         setClients((prev) => ({
           ...prev,
-          client_owner: matchingClient,
+          [ownerId]: matchingClient,
         }));
 
         if (!currentClientId) {
-          setCurrentClientId('client_owner');
+          setCurrentClientId(ownerId);
         }
 
-        if (user && isReady) {
+        if (isReady) {
           supabase
             .from('clients')
             .upsert(
-              { id: 'client_owner', user_id: user.id, data: matchingClient, updated_at: new Date().toISOString() },
+              { id: ownerId, user_id: user.id, data: matchingClient, updated_at: new Date().toISOString() },
               { onConflict: 'id' }
             )
             .then(({ error }) => {
-              if (error) console.error('Auto-syncing client_owner failed:', error);
+              if (error) console.error('Auto-syncing owner client failed:', error);
             });
         }
       }
@@ -548,24 +558,25 @@ export function AccountingProvider({
           );
         if (error) throw error;
 
-        // Also update matching client 'client_owner' immediately to unlock hasClients and currentClient
-        const existing = clients['client_owner'];
-        const matchingClient = buildMatchingClient(profileData, existing);
+        // Also update the matching owner client immediately to unlock hasClients and currentClient
+        const ownerId = ownerClientId(user.id);
+        const existing = clients[ownerId];
+        const matchingClient = buildMatchingClient(profileData, existing, ownerId);
 
         await supabase
           .from('clients')
           .upsert(
-            { id: 'client_owner', user_id: user.id, data: matchingClient, updated_at: new Date().toISOString() },
+            { id: ownerId, user_id: user.id, data: matchingClient, updated_at: new Date().toISOString() },
             { onConflict: 'id' }
           );
 
         setClients((prev) => ({
           ...prev,
-          client_owner: matchingClient,
+          [ownerId]: matchingClient,
         }));
 
         if (!currentClientId) {
-          setCurrentClientId('client_owner');
+          setCurrentClientId(ownerId);
         }
 
         showToast('Business Profile updated');
@@ -671,6 +682,7 @@ export function AccountingProvider({
         currentClientId,
         currentClient,
         businessProfile,
+        ownerClientId: user ? ownerClientId(user.id) : null,
         isDarkMode,
         isSidebarCollapsed,
         activePage,
