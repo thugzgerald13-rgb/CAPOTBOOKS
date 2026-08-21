@@ -22,16 +22,19 @@ export interface Purchase {
   accountTitle: string;
   transactionDetails?: string;
   inputTax: number;
+  attachment?: {
+    name: string;
+    type: string;
+    originalType: string;
+    size: number;
+    originalSize: number;
+    compression?: 'none' | 'gzip';
+    content: string;
+  };
   withholdingOption?: 'w/o' | 'with';
   atcCode?: string | null;
   whtRate?: number | null;
   whtAmount?: number;
-  attachment?: {
-    name: string;
-    type: string;
-    size: number;
-    content: string;
-  } | null;
 }
 
 export interface Sale {
