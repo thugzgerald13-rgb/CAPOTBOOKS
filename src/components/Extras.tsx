@@ -464,7 +464,16 @@ export function Extras() {
                 >
                   <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 min-w-0 flex-1">
-                      <span className="font-bold text-slate-800 dark:text-slate-100 truncate">{client.name}</span>
+                      <span className="flex items-center gap-1.5 shrink-0">
+                        <span className="font-bold text-slate-800 dark:text-slate-100 truncate">{client.name}</span>
+                        <button 
+                          onClick={() => handleEditClient(client)}
+                          className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg text-blue-600 dark:text-blue-400 shrink-0"
+                          title="Edit Profile"
+                        >
+                          <Building2 className="w-4 h-4" />
+                        </button>
+                      </span>
                       <span className="text-xs text-slate-500 dark:text-slate-400 font-medium shrink-0">
                         {client.sales.length} Sales | {client.purchases.length} Purchases
                       </span>
@@ -479,14 +488,6 @@ export function Extras() {
                       </button>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
-                      <button 
-                        onClick={() => handleEditClient(client)}
-                        className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg text-blue-600 dark:text-blue-400"
-                        title="Edit Profile"
-                      >
-                        <Building2 className="w-4 h-4" />
-                      </button>
-                      
                       {deleteConfirmId === client.id ? (
                         <div className="flex items-center gap-1 shrink-0">
                           <button 
