@@ -41,8 +41,6 @@ export function AuthProvider({
   useEffect(() => {
     const syncUser = async (usr: User) => {
       try {
-        const savedRole = localStorage.getItem(`user_role_${usr.id}`);
-
         // Upsert the profile row; doesn't block the UI if this is slow
         await supabase.from('profiles').upsert(
           {
@@ -52,23 +50,15 @@ export function AuthProvider({
             photo_url: usr.user_metadata?.avatar_url ?? null,
             last_login: new Date().toISOString(),
             updated_at: new Date().toISOString(),
-            ...(savedRole ? { user_role: savedRole } : {}),
           },
           { onConflict: 'id' }
         );
 
         const { data } = await supabase.from('profiles').select('user_role').eq('id', usr.id).single();
-        const dbRole = data?.user_role;
-        if (dbRole) {
-          setUserRoleState(dbRole);
-          localStorage.setItem(`user_role_${usr.id}`, dbRole);
-        } else {
-          setUserRoleState(savedRole);
-        }
+        setUserRoleState(data?.user_role ?? null);
       } catch (error) {
         console.error('Auth sync error:', error);
-        const savedRole = localStorage.getItem(`user_role_${usr.id}`);
-        setUserRoleState(savedRole);
+        setUserRoleState(null);
       }
     };
 
@@ -100,14 +90,9 @@ export function AuthProvider({
   const setUserRole = async (role: string | null) => {
     if (user) {
       try {
-        if (role) {
-          localStorage.setItem(`user_role_${user.id}`, role);
-          await supabase
-            .from('profiles')
-            .upsert({ id: user.id, user_role: role, updated_at: new Date().toISOString() }, { onConflict: 'id' });
-        } else {
-          localStorage.removeItem(`user_role_${user.id}`);
-        }
+        await supabase
+          .from('profiles')
+          .upsert({ id: user.id, user_role: role, updated_at: new Date().toISOString() }, { onConflict: 'id' });
       } catch (error) {
         console.error('Set role error:', error);
       }
