@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { AppFolder, AppFile } from '../types';
+import { parsePdf } from '../lib/pdfParser';
 import { 
   Folder, FolderOpen, Upload, Trash2, Edit2, 
   Check, X, FileText, Download, Plus, File, AlertTriangle 
@@ -145,8 +146,20 @@ export function FileManager() {
 
     validFiles.forEach(file => {
       const reader = new FileReader();
-      reader.onload = (event) => {
+      reader.onload = async (event) => {
         const base64Content = event.target?.result as string;
+        let description = '';
+
+        if (file.type === 'application/pdf') {
+          try {
+            const parsed = await parsePdf(file);
+            description = parsed.text
+              ? `PDF: ${parsed.pageCount} page(s). Extracted text: ${parsed.text.slice(0, 500)}`
+              : `PDF: ${parsed.pageCount} page(s). No selectable text found.`;
+          } catch {
+            description = 'PDF uploaded; text extraction was not available for this document.';
+          }
+        }
 
         newlyStaged.push({
           id: 'stage_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
@@ -155,7 +168,7 @@ export function FileManager() {
           type: file.type || 'application/octet-stream',
           size: file.size,
           content: base64Content,
-          description: ''
+          description
         });
 
         readCount++;
