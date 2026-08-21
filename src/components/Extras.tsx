@@ -114,7 +114,17 @@ export function Extras() {
     <>
       {activePage === 'clients' && (
         <div className="w-full flex flex-col">
-          <PageHeader title="Client Profiles" icon={<Users className="text-blue-500" />} />
+          <PageHeader
+            title="Client Profiles"
+            icon={<Users className="text-blue-500" />}
+            actions={
+              !editingClient ? (
+                <button onClick={handleAddClient} className="bg-blue-600 text-white px-4 py-2 rounded-xl font-bold flex items-center gap-2 hover:bg-blue-700 text-sm">
+                  <Plus className="w-4 h-4" /> Add New Client
+                </button>
+              ) : undefined
+            }
+          />
           <div className="p-4 md:p-6 flex-1">
         {editingClient ? (
           <div className="bg-slate-100 dark:bg-slate-900 -m-6 p-6 h-full min-h-[600px] flex flex-col font-sans">
@@ -436,12 +446,6 @@ export function Extras() {
           </div>
         ) : (
           <>
-            <div className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-2xl mb-6 flex justify-end">
-              <button onClick={handleAddClient} className="bg-blue-600 text-white px-6 py-2.5 rounded-xl font-bold flex items-center gap-2 hover:bg-blue-700">
-                <Plus className="w-5 h-5" /> Add New Client
-              </button>
-            </div>
-            
              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
               {Object.values(clients)
                 .filter((client: Client) => {
@@ -499,18 +503,20 @@ export function Extras() {
                       )}
                     </div>
                   </div>
-                  <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                    {client.sales.length} Sales | {client.purchases.length} Purchases
-                  </span>
-                  <button
-                    onClick={() => {
-                      setCurrentClientId(client.id);
-                      navigateToPage(null);
-                    }}
-                    className="mt-2 text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline text-left"
-                  >
-                    Select as Active
-                  </button>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                      {client.sales.length} Sales | {client.purchases.length} Purchases
+                    </span>
+                    <button
+                      onClick={() => {
+                        setCurrentClientId(client.id);
+                        navigateToPage(null);
+                      }}
+                      className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline text-right shrink-0"
+                    >
+                      Select as Active
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
