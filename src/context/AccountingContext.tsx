@@ -475,9 +475,16 @@ export function AccountingProvider({
           [ownerId]: matchingClient,
         }));
 
-        if (!currentClientId) {
-          setCurrentClientId(ownerId);
-        }
+        // NOTE: deliberately not defaulting currentClientId to ownerId here.
+        // Picking the initial active client/profile is solely the job of the
+        // dedicated restore effect above (which waits for the saved cloud
+        // preference to load first). This effect also runs whenever
+        // `clients` changes - including right after the app loads - so if it
+        // *also* defaulted to ownerId whenever currentClientId was still
+        // null, it would race the restore effect (both see the same stale
+        // null value in the same commit) and unpredictably win, which is
+        // what was causing the active client to keep getting reset back to
+        // the business profile on every refresh.
 
         if (isReady) {
           supabase
