@@ -446,7 +446,7 @@ export function Extras() {
           </div>
         ) : (
           <>
-             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               {Object.values(clients)
                 .filter((client: Client) => {
                   if (client.id === ownerClientId) return false;
@@ -460,10 +460,24 @@ export function Extras() {
                 .map((client: Client) => (
                 <div
                   key={client.id}
-                  className={`p-4 rounded-xl border text-left flex flex-col gap-2 transition-all ${currentClientId === client.id ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 shadow-md ring-2 ring-blue-500/20' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-blue-400'}`}
+                  className={`p-4 rounded-xl border text-left transition-all ${currentClientId === client.id ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 shadow-md ring-2 ring-blue-500/20' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-blue-400'}`}
                 >
-                  <div className="flex justify-between items-start gap-2">
-                    <span className="font-bold text-slate-800 dark:text-slate-100 truncate flex-1">{client.name}</span>
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 min-w-0 flex-1">
+                      <span className="font-bold text-slate-800 dark:text-slate-100 truncate">{client.name}</span>
+                      <span className="text-xs text-slate-500 dark:text-slate-400 font-medium shrink-0">
+                        {client.sales.length} Sales | {client.purchases.length} Purchases
+                      </span>
+                      <button
+                        onClick={() => {
+                          setCurrentClientId(client.id);
+                          navigateToPage(null);
+                        }}
+                        className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline shrink-0"
+                      >
+                        Select as Active
+                      </button>
+                    </div>
                     <div className="flex items-center gap-1 shrink-0">
                       <button 
                         onClick={() => handleEditClient(client)}
@@ -502,20 +516,6 @@ export function Extras() {
                         </button>
                       )}
                     </div>
-                  </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                      {client.sales.length} Sales | {client.purchases.length} Purchases
-                    </span>
-                    <button
-                      onClick={() => {
-                        setCurrentClientId(client.id);
-                        navigateToPage(null);
-                      }}
-                      className="text-xs font-bold text-blue-600 dark:text-blue-400 hover:underline text-right shrink-0"
-                    >
-                      Select as Active
-                    </button>
                   </div>
                 </div>
               ))}
