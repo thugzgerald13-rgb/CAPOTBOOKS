@@ -19,7 +19,22 @@ export function AdminSettings() {
   const { isAdmin, userRole, setUserRole } = useAuth();
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(false);
-  
+  const [localStorageOk, setLocalStorageOk] = useState<boolean | null>(null);
+
+  // Actually verify LocalStorage (the offline fallback store) is readable/writable,
+  // instead of showing a hardcoded "active" light regardless of real state.
+  useEffect(() => {
+    const probeKey = '__capot_ls_healthcheck__';
+    try {
+      window.localStorage.setItem(probeKey, '1');
+      const readBack = window.localStorage.getItem(probeKey) === '1';
+      window.localStorage.removeItem(probeKey);
+      setLocalStorageOk(readBack);
+    } catch {
+      setLocalStorageOk(false);
+    }
+  }, []);
+
   const fetchUsers = async () => {
     setLoading(true);
     try {
@@ -178,8 +193,20 @@ export function AdminSettings() {
           <div className="border border-slate-200 dark:border-slate-700 rounded-xl p-4 bg-white dark:bg-slate-800">
             <h4 className="font-bold text-slate-700 dark:text-slate-200 mb-2">System Status</h4>
             <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-pulse"></span>
-              Local Database Active
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  localStorageOk === null
+                    ? 'bg-slate-400 animate-pulse'
+                    : localStorageOk
+                    ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-pulse'
+                    : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]'
+                }`}
+              ></span>
+              {localStorageOk === null
+                ? 'Checking Local Storage...'
+                : localStorageOk
+                ? 'Local Storage Active'
+                : 'Local Storage Unavailable'}
             </div>
             <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400 mt-2">
               <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></span>
