@@ -5,6 +5,7 @@ interface PageHeaderProps {
   icon?: ReactNode;
   badge?: ReactNode;
   centered?: boolean;
+  actions?: ReactNode;
 }
 
 /** Standard header for a full page (icon + title). Each page renders this
@@ -13,8 +14,9 @@ interface PageHeaderProps {
  * is always visible for navigating elsewhere (no back button needed).
  * Pass `centered` for report-style pages (Trial Balance, Balance Sheet,
  * Profit & Loss, Cash Flow, Asset Lapsing) where the title reads like a
- * document heading rather than app chrome. */
-export function PageHeader({ title, icon, badge, centered = false }: PageHeaderProps) {
+ * document heading rather than app chrome. Pass `actions` for controls
+ * (e.g. an "Add" button) that should sit at the far right of the header. */
+export function PageHeader({ title, icon, badge, centered = false, actions }: PageHeaderProps) {
   return (
     <div className={`flex items-center px-5 py-4 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 z-10 shrink-0 ${centered ? 'justify-center' : 'justify-between'}`}>
       <div className="flex items-center gap-3">
@@ -24,6 +26,7 @@ export function PageHeader({ title, icon, badge, centered = false }: PageHeaderP
           {badge}
         </h3>
       </div>
+      {actions && <div className="flex items-center gap-3">{actions}</div>}
     </div>
   );
 }
