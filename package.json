@@ -21,7 +21,8 @@
     "react-dom": "^19.0.1",
     "react-router-dom": "^7.18.2",
     "xlsx": "^0.18.5",
-    "pdfjs-dist": "^4.10.38"
+    "pdfjs-dist": "^4.10.38",
+    "pdf-lib": "^1.17.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.14",
