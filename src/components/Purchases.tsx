@@ -29,6 +29,7 @@ export function Purchases() {
   const [accountTitle, setAccountTitle] = useState('');
   const [transactionDetails, setTransactionDetails] = useState('');
   const [inputTax, setInputTax] = useState(0);
+  const [attachment, setAttachment] = useState<{ name: string; type: string; size: number; content: string } | null>(null);
 
   // Derive available accounts from Chart of Accounts
   const coaAccounts = useMemo(() => {
@@ -166,6 +167,7 @@ export function Purchases() {
       }
 
       setTransactionDetails(p.transactionDetails || '');
+      setAttachment(p.attachment || null);
       setSequenceNumber(p.sequenceNumber || (index + 1));
       setViewIndex(index);
     }
@@ -181,6 +183,7 @@ export function Purchases() {
     setBankName('');
     setCheckNumber('');
     setTransactionDetails('');
+    setAttachment(null);
     setAccountTitle('');
     const count = periodPurchases.length;
     setSequenceNumber(count + 1);
@@ -259,6 +262,29 @@ export function Purchases() {
     }
   }, [date, currentDat]);
 
+  const handleAttachmentChange = (file: File | undefined) => {
+    if (!file) {
+      setAttachment(null);
+      return;
+    }
+    if (!(file.type.startsWith('image/') || file.type === 'application/pdf')) {
+      alert('Please upload an image or PDF file.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        setAttachment({
+          name: file.name,
+          type: file.type,
+          size: file.size,
+          content: reader.result
+        });
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleAddPurchase = () => {
     if (!currentClient || !currentClientId) return;
     
@@ -296,7 +322,8 @@ export function Purchases() {
       expenseType,
       accountTitle,
       transactionDetails,
-      inputTax
+      inputTax,
+      attachment
     };
 
     // Auto-add to TIN Library if new
@@ -340,6 +367,7 @@ export function Purchases() {
     setBankName('');
     setCheckNumber('');
     setTransactionDetails('');
+    setAttachment(null);
   };
 
   const handleDelete = (id: number) => {
@@ -510,6 +538,11 @@ export function Purchases() {
           <input type="text" readOnly value={netAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="form-input bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold cursor-not-allowed" />
         </div>
 
+        <div>
+          <label className="form-label text-slate-500">Input VAT (₱)</label>
+          <input type="text" readOnly value={inputTax.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="form-input bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold cursor-not-allowed" />
+        </div>
+
         {currentDat && (
           <div className="lg:col-span-1">
             <label className="form-label">Expense Class</label>
@@ -521,7 +554,7 @@ export function Purchases() {
           </div>
         )}
 
-        <div className={currentDat ? "lg:col-span-2" : "lg:col-span-3 md:col-span-2"}>
+        <div className={currentDat ? "lg:col-span-2" : "lg:col-span-2 md:col-span-1"}>
           <div className="flex items-center justify-between">
             <label className="form-label">{currentDat ? "Account Title" : "Payment for"}</label>
             {!currentDat && (
@@ -583,6 +616,36 @@ export function Purchases() {
                 </button>
               </div>
             </div>
+          )}
+        </div>
+
+        <div className="lg:col-span-1">
+          <label className="form-label">Attachment</label>
+          <div className="flex items-center gap-2">
+            <label className="form-input cursor-pointer flex items-center justify-between gap-2 text-sm font-medium">
+              <span className="truncate">{attachment ? attachment.name : "Upload image or PDF"}</span>
+              <input
+                type="file"
+                accept="image/*,application/pdf"
+                onChange={e => handleAttachmentChange(e.target.files?.[0])}
+                className="hidden"
+              />
+            </label>
+            {attachment && (
+              <button
+                type="button"
+                onClick={() => setAttachment(null)}
+                className="p-2 rounded-lg text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700"
+                title="Remove attachment"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          {attachment && (
+            <p className="text-[11px] text-slate-400 mt-1">
+              {(attachment.size / 1024 / 1024).toFixed(2)} MB
+            </p>
           )}
         </div>
 
