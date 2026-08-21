@@ -3,6 +3,7 @@ import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { AppFolder, AppFile } from '../types';
 import { parsePdf } from '../lib/pdfParser';
+import imageCompression from 'browser-image-compression';
 import { 
   Folder, FolderOpen, Upload, Trash2, Edit2, 
   Check, X, FileText, Download, Plus, File, AlertTriangle 
@@ -121,19 +122,37 @@ export function FileManager() {
     showToast(`Deleted folder "${folder.name}" and any files inside`);
   };
 
-  // File processing supporting Base64 conversion and staging
-  const processFiles = (fileList: FileList) => {
+  // File processing supporting image compression, Base64 conversion and staging
+  const processFiles = async (fileList: FileList) => {
     const validFiles: File[] = [];
     let sizeError = false;
 
-    Array.from(fileList).forEach(file => {
-      // Guide to keep files under 1MB for Postgres JSONB / localStorage efficiency
+    for (const originalFile of Array.from(fileList)) {
+      let file = originalFile;
+
+      // Compress browser-supported images before storing them. This keeps
+      // uploads small enough for Postgres JSONB / localStorage sync.
+      if (originalFile.type.startsWith('image/') && originalFile.type !== 'image/svg+xml') {
+        try {
+          file = await imageCompression(originalFile, {
+            maxSizeMB: 0.75,
+            maxWidthOrHeight: 2400,
+            useWebWorker: true,
+            initialQuality: 0.85,
+          });
+        } catch {
+          // Fall back to the original image if compression is unavailable.
+          file = originalFile;
+        }
+      }
+
+      // Guide to keep files under 800KB for Postgres JSONB / localStorage efficiency.
       if (file.size > 800 * 1024) {
         sizeError = true;
       } else {
         validFiles.push(file);
       }
-    });
+    }
 
     if (sizeError) {
       showToast('Some files skipped (Max limit 800KB for offline storage sync)');
