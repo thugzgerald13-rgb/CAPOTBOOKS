@@ -1,3 +1,4 @@
+import { PDFDocument } from 'pdf-lib';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 
 export interface ParsedPdf {
@@ -7,11 +8,18 @@ export interface ParsedPdf {
 
 /**
  * Extract text from a PDF in the browser.
+ * pdf-lib validates/loads the document while PDF.js extracts selectable text.
  * The PDF bytes stay client-side; nothing is uploaded by this helper.
  */
 export async function parsePdf(file: Blob | ArrayBuffer): Promise<ParsedPdf> {
   const data = file instanceof ArrayBuffer ? file : await file.arrayBuffer();
-  const pdf = await getDocument({ data, disableWorker: true }).promise;
+
+  // Load with pdf-lib so the application can work with the PDF document model
+  // in addition to PDF.js text extraction.
+  const document = await PDFDocument.load(data, { ignoreEncryption: true });
+  const pageCount = document.getPageCount();
+
+  const pdf = await getDocument({ data: new Uint8Array(data), disableWorker: true }).promise;
   const pages: string[] = [];
 
   try {
@@ -30,7 +38,7 @@ export async function parsePdf(file: Blob | ArrayBuffer): Promise<ParsedPdf> {
     }
 
     return {
-      pageCount: pdf.numPages,
+      pageCount,
       text: pages.join('\n\n'),
     };
   } finally {
