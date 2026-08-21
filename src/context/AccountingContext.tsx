@@ -127,6 +127,10 @@ export function AccountingProvider({
   // back to Supabase before the saved values have actually been loaded
   // from the 'profiles' table (see effects below).
   const [cloudPrefsLoaded, setCloudPrefsLoaded] = useState(false);
+  // The active client id loaded from the 'profiles' table for this user,
+  // used once (as a one-time restore) once both it and the client list
+  // have finished loading - see the restore effect below.
+  const [savedActiveClientId, setSavedActiveClientId] = useState<string | null>(null);
   const [isSidebarCollapsed, setSidebarCollapsed] = useState(false);
   // activePage is derived from the URL route, so every page has its own
   // real URL: browser back/forward and refresh-to-stay-there both work.
@@ -207,7 +211,7 @@ export function AccountingProvider({
         try {
           const { data, error } = await supabase
             .from('profiles')
-            .select('is_dark_mode, sidebar_collapsed')
+            .select('is_dark_mode, sidebar_collapsed, active_client_id')
             .eq('id', user.id)
             .maybeSingle();
           if (error) throw error;
@@ -217,6 +221,9 @@ export function AccountingProvider({
             }
             if (data && typeof data.sidebar_collapsed === 'boolean') {
               setSidebarCollapsed(data.sidebar_collapsed);
+            }
+            if (data && typeof data.active_client_id === 'string') {
+              setSavedActiveClientId(data.active_client_id);
             }
           }
         } catch (e) {
@@ -232,6 +239,42 @@ export function AccountingProvider({
       cancelled = true;
     };
   }, [user, isReady]);
+
+  // Restore the last-active client/profile once we know both what was saved
+  // (from the 'profiles' table, once cloudPrefsLoaded) and what clients
+  // actually exist. Gating on both - rather than picking as soon as clients
+  // arrive - avoids the previous bug where an arbitrary client got picked
+  // (because the saved preference hadn't loaded yet), which looked like the
+  // active client and the owner's own business profile randomly swapping
+  // places on every refresh.
+  useEffect(() => {
+    if (!currentClientId && cloudPrefsLoaded && Object.keys(clients).length > 0) {
+      const restoredId =
+        savedActiveClientId && clients[savedActiveClientId] ? savedActiveClientId : Object.keys(clients)[0];
+      setCurrentClientId(restoredId);
+    }
+  }, [clients, cloudPrefsLoaded, savedActiveClientId, currentClientId]);
+
+  // Sync the active client/profile selection to the cloud so it follows the
+  // user across devices, same as the dark mode / sidebar prefs below.
+  useEffect(() => {
+    if (user && isReady && cloudPrefsLoaded && currentClientId) {
+      const syncPref = async () => {
+        try {
+          const { error } = await supabase
+            .from('profiles')
+            .upsert(
+              { id: user.id, active_client_id: currentClientId, updated_at: new Date().toISOString() },
+              { onConflict: 'id' }
+            );
+          if (error) throw error;
+        } catch (e) {
+          console.error('Failed to sync active client pref', e);
+        }
+      };
+      syncPref();
+    }
+  }, [currentClientId, user, isReady, cloudPrefsLoaded]);
 
   // Sync dark mode class and cloud pref
   useEffect(() => {
@@ -306,10 +349,9 @@ export function AccountingProvider({
 
     const mergeCloudClients = (cloudClients: Record<string, Client>) => {
       setClients(cloudClients);
-
-      if (Object.keys(cloudClients).length > 0 && !currentClientId) {
-        setCurrentClientId(Object.keys(cloudClients)[0]);
-      }
+      // Which client becomes active is decided by the dedicated restore
+      // effect above, once the saved preference has also loaded - see there
+      // for why that's not decided here.
     };
 
     const initClients = async () => {
