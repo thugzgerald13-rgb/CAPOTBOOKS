@@ -823,29 +823,53 @@ export function Extras() {
             </div>
 
             {/* Form Footer */}
-            <div className="border-t border-slate-300 dark:border-slate-700 pt-4 flex justify-end gap-3 px-4">
-              <button 
-                onClick={handleSaveBusinessProfile}
-                className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-2 rounded shadow-sm flex items-center gap-2 transition"
-              >
-                <Save className="w-4 h-4" /> Save
-              </button>
-              <button 
-                onClick={() => {
-                  if (businessProfile) {
-                    setEditingBusiness({ ...businessProfile });
-                  }
-                }}
-                className="bg-slate-200 dark:bg-slate-700 font-bold px-6 py-2 rounded border border-slate-400 dark:border-slate-600 shadow-sm hover:bg-slate-300 dark:hover:bg-slate-600 flex items-center gap-2"
-              >
-                <RotateCcw className="w-4 h-4" /> Revert
-              </button>
-              <button 
-                onClick={() => navigateToPage(null)}
-                className="bg-slate-200 dark:bg-slate-700 font-bold px-6 py-2 rounded border border-slate-400 dark:border-slate-600 shadow-sm hover:bg-slate-300 dark:hover:bg-slate-600 flex items-center gap-2"
-              >
-                Close
-              </button>
+            <div className="border-t border-slate-300 dark:border-slate-700 pt-4 flex justify-between items-center gap-3 px-4">
+              <div>
+                {ownerClientId && currentClientId === ownerClientId ? (
+                  <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 flex items-center gap-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                    Currently Active
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => {
+                      if (ownerClientId) {
+                        setCurrentClientId(ownerClientId);
+                        navigateToPage(null);
+                      }
+                    }}
+                    disabled={!ownerClientId}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-6 py-2 rounded shadow-sm flex items-center gap-2 transition disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Make this business profile the active working context"
+                  >
+                    Set as Active
+                  </button>
+                )}
+              </div>
+              <div className="flex gap-3">
+                <button 
+                  onClick={handleSaveBusinessProfile}
+                  className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-2 rounded shadow-sm flex items-center gap-2 transition"
+                >
+                  <Save className="w-4 h-4" /> Save
+                </button>
+                <button 
+                  onClick={() => {
+                    if (businessProfile) {
+                      setEditingBusiness({ ...businessProfile });
+                    }
+                  }}
+                  className="bg-slate-200 dark:bg-slate-700 font-bold px-6 py-2 rounded border border-slate-400 dark:border-slate-600 shadow-sm hover:bg-slate-300 dark:hover:bg-slate-600 flex items-center gap-2"
+                >
+                  <RotateCcw className="w-4 h-4" /> Revert
+                </button>
+                <button 
+                  onClick={() => navigateToPage(null)}
+                  className="bg-slate-200 dark:bg-slate-700 font-bold px-6 py-2 rounded border border-slate-400 dark:border-slate-600 shadow-sm hover:bg-slate-300 dark:hover:bg-slate-600 flex items-center gap-2"
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
         ) : (
