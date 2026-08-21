@@ -63,10 +63,13 @@ export function AuthProvider({
     };
 
     // Load whatever session exists on first mount
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
       setUser(session?.user ?? null);
       if (session?.user) {
-        syncUser(session.user);
+        // Wait for the role to be fetched before clearing `loading`, so
+        // MainApp never sees "user present, role unknown" and flashes
+        // the RoleSelection screen before swapping to the real workspace.
+        await syncUser(session.user);
       }
       setLoading(false);
     });
@@ -74,10 +77,10 @@ export function AuthProvider({
     // Keep in sync with sign-in / sign-out / token refresh events
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setUser(session?.user ?? null);
       if (session?.user) {
-        syncUser(session.user);
+        await syncUser(session.user);
       } else {
         setUserRoleState(null);
       }
