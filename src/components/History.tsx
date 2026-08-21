@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
-import { Search, Trash2, Receipt, ShoppingCart, FolderClock, History as HistoryIcon, FileDown, FileSpreadsheet } from 'lucide-react';
-import { cn, MONTHS, generateCSV, formatTIN } from '../lib/utils';
+import { Search, Trash2, Receipt, ShoppingCart, FolderClock, History as HistoryIcon, FileDown, FileSpreadsheet, Download } from 'lucide-react';
+import { cn, MONTHS, generateCSV, formatTIN, downloadAttachment } from '../lib/utils';
 import * as XLSX from 'xlsx';
 
 type HistoryTab = 'expenses' | 'income' | 'slp' | 'sls';
@@ -402,7 +402,16 @@ export function History() {
                           </div>
                         </div>
 
-                        <div className="flex justify-end pt-1">
+                        <div className="flex justify-end gap-2 pt-1">
+                          {p.attachment && (
+                            <button 
+                              onClick={() => downloadAttachment(p.attachment)}
+                              className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-950/20 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 rounded-lg text-xs font-bold transition-all flex items-center gap-1"
+                              title="Download attachment"
+                            >
+                              <Download className="w-3.5 h-3.5" /> Download
+                            </button>
+                          )}
                           <button 
                             onClick={() => handleDeleteExpense(p.id)}
                             className="px-3 py-1.5 bg-red-50 dark:bg-red-950/20 text-red-500 hover:text-red-700 hover:bg-red-100 dark:hover:bg-red-900/40 rounded-lg text-xs font-bold transition-all flex items-center gap-1"
@@ -562,13 +571,24 @@ export function History() {
                               ₱{(p.inputTax || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                             </td>
                             <td className="px-3 py-3 text-center align-top sticky right-0 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/50 z-10 border-l border-slate-100 dark:border-slate-800">
-                              <button 
-                                onClick={() => handleDeleteExpense(p.id)}
-                                className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all"
-                                title="Delete Entry"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                              <div className="flex items-center justify-center gap-1">
+                                {p.attachment && (
+                                  <button 
+                                    onClick={() => downloadAttachment(p.attachment)}
+                                    className="p-1.5 text-slate-300 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-all"
+                                    title="Download attachment"
+                                  >
+                                    <Download className="w-4 h-4" />
+                                  </button>
+                                )}
+                                <button 
+                                  onClick={() => handleDeleteExpense(p.id)}
+                                  className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all"
+                                  title="Delete Entry"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         ))

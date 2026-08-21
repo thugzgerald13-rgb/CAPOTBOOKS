@@ -3,7 +3,7 @@ import { PageHeader } from './ui/PageHeader';
 import { Combobox } from './ui/Combobox';
 import { useAccounting } from '../context/AccountingContext';
 import { formatTIN, generateCSV, MONTHS, getMonthName } from '../lib/utils';
-import { ShoppingCart, Plus, Trash2, X, Paperclip, Download } from 'lucide-react';
+import { ShoppingCart, Plus, Trash2, X, Paperclip } from 'lucide-react';
 import { DEFAULT_ACCOUNTS, getNormalSide, resequenceAccounts } from './ChartOfAccounts';
 import { ATC_SCHEDULE } from '../lib/atcSchedule';
 import type { Purchase } from '../types';
@@ -95,68 +95,6 @@ export function Purchases() {
       });
     } catch {
       alert('Unable to process the attachment. Please try another file.');
-    }
-  };
-
-  const downloadAttachment = async (file: Purchase['attachment']) => {
-    if (!file?.content) return;
-    try {
-      if (file.compression === 'gzip') {
-        if (!('DecompressionStream' in window)) throw new Error('DecompressionStream unavailable');
-        const response = await fetch(file.content);
-        const compressed = await response.blob();
-        const restoredStream = compressed.stream().pipeThrough(new DecompressionStream('gzip'));
-        const restored = await new Response(restoredStream).blob();
-        const url = URL.createObjectURL(new Blob([restored], { type: file.originalType }));
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = file.name;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        URL.revokeObjectURL(url);
-        return;
-      }
-
-      if (!file.originalType.startsWith('image/') || file.type === file.originalType) {
-        const link = document.createElement('a');
-        link.href = file.content;
-        link.download = file.name;
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        return;
-      }
-
-      const image = new Image();
-      image.src = file.content;
-      await new Promise<void>((resolve, reject) => {
-        image.onload = () => resolve();
-        image.onerror = () => reject(new Error('Unable to restore image format'));
-      });
-      const canvas = document.createElement('canvas');
-      canvas.width = image.naturalWidth;
-      canvas.height = image.naturalHeight;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('Canvas unavailable');
-      ctx.drawImage(image, 0, 0);
-      const restored = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, file.originalType, 0.92));
-      if (!restored) throw new Error('Unable to restore image');
-      const url = URL.createObjectURL(restored);
-      const link = document.createElement('a');
-      link.href = url;
-      link.download = file.name;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-      URL.revokeObjectURL(url);
-    } catch {
-      const link = document.createElement('a');
-      link.href = file.content;
-      link.download = file.name;
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
     }
   };
 
@@ -644,6 +582,11 @@ export function Purchases() {
           <input type="text" readOnly value={netAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="form-input bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold cursor-not-allowed" />
         </div>
 
+        <div>
+          <label className="form-label text-slate-500">Input Tax (₱)</label>
+          <input type="text" readOnly value={inputTax.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="form-input bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold cursor-not-allowed" />
+        </div>
+
         {currentDat && (
           <div className="lg:col-span-1">
             <label className="form-label">Expense Class</label>
@@ -727,11 +670,6 @@ export function Purchases() {
               <Paperclip className="w-4 h-4" /> Upload image/PDF
               <input type="file" accept="image/*,.pdf,application/pdf" className="hidden" onChange={e => { void handleAttachmentChange(e.target.files?.[0]); e.currentTarget.value = ''; }} />
             </label>
-            {attachment && (
-              <button type="button" onClick={() => downloadAttachment(attachment)} className="p-2 rounded-lg border border-slate-300 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700" title="Download attachment">
-                <Download className="w-4 h-4" />
-              </button>
-            )}
           </div>
           {attachment && (
             <p className="text-[11px] text-slate-500 mt-1 truncate" title={attachment.name}>
