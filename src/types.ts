@@ -26,6 +26,12 @@ export interface Purchase {
   atcCode?: string | null;
   whtRate?: number | null;
   whtAmount?: number;
+  attachment?: {
+    name: string;
+    type: string;
+    size: number;
+    content: string;
+  } | null;
 }
 
 export interface Sale {
