@@ -23,7 +23,6 @@ export function Extras() {
     ownerClientId
   } = useAccounting();
   const { userRole } = useAuth();
-  const [newClientName, setNewClientName] = useState('');
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
@@ -95,10 +94,8 @@ export function Extras() {
   };
 
   const handleAddClient = () => {
-    if (newClientName.trim()) {
-      addClient(newClientName);
-      setNewClientName('');
-    }
+    const existingCount = Object.values(clients).filter((client: Client) => client.id !== ownerClientId).length;
+    addClient(`New Client ${existingCount + 1}`);
   };
 
   const salesTotal = currentClient?.sales.reduce((s,i)=>s+i.amount,0) || 0;
@@ -439,22 +436,23 @@ export function Extras() {
           </div>
         ) : (
           <>
-            <div className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-2xl mb-6 flex gap-4">
-              <input 
-                type="text" 
-                placeholder="New Client Name" 
-                value={newClientName}
-                onChange={e => setNewClientName(e.target.value)}
-                className="form-input flex-1"
-              />
+            <div className="bg-slate-50 dark:bg-slate-800/50 p-6 rounded-2xl mb-6 flex justify-end">
               <button onClick={handleAddClient} className="bg-blue-600 text-white px-6 py-2.5 rounded-xl font-bold flex items-center gap-2 hover:bg-blue-700">
-                <Plus className="w-5 h-5" /> Add
+                <Plus className="w-5 h-5" /> Add New Client
               </button>
             </div>
             
              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
               {Object.values(clients)
-                .filter((client: Client) => client.id !== ownerClientId)
+                .filter((client: Client) => {
+                  if (client.id === ownerClientId) return false;
+                  // Defensive guard: also hide any stray entry that duplicates the
+                  // accountant's own business profile by name, in case cleanup hasn't
+                  // synced yet.
+                  const bizName = businessProfile?.name?.trim().toLowerCase();
+                  if (bizName && client.name?.trim().toLowerCase() === bizName) return false;
+                  return true;
+                })
                 .map((client: Client) => (
                 <div
                   key={client.id}
