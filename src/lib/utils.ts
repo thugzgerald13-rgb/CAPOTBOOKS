@@ -161,6 +161,78 @@ export function generateDATFile(filename: string, content: string) {
   URL.revokeObjectURL(url);
 }
 
+export interface DownloadableAttachment {
+  name: string;
+  type: string;
+  originalType: string;
+  size: number;
+  originalSize: number;
+  compression?: 'none' | 'gzip';
+  content: string;
+}
+
+export async function downloadAttachment(file?: DownloadableAttachment | null) {
+  if (!file?.content) return;
+  try {
+    if (file.compression === 'gzip') {
+      if (!('DecompressionStream' in window)) throw new Error('DecompressionStream unavailable');
+      const response = await fetch(file.content);
+      const compressed = await response.blob();
+      const restoredStream = compressed.stream().pipeThrough(new DecompressionStream('gzip'));
+      const restored = await new Response(restoredStream).blob();
+      const url = URL.createObjectURL(new Blob([restored], { type: file.originalType }));
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = file.name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      return;
+    }
+
+    if (!file.originalType.startsWith('image/') || file.type === file.originalType) {
+      const link = document.createElement('a');
+      link.href = file.content;
+      link.download = file.name;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      return;
+    }
+
+    const image = new Image();
+    image.src = file.content;
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error('Unable to restore image format'));
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error('Canvas unavailable');
+    ctx.drawImage(image, 0, 0);
+    const restored = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, file.originalType, 0.92));
+    if (!restored) throw new Error('Unable to restore image');
+    const url = URL.createObjectURL(restored);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = file.name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  } catch {
+    const link = document.createElement('a');
+    link.href = file.content;
+    link.download = file.name;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  }
+}
+
 export function generateCSV(filename: string, rows: any[][]) {
   const csvContent = rows.map(r => 
     r.map(item => {
