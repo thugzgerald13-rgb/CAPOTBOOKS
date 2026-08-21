@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { PageHeader } from './ui/PageHeader';
+import { Combobox } from './ui/Combobox';
 import { useAccounting } from '../context/AccountingContext';
 import { formatTIN, generateCSV, MONTHS, getMonthName } from '../lib/utils';
 import { ShoppingCart, Plus, Trash2, X } from 'lucide-react';
@@ -44,18 +45,13 @@ export function Purchases() {
     }
   }, [currentClient?.accounts, currentDat, expenseType]);
 
-  // Default the "Payment for" / "Account Title" field to the first matching
-  // account whenever the expense-type category changes (or on first load).
-  // This intentionally does NOT run on every keystroke — the field is a
-  // free-type combobox (type a name, or pick one from the suggestions), so
-  // typing something that isn't yet an exact account name must never get
-  // silently overwritten.
+  // Clear the "Payment for" / "Account Title" selection whenever it no
+  // longer matches an account in the current category (e.g. switching
+  // Expense Class). This intentionally never auto-picks the first account -
+  // the field starts empty and shows the "Type or choose an account..."
+  // placeholder until the user actively types or selects one.
   useEffect(() => {
-    if (coaAccounts.length > 0) {
-      setAccountTitle(prev => coaAccounts.find(a => a.name === prev) ? prev : coaAccounts[0].name);
-    } else {
-      setAccountTitle('');
-    }
+    setAccountTitle(prev => (coaAccounts.find(a => a.name === prev) ? prev : ''));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expenseType, currentDat, coaAccounts]);
 
@@ -185,6 +181,7 @@ export function Purchases() {
     setBankName('');
     setCheckNumber('');
     setTransactionDetails('');
+    setAccountTitle('');
     const count = periodPurchases.length;
     setSequenceNumber(count + 1);
   };
@@ -540,20 +537,13 @@ export function Purchases() {
               </div>
             )}
           </div>
-          <input
-            type="text"
-            list="payment-for-suggestions"
+          <Combobox
             value={accountTitle}
-            onChange={e => setAccountTitle(e.target.value)}
+            onChange={setAccountTitle}
+            options={coaAccounts.map(a => ({ id: a.id, label: a.name }))}
             placeholder="Type or choose an account..."
-            autoComplete="off"
-            className="form-input bg-blue-50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-900/50 font-bold text-blue-800 dark:text-blue-300"
+            inputClassName="form-input bg-blue-50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-900/50 font-bold text-blue-800 dark:text-blue-300"
           />
-          <datalist id="payment-for-suggestions">
-            {coaAccounts.map(account => (
-              <option key={account.id} value={account.name} />
-            ))}
-          </datalist>
 
           {showAddPaymentAccount && (
             <div className="mt-2 p-3 bg-emerald-50 dark:bg-emerald-900/10 border border-emerald-200 dark:border-emerald-900/50 rounded-xl flex flex-col sm:flex-row gap-2 items-stretch sm:items-end">
