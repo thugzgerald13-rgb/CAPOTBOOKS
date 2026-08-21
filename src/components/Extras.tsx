@@ -531,20 +531,7 @@ export function Extras() {
           <div className="p-4 md:p-6 flex-1">
         {editingBusiness ? (
           <div className="bg-slate-100 dark:bg-slate-900 -m-6 p-6 h-full min-h-[600px] flex flex-col font-sans">
-            {/* Form Header */}
-            <div className="bg-slate-300 dark:bg-slate-800 p-2 border-b border-slate-400 dark:border-slate-700 flex justify-between items-center mb-4">
-              <span className="text-sm font-bold text-slate-700 dark:text-slate-300">Company Information - {editingBusiness.name}</span>
-              <button 
-                onClick={() => navigateToPage(null)}
-                className="hover:bg-slate-400 dark:hover:bg-slate-700 rounded p-1"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
             <div className="flex-1 overflow-y-auto px-4">
-              <h2 className="text-2xl font-bold text-red-800 mb-6 border-b border-red-200 pb-2">Business Information</h2>
-
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 mb-4">
                 <div className="sm:col-span-5">
                   <label className="form-label">Tin:</label>
