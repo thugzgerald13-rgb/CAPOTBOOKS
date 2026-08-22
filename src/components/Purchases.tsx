@@ -3,13 +3,95 @@ import { PageHeader } from './ui/PageHeader';
 import { Combobox } from './ui/Combobox';
 import { useAccounting } from '../context/AccountingContext';
 import { formatTIN, generateCSV, MONTHS, getMonthName } from '../lib/utils';
-import { ShoppingCart, Plus, Trash2, X, Paperclip } from 'lucide-react';
+import { ShoppingCart, Plus, Trash2, X, Paperclip, Receipt, FileQuestion, Landmark, ClipboardList } from 'lucide-react';
+import AccountsPayable from './AccountsPayable';
 import { DEFAULT_ACCOUNTS, getNormalSide, resequenceAccounts } from './ChartOfAccounts';
 import { ATC_SCHEDULE } from '../lib/atcSchedule';
-import type { Purchase } from '../types';
+import type { Client, Purchase } from '../types';
+
+function UnreceiptedExpenses({
+  currentClient,
+  onReceipted,
+}: {
+  currentClient: Client | null;
+  onReceipted: () => void;
+}) {
+  const unreceipted = useMemo(
+    () => (currentClient?.purchases || []).filter(p => !p.attachment),
+    [currentClient?.purchases]
+  );
+
+  const total = unreceipted.reduce((sum, p) => sum + (Number(p.amount) || 0) + (Number(p.inputTax) || 0), 0);
+
+  return (
+    <div className="p-4 md:p-6 flex-1">
+      <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50/70 dark:border-amber-900/40 dark:bg-amber-900/10 p-4">
+        <div className="flex items-start gap-3">
+          <FileQuestion className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
+          <div>
+            <h2 className="font-bold text-slate-800 dark:text-slate-100">Unreceipted Expense Queue</h2>
+            <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
+              Review expenses that were recorded without an uploaded receipt or supporting document. Keep them here until documentation is attached and the transaction can be moved to the receipted workflow.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
+        <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 bg-white dark:bg-slate-800">
+          <p className="text-xs uppercase font-bold text-slate-500">Unreceipted entries</p>
+          <p className="text-2xl font-black mt-1 text-slate-800 dark:text-white">{unreceipted.length}</p>
+        </div>
+        <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 bg-white dark:bg-slate-800 md:col-span-2">
+          <p className="text-xs uppercase font-bold text-slate-500">Gross amount pending documentation</p>
+          <p className="text-2xl font-black mt-1 text-amber-600">₱{total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+        </div>
+      </div>
+
+      {unreceipted.length === 0 ? (
+        <div className="rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 p-10 text-center bg-white dark:bg-slate-900">
+          <ClipboardList className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600" />
+          <h3 className="font-bold text-slate-700 dark:text-slate-200 mt-3">No unreceipted expenses</h3>
+          <p className="text-sm text-slate-500 mt-1">All recorded expenses currently have supporting attachments.</p>
+          <button type="button" onClick={onReceipted} className="mt-4 px-4 py-2 rounded-lg bg-amber-500 text-white text-sm font-bold hover:bg-amber-600">
+            Go to Receipted
+          </button>
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
+          <table className="w-full min-w-[760px] text-sm">
+            <thead className="bg-slate-50 dark:bg-slate-800 text-[11px] uppercase font-bold text-slate-500">
+              <tr>
+                <th className="text-left px-4 py-3">Date</th>
+                <th className="text-left px-4 py-3">Supplier</th>
+                <th className="text-left px-4 py-3">Invoice</th>
+                <th className="text-left px-4 py-3">Expense Account</th>
+                <th className="text-right px-4 py-3">Amount</th>
+                <th className="text-center px-4 py-3">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              {unreceipted.map(p => (
+                <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                  <td className="px-4 py-3 font-medium">{p.date}</td>
+                  <td className="px-4 py-3">{p.supplierName || '—'}</td>
+                  <td className="px-4 py-3">{p.invoiceNo || '—'}</td>
+                  <td className="px-4 py-3">{p.accountTitle || 'General Expense'}</td>
+                  <td className="px-4 py-3 text-right font-mono">₱{((Number(p.amount) || 0) + (Number(p.inputTax) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                  <td className="px-4 py-3 text-center"><span className="inline-flex px-2 py-1 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 text-[10px] font-bold uppercase">Missing receipt</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function Purchases() {
   const { currentClient, currentClientId, currentDat, saveClient, showToast, setCurrentDat } = useAccounting();
+  const [expenseWorkspace, setExpenseWorkspace] = useState<'receipted' | 'unreceipted' | 'ap'>('receipted');
   
   // Single record state (similar to original but react-friendly)
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -427,6 +509,43 @@ export function Purchases() {
   return (
     <div className="w-full flex flex-col">
       <PageHeader title={currentDat ? "Expense Data Entry Screen (DAT)" : "Expense Data Entry Screen"} icon={<ShoppingCart className="w-5 h-5 text-amber-500" />} />
+
+      <div className="px-4 md:px-6 pt-3 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
+        <div className="flex items-center gap-1 overflow-x-auto" role="tablist" aria-label="Expense workspace">
+          {[
+            { id: 'receipted' as const, label: 'Receipted', icon: Receipt, description: 'Expenses with supporting receipts' },
+            { id: 'unreceipted' as const, label: 'Unreceipted', icon: FileQuestion, description: 'Expenses missing supporting documents' },
+            { id: 'ap' as const, label: 'AP', icon: Landmark, description: 'Accounts Payable workspace' },
+          ].map(tab => {
+            const Icon = tab.icon;
+            const active = expenseWorkspace === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                title={tab.description}
+                onClick={() => setExpenseWorkspace(tab.id)}
+                className={`flex items-center gap-2 px-4 py-3 text-sm font-bold whitespace-nowrap border-b-2 transition-colors ${active
+                  ? 'border-amber-500 text-amber-600 dark:text-amber-400'
+                  : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300 dark:text-slate-400 dark:hover:text-slate-200'}`}
+              >
+                <Icon className="w-4 h-4" />
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {expenseWorkspace === 'ap' ? (
+        <div className="flex-1 min-w-0">
+          <AccountsPayable />
+        </div>
+      ) : expenseWorkspace === 'unreceipted' ? (
+        <UnreceiptedExpenses currentClient={currentClient} onReceipted={() => setExpenseWorkspace('receipted')} />
+      ) : (
       <div className="p-4 md:p-6 flex-1">
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-100 dark:border-slate-700 relative">
@@ -712,6 +831,8 @@ export function Purchases() {
       </div>
 
       </div>
+      )}
     </div>
+
   );
 }
