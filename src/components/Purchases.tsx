@@ -430,7 +430,7 @@ export function Purchases() {
 
   return (
     <div className="w-full flex flex-col">
-      <PageHeader title={currentDat ? "Expense Data Entry Screen (DAT)" : "Expense Data Entry Screen"} icon={<ShoppingCart className="w-5 h-5 text-amber-500" />} />
+      <PageHeader title={currentDat ? "Purchases (DAT)" : "Purchases"} icon={<ShoppingCart className="w-5 h-5 text-amber-500" />} />
 
       <div className="px-4 md:px-6 pt-3 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
         <div className="flex items-center gap-1 overflow-x-auto" role="tablist" aria-label="Expense workspace">
