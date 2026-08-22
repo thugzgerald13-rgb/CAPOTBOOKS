@@ -22,6 +22,7 @@ import { CashFlow } from './components/CashFlow';
 import { AssetLapsing } from './components/AssetLapsing';
 import { Extras } from './components/Extras';
 import { AdminSettings } from './components/AdminSettings';
+import { Diagnostics } from './components/Diagnostics';
 import { FileManager } from './components/FileManager';
 import { Inventory } from './components/Inventory';
 import { BIRForms } from './components/BIRForms';
@@ -97,6 +98,7 @@ function AppLayout() {
             <Route path="/ledger" element={<GeneralLedger />} />
             <Route path="/pl" element={<ProfitAndLoss />} />
             <Route path="/admin-settings" element={<AdminSettings />} />
+            <Route path="/diagnostics" element={<Diagnostics />} />
             {/* Extras bundles several related pages in one file; each gets
                 its own route but they all mount the same component, which
                 internally shows only the section matching the current route. */}
