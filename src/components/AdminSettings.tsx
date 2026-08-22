@@ -87,7 +87,8 @@ function DiagnosticsTab() {
   const { clients, isSyncing, syncError } = useAccounting();
   const { user, isAdmin } = useAuth();
 
-  const [localStorageOk, setLocalStorageOk] = useState<boolean | null>(null);
+  const [dbReadOk, setDbReadOk] = useState<boolean | null>(null);
+  const [dbLatencyMs, setDbLatencyMs] = useState<number | null>(null);
   const [supabaseOk, setSupabaseOk] = useState<boolean | null>(null);
   const [supabaseLatencyMs, setSupabaseLatencyMs] = useState<number | null>(null);
   const [checkedAt, setCheckedAt] = useState<Date | null>(null);
@@ -96,17 +97,8 @@ function DiagnosticsTab() {
   const runChecks = async () => {
     setSupabaseOk(null);
     setSupabaseLatencyMs(null);
-
-    // LocalStorage (offline fallback store) read/write/remove probe.
-    const probeKey = '__capot_ls_healthcheck__';
-    try {
-      window.localStorage.setItem(probeKey, '1');
-      const readBack = window.localStorage.getItem(probeKey) === '1';
-      window.localStorage.removeItem(probeKey);
-      setLocalStorageOk(readBack);
-    } catch {
-      setLocalStorageOk(false);
-    }
+    setDbReadOk(null);
+    setDbLatencyMs(null);
 
     // Supabase reachability + round-trip latency via a minimal auth call
     // (doesn't touch any table, so it still works when signed out).
@@ -118,6 +110,18 @@ function DiagnosticsTab() {
     } catch {
       setSupabaseLatencyMs(Math.round(performance.now() - start));
       setSupabaseOk(false);
+    }
+
+    // Database read probe: a lightweight, non-destructive query against the
+    // clients table to confirm the DB connection and RLS policies are working.
+    const dbStart = performance.now();
+    try {
+      const { error } = await supabase.from('clients').select('id').limit(1);
+      setDbLatencyMs(Math.round(performance.now() - dbStart));
+      setDbReadOk(!error);
+    } catch {
+      setDbLatencyMs(Math.round(performance.now() - dbStart));
+      setDbReadOk(false);
     }
 
     setCheckedAt(new Date());
@@ -142,19 +146,16 @@ function DiagnosticsTab() {
     };
   }, [clients]);
 
-  const storageUsageKb = useMemo(() => {
+  // Approximate size of the currently loaded client data (in-memory, sourced
+  // entirely from Supabase) rather than any on-device browser storage.
+  const dataUsageKb = useMemo(() => {
     try {
-      let bytes = 0;
-      for (const key in window.localStorage) {
-        if (Object.prototype.hasOwnProperty.call(window.localStorage, key)) {
-          bytes += (window.localStorage.getItem(key)?.length || 0) + key.length;
-        }
-      }
+      const bytes = new Blob([JSON.stringify(clients)]).size;
       return (bytes / 1024).toFixed(1);
     } catch {
       return 'N/A';
     }
-  }, [checkedAt]);
+  }, [clients]);
 
   const envReport = useMemo(() => {
     return [
@@ -169,12 +170,12 @@ function DiagnosticsTab() {
       `Viewport: ${window.innerWidth}x${window.innerHeight}`,
       `Online: ${navigator.onLine}`,
       `Supabase reachable: ${supabaseOk} (${supabaseLatencyMs ?? '—'} ms)`,
-      `LocalStorage OK: ${localStorageOk}`,
-      `LocalStorage used: ${storageUsageKb} KB`,
+      `Database read OK: ${dbReadOk} (${dbLatencyMs ?? '—'} ms)`,
+      `Loaded client data size: ${dataUsageKb} KB`,
       `Clients: ${recordCounts.clients}, Sales: ${recordCounts.sales}, Purchases: ${recordCounts.purchases}, GL entries: ${recordCounts.glEntries}, Files: ${recordCounts.files}`,
       `Last sync error: ${syncError || 'none'}`,
     ].join('\n');
-  }, [supabaseOk, supabaseLatencyMs, localStorageOk, storageUsageKb, recordCounts, syncError, user, isAdmin]);
+  }, [supabaseOk, supabaseLatencyMs, dbReadOk, dbLatencyMs, dataUsageKb, recordCounts, syncError, user, isAdmin]);
 
   const handleCopyReport = async () => {
     try {
@@ -216,9 +217,9 @@ function DiagnosticsTab() {
           failText="Unreachable"
         />
         <DiagStatusRow
-          label="LocalStorage (offline fallback)"
-          ok={localStorageOk}
-          okText="Read/write OK"
+          label="Database read (clients table)"
+          ok={dbReadOk}
+          okText={`Reachable (${dbLatencyMs ?? '—'} ms)`}
           failText="Unavailable"
         />
         <DiagStatusRow
@@ -248,7 +249,7 @@ function DiagnosticsTab() {
         <DiagRow label="Purchase records" value={String(recordCounts.purchases)} />
         <DiagRow label="GL entries" value={String(recordCounts.glEntries)} />
         <DiagRow label="Files stored" value={String(recordCounts.files)} />
-        <DiagRow label="LocalStorage used" value={`${storageUsageKb} KB`} />
+        <DiagRow label="Loaded data size" value={`${dataUsageKb} KB`} />
       </DiagSection>
 
       <DiagSection title="Browser / Environment">
@@ -267,7 +268,7 @@ export function AdminSettings() {
   const navigate = useNavigate();
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(false);
-  const [localStorageOk, setLocalStorageOk] = useState<boolean | null>(null);
+  const [dbConnectionOk, setDbConnectionOk] = useState<boolean | null>(null);
 
   // Which tab shows is driven by the URL path itself
   // (/developertools/systemconfig vs /developertools/diagnostics), so each
@@ -276,18 +277,17 @@ export function AdminSettings() {
   const location = useLocation();
   const activeTab: AdminTab = location.pathname.endsWith('/diagnostics') ? 'diagnostics' : 'users';
 
-  // Actually verify LocalStorage (the offline fallback store) is readable/writable,
-  // instead of showing a hardcoded "active" light regardless of real state.
+  // Actually verify the Supabase database connection is live, instead of
+  // showing a hardcoded "active" light regardless of real state.
   useEffect(() => {
-    const probeKey = '__capot_ls_healthcheck__';
-    try {
-      window.localStorage.setItem(probeKey, '1');
-      const readBack = window.localStorage.getItem(probeKey) === '1';
-      window.localStorage.removeItem(probeKey);
-      setLocalStorageOk(readBack);
-    } catch {
-      setLocalStorageOk(false);
-    }
+    (async () => {
+      try {
+        const { error } = await supabase.from('clients').select('id').limit(1);
+        setDbConnectionOk(!error);
+      } catch {
+        setDbConnectionOk(false);
+      }
+    })();
   }, []);
 
   const fetchUsers = async () => {
@@ -473,7 +473,7 @@ export function AdminSettings() {
               {currentClient ? currentClient.id : 'No client selected'}
             </p>
             <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">
-              Data is synced to Supabase Postgres under `clients` (row id = `${currentClient?.id || 'CLIENT_ID'}`), with LocalStorage as an offline fallback.
+              Data is synced live to Supabase Postgres under `clients` (row id = `${currentClient?.id || 'CLIENT_ID'}`). No data is stored in the browser.
             </p>
           </div>
 
@@ -482,18 +482,18 @@ export function AdminSettings() {
             <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400">
               <span
                 className={`w-2 h-2 rounded-full ${
-                  localStorageOk === null
+                  dbConnectionOk === null
                     ? 'bg-slate-400 animate-pulse'
-                    : localStorageOk
+                    : dbConnectionOk
                     ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)] animate-pulse'
                     : 'bg-red-500 shadow-[0_0_8px_rgba(239,68,68,0.5)]'
                 }`}
               ></span>
-              {localStorageOk === null
-                ? 'Checking Local Storage...'
-                : localStorageOk
-                ? 'Local Storage Active'
-                : 'Local Storage Unavailable'}
+              {dbConnectionOk === null
+                ? 'Checking Database Connection...'
+                : dbConnectionOk
+                ? 'Supabase Database Connected'
+                : 'Supabase Database Unavailable'}
             </div>
             <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400 mt-2">
               <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></span>

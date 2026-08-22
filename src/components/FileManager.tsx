@@ -131,7 +131,7 @@ export function FileManager() {
       let file = originalFile;
 
       // Compress browser-supported images before storing them. This keeps
-      // uploads small enough for Postgres JSONB / localStorage sync.
+      // uploads small enough for efficient Postgres JSONB storage/sync.
       if (originalFile.type.startsWith('image/') && originalFile.type !== 'image/svg+xml') {
         try {
           file = await imageCompression(originalFile, {
@@ -146,7 +146,7 @@ export function FileManager() {
         }
       }
 
-      // Guide to keep files under 800KB for Postgres JSONB / localStorage efficiency.
+      // Guide to keep files under 800KB for efficient Postgres JSONB storage.
       if (file.size > 800 * 1024) {
         sizeError = true;
       } else {
@@ -155,7 +155,7 @@ export function FileManager() {
     }
 
     if (sizeError) {
-      showToast('Some files skipped (Max limit 800KB for offline storage sync)');
+      showToast('Some files skipped (Max limit 800KB per file for database sync)');
     }
 
     if (validFiles.length === 0) return;

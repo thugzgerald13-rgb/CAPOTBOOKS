@@ -75,7 +75,8 @@ export function Diagnostics() {
   const { clients, isSyncing, syncError } = useAccounting();
   const { user, isAdmin } = useAuth();
 
-  const [localStorageOk, setLocalStorageOk] = useState<boolean | null>(null);
+  const [dbReadOk, setDbReadOk] = useState<boolean | null>(null);
+  const [dbLatencyMs, setDbLatencyMs] = useState<number | null>(null);
   const [supabaseOk, setSupabaseOk] = useState<boolean | null>(null);
   const [supabaseLatencyMs, setSupabaseLatencyMs] = useState<number | null>(null);
   const [checkedAt, setCheckedAt] = useState<Date | null>(null);
@@ -84,17 +85,8 @@ export function Diagnostics() {
   const runChecks = async () => {
     setSupabaseOk(null);
     setSupabaseLatencyMs(null);
-
-    // LocalStorage (offline fallback store) read/write/remove probe.
-    const probeKey = '__capot_ls_healthcheck__';
-    try {
-      window.localStorage.setItem(probeKey, '1');
-      const readBack = window.localStorage.getItem(probeKey) === '1';
-      window.localStorage.removeItem(probeKey);
-      setLocalStorageOk(readBack);
-    } catch {
-      setLocalStorageOk(false);
-    }
+    setDbReadOk(null);
+    setDbLatencyMs(null);
 
     // Supabase reachability + round-trip latency via a minimal auth call
     // (doesn't touch any table, so it still works when signed out).
@@ -106,6 +98,18 @@ export function Diagnostics() {
     } catch {
       setSupabaseLatencyMs(Math.round(performance.now() - start));
       setSupabaseOk(false);
+    }
+
+    // Database read probe: a lightweight, non-destructive query against the
+    // clients table to confirm the DB connection and RLS policies are working.
+    const dbStart = performance.now();
+    try {
+      const { error } = await supabase.from('clients').select('id').limit(1);
+      setDbLatencyMs(Math.round(performance.now() - dbStart));
+      setDbReadOk(!error);
+    } catch {
+      setDbLatencyMs(Math.round(performance.now() - dbStart));
+      setDbReadOk(false);
     }
 
     setCheckedAt(new Date());
@@ -130,19 +134,16 @@ export function Diagnostics() {
     };
   }, [clients]);
 
-  const storageUsageKb = useMemo(() => {
+  // Approximate size of the currently loaded client data (in-memory, sourced
+  // entirely from Supabase) rather than any on-device browser storage.
+  const dataUsageKb = useMemo(() => {
     try {
-      let bytes = 0;
-      for (const key in window.localStorage) {
-        if (Object.prototype.hasOwnProperty.call(window.localStorage, key)) {
-          bytes += (window.localStorage.getItem(key)?.length || 0) + key.length;
-        }
-      }
+      const bytes = new Blob([JSON.stringify(clients)]).size;
       return (bytes / 1024).toFixed(1);
     } catch {
       return 'N/A';
     }
-  }, [checkedAt]);
+  }, [clients]);
 
   const envReport = useMemo(() => {
     return [
@@ -157,12 +158,12 @@ export function Diagnostics() {
       `Viewport: ${window.innerWidth}x${window.innerHeight}`,
       `Online: ${navigator.onLine}`,
       `Supabase reachable: ${supabaseOk} (${supabaseLatencyMs ?? '—'} ms)`,
-      `LocalStorage OK: ${localStorageOk}`,
-      `LocalStorage used: ${storageUsageKb} KB`,
+      `Database read OK: ${dbReadOk} (${dbLatencyMs ?? '—'} ms)`,
+      `Loaded client data size: ${dataUsageKb} KB`,
       `Clients: ${recordCounts.clients}, Sales: ${recordCounts.sales}, Purchases: ${recordCounts.purchases}, GL entries: ${recordCounts.glEntries}, Files: ${recordCounts.files}`,
       `Last sync error: ${syncError || 'none'}`,
     ].join('\n');
-  }, [supabaseOk, supabaseLatencyMs, localStorageOk, storageUsageKb, recordCounts, syncError, user, isAdmin]);
+  }, [supabaseOk, supabaseLatencyMs, dbReadOk, dbLatencyMs, dataUsageKb, recordCounts, syncError, user, isAdmin]);
 
   const handleCopyReport = async () => {
     try {
@@ -207,9 +208,9 @@ export function Diagnostics() {
             failText="Unreachable"
           />
           <StatusRow
-            label="LocalStorage (offline fallback)"
-            ok={localStorageOk}
-            okText="Read/write OK"
+            label="Database read (clients table)"
+            ok={dbReadOk}
+            okText={`Reachable (${dbLatencyMs ?? '—'} ms)`}
             failText="Unavailable"
           />
           <StatusRow
@@ -239,7 +240,7 @@ export function Diagnostics() {
           <Row label="Purchase records" value={String(recordCounts.purchases)} />
           <Row label="GL entries" value={String(recordCounts.glEntries)} />
           <Row label="Files stored" value={String(recordCounts.files)} />
-          <Row label="LocalStorage used" value={`${storageUsageKb} KB`} />
+          <Row label="Loaded data size" value={`${dataUsageKb} KB`} />
         </Section>
 
         <Section title="Browser / Environment">
