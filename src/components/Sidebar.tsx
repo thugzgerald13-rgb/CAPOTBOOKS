@@ -557,9 +557,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       System Config
                     </button>
                     <button
-                      onClick={() => {
-                        console.log("Supabase config/diagnostics or extra dev options will go here.");
-                      }}
+                      onClick={() => handleNavClick('diagnostics')}
                       className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-900/20 dark:hover:text-emerald-400 transition-all w-full text-left"
                     >
                       <LineChart className="w-4 h-4" />
