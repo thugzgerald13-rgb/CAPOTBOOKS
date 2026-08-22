@@ -239,7 +239,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                     className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left"
                   >
                     <Receipt className="w-4 h-4" />
-                    Record Income
+                    Income
                   </button>
                   <button
                     onClick={() => {
@@ -250,7 +250,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                     className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left"
                   >
                     <ShoppingCart className="w-4 h-4" />
-                    Record Expense
+                    Purchases
                   </button>
                   <button
                     onClick={() => {
