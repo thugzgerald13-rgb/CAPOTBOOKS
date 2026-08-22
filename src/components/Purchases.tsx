@@ -29,9 +29,9 @@ function UnreceiptedExpenses({
         <div className="flex items-start gap-3">
           <FileQuestion className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
           <div>
-            <h2 className="font-bold text-slate-800 dark:text-slate-100">Unreceipted Expense Queue</h2>
+            <h2 className="font-bold text-slate-800 dark:text-slate-100">Other Payments Queue</h2>
             <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-              Review expenses that were recorded without an uploaded receipt or supporting document. Keep them here until documentation is attached and the transaction can be moved to the receipted workflow.
+              Review payments that are not recorded as invoiced expenses or do not have an invoice attached. Keep them here until the transaction is properly documented or classified as invoiced.
             </p>
           </div>
         </div>
@@ -39,7 +39,7 @@ function UnreceiptedExpenses({
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
         <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 bg-white dark:bg-slate-800">
-          <p className="text-xs uppercase font-bold text-slate-500">Unreceipted entries</p>
+          <p className="text-xs uppercase font-bold text-slate-500">Other payment entries</p>
           <p className="text-2xl font-black mt-1 text-slate-800 dark:text-white">{unreceipted.length}</p>
         </div>
         <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 bg-white dark:bg-slate-800 md:col-span-2">
@@ -51,10 +51,10 @@ function UnreceiptedExpenses({
       {unreceipted.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 p-10 text-center bg-white dark:bg-slate-900">
           <ClipboardList className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600" />
-          <h3 className="font-bold text-slate-700 dark:text-slate-200 mt-3">No unreceipted expenses</h3>
-          <p className="text-sm text-slate-500 mt-1">All recorded expenses currently have supporting attachments.</p>
+          <h3 className="font-bold text-slate-700 dark:text-slate-200 mt-3">No other payments</h3>
+          <p className="text-sm text-slate-500 mt-1">No other payment entries are currently recorded.</p>
           <button type="button" onClick={onReceipted} className="mt-4 px-4 py-2 rounded-lg bg-amber-500 text-white text-sm font-bold hover:bg-amber-600">
-            Go to Receipted
+            Go to Invoiced
           </button>
         </div>
       ) : (
@@ -513,8 +513,8 @@ export function Purchases() {
       <div className="px-4 md:px-6 pt-3 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
         <div className="flex items-center gap-1 overflow-x-auto" role="tablist" aria-label="Expense workspace">
           {[
-            { id: 'receipted' as const, label: 'Receipted', icon: Receipt, description: 'Expenses with supporting receipts' },
-            { id: 'unreceipted' as const, label: 'Unreceipted', icon: FileQuestion, description: 'Expenses missing supporting documents' },
+            { id: 'receipted' as const, label: 'Invoiced', icon: Receipt, description: 'Invoiced expenses with supporting documents' },
+            { id: 'unreceipted' as const, label: 'Other Payments', icon: FileQuestion, description: 'Other payments and non-invoice expenses' },
             { id: 'ap' as const, label: 'AP', icon: Landmark, description: 'Accounts Payable workspace' },
           ].map(tab => {
             const Icon = tab.icon;
