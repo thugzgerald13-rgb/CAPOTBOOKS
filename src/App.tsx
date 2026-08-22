@@ -97,7 +97,8 @@ function AppLayout() {
             <Route path="/journal" element={<GeneralJournal />} />
             <Route path="/ledger" element={<GeneralLedger />} />
             <Route path="/pl" element={<ProfitAndLoss />} />
-            <Route path="/admin-settings" element={<AdminSettings />} />
+            <Route path="/developertools/systemconfig" element={<AdminSettings />} />
+            <Route path="/developertools/diagnostics" element={<AdminSettings />} />
             <Route path="/diagnostics" element={<Diagnostics />} />
             {/* Extras bundles several related pages in one file; each gets
                 its own route but they all mount the same component, which
