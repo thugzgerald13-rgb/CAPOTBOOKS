@@ -276,6 +276,15 @@ export function AdminSettings() {
     searchParams.get('tab') === 'diagnostics' ? 'diagnostics' : 'users'
   );
 
+  // Re-sync the tab whenever the URL's ?tab= changes, not just on first
+  // mount. React Router keeps this component mounted when only the query
+  // string changes (the path itself is still /admin-settings), so without
+  // this effect, clicking "Diagnostics" from the sidebar while already on
+  // this page silently did nothing — the tab state never re-read the URL.
+  useEffect(() => {
+    setActiveTab(searchParams.get('tab') === 'diagnostics' ? 'diagnostics' : 'users');
+  }, [searchParams]);
+
   // Actually verify LocalStorage (the offline fallback store) is readable/writable,
   // instead of showing a hardcoded "active" light regardless of real state.
   useEffect(() => {
