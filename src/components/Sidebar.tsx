@@ -552,7 +552,11 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                     className="overflow-hidden flex flex-col gap-1 mt-1 pl-4"
                   >
                     <button
-                      onClick={() => handleNavClick('admin-settings')}
+                      onClick={() => {
+                        navigate('/developertools/systemconfig');
+                        setIsOpen(false);
+                        setIsDevOpen(false);
+                      }}
                       className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-900/20 dark:hover:text-emerald-400 transition-all w-full text-left"
                     >
                       <Settings className="w-4 h-4" />
@@ -560,13 +564,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                     </button>
                     <button
                       onClick={() => {
-                        // navigateToPage()/navigate() here only takes a bare
-                        // page name (`/${page}`) and can't carry a query
-                        // string, but the Diagnostics tab lives inside
-                        // AdminSettings and is opened via ?tab=diagnostics
-                        // (see the comment on that component). Navigate
-                        // there directly rather than through handleNavClick.
-                        navigate('/admin-settings?tab=diagnostics');
+                        navigate('/developertools/diagnostics');
                         setIsOpen(false);
                         setIsDevOpen(false);
                       }}

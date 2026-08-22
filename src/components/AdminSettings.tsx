@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { ShieldAlert, Download, Users, RefreshCw, Mail, Calendar, LineChart, CheckCircle2, XCircle, Copy, Check } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
@@ -264,26 +264,17 @@ function DiagnosticsTab() {
 export function AdminSettings() {
   const { currentClient } = useAccounting();
   const { isAdmin, userRole, setUserRole } = useAuth();
+  const navigate = useNavigate();
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [loading, setLoading] = useState(false);
   const [localStorageOk, setLocalStorageOk] = useState<boolean | null>(null);
 
-  // Which tab opens is driven by the URL (?tab=diagnostics), so the sidebar's
-  // "Diagnostics" button can deep-link straight into this tab instead of
-  // needing its own route/page.
-  const [searchParams] = useSearchParams();
-  const [activeTab, setActiveTab] = useState<AdminTab>(
-    searchParams.get('tab') === 'diagnostics' ? 'diagnostics' : 'users'
-  );
-
-  // Re-sync the tab whenever the URL's ?tab= changes, not just on first
-  // mount. React Router keeps this component mounted when only the query
-  // string changes (the path itself is still /admin-settings), so without
-  // this effect, clicking "Diagnostics" from the sidebar while already on
-  // this page silently did nothing — the tab state never re-read the URL.
-  useEffect(() => {
-    setActiveTab(searchParams.get('tab') === 'diagnostics' ? 'diagnostics' : 'users');
-  }, [searchParams]);
+  // Which tab shows is driven by the URL path itself
+  // (/developertools/systemconfig vs /developertools/diagnostics), so each
+  // tab has its own real, shareable/bookmarkable URL and the sidebar's
+  // "System Config" / "Diagnostics" buttons link straight to the right one.
+  const location = useLocation();
+  const activeTab: AdminTab = location.pathname.endsWith('/diagnostics') ? 'diagnostics' : 'users';
 
   // Actually verify LocalStorage (the offline fallback store) is readable/writable,
   // instead of showing a hardcoded "active" light regardless of real state.
@@ -353,7 +344,7 @@ export function AdminSettings() {
             Diagnostics (system/environment info). */}
         <div className="flex items-center gap-1 mb-6 border-b border-slate-200 dark:border-slate-700">
           <button
-            onClick={() => setActiveTab('users')}
+            onClick={() => navigate('/developertools/systemconfig')}
             className={`flex items-center gap-2 px-4 py-2.5 text-sm font-bold border-b-2 transition-all -mb-px ${
               activeTab === 'users'
                 ? 'border-emerald-500 text-emerald-700 dark:text-emerald-400'
@@ -364,7 +355,7 @@ export function AdminSettings() {
             Superuser Dashboard
           </button>
           <button
-            onClick={() => setActiveTab('diagnostics')}
+            onClick={() => navigate('/developertools/diagnostics')}
             className={`flex items-center gap-2 px-4 py-2.5 text-sm font-bold border-b-2 transition-all -mb-px ${
               activeTab === 'diagnostics'
                 ? 'border-emerald-500 text-emerald-700 dark:text-emerald-400'
