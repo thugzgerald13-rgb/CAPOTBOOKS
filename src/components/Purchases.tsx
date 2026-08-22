@@ -600,6 +600,9 @@ export function Purchases() {
           </div>
         )}
 
+          </>
+        )}
+
         <div>
           <label className="form-label text-red-500">{isOtherPayment ? 'Amount (₱)' : 'Gross Amount (₱)'} *</label>
           <input 
