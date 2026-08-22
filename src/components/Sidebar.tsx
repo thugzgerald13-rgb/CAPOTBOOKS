@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useAccounting } from '../context/AccountingContext';
@@ -28,6 +29,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     setSidebarCollapsed: setIsCollapsed,
   } = useAccounting();
   const { user, isAdmin, userRole, signOut } = useAuth();
+  const navigate = useNavigate();
   const [isTransactionsOpen, setIsTransactionsOpen] = useState(false);
   const [isReportsOpen, setIsReportsOpen] = useState(false);
   const [isFormsOpen, setIsFormsOpen] = useState(false);
@@ -557,7 +559,17 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       System Config
                     </button>
                     <button
-                      onClick={() => handleNavClick('diagnostics')}
+                      onClick={() => {
+                        // navigateToPage()/navigate() here only takes a bare
+                        // page name (`/${page}`) and can't carry a query
+                        // string, but the Diagnostics tab lives inside
+                        // AdminSettings and is opened via ?tab=diagnostics
+                        // (see the comment on that component). Navigate
+                        // there directly rather than through handleNavClick.
+                        navigate('/admin-settings?tab=diagnostics');
+                        setIsOpen(false);
+                        setIsDevOpen(false);
+                      }}
                       className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-900/20 dark:hover:text-emerald-400 transition-all w-full text-left"
                     >
                       <LineChart className="w-4 h-4" />
