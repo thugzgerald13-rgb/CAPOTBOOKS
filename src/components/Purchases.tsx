@@ -9,86 +9,6 @@ import { DEFAULT_ACCOUNTS, getNormalSide, resequenceAccounts } from './ChartOfAc
 import { ATC_SCHEDULE } from '../lib/atcSchedule';
 import type { Client, Purchase } from '../types';
 
-function UnreceiptedExpenses({
-  currentClient,
-  onReceipted,
-}: {
-  currentClient: Client | null;
-  onReceipted: () => void;
-}) {
-  const unreceipted = useMemo(
-    () => (currentClient?.purchases || []).filter(p => !p.attachment),
-    [currentClient?.purchases]
-  );
-
-  const total = unreceipted.reduce((sum, p) => sum + (Number(p.amount) || 0) + (Number(p.inputTax) || 0), 0);
-
-  return (
-    <div className="p-4 md:p-6 flex-1">
-      <div className="mb-5 rounded-2xl border border-amber-200 bg-amber-50/70 dark:border-amber-900/40 dark:bg-amber-900/10 p-4">
-        <div className="flex items-start gap-3">
-          <FileQuestion className="w-5 h-5 text-amber-600 mt-0.5 shrink-0" />
-          <div>
-            <h2 className="font-bold text-slate-800 dark:text-slate-100">Other Payments Queue</h2>
-            <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-              Review payments that are not recorded as invoiced expenses or do not have an invoice attached. Keep them here until the transaction is properly documented or classified as invoiced.
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-5">
-        <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 bg-white dark:bg-slate-800">
-          <p className="text-xs uppercase font-bold text-slate-500">Other payment entries</p>
-          <p className="text-2xl font-black mt-1 text-slate-800 dark:text-white">{unreceipted.length}</p>
-        </div>
-        <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-4 bg-white dark:bg-slate-800 md:col-span-2">
-          <p className="text-xs uppercase font-bold text-slate-500">Gross amount pending documentation</p>
-          <p className="text-2xl font-black mt-1 text-amber-600">₱{total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-        </div>
-      </div>
-
-      {unreceipted.length === 0 ? (
-        <div className="rounded-2xl border border-dashed border-slate-300 dark:border-slate-700 p-10 text-center bg-white dark:bg-slate-900">
-          <ClipboardList className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600" />
-          <h3 className="font-bold text-slate-700 dark:text-slate-200 mt-3">No other payments</h3>
-          <p className="text-sm text-slate-500 mt-1">No other payment entries are currently recorded.</p>
-          <button type="button" onClick={onReceipted} className="mt-4 px-4 py-2 rounded-lg bg-amber-500 text-white text-sm font-bold hover:bg-amber-600">
-            Go to Invoiced
-          </button>
-        </div>
-      ) : (
-        <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
-          <table className="w-full min-w-[760px] text-sm">
-            <thead className="bg-slate-50 dark:bg-slate-800 text-[11px] uppercase font-bold text-slate-500">
-              <tr>
-                <th className="text-left px-4 py-3">Date</th>
-                <th className="text-left px-4 py-3">Supplier</th>
-                <th className="text-left px-4 py-3">Invoice</th>
-                <th className="text-left px-4 py-3">Expense Account</th>
-                <th className="text-right px-4 py-3">Amount</th>
-                <th className="text-center px-4 py-3">Status</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-              {unreceipted.map(p => (
-                <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50">
-                  <td className="px-4 py-3 font-medium">{p.date}</td>
-                  <td className="px-4 py-3">{p.supplierName || '—'}</td>
-                  <td className="px-4 py-3">{p.invoiceNo || '—'}</td>
-                  <td className="px-4 py-3">{p.accountTitle || 'General Expense'}</td>
-                  <td className="px-4 py-3 text-right font-mono">₱{((Number(p.amount) || 0) + (Number(p.inputTax) || 0)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                  <td className="px-4 py-3 text-center"><span className="inline-flex px-2 py-1 rounded-full bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 text-[10px] font-bold uppercase">Missing receipt</span></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export function Purchases() {
   const { currentClient, currentClientId, currentDat, saveClient, showToast, setCurrentDat } = useAccounting();
   const [expenseWorkspace, setExpenseWorkspace] = useState<'receipted' | 'unreceipted' | 'ap'>('receipted');
@@ -411,11 +331,13 @@ export function Purchases() {
     }
   }, [date, currentDat]);
 
+  const isOtherPayment = expenseWorkspace === 'unreceipted';
+
   const handleAddPurchase = () => {
     if (!currentClient || !currentClientId) return;
     
     const parsedAmount = parseFloat(String(amount).replace(/,/g, ''));
-    if (!date || !invoiceNo || !supplierTin || !supplierName || !amount || isNaN(parsedAmount)) {
+    if (!date || !supplierName || !amount || isNaN(parsedAmount) || (!isOtherPayment && (!invoiceNo || !supplierTin))) {
       alert('Please fill out all required fields with valid values.');
       return;
     }
@@ -435,27 +357,27 @@ export function Purchases() {
       paymentMethod,
       bankName: paymentMethod === 'Check' ? bankName : null,
       checkNumber: paymentMethod === 'Check' ? checkNumber : null,
-      invoiceNo,
-      supplierTin,
+      invoiceNo: isOtherPayment ? '' : invoiceNo,
+      supplierTin: isOtherPayment ? '' : supplierTin,
       supplierName,
-      supplierAddress,
-      amount: netAmount,
-      vatType,
-      withholdingOption,
-      atcCode: withholdingOption === 'with' ? atcCode : null,
-      whtRate: withholdingOption === 'with' ? (ATC_SCHEDULE.find(e => e.code === atcCode)?.rate ?? null) : null,
-      whtAmount: withholdingOption === 'with' ? whtAmount : 0,
+      supplierAddress: isOtherPayment ? '' : supplierAddress,
+      amount: isOtherPayment ? parsedAmount : netAmount,
+      vatType: isOtherPayment ? 'non-vat' : vatType,
+      withholdingOption: isOtherPayment ? 'w/o' : withholdingOption,
+      atcCode: isOtherPayment ? null : (withholdingOption === 'with' ? atcCode : null),
+      whtRate: isOtherPayment ? null : (withholdingOption === 'with' ? (ATC_SCHEDULE.find(e => e.code === atcCode)?.rate ?? null) : null),
+      whtAmount: isOtherPayment ? 0 : (withholdingOption === 'with' ? whtAmount : 0),
       expenseType,
       accountTitle,
       transactionDetails,
-      inputTax,
+      inputTax: isOtherPayment ? 0 : inputTax,
       attachment: attachment || undefined
     };
 
     // Auto-add to TIN Library if new
     let updatedTinLibrary = currentClient.tinLibrary;
-    const exists = currentClient.tinLibrary.suppliers.some(s => s.tin === supplierTin);
-    if (!exists) {
+    const exists = !isOtherPayment && currentClient.tinLibrary.suppliers.some(s => s.tin === supplierTin);
+    if (!isOtherPayment && !exists) {
       updatedTinLibrary = {
         ...currentClient.tinLibrary,
         suppliers: [
@@ -482,7 +404,7 @@ export function Purchases() {
       tinLibrary: updatedTinLibrary
     };
     saveClient(currentClientId, updatedClient);
-    showToast(viewIndex !== null ? 'Entry updated' : (exists ? 'Expense entry added' : 'Expense added & Supplier saved to Library'));
+    showToast(viewIndex !== null ? 'Entry updated' : (isOtherPayment ? 'Other payment added' : (exists ? 'Expense entry added' : 'Expense added & Supplier saved to Library')));
 
     // Reset most form fields, keeping dates
     setInvoiceNo('');
@@ -543,8 +465,6 @@ export function Purchases() {
         <div className="flex-1 min-w-0">
           <AccountsPayable />
         </div>
-      ) : expenseWorkspace === 'unreceipted' ? (
-        <UnreceiptedExpenses currentClient={currentClient} onReceipted={() => setExpenseWorkspace('receipted')} />
       ) : (
       <div className="p-4 md:p-6 flex-1">
 
@@ -604,6 +524,8 @@ export function Purchases() {
           </>
         )}
 
+        {!isOtherPayment && (
+          <>
         <div>
            <label className="form-label text-red-500">Invoice # *</label>
            <input type="text" value={invoiceNo} onChange={e => setInvoiceNo(e.target.value)} placeholder="Supplier Invoice" className="form-input" />
@@ -625,16 +547,20 @@ export function Purchases() {
             </span>
           )}
         </div>
+          </>
+        )}
 
         <div>
           <label className="form-label text-red-500">Supplier Name *</label>
           <input type="text" value={supplierName} onChange={e => setSupplierName(e.target.value)} placeholder="Supplier Full Name" className="form-input" />
         </div>
 
-        <div className="lg:col-span-2">
-          <label className="form-label">Supplier Address</label>
-          <input type="text" value={supplierAddress} onChange={e => setSupplierAddress(e.target.value)} placeholder="Street, City, Province" className="form-input" />
-        </div>
+        {!isOtherPayment && (
+          <div className="lg:col-span-2">
+            <label className="form-label">Supplier Address</label>
+            <input type="text" value={supplierAddress} onChange={e => setSupplierAddress(e.target.value)} placeholder="Street, City, Province" className="form-input" />
+          </div>
+        )}
 
         <div>
            <label className="form-label text-red-500">VAT Type *</label>
@@ -674,8 +600,11 @@ export function Purchases() {
           </div>
         )}
 
+          </>
+        )}
+
         <div>
-          <label className="form-label text-red-500">Gross Amount (₱) *</label>
+          <label className="form-label text-red-500">{isOtherPayment ? 'Amount (₱)' : 'Gross Amount (₱)'} *</label>
           <input 
             type="text" 
             value={amount} 
@@ -696,15 +625,19 @@ export function Purchases() {
           />
         </div>
 
-        <div>
-          <label className="form-label text-slate-500">Net Amount (₱)</label>
-          <input type="text" readOnly value={netAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="form-input bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold cursor-not-allowed" />
-        </div>
+        {!isOtherPayment && (
+          <>
+            <div>
+              <label className="form-label text-slate-500">Net Amount (₱)</label>
+              <input type="text" readOnly value={netAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="form-input bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold cursor-not-allowed" />
+            </div>
 
-        <div>
-          <label className="form-label text-slate-500">Input Tax (₱)</label>
-          <input type="text" readOnly value={inputTax.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="form-input bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold cursor-not-allowed" />
-        </div>
+            <div>
+              <label className="form-label text-slate-500">Input Tax (₱)</label>
+              <input type="text" readOnly value={inputTax.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="form-input bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold cursor-not-allowed" />
+            </div>
+          </>
+        )}
 
         {currentDat && (
           <div className="lg:col-span-1">
