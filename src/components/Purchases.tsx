@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { PageHeader } from './ui/PageHeader';
 import { Combobox } from './ui/Combobox';
 import { useAccounting } from '../context/AccountingContext';
@@ -10,8 +11,21 @@ import { ATC_SCHEDULE } from '../lib/atcSchedule';
 import type { Client, Purchase } from '../types';
 
 export function Purchases() {
-  const { currentClient, currentClientId, currentDat, saveClient, showToast, setCurrentDat } = useAccounting();
-  const [expenseWorkspace, setExpenseWorkspace] = useState<'receipted' | 'unreceipted' | 'ap'>('receipted');
+  const { currentClient, currentClientId, currentDat, saveClient, showToast, setCurrentDat, activePage } = useAccounting();
+  const navigate = useNavigate();
+  // The active workspace is driven by the URL (/purchases/invoiced,
+  // /purchases/other-payments, /purchases/ap) rather than local state, so
+  // each tab is its own bookmarkable page and browser back/forward works.
+  const expenseWorkspace: 'receipted' | 'unreceipted' | 'ap' =
+    activePage === 'purchases/ap' ? 'ap'
+      : activePage === 'purchases/other-payments' ? 'unreceipted'
+      : 'receipted';
+  const setExpenseWorkspace = (workspace: 'receipted' | 'unreceipted' | 'ap') => {
+    const path = workspace === 'ap' ? '/purchases/ap'
+      : workspace === 'unreceipted' ? '/purchases/other-payments'
+      : '/purchases/invoiced';
+    navigate(path);
+  };
   
   // Single record state (similar to original but react-friendly)
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
