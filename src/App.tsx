@@ -30,7 +30,7 @@ import { ComplianceTracker } from './components/ComplianceTracker';
 import AccountsPayable from './components/AccountsPayable';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AuthContainer } from './components/AuthContainer';
-import { HashRouter, Routes, Route } from 'react-router-dom';
+import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 
 function AppLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -87,7 +87,13 @@ function AppLayout() {
             <Route path="/sales" element={<Sales />} />
             <Route path="/billing" element={<Billing />} />
             <Route path="/journal-voucher" element={<JournalVoucher />} />
-            <Route path="/purchases" element={<Purchases />} />
+            {/* Purchases has three sub-workspaces (Invoiced, Other Payments,
+                AP), each with its own URL so they're bookmarkable and work
+                with browser back/forward, same pattern as Extras below. */}
+            <Route path="/purchases" element={<Navigate to="/purchases/invoiced" replace />} />
+            <Route path="/purchases/invoiced" element={<Purchases />} />
+            <Route path="/purchases/other-payments" element={<Purchases />} />
+            <Route path="/purchases/ap" element={<Purchases />} />
             <Route path="/tinlibrary" element={<TinLibrary />} />
             <Route path="/history" element={<History />} />
             <Route path="/coa" element={<ChartOfAccounts />} />
