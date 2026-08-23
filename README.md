@@ -25,3 +25,7 @@ View your app in AI Studio: https://ai.studio/apps/52f2e039-a5f2-44bd-8c31-450a6
 ## Backend
 
 Auth and data storage run on [Supabase](https://supabase.com) (Postgres + Auth + Realtime). Schema lives in three tables: `profiles`, `clients`, and `business_profiles`, each protected by Row Level Security so users can only read/write their own rows.
+
+## Database schema
+
+The normalized Supabase target schema is in `schema.sql`. It separates client-owned accounting entities into tables, applies shared client-owner RLS, stores runtime journals as `values jsonb`, and moves file bytes to the private `client-files` Storage bucket. See `MIGRATION_PLAN.md` before applying it to an existing production database.
