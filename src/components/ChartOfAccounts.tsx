@@ -793,6 +793,61 @@ export function ChartOfAccounts() {
 
   return (
     <div className="w-full flex flex-col">
+      <style>{`
+        table.coa-readable-table {
+          color: #111827 !important;
+          background: #ffffff !important;
+          font-size: 14px !important;
+        }
+        table.coa-readable-table thead tr {
+          color: #111827 !important;
+          background: #e5e7eb !important;
+        }
+        table.coa-readable-table thead th {
+          color: #111827 !important;
+          opacity: 1 !important;
+          font-size: 13px !important;
+          font-weight: 800 !important;
+        }
+        table.coa-readable-table tbody tr {
+          color: #111827 !important;
+          background: #ffffff !important;
+        }
+        table.coa-readable-table tbody tr:hover {
+          background: #f3f4f6 !important;
+        }
+        table.coa-readable-table tbody td,
+        table.coa-readable-table tbody td * {
+          color: #111827 !important;
+          opacity: 1 !important;
+          font-size: 14px !important;
+        }
+        .dark table.coa-readable-table {
+          color: #f9fafb !important;
+          background: #111827 !important;
+        }
+        .dark table.coa-readable-table thead tr {
+          color: #ffffff !important;
+          background: #374151 !important;
+        }
+        .dark table.coa-readable-table thead th {
+          color: #ffffff !important;
+        }
+        .dark table.coa-readable-table tbody tr {
+          color: #f9fafb !important;
+          background: #111827 !important;
+        }
+        .dark table.coa-readable-table tbody tr:hover {
+          background: #1f2937 !important;
+        }
+        .dark table.coa-readable-table tbody td,
+        .dark table.coa-readable-table tbody td * {
+          color: #f9fafb !important;
+        }
+        table.coa-readable-table button {
+          color: inherit !important;
+        }
+      `}</style>
       <PageHeader title="Chart of Accounts" icon={<BookOpen />} />
       <div className="p-4 md:p-6 flex-1">
       <div className="p-4 sm:p-6 bg-slate-50 dark:bg-slate-950/20">
@@ -1282,25 +1337,7 @@ export function ChartOfAccounts() {
         )}
 
         {/* Chart of Accounts card layout matching image exactly */}
-        <style>{`
-          .coa-readable { color: #0f172a; }
-          .coa-readable .coa-header { color: #0f172a !important; background: #f1f5f9 !important; }
-          .coa-readable .coa-body-row { color: #0f172a !important; background: #ffffff !important; }
-          .coa-readable .coa-body-row:hover { background: #f8fafc !important; }
-          .coa-readable .coa-primary { color: #0f172a !important; }
-          .coa-readable .coa-secondary { color: #475569 !important; }
-          .coa-readable .coa-muted { color: #64748b !important; }
-          .coa-readable .coa-accent { color: #4338ca !important; }
-          .dark .coa-readable { color: #f8fafc; }
-          .dark .coa-readable .coa-header { color: #f8fafc !important; background: #1e293b !important; }
-          .dark .coa-readable .coa-body-row { color: #f8fafc !important; background: #0f172a !important; }
-          .dark .coa-readable .coa-body-row:hover { background: #1e293b !important; }
-          .dark .coa-readable .coa-primary { color: #f8fafc !important; }
-          .dark .coa-readable .coa-secondary { color: #cbd5e1 !important; }
-          .dark .coa-readable .coa-muted { color: #94a3b8 !important; }
-          .dark .coa-readable .coa-accent { color: #a5b4fc !important; }
-        `}</style>
-        <div className="coa-readable bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
           {/* Card Header */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border-b border-slate-200 dark:border-slate-800">
             <div className="flex items-center gap-2.5">
@@ -1356,27 +1393,27 @@ export function ChartOfAccounts() {
 
           {/* Table representing exact layout in screenshot */}
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[860px] text-left border-collapse">
+            <table className="w-full text-left border-collapse coa-readable-table">
               <thead>
-                <tr className="coa-header border-b border-slate-300 dark:border-slate-700 text-xs font-bold uppercase tracking-wide">
+                <tr className="bg-slate-50 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 text-[13px] font-bold text-slate-500 uppercase tracking-widest">
                   {coaColumns.map(col => {
                     let widthClass = "";
                     if (col.id === 'id') widthClass = "w-[100px]";
                     if (col.id === 'type') widthClass = "w-[130px]";
                     if (col.id === 'normalSide') widthClass = "w-[120px]";
                     return (
-                      <th key={col.id} className={cn("px-4 py-3.5 leading-5", widthClass)}>
+                      <th key={col.id} className={cn("px-4 py-3", widthClass)}>
                         {col.name}
                       </th>
                     );
                   })}
-                  <th className="px-4 py-3.5 text-right w-[170px]">Running Balance</th>
+                  <th className="px-4 py-3 text-right w-[150px]">Running Balance</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 dark:divide-slate-700/80">
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
                 {filteredAccounts.length === 0 ? (
                   <tr>
-                    <td colSpan={coaColumns.length + 1} className="coa-secondary px-4 py-12 text-center text-sm">
+                    <td colSpan={coaColumns.length + 1} className="px-4 py-12 text-center text-slate-500 text-sm">
                       No accounts found matching the filter criteria.
                     </td>
                   </tr>
@@ -1390,29 +1427,29 @@ export function ChartOfAccounts() {
                       <tr 
                         key={account.id} 
                         className={cn(
-                          "coa-body-row group transition-colors",
+                          "group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors",
                           account.hidden && "opacity-50"
                         )}
                       >
                         {coaColumns.map(col => {
                           if (col.id === 'id') {
                             return (
-                              <td key={col.id} className="coa-primary px-4 py-3.5 font-mono text-[13px] sm:text-sm font-semibold">
+                              <td key={col.id} className="px-4 py-3.5 font-mono text-slate-600 dark:text-slate-400 text-sm font-medium">
                                 {account.id}
                               </td>
                             );
                           }
                           if (col.id === 'name') {
                             return (
-                              <td key={col.id} className="coa-primary px-4 py-3.5 font-sans font-semibold text-sm sm:text-[15px] leading-6">
+                              <td key={col.id} className="px-4 py-3.5 font-sans font-medium text-slate-800 dark:text-slate-200 text-sm sm:text-base">
                                 <div className="flex items-start gap-2">
                                   {account.parentId && (
-                                    <span className="coa-secondary font-mono text-base ml-2 select-none">↳</span>
+                                    <span className="text-slate-400 dark:text-slate-500 font-mono text-base ml-2 select-none">↳</span>
                                   )}
                                   <div className="flex flex-col">
                                     <span>{account.name}</span>
                                     {parentAccount && (
-                                      <span className="coa-accent text-[11px] font-semibold tracking-wide mt-0.5">
+                                      <span className="text-[10px] text-indigo-500 dark:text-indigo-400 font-bold tracking-wide mt-0.5">
                                         Parent: {parentAccount.name} ({account.parentId})
                                       </span>
                                     )}
@@ -1423,25 +1460,25 @@ export function ChartOfAccounts() {
                           }
                           if (col.id === 'type') {
                             return (
-                              <td key={col.id} className="coa-primary px-4 py-3.5 text-sm sm:text-[15px] font-medium">
+                              <td key={col.id} className="px-4 py-3.5 text-slate-600 dark:text-slate-400 text-sm sm:text-base">
                                 {account.type}
                               </td>
                             );
                           }
                           if (col.id === 'normalSide') {
                             return (
-                              <td key={col.id} className="coa-primary px-4 py-3.5 text-sm sm:text-[15px] font-medium capitalize">
+                              <td key={col.id} className="px-4 py-3.5 text-slate-500 dark:text-slate-400 text-sm capitalize">
                                 {account.normalSide || getNormalSide(account.type)}
                               </td>
                             );
                           }
                           return (
-                            <td key={col.id} className="coa-primary px-4 py-3.5 text-sm sm:text-[15px] font-medium">
-                              {account[col.id] || <span className="coa-muted">—</span>}
+                            <td key={col.id} className="px-4 py-3.5 text-slate-600 dark:text-slate-400 text-sm sm:text-base">
+                              {account[col.id] || <span className="text-slate-400 dark:text-slate-600">—</span>}
                             </td>
                           );
                         })}
-                        <td className="coa-primary px-4 py-3.5 text-right font-mono text-sm sm:text-[15px] font-bold">
+                        <td className="px-4 py-3.5 text-right font-mono text-slate-800 dark:text-slate-100 text-sm font-semibold">
                           <div className="flex items-center justify-end gap-2.5">
                             <span>
                               ₱ {balanceValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
