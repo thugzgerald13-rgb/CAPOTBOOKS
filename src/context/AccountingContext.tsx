@@ -268,59 +268,76 @@ const persistNormalizedClient = async (client: Client, userId: string) => {
   const { error: parentError } = await supabase.from('clients').upsert(parent,{onConflict:'id'});
   if (parentError) throw parentError;
 
-  const tables = [
-    'journal_voucher_lines','purchase_order_items','receiving_report_items','payable_invoice_items',
-    'journal_entries','journal_columns','journal_vouchers','purchases','sales','expenses','coa_columns','coa_accounts',
-    'purchase_orders','receiving_reports','payable_invoices','inventory_columns','inventory_items','inventory_movements',
-    'app_files','app_folders','tin_entries','tax_deadlines','bank_accounts','supplier_advances','withholding_tax_entries',
-    'debit_credit_memos','check_vouchers','miscellaneous_payments','asset_lapsing_schedule','billing_invoices','financial_report_snapshots'
-  ];
-  for (const table of tables) {
-    const { error } = await supabase.from(table).delete().eq('client_id',clientId);
-    if (error) throw error;
-  }
+  // Normalized persistence is intentionally non-destructive.  The old implementation
+  // deleted every row for the client and recreated the entire dataset on every save.
+  // That caused unnecessary writes, changed child-row identities, and made concurrent
+  // edits unsafe.  We now upsert the current rows and remove only rows that no longer
+  // exist in the client aggregate.
+  const syncMany = async (table:string, rows:any[]) => {
+    const normalizedRows = rows.map(r => ({ ...r, client_id: clientId }));
+    const { data: existingRows, error: existingError } = await supabase
+      .from(table)
+      .select('id')
+      .eq('client_id', clientId);
+    if (existingError) throw existingError;
 
-  const insertMany = async (table:string, rows:any[]) => {
-    for (const part of chunk(rows.map(r=>({ ...r, client_id:clientId })))) {
+    const currentIds = new Set(normalizedRows.map(r => String(r.id)));
+    const staleIds = (existingRows || [])
+      .map((r:any) => String(r.id))
+      .filter((id:string) => !currentIds.has(id));
+
+    for (const part of chunk(normalizedRows)) {
       if (!part.length) continue;
-      const { error } = await supabase.from(table).insert(part);
+      const { error } = await supabase.from(table).upsert(part, { onConflict: 'id' });
+      if (error) throw error;
+    }
+
+    // Delete only rows removed from the current aggregate.  Never perform a
+    // blanket client-wide delete.
+    for (const part of chunk(staleIds, 100)) {
+      if (!part.length) continue;
+      const { error } = await supabase
+        .from(table)
+        .delete()
+        .eq('client_id', clientId)
+        .in('id', part);
       if (error) throw error;
     }
   };
-  await insertMany('purchases',(client.purchases||[]).map((p:any)=>({id:strId(p.id),dat_month_year:p.datMonthYear||null,date:p.date,payment_method:p.paymentMethod||'',check_number:p.checkNumber||null,bank_name:p.bankName||null,invoice_no:p.invoiceNo||null,supplier_name:p.supplierName||'',supplier_address:p.supplierAddress||null,supplier_tin:p.supplierTin||null,amount:Number(p.amount||0),vat_type:p.vatType||null,expense_type:p.expenseType||null,account_title:p.accountTitle||null,transaction_details:p.transactionDetails||null,input_tax:Number(p.inputTax||0),attachment_name:p.attachment?.name||null,attachment_type:p.attachment?.type||null,attachment_original_type:p.attachment?.originalType||null,attachment_size:p.attachment?.size||null,attachment_original_size:p.attachment?.originalSize||null,attachment_compression:p.attachment?.compression||null,attachment_storage_path:p.attachment?.storagePath||null,withholding_option:p.withholdingOption||null,atc_code:p.atcCode||null,wht_rate:p.whtRate??null,wht_amount:p.whtAmount??null})));
-  await insertMany('sales',(client.sales||[]).map((s:any)=>({id:strId(s.id),dat_month_year:s.datMonthYear||null,date:s.date,ref:s.ref||null,payment_type:s.paymentType||null,buyer_tin:s.buyerTin||null,buyer_name:s.buyerName||null,buyer_address:s.buyerAddress||null,vat_type:s.vatType||null,amount:Number(s.amount||0),net_of_vat:Number(s.netOfVat||0),output_tax:Number(s.outputTax||0),income_type:s.incomeType||null,description:s.desc||null})));
-  await insertMany('expenses',(client.expenses||[]).map((e:any)=>({id:strId(e.id),date:e.date,amount:Number(e.amount||0),category:e.category||'',description:e.description||''})));
-  await insertMany('coa_columns',(client.coaColumns||[]).map((c:any)=>({id:strId(c.id),name:c.name,is_system:!!c.isSystem})));
-  await insertMany('coa_accounts',(client.accounts||[]).map((a:any)=>{const {id,name,type,normalSide,parentId,hidden,openingBalance,...custom}=a;return {id:strId(id),name:name||'',type:type||'',normal_side:normalSide||null,parent_id:parentId||null,hidden:!!hidden,opening_balance:Number(openingBalance||0),custom_values:custom};}));
+  await syncMany('purchases',(client.purchases||[]).map((p:any)=>({id:strId(p.id),dat_month_year:p.datMonthYear||null,date:p.date,payment_method:p.paymentMethod||'',check_number:p.checkNumber||null,bank_name:p.bankName||null,invoice_no:p.invoiceNo||null,supplier_name:p.supplierName||'',supplier_address:p.supplierAddress||null,supplier_tin:p.supplierTin||null,amount:Number(p.amount||0),vat_type:p.vatType||null,expense_type:p.expenseType||null,account_title:p.accountTitle||null,transaction_details:p.transactionDetails||null,input_tax:Number(p.inputTax||0),attachment_name:p.attachment?.name||null,attachment_type:p.attachment?.type||null,attachment_original_type:p.attachment?.originalType||null,attachment_size:p.attachment?.size||null,attachment_original_size:p.attachment?.originalSize||null,attachment_compression:p.attachment?.compression||null,attachment_storage_path:p.attachment?.storagePath||null,withholding_option:p.withholdingOption||null,atc_code:p.atcCode||null,wht_rate:p.whtRate??null,wht_amount:p.whtAmount??null})));
+  await syncMany('sales',(client.sales||[]).map((s:any)=>({id:strId(s.id),dat_month_year:s.datMonthYear||null,date:s.date,ref:s.ref||null,payment_type:s.paymentType||null,buyer_tin:s.buyerTin||null,buyer_name:s.buyerName||null,buyer_address:s.buyerAddress||null,vat_type:s.vatType||null,amount:Number(s.amount||0),net_of_vat:Number(s.netOfVat||0),output_tax:Number(s.outputTax||0),income_type:s.incomeType||null,description:s.desc||null})));
+  await syncMany('expenses',(client.expenses||[]).map((e:any)=>({id:strId(e.id),date:e.date,amount:Number(e.amount||0),category:e.category||'',description:e.description||''})));
+  await syncMany('coa_columns',(client.coaColumns||[]).map((c:any)=>({id:strId(c.id),name:c.name,is_system:!!c.isSystem})));
+  await syncMany('coa_accounts',(client.accounts||[]).map((a:any)=>{const {id,name,type,normalSide,parentId,hidden,openingBalance,...custom}=a;return {id:strId(id),name:name||'',type:type||'',normal_side:normalSide||null,parent_id:parentId||null,hidden:!!hidden,opening_balance:Number(openingBalance||0),custom_values:custom};}));
   const journalTypes:[string,string,string][]=[['CRJ','crjColumns','crjEntries'],['CDJ','cdjColumns','cdjEntries'],['PJ','pjColumns','pjEntries'],['GJ','gjColumns','gjEntries']];
   for(const [type,colKey,entryKey] of journalTypes){
-    await insertMany('journal_columns',((client as any)[colKey]||[]).map((c:any)=>({id:strId(c.id),journal_type:type,name:c.name,type:c.type,category:c.category,is_system:!!c.isSystem})));
-    await insertMany('journal_entries',((client as any)[entryKey]||[]).map((e:any)=>({id:strId(e.id),journal_type:type,values:e.values||{},auto:!!e.auto,auto_source:e.autoSource||null})));
+    await syncMany('journal_columns',((client as any)[colKey]||[]).map((c:any)=>({id:strId(c.id),journal_type:type,name:c.name,type:c.type,category:c.category,is_system:!!c.isSystem})));
+    await syncMany('journal_entries',((client as any)[entryKey]||[]).map((e:any)=>({id:strId(e.id),journal_type:type,values:e.values||{},auto:!!e.auto,auto_source:e.autoSource||null})));
   }
-  await insertMany('journal_vouchers',(client.journalVouchers||[]).map((v:any)=>({id:strId(v.id),date:v.date,reference:v.reference||null,memo:v.memo||null})));
-  const jvl:any[]=[];(client.journalVouchers||[]).forEach((v:any)=>(v.lines||[]).forEach((l:any)=>jvl.push({id:strId(l.id),journal_voucher_id:strId(v.id),account_id:l.accountId||null,account_name:l.accountName||null,debit:Number(l.debit||0),credit:Number(l.credit||0)}))); await insertMany('journal_voucher_lines',jvl);
-  await insertMany('purchase_orders',(client.purchaseOrders||[]).map((o:any)=>({id:strId(o.id),date:o.date,supplier_id:o.supplierId||null,supplier_name:o.supplierName||null,total_amount:Number(o.totalAmount||0),status:o.status})));
-  const poi:any[]=[];(client.purchaseOrders||[]).forEach((o:any)=>(o.items||[]).forEach((i:any)=>poi.push({id:`${o.id}:${Math.random().toString(36).slice(2,8)}`,purchase_order_id:strId(o.id),item_code:i.itemCode||null,description:i.description||null,qty:Number(i.qty||0),unit_price:Number(i.unitPrice||0)}))); await insertMany('purchase_order_items',poi);
-  await insertMany('receiving_reports',(client.receivingReports||[]).map((r:any)=>({id:strId(r.id),date:r.date,po_id:r.poId||null,supplier_name:r.supplierName||null,total_amount:Number(r.totalAmount||0),received_by:r.receivedBy||null})));
-  const rri:any[]=[];(client.receivingReports||[]).forEach((r:any)=>(r.items||[]).forEach((i:any)=>rri.push({id:`${r.id}:${Math.random().toString(36).slice(2,8)}`,receiving_report_id:strId(r.id),item_code:i.itemCode||null,description:i.description||null,qty_ordered:Number(i.qtyOrdered||0),qty_received:Number(i.qtyReceived||0),unit_price:Number(i.unitPrice||0)}))); await insertMany('receiving_report_items',rri);
-  await insertMany('payable_invoices',(client.payableInvoices||[]).map((i:any)=>({id:strId(i.id),invoice_number:i.invoiceNumber||null,date:i.date,due_date:i.dueDate||null,po_id:i.poId||null,rr_id:i.rrId||null,supplier_id:i.supplierId||null,supplier_name:i.supplierName||null,subtotal:Number(i.subtotal||0),vat_amount:Number(i.vatAmount||0),is_vatable:!!i.isVatable,withholding_tax_id:i.withholdingTaxId||null,wht_amount:i.whtAmount??null,total_amount:Number(i.totalAmount||0),status:i.status,discrepancy_details:i.discrepancyDetails||null,applied_prepayments:i.appliedPrepayments??null})));
-  const pii:any[]=[];(client.payableInvoices||[]).forEach((i:any)=>(i.items||[]).forEach((x:any)=>pii.push({id:`${i.id}:${Math.random().toString(36).slice(2,8)}`,payable_invoice_id:strId(i.id),item_code:x.itemCode||null,description:x.description||null,qty:Number(x.qty||0),unit_price:Number(x.unitPrice||0)}))); await insertMany('payable_invoice_items',pii);
-  await insertMany('inventory_columns',(client.inventoryColumns||[]).map((c:any)=>({id:strId(c.id),label:c.label})));
-  await insertMany('inventory_items',(client.inventoryItems||[]).map((i:any)=>({id:strId(i.id),code:i.code,name:i.name,sku:i.sku||null,description:i.description||null,category:i.category,unit_of_measure:i.unitOfMeasure,cost_price:Number(i.costPrice||0),selling_price:Number(i.sellingPrice||0),stock_level:Number(i.stockLevel||0),reorder_point:Number(i.reorderPoint||0),location:i.location||null,custom_fields:i.customFields||{}})));
-  await insertMany('inventory_movements',(client.inventoryMovements||[]).map((m:any)=>({id:strId(m.id),item_id:m.itemId||null,item_name:m.itemName||null,item_code:m.itemCode||null,date:m.date,type:m.type,qty:Number(m.qty||0),unit_cost:Number(m.unitCost||0),total_value:Number(m.totalValue||0),reference:m.reference||null,notes:m.notes||null})));
-  await insertMany('app_folders',(client.folders||[]).map((f:any)=>({id:strId(f.id),name:f.name,is_default:!!f.isDefault,type:f.type||'custom'})));
-  await insertMany('app_files',(client.files||[]).filter((f:any)=>f.storagePath).map((f:any)=>({id:strId(f.id),name:f.name,type:f.type||'application/octet-stream',size:Number(f.size||0),uploaded_at:f.uploadedAt||new Date().toISOString(),folder_id:f.folderId||null,storage_path:f.storagePath,description:f.description||null})));
-  const tins=[...(client.tinLibrary?.customers||[]).map((x:any)=>({...x,partyType:'customer'})),...(client.tinLibrary?.suppliers||[]).map((x:any)=>({...x,partyType:'supplier'}))]; await insertMany('tin_entries',tins.map((x:any)=>({id:strId(x.id),tin:x.tin,name:x.name,address:x.address||null,party_type:x.partyType})));
-  await insertMany('tax_deadlines',(client.taxDeadlines||[]).map((t:any)=>({id:strId(t.id),form_type:t.formType,title:t.title,period:t.period,due_date:t.dueDate,status:t.status,tax_status:t.taxStatus||null,amount_due:t.amountDue??null,date_filed:t.dateFiled||null,date_paid:t.datePaid||null,reference_no:t.referenceNo||null,confirmation_no:t.confirmationNo||null,notes:t.notes||null})));
-  await insertMany('bank_accounts',(client.bankAccounts||[]).map((b:any)=>({id:strId(b.id),bank_name:b.bankName,account_number:b.accountNumber,balance:Number(b.balance||0)})));
-  await insertMany('supplier_advances',(client.supplierAdvances||[]).map((a:any)=>({id:strId(a.id),supplier_id:a.supplierId||null,supplier_name:a.supplierName||null,date:a.date,amount:Number(a.amount||0),is_liquidated:!!a.isLiquidated,notes:a.notes||null})));
-  await insertMany('withholding_tax_entries',(client.withholdingTaxEntries||[]).map((w:any)=>({id:strId(w.id),atc_code:w.atcCode,description:w.description,tax_rate:Number(w.taxRate||0),category:w.category})));
-  await insertMany('debit_credit_memos',(client.debitCreditMemos||[]).map((m:any)=>({id:strId(m.id),type:m.type,invoice_id:m.invoiceId||null,invoice_number:m.invoiceNumber||null,supplier_name:m.supplierName||null,date:m.date,amount:Number(m.amount||0),reason:m.reason})));
-  await insertMany('check_vouchers',(client.checkVouchers||[]).map((v:any)=>({id:strId(v.id),date:v.date,payee_name:v.payeeName,invoice_id:v.invoiceId||null,invoice_number:v.invoiceNumber||null,payment_type:v.paymentType,misc_details:v.miscDetails||null,amount:Number(v.amount||0),checked_by:v.checkedBy||null,approved_by:v.approvedBy||null,bank_account_id:v.bankAccountId||null,bank_name:v.bankName||null,check_number:v.checkNumber||null,status:v.status,reversed_reason:v.reversedReason||null,reversed_at:v.reversedAt||null})));
-  await insertMany('miscellaneous_payments',(client.miscellaneousPayments||[]).map((m:any)=>({id:strId(m.id),date:m.date,payee_name:m.payeeName,amount:Number(m.amount||0),bank_account_id:m.bankAccountId||null,bank_name:m.bankName||null,check_number:m.checkNumber||null,expense_category:m.expenseCategory||null,description:m.description||null})));
-  await insertMany('asset_lapsing_schedule',(client.assetLapsingSchedule||[]).map((a:any)=>({id:strId(a.id),date_purchased:a.datePurchased,invoice_no:a.invoiceNo||null,description:a.description,cost:Number(a.cost||0),useful_life_years:Number(a.usefulLifeYears||0),salvage_value:Number(a.salvageValue||0)})));
-  await insertMany('billing_invoices',(client.billingInvoices||[]).map((b:any)=>({id:strId(b.id),date:b.date,due_date:b.dueDate,invoice_no:b.invoiceNo,customer_tin:b.customerTin||null,customer_name:b.customerName||null,customer_address:b.customerAddress||null,vat_type:b.vatType||null,amount:Number(b.amount||0),net_of_vat:Number(b.netOfVat||0),output_tax:Number(b.outputTax||0),description:b.description||null,status:b.status,payment_type:b.paymentType||null,date_paid:b.datePaid||null,is_recurring:!!b.isRecurring,recurrence_frequency:b.recurrenceFrequency||null,next_billing_date:b.nextBillingDate||null,parent_invoice_id:b.parentInvoiceId||null})));
-  const snaps:any[]=[]; if(client.plData) snaps.push({id:`${clientId}:pl`,report_type:'P&L',period_key:client.plData.period||'current',data:client.plData}); if(client.bsData) snaps.push({id:`${clientId}:bs`,report_type:'Balance Sheet',period_key:client.bsData.asOfDate||'current',data:client.bsData}); if(client.cfData) snaps.push({id:`${clientId}:cf`,report_type:'Cash Flow',period_key:client.cfData.period||'current',data:client.cfData}); await insertMany('financial_report_snapshots',snaps);
+  await syncMany('journal_vouchers',(client.journalVouchers||[]).map((v:any)=>({id:strId(v.id),date:v.date,reference:v.reference||null,memo:v.memo||null})));
+  const jvl:any[]=[];(client.journalVouchers||[]).forEach((v:any)=>(v.lines||[]).forEach((l:any)=>jvl.push({id:strId(l.id),journal_voucher_id:strId(v.id),account_id:l.accountId||null,account_name:l.accountName||null,debit:Number(l.debit||0),credit:Number(l.credit||0)}))); await syncMany('journal_voucher_lines',jvl);
+  await syncMany('purchase_orders',(client.purchaseOrders||[]).map((o:any)=>({id:strId(o.id),date:o.date,supplier_id:o.supplierId||null,supplier_name:o.supplierName||null,total_amount:Number(o.totalAmount||0),status:o.status})));
+  const poi:any[]=[];(client.purchaseOrders||[]).forEach((o:any)=>(o.items||[]).forEach((i:any,iIndex:number)=>poi.push({id:`${o.id}:item:${iIndex}`,purchase_order_id:strId(o.id),item_code:i.itemCode||null,description:i.description||null,qty:Number(i.qty||0),unit_price:Number(i.unitPrice||0)}))); await syncMany('purchase_order_items',poi);
+  await syncMany('receiving_reports',(client.receivingReports||[]).map((r:any)=>({id:strId(r.id),date:r.date,po_id:r.poId||null,supplier_name:r.supplierName||null,total_amount:Number(r.totalAmount||0),received_by:r.receivedBy||null})));
+  const rri:any[]=[];(client.receivingReports||[]).forEach((r:any)=>(r.items||[]).forEach((i:any,iIndex:number)=>rri.push({id:`${r.id}:item:${iIndex}`,receiving_report_id:strId(r.id),item_code:i.itemCode||null,description:i.description||null,qty_ordered:Number(i.qtyOrdered||0),qty_received:Number(i.qtyReceived||0),unit_price:Number(i.unitPrice||0)}))); await syncMany('receiving_report_items',rri);
+  await syncMany('payable_invoices',(client.payableInvoices||[]).map((i:any)=>({id:strId(i.id),invoice_number:i.invoiceNumber||null,date:i.date,due_date:i.dueDate||null,po_id:i.poId||null,rr_id:i.rrId||null,supplier_id:i.supplierId||null,supplier_name:i.supplierName||null,subtotal:Number(i.subtotal||0),vat_amount:Number(i.vatAmount||0),is_vatable:!!i.isVatable,withholding_tax_id:i.withholdingTaxId||null,wht_amount:i.whtAmount??null,total_amount:Number(i.totalAmount||0),status:i.status,discrepancy_details:i.discrepancyDetails||null,applied_prepayments:i.appliedPrepayments??null})));
+  const pii:any[]=[];(client.payableInvoices||[]).forEach((i:any)=>(i.items||[]).forEach((x:any,xIndex:number)=>pii.push({id:`${i.id}:item:${xIndex}`,payable_invoice_id:strId(i.id),item_code:x.itemCode||null,description:x.description||null,qty:Number(x.qty||0),unit_price:Number(x.unitPrice||0)}))); await syncMany('payable_invoice_items',pii);
+  await syncMany('inventory_columns',(client.inventoryColumns||[]).map((c:any)=>({id:strId(c.id),label:c.label})));
+  await syncMany('inventory_items',(client.inventoryItems||[]).map((i:any)=>({id:strId(i.id),code:i.code,name:i.name,sku:i.sku||null,description:i.description||null,category:i.category,unit_of_measure:i.unitOfMeasure,cost_price:Number(i.costPrice||0),selling_price:Number(i.sellingPrice||0),stock_level:Number(i.stockLevel||0),reorder_point:Number(i.reorderPoint||0),location:i.location||null,custom_fields:i.customFields||{}})));
+  await syncMany('inventory_movements',(client.inventoryMovements||[]).map((m:any)=>({id:strId(m.id),item_id:m.itemId||null,item_name:m.itemName||null,item_code:m.itemCode||null,date:m.date,type:m.type,qty:Number(m.qty||0),unit_cost:Number(m.unitCost||0),total_value:Number(m.totalValue||0),reference:m.reference||null,notes:m.notes||null})));
+  await syncMany('app_folders',(client.folders||[]).map((f:any)=>({id:strId(f.id),name:f.name,is_default:!!f.isDefault,type:f.type||'custom'})));
+  await syncMany('app_files',(client.files||[]).filter((f:any)=>f.storagePath).map((f:any)=>({id:strId(f.id),name:f.name,type:f.type||'application/octet-stream',size:Number(f.size||0),uploaded_at:f.uploadedAt||new Date().toISOString(),folder_id:f.folderId||null,storage_path:f.storagePath,description:f.description||null})));
+  const tins=[...(client.tinLibrary?.customers||[]).map((x:any)=>({...x,partyType:'customer'})),...(client.tinLibrary?.suppliers||[]).map((x:any)=>({...x,partyType:'supplier'}))]; await syncMany('tin_entries',tins.map((x:any)=>({id:strId(x.id),tin:x.tin,name:x.name,address:x.address||null,party_type:x.partyType})));
+  await syncMany('tax_deadlines',(client.taxDeadlines||[]).map((t:any)=>({id:strId(t.id),form_type:t.formType,title:t.title,period:t.period,due_date:t.dueDate,status:t.status,tax_status:t.taxStatus||null,amount_due:t.amountDue??null,date_filed:t.dateFiled||null,date_paid:t.datePaid||null,reference_no:t.referenceNo||null,confirmation_no:t.confirmationNo||null,notes:t.notes||null})));
+  await syncMany('bank_accounts',(client.bankAccounts||[]).map((b:any)=>({id:strId(b.id),bank_name:b.bankName,account_number:b.accountNumber,balance:Number(b.balance||0)})));
+  await syncMany('supplier_advances',(client.supplierAdvances||[]).map((a:any)=>({id:strId(a.id),supplier_id:a.supplierId||null,supplier_name:a.supplierName||null,date:a.date,amount:Number(a.amount||0),is_liquidated:!!a.isLiquidated,notes:a.notes||null})));
+  await syncMany('withholding_tax_entries',(client.withholdingTaxEntries||[]).map((w:any)=>({id:strId(w.id),atc_code:w.atcCode,description:w.description,tax_rate:Number(w.taxRate||0),category:w.category})));
+  await syncMany('debit_credit_memos',(client.debitCreditMemos||[]).map((m:any)=>({id:strId(m.id),type:m.type,invoice_id:m.invoiceId||null,invoice_number:m.invoiceNumber||null,supplier_name:m.supplierName||null,date:m.date,amount:Number(m.amount||0),reason:m.reason})));
+  await syncMany('check_vouchers',(client.checkVouchers||[]).map((v:any)=>({id:strId(v.id),date:v.date,payee_name:v.payeeName,invoice_id:v.invoiceId||null,invoice_number:v.invoiceNumber||null,payment_type:v.paymentType,misc_details:v.miscDetails||null,amount:Number(v.amount||0),checked_by:v.checkedBy||null,approved_by:v.approvedBy||null,bank_account_id:v.bankAccountId||null,bank_name:v.bankName||null,check_number:v.checkNumber||null,status:v.status,reversed_reason:v.reversedReason||null,reversed_at:v.reversedAt||null})));
+  await syncMany('miscellaneous_payments',(client.miscellaneousPayments||[]).map((m:any)=>({id:strId(m.id),date:m.date,payee_name:m.payeeName,amount:Number(m.amount||0),bank_account_id:m.bankAccountId||null,bank_name:m.bankName||null,check_number:m.checkNumber||null,expense_category:m.expenseCategory||null,description:m.description||null})));
+  await syncMany('asset_lapsing_schedule',(client.assetLapsingSchedule||[]).map((a:any)=>({id:strId(a.id),date_purchased:a.datePurchased,invoice_no:a.invoiceNo||null,description:a.description,cost:Number(a.cost||0),useful_life_years:Number(a.usefulLifeYears||0),salvage_value:Number(a.salvageValue||0)})));
+  await syncMany('billing_invoices',(client.billingInvoices||[]).map((b:any)=>({id:strId(b.id),date:b.date,due_date:b.dueDate,invoice_no:b.invoiceNo,customer_tin:b.customerTin||null,customer_name:b.customerName||null,customer_address:b.customerAddress||null,vat_type:b.vatType||null,amount:Number(b.amount||0),net_of_vat:Number(b.netOfVat||0),output_tax:Number(b.outputTax||0),description:b.description||null,status:b.status,payment_type:b.paymentType||null,date_paid:b.datePaid||null,is_recurring:!!b.isRecurring,recurrence_frequency:b.recurrenceFrequency||null,next_billing_date:b.nextBillingDate||null,parent_invoice_id:b.parentInvoiceId||null})));
+  const snaps:any[]=[]; if(client.plData) snaps.push({id:`${clientId}:pl`,report_type:'P&L',period_key:client.plData.period||'current',data:client.plData}); if(client.bsData) snaps.push({id:`${clientId}:bs`,report_type:'Balance Sheet',period_key:client.bsData.asOfDate||'current',data:client.bsData}); if(client.cfData) snaps.push({id:`${clientId}:cf`,report_type:'Cash Flow',period_key:client.cfData.period||'current',data:client.cfData}); await syncMany('financial_report_snapshots',snaps);
 };
 
 type AccountingProviderProps = {
