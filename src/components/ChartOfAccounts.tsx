@@ -199,7 +199,13 @@ export function ChartOfAccounts() {
       { id: 'type', name: 'Account Type', isSystem: true },
       { id: 'normalSide', name: 'Normal Entry', isSystem: false }
     ];
-    return currentClient?.coaColumns || defaultColumns;
+    // Guard against an empty array here, not just `undefined`/`null` — an
+    // empty array is truthy in JS, so `|| defaultColumns` alone would leave
+    // the table with zero columns (blank headers, blank cells) if every
+    // column has been deleted via "Configure Columns".
+    return (currentClient?.coaColumns && currentClient.coaColumns.length > 0)
+      ? currentClient.coaColumns
+      : defaultColumns;
   }, [currentClient?.coaColumns]);
 
   const handleAddColumn = () => {
@@ -223,7 +229,12 @@ export function ChartOfAccounts() {
   const handleDeleteColumn = (id: string) => {
     const colToDelete = coaColumns.find(c => c.id === id);
     if (!colToDelete) return;
-    
+
+    if (coaColumns.length <= 1) {
+      alert("You can't delete the last remaining column. Add another column first.");
+      return;
+    }
+
     if (confirm(`Are you sure you want to delete the column "${colToDelete.name}"? This column will be hidden and removed from all accounts.`)) {
       const updated = coaColumns.filter(c => c.id !== id);
       saveClient(currentClientId!, {
