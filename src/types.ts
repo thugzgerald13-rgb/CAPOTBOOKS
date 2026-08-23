@@ -29,7 +29,8 @@ export interface Purchase {
     size: number;
     originalSize: number;
     compression?: 'none' | 'gzip';
-    content: string;
+    content?: string;
+    storagePath?: string;
   };
   withholdingOption?: 'w/o' | 'with';
   atcCode?: string | null;
@@ -257,7 +258,8 @@ export interface AppFile {
   size: number;
   uploadedAt: string;
   folderId: string;
-  content?: string; // base64 representation of file
+  content?: string; // legacy base64 compatibility only; new files use storagePath
+  storagePath?: string;
   description?: string;
 }
 
