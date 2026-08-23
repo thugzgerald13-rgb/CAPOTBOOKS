@@ -9,6 +9,7 @@ import AccountsPayable from './AccountsPayable';
 import { DEFAULT_ACCOUNTS, getNormalSide, resequenceAccounts } from './ChartOfAccounts';
 import { ATC_SCHEDULE } from '../lib/atcSchedule';
 import type { Client, Purchase } from '../types';
+import { supabase } from '../lib/supabase';
 
 export function Purchases() {
   const { currentClient, currentClientId, currentDat, saveClient, showToast, setCurrentDat, activePage } = useAccounting();
@@ -98,8 +99,16 @@ export function Purchases() {
     try {
       const isOptimizableImage = file.type.startsWith('image/') && !['image/gif', 'image/svg+xml'].includes(file.type);
       const processed = file.type === 'application/pdf' ? await compressPdf(file) : { blob: isOptimizableImage ? await optimizeImage(file) : file, compression: 'none' as const };
-      const dataUrl = await fileToDataUrl(processed.blob);
       const optimizedType = processed.compression === 'gzip' ? 'application/gzip' : (processed.blob.type || file.type);
+      if (!currentClientId) throw new Error('No client selected');
+      const attachmentId = 'purchase_attachment_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const storagePath = `${currentClientId}/${attachmentId}/${safeName}`;
+      const { error: uploadError } = await supabase.storage.from('client-files').upload(storagePath, processed.blob, {
+        contentType: optimizedType,
+        upsert: false,
+      });
+      if (uploadError) throw uploadError;
       setAttachment({
         name: file.name,
         type: optimizedType,
@@ -107,7 +116,8 @@ export function Purchases() {
         size: processed.blob.size,
         originalSize: file.size,
         compression: processed.compression,
-        content: dataUrl,
+        content: '',
+        storagePath,
       });
     } catch {
       alert('Unable to process the attachment. Please try another file.');

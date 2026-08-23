@@ -3,6 +3,7 @@ import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { AppFolder, AppFile } from '../types';
 import { parsePdf } from '../lib/pdfParser';
+import { supabase } from '../lib/supabase';
 import imageCompression from 'browser-image-compression';
 import { 
   Folder, FolderOpen, Upload, Trash2, Edit2, 
@@ -203,16 +204,28 @@ export function FileManager() {
   const handleConfirmUpload = async () => {
     if (stagedFiles.length === 0) return;
 
-    const newFiles: AppFile[] = stagedFiles.map(sf => ({
-      id: 'file_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5),
-      name: sf.name.trim() || sf.originalName,
-      type: sf.type,
-      size: sf.size,
-      uploadedAt: new Date().toISOString(),
-      folderId: activeFolderId,
-      content: sf.content,
-      description: sf.description.trim() || undefined
-    }));
+    const newFiles: AppFile[] = [];
+    for (const sf of stagedFiles) {
+      const id = 'file_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+      const name = sf.name.trim() || sf.originalName;
+      const safeName = name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const storagePath = `${currentClient.id}/${id}/${safeName}`;
+      const comma = sf.content.indexOf(',');
+      const base64 = comma >= 0 ? sf.content.slice(comma + 1) : sf.content;
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      const blob = new Blob([bytes], { type: sf.type || 'application/octet-stream' });
+      const { error: uploadError } = await supabase.storage.from('client-files').upload(storagePath, blob, {
+        contentType: sf.type || 'application/octet-stream',
+        upsert: false,
+      });
+      if (uploadError) throw uploadError;
+      newFiles.push({
+        id, name, type: sf.type, size: sf.size, uploadedAt: new Date().toISOString(),
+        folderId: activeFolderId, storagePath, description: sf.description.trim() || undefined
+      });
+    }
 
     const currentFiles = currentClient.files || [];
     const updatedClient = {
@@ -253,27 +266,36 @@ export function FileManager() {
     }
   };
 
-  const handleDownloadFile = (file: AppFile) => {
-    if (!file.content) return;
+  const handleDownloadFile = async (file: AppFile) => {
     try {
-      const link = document.createElement('a');
-      link.href = file.content;
-      link.download = file.name;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      if (file.storagePath) {
+        const { data, error } = await supabase.storage.from('client-files').createSignedUrl(file.storagePath, 60);
+        if (error || !data?.signedUrl) throw error || new Error('Unable to create download URL');
+        const response = await fetch(data.signedUrl);
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url; link.download = file.name; document.body.appendChild(link); link.click();
+        document.body.removeChild(link); URL.revokeObjectURL(url);
+        return;
+      }
+      if (file.content) {
+        const link = document.createElement('a'); link.href = file.content; link.download = file.name;
+        document.body.appendChild(link); link.click(); document.body.removeChild(link);
+      }
     } catch (e) {
-      showToast('Error downloading file');
+      console.error(e); showToast('Error downloading file');
     }
   };
 
   const handleDeleteFile = async (fileId: string) => {
+    const fileToDelete = files.find(f => f.id === fileId);
+    if (fileToDelete?.storagePath) {
+      const { error } = await supabase.storage.from('client-files').remove([fileToDelete.storagePath]);
+      if (error) console.warn('Storage file deletion failed:', error);
+    }
     const updatedFiles = files.filter(f => f.id !== fileId);
-    const updatedClient = {
-      ...currentClient,
-      files: updatedFiles
-    };
-
+    const updatedClient = { ...currentClient, files: updatedFiles };
     await saveClient(currentClient.id, updatedClient);
     showToast('File removed successfully');
   };
