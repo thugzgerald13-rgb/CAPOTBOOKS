@@ -16,17 +16,12 @@
   }
 }
 
-/* Page shell: no outer four-edge frame. Inner cards, fields, tables,
-   tabs, and controls keep their own borders. */
-.app-main,
-.app-content,
-.page-panel {
-  border: 0 !important;
-  outline: 0 !important;
-}
-
+/* The application/page shell is intentionally borderless. Keep borders on
+   inner cards, fields, tables, tabs, and controls unchanged. */
 .app-main,
 .app-content {
+  border: 0 !important;
+  outline: 0 !important;
   box-shadow: none !important;
   border-radius: 0 !important;
 }
@@ -61,4 +56,27 @@
 }
 ::-webkit-scrollbar-thumb:hover {
   @apply bg-slate-300 dark:bg-slate-600;
+}
+
+/* Transaction dropdown pages: remove only the outer page frame.
+   Inner cards, fields, tables, tabs, and controls keep their own borders. */
+.transaction-page-content {
+  border: 0 !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
+.transaction-page-content > * {
+  border-left: 0 !important;
+  border-right: 0 !important;
+  border-top: 0 !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+}
+
+.transaction-page-content > * > .flex.items-center.px-5.py-4 {
+  border-left: 0 !important;
+  border-right: 0 !important;
+  border-top: 0 !important;
 }

@@ -82,7 +82,7 @@ function AppLayout() {
             route, so navigating away actually unmounts the previous page
             (fresh state each visit) instead of keeping ~20 components alive
             and toggling visibility. */}
-        <div className="app-content px-4 md:px-8 pt-[1.5px] pb-4 md:pb-8 max-w-[1400px] mx-auto w-full">
+        <div className="app-content transaction-page-content px-4 md:px-8 pt-[1.5px] pb-4 md:pb-8 max-w-[1400px] mx-auto w-full">
           <Routes>
             <Route path="/sales" element={<Sales />} />
             <Route path="/billing" element={<Billing />} />
