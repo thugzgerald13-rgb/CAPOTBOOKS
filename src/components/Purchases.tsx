@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useLocation } from 'react-router-dom';
 import { PageHeader } from './ui/PageHeader';
 import { Combobox } from './ui/Combobox';
 import { useAccounting } from '../context/AccountingContext';
@@ -119,6 +120,7 @@ const attachmentFromStored = (value: unknown): PurchaseAttachment | null => {
 
 export function Purchases() {
   const { currentClient, currentClientId, currentDat, saveClient, showToast, setCurrentDat } = useAccounting();
+  const location = useLocation();
   
   // Single record state (similar to original but react-friendly)
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -139,6 +141,8 @@ export function Purchases() {
   const [accountTitle, setAccountTitle] = useState('');
   const [transactionDetails, setTransactionDetails] = useState('');
   const [inputTax, setInputTax] = useState(0);
+  const [exemptAmount, setExemptAmount] = useState('');
+  const [zeroRatedAmount, setZeroRatedAmount] = useState('');
   const [attachment, setAttachment] = useState<PurchaseAttachment | null>(null);
   const [attachmentBusy, setAttachmentBusy] = useState(false);
 
@@ -226,6 +230,7 @@ export function Purchases() {
 
   const [viewIndex, setViewIndex] = useState<number | null>(null);
 
+
   // Auto-count sequence number
   useEffect(() => {
     if (currentClient && viewIndex === null) {
@@ -250,39 +255,74 @@ export function Purchases() {
     }
   })();
 
+  const normalizePurchaseDate = (value: string) => {
+    if (!value) return '';
+    // Normalized Supabase rows use YYYY-MM-DD; legacy rows may use M/D/YYYY.
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+    const parts = value.split('/');
+    if (parts.length === 3) {
+      const [m, d, y] = parts;
+      return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    }
+    return value.slice(0, 10);
+  };
+
   const loadPurchase = (index: number) => {
     if (index < 0 || index >= periodPurchases.length) return;
     const p = periodPurchases[index];
-    if (p) {
-      const [m, d, y] = p.date.split('/');
-      setDate(`${y}-${m}-${d}`);
-      setPaymentMethod(p.paymentMethod);
-      setBankName(p.bankName || '');
-      setCheckNumber(p.checkNumber || '');
-      setInvoiceNo(p.invoiceNo);
-      setSupplierTin(p.supplierTin);
-      setSupplierName(p.supplierName);
-      setSupplierAddress(p.supplierAddress || '');
-      
-      const gross = p.vatType === 'vat' ? (p.amount + (p.inputTax || 0)) : p.amount;
-      setAmount(gross.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
-      setVatType(p.vatType);
-      setWithholdingOption(p.withholdingOption || 'w/o');
-      setAtcCode(p.atcCode || '');
-      setExpenseType(p.expenseType);
-      setAccountTitle(p.accountTitle);
-      
-      const acct = currentClient?.accounts?.find(a => a.name === p.accountTitle);
-      if (acct?.type) {
-        setSelectedAccountType(acct.type);
-      }
+    if (!p) return;
 
-      setTransactionDetails(p.transactionDetails || '');
-      setAttachment(attachmentFromStored((p as any).attachment));
-      setSequenceNumber(p.sequenceNumber || (index + 1));
-      setViewIndex(index);
-    }
+    setDate(normalizePurchaseDate(p.date));
+    setPaymentMethod(p.paymentMethod || 'Cash');
+    setBankName(p.bankName || '');
+    setCheckNumber(p.checkNumber || '');
+    setInvoiceNo(p.invoiceNo || '');
+    setSupplierTin(p.supplierTin || '');
+    setSupplierName(p.supplierName || '');
+    setSupplierAddress(p.supplierAddress || '');
+
+    const storedAmount = Number(p.amount || 0);
+    const storedInputTax = Number(p.inputTax || 0);
+    const gross = p.vatType === 'vat' ? storedAmount + storedInputTax : storedAmount;
+    setAmount(gross.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+    setVatType(p.vatType || 'vat');
+    setExemptAmount(p.vatType === 'non-vat' ? storedAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '');
+    setZeroRatedAmount(p.vatType === 'zero-rated' ? storedAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '');
+    setWithholdingOption(p.withholdingOption || 'w/o');
+    setAtcCode(p.atcCode || '');
+    setExpenseType(p.expenseType || 'Capital Goods');
+    setAccountTitle(p.accountTitle || '');
+    setTransactionDetails(p.transactionDetails || '');
+    setAttachment(attachmentFromStored((p as any).attachment));
+    setSequenceNumber((p as any).sequenceNumber || (index + 1));
+    setViewIndex(index);
   };
+
+  // History passes the purchase ID through React Router state. Load the exact
+  // saved record rather than opening a blank form. This also works when the
+  // purchase was saved in a different DAT period than the currently selected one.
+  useEffect(() => {
+    const stateId = (location.state as { editPurchaseId?: number | string } | null)?.editPurchaseId;
+    if (stateId == null || !currentClient) return;
+    const allPurchases = currentClient.purchases || [];
+    const target = allPurchases.find(p => String(p.id) === String(stateId));
+    if (!target) {
+      showToast('The selected purchase could not be found.');
+      return;
+    }
+
+    if (target.datMonthYear && target.datMonthYear !== currentDat?.formatted) {
+      const match = target.datMonthYear.match(/^([A-Za-z]+)\s+(\d{4})$/);
+      if (match) {
+        const month = MONTHS.indexOf(match[1]) + 1;
+        if (month > 0) setCurrentDat({ month, year: Number(match[2]), formatted: target.datMonthYear });
+      }
+      return;
+    }
+
+    const index = periodPurchases.findIndex(p => String(p.id) === String(stateId));
+    if (index >= 0 && viewIndex === null) loadPurchase(index);
+  }, [location.state, currentClient, currentDat?.formatted, viewIndex]);
 
   const handleAddNew = () => {
     setViewIndex(null);
@@ -291,6 +331,8 @@ export function Purchases() {
     setSupplierName('');
     setSupplierAddress('');
     setAmount('');
+    setExemptAmount('');
+    setZeroRatedAmount('');
     setBankName('');
     setCheckNumber('');
     setTransactionDetails('');
@@ -376,8 +418,18 @@ export function Purchases() {
   const handleAddPurchase = () => {
     if (!currentClient || !currentClientId) return;
     
-    const parsedAmount = parseFloat(String(amount).replace(/,/g, ''));
-    if (!date || !invoiceNo || !supplierTin || !supplierName || !amount || isNaN(parsedAmount)) {
+    const parsedAmount = vatType === 'non-vat'
+      ? parseFloat(String(exemptAmount).replace(/,/g, ''))
+      : vatType === 'zero-rated'
+        ? parseFloat(String(zeroRatedAmount).replace(/,/g, ''))
+        : parseFloat(String(amount).replace(/,/g, ''));
+    const amountValue = Number.isFinite(parsedAmount) ? parsedAmount : 0;
+    const amountMissing = vatType === 'non-vat'
+      ? !exemptAmount || !Number.isFinite(parsedAmount)
+      : vatType === 'zero-rated'
+        ? !zeroRatedAmount || !Number.isFinite(parsedAmount)
+        : !amount || !Number.isFinite(parsedAmount);
+    if (!date || !invoiceNo || !supplierTin || !supplierName || amountMissing) {
       alert('Please fill out all required fields with valid values.');
       return;
     }
@@ -401,7 +453,7 @@ export function Purchases() {
       supplierTin,
       supplierName,
       supplierAddress,
-      amount: netAmount,
+      amount: vatType === 'non-vat' || vatType === 'zero-rated' ? amountValue : netAmount,
       vatType,
       withholdingOption,
       atcCode: withholdingOption === 'with' ? atcCode : null,
@@ -452,6 +504,8 @@ export function Purchases() {
     setSupplierName('');
     setSupplierAddress('');
     setAmount('');
+    setExemptAmount('');
+    setZeroRatedAmount('');
     setBankName('');
     setCheckNumber('');
     setTransactionDetails('');
