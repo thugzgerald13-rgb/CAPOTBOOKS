@@ -293,6 +293,22 @@ export function Purchases() {
     }
   };
 
+  // History -> Edit Entry passes the purchase id through router state.
+  // Load that exact record when the Purchases screen opens so the Edit button
+  // works even when the record is not the first item in the current period.
+  useEffect(() => {
+    const editPurchaseId = location.state?.editPurchaseId;
+    if (editPurchaseId == null || !currentClient) return;
+
+    const index = periodPurchases.findIndex(p => String(p.id) === String(editPurchaseId));
+    if (index >= 0) {
+      loadPurchase(index);
+      // Consume the navigation state so a later refresh/re-render does not
+      // unexpectedly reopen the same expense for editing.
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location.state?.editPurchaseId, location.pathname, currentClient, periodPurchases]);
+
   const handleAddNew = () => {
     setViewIndex(null);
     setInvoiceNo('');
