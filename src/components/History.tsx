@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
-import { Search, Trash2, Receipt, ShoppingCart, FolderClock, History as HistoryIcon, FileDown, FileSpreadsheet, Download } from 'lucide-react';
+import { Search, Trash2, Receipt, ShoppingCart, FolderClock, History as HistoryIcon, FileDown, FileSpreadsheet, Download, Pencil } from 'lucide-react';
 import { cn, MONTHS, generateCSV, formatTIN, downloadAttachment } from '../lib/utils';
 import * as XLSX from 'xlsx';
 
@@ -9,6 +10,7 @@ type HistoryTab = 'expenses' | 'income' | 'slp' | 'sls';
 
 export function History() {
   const { currentClient, currentClientId, currentDat, saveClient, showToast, navigateToPage, setCurrentDat, historyTab, setHistoryTab, activeDevice } = useAccounting();
+  const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedMonth, setSelectedMonth] = useState<number>(currentDat?.month || new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState<number>(currentDat?.year || new Date().getFullYear());
@@ -55,6 +57,11 @@ export function History() {
     };
     saveClient(currentClientId, updatedClient);
     showToast('Expense deleted');
+  };
+
+  const handleEditExpense = (purchase: typeof purchases[number]) => {
+    const path = purchase.invoiceNo && purchase.supplierTin ? '/purchases/invoiced' : '/purchases/other-payments';
+    navigate(path, { state: { editPurchaseId: purchase.id } });
   };
 
   const handleDeleteIncome = (id: number) => {
@@ -413,6 +420,13 @@ export function History() {
                             </button>
                           )}
                           <button 
+                            onClick={() => handleEditExpense(p)}
+                            className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 rounded-lg text-xs font-bold transition-all flex items-center gap-1"
+                            title="Edit Entry"
+                          >
+                            <Pencil className="w-3.5 h-3.5" /> Edit
+                          </button>
+                          <button 
                             onClick={() => handleDeleteExpense(p.id)}
                             className="px-3 py-1.5 bg-red-50 dark:bg-red-950/20 text-red-500 hover:text-red-700 hover:bg-red-100 dark:hover:bg-red-900/40 rounded-lg text-xs font-bold transition-all flex items-center gap-1"
                           >
@@ -581,6 +595,13 @@ export function History() {
                                     <Download className="w-4 h-4" />
                                   </button>
                                 )}
+                                <button 
+                                  onClick={() => handleEditExpense(p)}
+                                  className="p-1.5 text-slate-300 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-all"
+                                  title="Edit Entry"
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </button>
                                 <button 
                                   onClick={() => handleDeleteExpense(p.id)}
                                   className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all"

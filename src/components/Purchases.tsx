@@ -556,7 +556,7 @@ export function Purchases() {
         </div>
         
         <div className="relative">
-          <label className="form-label text-red-500">Payee's TIN *</label>
+          <label className="form-label text-red-500">Supplier TIN *</label>
           <input 
             type="text" 
             value={supplierTin} 
@@ -575,7 +575,7 @@ export function Purchases() {
         )}
 
         <div>
-          <label className="form-label text-red-500">Pay To / Payee's Name *</label>
+          <label className="form-label text-red-500">Supplier Name *</label>
           <input type="text" value={supplierName} onChange={e => setSupplierName(e.target.value)} placeholder="Supplier Full Name" className="form-input" />
         </div>
 
@@ -586,7 +586,6 @@ export function Purchases() {
           </div>
         )}
 
-        {!isOtherPayment && (
         <div>
            <label className="form-label text-red-500">VAT Type *</label>
            <select value={vatType} onChange={e => setVatType(e.target.value)} className="form-input bg-slate-100 dark:bg-slate-900 border-slate-300">
@@ -595,9 +594,7 @@ export function Purchases() {
              <option value="zero-rated">0-Rated (0 Tax)</option>
            </select>
         </div>
-        )}
 
-        {!isOtherPayment && (
         <div>
            <label className="form-label text-red-500">Withholding Tax *</label>
            <select value={withholdingOption} onChange={e => setWithholdingOption(e.target.value as 'w/o' | 'with')} className="form-input bg-slate-100 dark:bg-slate-900 border-slate-300">
@@ -605,9 +602,8 @@ export function Purchases() {
              <option value="with">With Withholdings</option>
            </select>
         </div>
-        )}
 
-        {!isOtherPayment && withholdingOption === 'with' && (
+        {withholdingOption === 'with' && (
           <div className="lg:col-span-2">
             <label className="form-label text-red-500">ATC / Nature of Income Payment *</label>
             <select value={atcCode} onChange={e => setAtcCode(e.target.value)} className="form-input bg-slate-100 dark:bg-slate-900 border-slate-300">
@@ -621,7 +617,7 @@ export function Purchases() {
           </div>
         )}
 
-        {!isOtherPayment && withholdingOption === 'with' && (
+        {withholdingOption === 'with' && (
           <div>
             <label className="form-label text-slate-500">Withholding Tax (₱)</label>
             <input type="text" readOnly value={whtAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="form-input bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold cursor-not-allowed" />
