@@ -32,7 +32,7 @@ function maskSupabaseUrl(url: string | undefined): string {
 
 function DiagSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden mb-6">
+    <div className="bg-white dark:bg-slate-800 rounded-xl overflow-hidden mb-6 page-panel">
       <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40">
         <h4 className="text-sm font-bold text-slate-700 dark:text-slate-200">{title}</h4>
       </div>
