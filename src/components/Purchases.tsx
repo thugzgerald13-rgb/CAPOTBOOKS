@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useLocation } from 'react-router-dom';
 import { PageHeader } from './ui/PageHeader';
 import { Combobox } from './ui/Combobox';
 import { useAccounting } from '../context/AccountingContext';
@@ -120,7 +119,6 @@ const attachmentFromStored = (value: unknown): PurchaseAttachment | null => {
 
 export function Purchases() {
   const { currentClient, currentClientId, currentDat, saveClient, showToast, setCurrentDat } = useAccounting();
-  const location = useLocation();
   
   // Single record state (similar to original but react-friendly)
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -134,6 +132,8 @@ export function Purchases() {
   const [amount, setAmount] = useState('');
   const [netAmount, setNetAmount] = useState(0);
   const [vatType, setVatType] = useState('vat');
+  const [exemptAmount, setExemptAmount] = useState('');
+  const [zeroRatedAmount, setZeroRatedAmount] = useState('');
   const [withholdingOption, setWithholdingOption] = useState<'w/o' | 'with'>('w/o');
   const [atcCode, setAtcCode] = useState('');
   const [whtAmount, setWhtAmount] = useState(0);
@@ -141,8 +141,6 @@ export function Purchases() {
   const [accountTitle, setAccountTitle] = useState('');
   const [transactionDetails, setTransactionDetails] = useState('');
   const [inputTax, setInputTax] = useState(0);
-  const [exemptAmount, setExemptAmount] = useState('');
-  const [zeroRatedAmount, setZeroRatedAmount] = useState('');
   const [attachment, setAttachment] = useState<PurchaseAttachment | null>(null);
   const [attachmentBusy, setAttachmentBusy] = useState(false);
 
@@ -230,7 +228,6 @@ export function Purchases() {
 
   const [viewIndex, setViewIndex] = useState<number | null>(null);
 
-
   // Auto-count sequence number
   useEffect(() => {
     if (currentClient && viewIndex === null) {
@@ -255,74 +252,44 @@ export function Purchases() {
     }
   })();
 
-  const normalizePurchaseDate = (value: string) => {
-    if (!value) return '';
-    // Normalized Supabase rows use YYYY-MM-DD; legacy rows may use M/D/YYYY.
-    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
-    const parts = value.split('/');
-    if (parts.length === 3) {
-      const [m, d, y] = parts;
-      return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-    }
-    return value.slice(0, 10);
-  };
-
   const loadPurchase = (index: number) => {
     if (index < 0 || index >= periodPurchases.length) return;
     const p = periodPurchases[index];
-    if (!p) return;
-
-    setDate(normalizePurchaseDate(p.date));
-    setPaymentMethod(p.paymentMethod || 'Cash');
-    setBankName(p.bankName || '');
-    setCheckNumber(p.checkNumber || '');
-    setInvoiceNo(p.invoiceNo || '');
-    setSupplierTin(p.supplierTin || '');
-    setSupplierName(p.supplierName || '');
-    setSupplierAddress(p.supplierAddress || '');
-
-    const storedAmount = Number(p.amount || 0);
-    const storedInputTax = Number(p.inputTax || 0);
-    const gross = p.vatType === 'vat' ? storedAmount + storedInputTax : storedAmount;
-    setAmount(gross.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
-    setVatType(p.vatType || 'vat');
-    setExemptAmount(p.vatType === 'non-vat' ? storedAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '');
-    setZeroRatedAmount(p.vatType === 'zero-rated' ? storedAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '');
-    setWithholdingOption(p.withholdingOption || 'w/o');
-    setAtcCode(p.atcCode || '');
-    setExpenseType(p.expenseType || 'Capital Goods');
-    setAccountTitle(p.accountTitle || '');
-    setTransactionDetails(p.transactionDetails || '');
-    setAttachment(attachmentFromStored((p as any).attachment));
-    setSequenceNumber((p as any).sequenceNumber || (index + 1));
-    setViewIndex(index);
-  };
-
-  // History passes the purchase ID through React Router state. Load the exact
-  // saved record rather than opening a blank form. This also works when the
-  // purchase was saved in a different DAT period than the currently selected one.
-  useEffect(() => {
-    const stateId = (location.state as { editPurchaseId?: number | string } | null)?.editPurchaseId;
-    if (stateId == null || !currentClient) return;
-    const allPurchases = currentClient.purchases || [];
-    const target = allPurchases.find(p => String(p.id) === String(stateId));
-    if (!target) {
-      showToast('The selected purchase could not be found.');
-      return;
-    }
-
-    if (target.datMonthYear && target.datMonthYear !== currentDat?.formatted) {
-      const match = target.datMonthYear.match(/^([A-Za-z]+)\s+(\d{4})$/);
-      if (match) {
-        const month = MONTHS.indexOf(match[1]) + 1;
-        if (month > 0) setCurrentDat({ month, year: Number(match[2]), formatted: target.datMonthYear });
+    if (p) {
+      const dateParts = p.date.split('/');
+      setDate(p.date.match(/^\d{4}-\d{2}-\d{2}$/) ? p.date : (dateParts.length === 3 ? `${dateParts[2]}-${dateParts[0].padStart(2, '0')}-${dateParts[1].padStart(2, '0')}` : p.date));
+      setPaymentMethod(p.paymentMethod);
+      setBankName(p.bankName || '');
+      setCheckNumber(p.checkNumber || '');
+      setInvoiceNo(p.invoiceNo);
+      setSupplierTin(p.supplierTin);
+      setSupplierName(p.supplierName);
+      setSupplierAddress(p.supplierAddress || '');
+      
+      const storedVatType = p.vatType || 'vat';
+      setVatType(storedVatType);
+      const exempt = Number((p as any).exemptAmount || 0);
+      const zeroRated = Number((p as any).zeroRatedAmount || 0);
+      setExemptAmount(exempt ? exempt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '');
+      setZeroRatedAmount(zeroRated ? zeroRated.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '');
+      const gross = storedVatType === 'vat' ? (Number(p.amount || 0) + Number(p.inputTax || 0)) : storedVatType === 'vat-nonvat' ? (Number(p.amount || 0) + Number(p.inputTax || 0) + exempt) : storedVatType === 'non-vat' ? exempt : zeroRated;
+      setAmount(gross ? gross.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '');
+      setWithholdingOption(p.withholdingOption || 'w/o');
+      setAtcCode(p.atcCode || '');
+      setExpenseType(p.expenseType);
+      setAccountTitle(p.accountTitle);
+      
+      const acct = currentClient?.accounts?.find(a => a.name === p.accountTitle);
+      if (acct?.type) {
+        setSelectedAccountType(acct.type);
       }
-      return;
-    }
 
-    const index = periodPurchases.findIndex(p => String(p.id) === String(stateId));
-    if (index >= 0 && viewIndex === null) loadPurchase(index);
-  }, [location.state, currentClient, currentDat?.formatted, viewIndex]);
+      setTransactionDetails(p.transactionDetails || '');
+      setAttachment(attachmentFromStored((p as any).attachment));
+      setSequenceNumber(p.sequenceNumber || (index + 1));
+      setViewIndex(index);
+    }
+  };
 
   const handleAddNew = () => {
     setViewIndex(null);
@@ -344,16 +311,22 @@ export function Purchases() {
 
   // Re-compute input tax and net amount on amount or vat type change
   useEffect(() => {
-    const num = parseFloat(String(amount).replace(/,/g, '')) || 0;
+    const gross = parseFloat(String(amount).replace(/,/g, '')) || 0;
+    const exempt = parseFloat(String(exemptAmount).replace(/,/g, '')) || 0;
     if (vatType === 'vat') {
-      const net = num / 1.12;
+      const net = gross / 1.12;
+      setNetAmount(net);
+      setInputTax(net * 0.12);
+    } else if (vatType === 'vat-nonvat') {
+      const vatGross = Math.max(0, gross - exempt);
+      const net = vatGross / 1.12;
       setNetAmount(net);
       setInputTax(net * 0.12);
     } else {
-      setNetAmount(num);
+      setNetAmount(0);
       setInputTax(0);
     }
-  }, [amount, vatType]);
+  }, [amount, exemptAmount, vatType]);
 
   // Default to the first ATC in the schedule whenever "With Withholdings" is
   // selected and no ATC has been chosen yet.
@@ -418,18 +391,8 @@ export function Purchases() {
   const handleAddPurchase = () => {
     if (!currentClient || !currentClientId) return;
     
-    const parsedAmount = vatType === 'non-vat'
-      ? parseFloat(String(exemptAmount).replace(/,/g, ''))
-      : vatType === 'zero-rated'
-        ? parseFloat(String(zeroRatedAmount).replace(/,/g, ''))
-        : parseFloat(String(amount).replace(/,/g, ''));
-    const amountValue = Number.isFinite(parsedAmount) ? parsedAmount : 0;
-    const amountMissing = vatType === 'non-vat'
-      ? !exemptAmount || !Number.isFinite(parsedAmount)
-      : vatType === 'zero-rated'
-        ? !zeroRatedAmount || !Number.isFinite(parsedAmount)
-        : !amount || !Number.isFinite(parsedAmount);
-    if (!date || !invoiceNo || !supplierTin || !supplierName || amountMissing) {
+    const parsedAmount = parseFloat(String(amount).replace(/,/g, ''));
+    if (!date || !invoiceNo || !supplierTin || !supplierName || (vatType !== 'non-vat' && !amount) || isNaN(vatType === 'non-vat' ? (parseFloat(String(exemptAmount).replace(/,/g, '')) || NaN) : (vatType === 'zero-rated' ? (parseFloat(String(zeroRatedAmount).replace(/,/g, '')) || NaN) : parsedAmount))) {
       alert('Please fill out all required fields with valid values.');
       return;
     }
@@ -453,8 +416,10 @@ export function Purchases() {
       supplierTin,
       supplierName,
       supplierAddress,
-      amount: vatType === 'non-vat' || vatType === 'zero-rated' ? amountValue : netAmount,
+      amount: vatType === 'vat-nonvat' || vatType === 'vat' ? netAmount : (vatType === 'non-vat' ? (parseFloat(String(exemptAmount).replace(/,/g, '')) || 0) : (parseFloat(String(zeroRatedAmount).replace(/,/g, '')) || 0)),
       vatType,
+      exemptAmount: (vatType === 'non-vat' || vatType === 'vat-nonvat') ? (parseFloat(String(exemptAmount).replace(/,/g, '')) || 0) : 0,
+      zeroRatedAmount: vatType === 'zero-rated' ? (parseFloat(String(zeroRatedAmount).replace(/,/g, '')) || 0) : 0,
       withholdingOption,
       atcCode: withholdingOption === 'with' ? atcCode : null,
       whtRate: withholdingOption === 'with' ? (ATC_SCHEDULE.find(e => e.code === atcCode)?.rate ?? null) : null,
@@ -618,9 +583,10 @@ export function Purchases() {
         <div>
            <label className="form-label text-red-500">VAT Type *</label>
            <select value={vatType} onChange={e => setVatType(e.target.value)} className="form-input bg-slate-100 dark:bg-slate-900 border-slate-300">
-             <option value="vat">VAT 12% (+ Input Tax)</option>
-             <option value="non-vat">Non-VAT (0 Tax)</option>
-             <option value="zero-rated">0-Rated (0 Tax)</option>
+             <option value="vat">VAT</option>
+             <option value="non-vat">Non-VAT</option>
+             <option value="vat-nonvat">VAT &amp; Non-VAT</option>
+             <option value="zero-rated">0-Rated</option>
            </select>
         </div>
 
@@ -653,7 +619,7 @@ export function Purchases() {
           </div>
         )}
 
-        {vatType === 'non-vat' && (
+        {(vatType === 'non-vat' || vatType === 'vat-nonvat') && (
           <div>
             <label className="form-label text-red-500">Exempt (₱) *</label>
             <input type="text" value={exemptAmount} onChange={e => /^[0-9.,]*$/.test(e.target.value) && setExemptAmount(e.target.value)} onBlur={e => { const raw = e.target.value.replace(/,/g, ''); if (raw && !isNaN(parseFloat(raw))) setExemptAmount(parseFloat(raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })); }} placeholder="0.00" className="form-input font-bold text-amber-900 border-amber-300 dark:bg-amber-900/20 dark:text-amber-100" />
@@ -667,12 +633,13 @@ export function Purchases() {
           </div>
         )}
 
-        {vatType === 'vat' && (
+        {(vatType === 'vat' || vatType === 'vat-nonvat') && (
           <>
-            <div>
+            {vatType !== 'non-vat' && <div>
               <label className="form-label text-red-500">Gross Amount (₱) *</label>
               <input type="text" value={amount} onChange={e => /^[0-9.,]*$/.test(e.target.value) && setAmount(e.target.value)} onBlur={e => { const raw = e.target.value.replace(/,/g, ''); if (raw && !isNaN(parseFloat(raw))) setAmount(parseFloat(raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })); }} placeholder="0.00" className="form-input font-bold text-amber-900 border-amber-300 dark:bg-amber-900/20 dark:text-amber-100" />
-            </div>
+            </div>}
+            {vatType !== 'non-vat' && <>
             <div>
               <label className="form-label text-slate-500">Net Amount (₱)</label>
               <input type="text" readOnly value={netAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="form-input bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold cursor-not-allowed" />
@@ -681,6 +648,7 @@ export function Purchases() {
               <label className="form-label text-slate-500">Input Tax (₱)</label>
               <input type="text" readOnly value={inputTax.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="form-input bg-blue-50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-900/50 text-blue-700 dark:text-blue-300 font-bold cursor-not-allowed" />
             </div>
+            </>}
           </>
         )}
 
