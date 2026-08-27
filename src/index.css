@@ -89,3 +89,21 @@
   box-shadow: none !important;
   border-radius: 0 !important;
 }
+
+/* Every routed page is a flat workspace, not a modal/card. The page shell
+   itself stays borderless; inner controls/cards may keep their own borders. */
+.app-content > .w-full.flex.flex-col,
+.app-content > .w-full.mt-8 {
+  border: 0 !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
+
+/* Routed page content should grow with the document so the browser/main page
+   scrolls vertically. Horizontal scrolling remains available for wide tables. */
+.app-content .overflow-auto.max-h-\[70vh\],
+.app-content .page-table-scroll {
+  max-height: none !important;
+  overflow-y: visible !important;
+}
