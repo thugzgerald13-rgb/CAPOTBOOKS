@@ -18,6 +18,66 @@ export function History() {
   const currentYear = new Date().getFullYear();
   const years = Array.from({ length: currentYear - 2022 }, (_, i) => 2023 + i);
 
+  // Expense History is also allowed to contribute suppliers to the registry.
+  // Merge by normalized TIN and preserve every unique supplier.
+  useEffect(() => {
+    if (!currentClient || !currentClientId) return;
+
+    const purchases = currentClient.purchases || [];
+    const existingSuppliers = currentClient.tinLibrary?.suppliers || [];
+    const merged = [...existingSuppliers];
+    const indexByTin = new Map<string, number>();
+
+    merged.forEach((supplier: any, index: number) => {
+      const tin = String(supplier.tin || '').replace(/\D/g, '');
+      if (tin) indexByTin.set(tin, index);
+    });
+
+    let changed = false;
+    for (const purchase of purchases as any[]) {
+      if (!purchase.supplierTin || !purchase.supplierName) continue;
+      const tin = String(purchase.supplierTin).replace(/\D/g, '');
+      if (!tin) continue;
+
+      const existingIndex = indexByTin.get(tin);
+      if (existingIndex !== undefined) {
+        const existing = merged[existingIndex];
+        if (!existing.name && purchase.supplierName) {
+          merged[existingIndex] = { ...existing, name: purchase.supplierName };
+          changed = true;
+        }
+        if (!existing.address && purchase.supplierAddress) {
+          merged[existingIndex] = { ...merged[existingIndex], address: purchase.supplierAddress };
+          changed = true;
+        }
+      } else {
+        let hash = 0;
+        for (let i = 0; i < tin.length; i++) {
+          hash = ((hash << 5) - hash + tin.charCodeAt(i)) | 0;
+        }
+        const id = `supplier-${Math.abs(hash) || Date.now()}`;
+        indexByTin.set(tin, merged.length);
+        merged.push({
+          id,
+          tin: purchase.supplierTin,
+          name: purchase.supplierName,
+          address: purchase.supplierAddress || ''
+        });
+        changed = true;
+      }
+    }
+
+    if (!changed) return;
+
+    saveClient(currentClientId, {
+      ...currentClient,
+      tinLibrary: {
+        ...(currentClient.tinLibrary || { customers: [], suppliers: [] }),
+        suppliers: merged
+      }
+    });
+  }, [currentClient, currentClientId, saveClient]);
+
   useEffect(() => {
     if (currentDat) {
       setSelectedMonth(currentDat.month);

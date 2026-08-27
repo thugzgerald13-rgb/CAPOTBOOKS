@@ -431,23 +431,41 @@ export function Purchases() {
       attachment
     };
 
-    // Auto-add to TIN Library if new
-    let updatedTinLibrary = currentClient.tinLibrary;
-    const exists = currentClient.tinLibrary.suppliers.some(s => s.tin === supplierTin);
-    if (!exists) {
-      updatedTinLibrary = {
-        ...currentClient.tinLibrary,
-        suppliers: [
-          ...currentClient.tinLibrary.suppliers,
-          {
-            id: `tin_supplier_${supplierTin.replace(/\D/g, '')}`,
-            tin: supplierTin,
-            name: supplierName,
-            address: supplierAddress
-          }
-        ]
-      };
+    // Add/update the Supplier Registry from an Invoiced Purchase without overwriting
+    // another supplier. TIN is the unique business key; the generated id is stable.
+    const normalizedTin = String(supplierTin || '').replace(/\D/g, '');
+    const existingSuppliers = currentClient.tinLibrary?.suppliers || [];
+    const existingIndex = existingSuppliers.findIndex(
+      (s: any) => String(s.tin || '').replace(/\D/g, '') === normalizedTin
+    );
+
+    let updatedSuppliers = [...existingSuppliers];
+    if (normalizedTin) {
+      if (existingIndex >= 0) {
+        updatedSuppliers[existingIndex] = {
+          ...updatedSuppliers[existingIndex],
+          tin: supplierTin,
+          name: supplierName || updatedSuppliers[existingIndex].name,
+          address: supplierAddress || updatedSuppliers[existingIndex].address || ''
+        };
+      } else {
+        let hash = 0;
+        for (let i = 0; i < normalizedTin.length; i++) {
+          hash = ((hash << 5) - hash + normalizedTin.charCodeAt(i)) | 0;
+        }
+        updatedSuppliers.push({
+          id: `supplier-${Math.abs(hash) || Date.now()}`,
+          tin: supplierTin,
+          name: supplierName,
+          address: supplierAddress || ''
+        });
+      }
     }
+
+    const updatedTinLibrary = {
+      ...(currentClient.tinLibrary || { customers: [], suppliers: [] }),
+      suppliers: updatedSuppliers
+    };
 
     let updatedPurchases;
     if (viewIndex !== null) {
