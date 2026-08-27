@@ -982,7 +982,7 @@ export function BIRForms() {
             <CheckCircle2 className="w-4 h-4 text-indigo-500" /> Complete layout validation passed. Official BIR color formatting loaded.
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 print:overflow-visible print:p-0">
+          <div className="flex-1 p-4 md:p-8 space-y-6 print:p-0">
             {/* BIR FORM NO 2550Q */}
             {activeFormType === '2550Q' && (
               <div className="border-[2px] border-black p-4 text-black bg-white max-w-4xl mx-auto space-y-4 print:border-0 print:p-0">

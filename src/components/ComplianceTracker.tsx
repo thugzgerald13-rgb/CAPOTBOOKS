@@ -389,7 +389,7 @@ export function ComplianceTracker() {
             <CheckCircle2 className="w-4 h-4 text-indigo-500" /> Complete layout validation passed. Official BIR color formatting loaded.
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 print:overflow-visible print:p-0">
+          <div className="flex-1 p-4 md:p-8 space-y-6 print:p-0">
               <div className="space-y-6">
                 {/* Dashboard Jumbotron Hero */}
                 <div className="bg-gradient-to-br from-emerald-600 to-teal-750 text-white p-6 rounded-2xl border border-emerald-500/10 relative overflow-hidden">
