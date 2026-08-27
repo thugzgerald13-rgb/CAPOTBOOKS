@@ -93,7 +93,7 @@ function AppLayout() {
             <Route path="/purchases" element={<Navigate to="/purchases/invoiced" replace />} />
             <Route path="/purchases/invoiced" element={<Purchases />} />
             <Route path="/purchases/other-payments" element={<Purchases />} />
-            <Route path="/purchases/ap" element={<Purchases />} />
+            <Route path="/purchases/ap" element={<AccountsPayable />} />
             <Route path="/tinlibrary" element={<TinLibrary />} />
             <Route path="/history" element={<History />} />
             <Route path="/coa" element={<ChartOfAccounts />} />
