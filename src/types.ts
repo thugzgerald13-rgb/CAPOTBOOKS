@@ -7,7 +7,6 @@ export interface TinEntry {
 
 export interface Purchase {
   id: number;
-  sequenceNumber?: number;
   datMonthYear: string;
   date: string;
   paymentMethod: string;
@@ -19,6 +18,8 @@ export interface Purchase {
   supplierTin: string;
   amount: number;
   vatType: string;
+  exemptAmount?: number;
+  zeroRatedAmount?: number;
   expenseType: string;
   accountTitle: string;
   transactionDetails?: string;
