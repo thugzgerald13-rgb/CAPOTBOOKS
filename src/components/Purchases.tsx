@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { PageHeader } from './ui/PageHeader';
 import { Combobox } from './ui/Combobox';
 import { useAccounting } from '../context/AccountingContext';
@@ -122,8 +122,11 @@ const attachmentFromStored = (value: unknown): PurchaseAttachment | null => {
 export function Purchases() {
   const { currentClient, currentClientId, currentDat, saveClient, showToast, setCurrentDat, activePage } = useAccounting();
   const navigate = useNavigate();
+  const location = useLocation();
   const expenseWorkspace: 'receipted' | 'unreceipted' | 'ap' =
-    activePage === 'purchases/ap' ? 'ap' : activePage === 'purchases/other-payments' ? 'unreceipted' : 'receipted';
+    location.pathname === '/purchases/ap' ? 'ap'
+      : location.pathname === '/purchases/other-payments' ? 'unreceipted'
+      : 'receipted';
   const setExpenseWorkspace = (workspace: 'receipted' | 'unreceipted' | 'ap') => {
     const path = workspace === 'ap' ? '/purchases/ap' : workspace === 'unreceipted' ? '/purchases/other-payments' : '/purchases/invoiced';
     navigate(path);
