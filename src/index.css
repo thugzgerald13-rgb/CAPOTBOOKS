@@ -80,3 +80,12 @@
   border-right: 0 !important;
   border-top: 0 !important;
 }
+
+/* Purchases workspace: the page itself is borderless. Keep all inner
+   cards, fields, tables, tabs, and controls bordered as before. */
+.purchase-page-shell {
+  border: 0 !important;
+  outline: 0 !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+}
