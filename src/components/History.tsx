@@ -440,7 +440,7 @@ export function History() {
       <div className="p-4 md:p-6 flex-1">
       <div className="flex flex-col gap-6">
         {/* Content Area */}
-        <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+        <div className="bg-white dark:bg-slate-900 overflow-hidden">
           {!['slp', 'sls'].includes(activeTab) ? (
             <>
               <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex flex-col xl:flex-row justify-between items-stretch xl:items-center gap-4 bg-slate-50/50 dark:bg-slate-800/30">
