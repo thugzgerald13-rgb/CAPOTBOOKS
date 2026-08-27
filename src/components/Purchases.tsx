@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { PageHeader } from './ui/PageHeader';
 import { Combobox } from './ui/Combobox';
 import { useAccounting } from '../context/AccountingContext';
@@ -118,6 +119,9 @@ const attachmentFromStored = (value: unknown): PurchaseAttachment | null => {
 };
 
 export function Purchases() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const isOtherPayments = location.pathname === '/purchases/other-payments';
   const { currentClient, currentClientId, currentDat, saveClient, showToast, setCurrentDat } = useAccounting();
   
   // Single record state (similar to original but react-friendly)
@@ -281,9 +285,6 @@ export function Purchases() {
       setAccountTitle(p.accountTitle);
       
       const acct = currentClient?.accounts?.find(a => a.name === p.accountTitle);
-      if (acct?.type) {
-        setSelectedAccountType(acct.type);
-      }
 
       setTransactionDetails(p.transactionDetails || '');
       setAttachment(attachmentFromStored((p as any).attachment));
@@ -393,7 +394,7 @@ export function Purchases() {
     if (!currentClient || !currentClientId) return;
     
     const parsedAmount = parseFloat(String(amount).replace(/,/g, ''));
-    if (!date || !invoiceNo || !supplierTin || !supplierName || (vatType !== 'non-vat' && !amount) || isNaN(vatType === 'non-vat' ? (parseFloat(String(exemptAmount).replace(/,/g, '')) || NaN) : (vatType === 'zero-rated' ? (parseFloat(String(zeroRatedAmount).replace(/,/g, '')) || NaN) : parsedAmount))) {
+    if (!date || !supplierName || (!isOtherPayments && (!invoiceNo || !supplierTin)) || !amount || (!isOtherPayments && isNaN(vatType === 'non-vat' ? (parseFloat(String(exemptAmount).replace(/,/g, '')) || NaN) : (vatType === 'zero-rated' ? (parseFloat(String(zeroRatedAmount).replace(/,/g, '')) || NaN) : parsedAmount)))) {
       alert('Please fill out all required fields with valid values.');
       return;
     }
@@ -417,10 +418,10 @@ export function Purchases() {
       supplierTin,
       supplierName,
       supplierAddress,
-      amount: vatType === 'vat-nonvat' || vatType === 'vat' ? netAmount : (vatType === 'non-vat' ? (parseFloat(String(exemptAmount).replace(/,/g, '')) || 0) : (parseFloat(String(zeroRatedAmount).replace(/,/g, '')) || 0)),
-      vatType,
-      exemptAmount: (vatType === 'non-vat' || vatType === 'vat-nonvat') ? (parseFloat(String(exemptAmount).replace(/,/g, '')) || 0) : 0,
-      zeroRatedAmount: vatType === 'zero-rated' ? (parseFloat(String(zeroRatedAmount).replace(/,/g, '')) || 0) : 0,
+      amount: isOtherPayments ? parsedAmount : (vatType === 'vat-nonvat' || vatType === 'vat' ? netAmount : (vatType === 'non-vat' ? (parseFloat(String(exemptAmount).replace(/,/g, '')) || 0) : (parseFloat(String(zeroRatedAmount).replace(/,/g, '')) || 0))),
+      vatType: isOtherPayments ? 'non-vat' : vatType,
+      exemptAmount: isOtherPayments ? 0 : ((vatType === 'non-vat' || vatType === 'vat-nonvat') ? (parseFloat(String(exemptAmount).replace(/,/g, '')) || 0) : 0),
+      zeroRatedAmount: isOtherPayments ? 0 : (vatType === 'zero-rated' ? (parseFloat(String(zeroRatedAmount).replace(/,/g, '')) || 0) : 0),
       withholdingOption,
       atcCode: withholdingOption === 'with' ? atcCode : null,
       whtRate: withholdingOption === 'with' ? (ATC_SCHEDULE.find(e => e.code === atcCode)?.rate ?? null) : null,
@@ -495,6 +496,16 @@ export function Purchases() {
       <PageHeader title={currentDat ? "Expense Data Entry Screen (DAT)" : "Expense Data Entry Screen"} icon={<ShoppingCart className="w-5 h-5 text-amber-500" />} />
       <div className="p-4 md:p-6 flex-1">
 
+      <div className="mb-6 flex flex-wrap gap-2 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 shadow-sm">
+        <button type="button" onClick={() => navigate('/purchases/invoiced')} className={`flex-1 min-w-[140px] px-4 py-3 rounded-xl text-sm font-bold transition-all ${!isOtherPayments ? 'bg-amber-500 text-slate-900 shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Invoiced</button>
+        <button type="button" onClick={() => navigate('/purchases/other-payments')} className={`flex-1 min-w-[140px] px-4 py-3 rounded-xl text-sm font-bold transition-all ${isOtherPayments ? 'bg-amber-500 text-slate-900 shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Other Payments</button>
+        <button type="button" onClick={() => navigate('/purchases/ap')} className="flex-1 min-w-[140px] px-4 py-3 rounded-xl text-sm font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all">Accounts Payable (AP)</button>
+      </div>
+
+      <div className="mb-4 rounded-xl bg-slate-100 dark:bg-slate-800/70 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+        {isOtherPayments ? 'Other Payments' : 'Invoiced'}
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-100 dark:border-slate-700 relative">
         <div className="lg:col-span-3 pb-2 mb-2 border-b border-slate-200 dark:border-slate-700 flex flex-col md:flex-row gap-4 justify-between">
             <div className="w-full md:w-1/3">
@@ -552,12 +563,12 @@ export function Purchases() {
           </>
         )}
 
-        <div>
+        {!isOtherPayments && <div>
            <label className="form-label text-red-500">Invoice # *</label>
            <input type="text" value={invoiceNo} onChange={e => setInvoiceNo(e.target.value)} placeholder="Supplier Invoice" className="form-input" />
-        </div>
+        </div>}
         
-        <div className="relative">
+        {!isOtherPayments && <div className="relative">
           <label className="form-label text-red-500">Supplier TIN *</label>
           <input 
             type="text" 
@@ -572,19 +583,19 @@ export function Purchases() {
               {autoLoadMsg}
             </span>
           )}
-        </div>
+        </div>}
 
         <div>
           <label className="form-label text-red-500">Supplier Name *</label>
           <input type="text" value={supplierName} onChange={e => setSupplierName(e.target.value)} placeholder="Supplier Full Name" className="form-input" />
         </div>
 
-        <div className="lg:col-span-2">
+        {!isOtherPayments && <div className="lg:col-span-2">
           <label className="form-label">Supplier Address</label>
           <input type="text" value={supplierAddress} onChange={e => setSupplierAddress(e.target.value)} placeholder="Street, City, Province" className="form-input" />
-        </div>
+        </div>}
 
-        <div>
+        {!isOtherPayments && <div>
            <label className="form-label text-red-500">VAT Type *</label>
            <select value={vatType} onChange={e => setVatType(e.target.value)} className="form-input bg-slate-100 dark:bg-slate-900 border-slate-300">
              <option value="vat">VAT</option>
@@ -592,17 +603,17 @@ export function Purchases() {
              <option value="vat-nonvat">VAT &amp; Non-VAT</option>
              <option value="zero-rated">0-Rated</option>
            </select>
-        </div>
+        </div>}
 
-        <div>
+        {!isOtherPayments && <div>
            <label className="form-label text-red-500">Withholding Tax *</label>
            <select value={withholdingOption} onChange={e => setWithholdingOption(e.target.value as 'w/o' | 'with')} className="form-input bg-slate-100 dark:bg-slate-900 border-slate-300">
              <option value="w/o">W/O Withholdings</option>
              <option value="with">With Withholdings</option>
            </select>
-        </div>
+        </div>}
 
-        {withholdingOption === 'with' && (
+        {!isOtherPayments && withholdingOption === 'with' && (
           <div className="lg:col-span-2">
             <label className="form-label text-red-500">ATC / Nature of Income Payment *</label>
             <select value={atcCode} onChange={e => setAtcCode(e.target.value)} className="form-input bg-slate-100 dark:bg-slate-900 border-slate-300">
@@ -616,28 +627,28 @@ export function Purchases() {
           </div>
         )}
 
-        {withholdingOption === 'with' && (
+        {!isOtherPayments && withholdingOption === 'with' && (
           <div>
             <label className="form-label text-slate-500">Withholding Tax (₱)</label>
             <input type="text" readOnly value={whtAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="form-input bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold cursor-not-allowed" />
           </div>
         )}
 
-        {(vatType === 'non-vat' || vatType === 'vat-nonvat') && (
+        {!isOtherPayments && (vatType === 'non-vat' || vatType === 'vat-nonvat') && (
           <div>
             <label className="form-label text-red-500">Exempt (₱) *</label>
             <input type="text" value={exemptAmount} onChange={e => /^[0-9.,]*$/.test(e.target.value) && setExemptAmount(e.target.value)} onBlur={e => { const raw = e.target.value.replace(/,/g, ''); if (raw && !isNaN(parseFloat(raw))) setExemptAmount(parseFloat(raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })); }} placeholder="0.00" className="form-input font-bold text-amber-900 border-amber-300 dark:bg-amber-900/20 dark:text-amber-100" />
           </div>
         )}
 
-        {vatType === 'zero-rated' && (
+        {!isOtherPayments && vatType === 'zero-rated' && (
           <div>
             <label className="form-label text-red-500">0-Rated (₱) *</label>
             <input type="text" value={zeroRatedAmount} onChange={e => /^[0-9.,]*$/.test(e.target.value) && setZeroRatedAmount(e.target.value)} onBlur={e => { const raw = e.target.value.replace(/,/g, ''); if (raw && !isNaN(parseFloat(raw))) setZeroRatedAmount(parseFloat(raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })); }} placeholder="0.00" className="form-input font-bold text-amber-900 border-amber-300 dark:bg-amber-900/20 dark:text-amber-100" />
           </div>
         )}
 
-        {(vatType === 'vat' || vatType === 'vat-nonvat') && (
+        {!isOtherPayments && (vatType === 'vat' || vatType === 'vat-nonvat') && (
           <>
             {vatType !== 'non-vat' && <div>
               <label className="form-label text-red-500">Gross Amount (₱) *</label>
@@ -654,6 +665,13 @@ export function Purchases() {
             </div>
             </>}
           </>
+        )}
+
+        {isOtherPayments && (
+          <div className="lg:col-span-1">
+            <label className="form-label text-red-500">Amount (₱) *</label>
+            <input type="text" value={amount} onChange={e => /^[0-9.,]*$/.test(e.target.value) && setAmount(e.target.value)} onBlur={e => { const raw = e.target.value.replace(/,/g, ''); if (raw && !isNaN(parseFloat(raw))) setAmount(parseFloat(raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })); }} placeholder="0.00" className="form-input font-bold text-amber-900 border-amber-300 dark:bg-amber-900/20 dark:text-amber-100" />
+          </div>
         )}
 
         {currentDat && (
