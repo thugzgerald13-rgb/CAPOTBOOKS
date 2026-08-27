@@ -1,32 +1,124 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { PageHeader } from './ui/PageHeader';
 import { Combobox } from './ui/Combobox';
 import { useAccounting } from '../context/AccountingContext';
 import { formatTIN, generateCSV, MONTHS, getMonthName } from '../lib/utils';
-import { ShoppingCart, Plus, Trash2, X, Paperclip, Receipt, FileQuestion, Landmark, ClipboardList } from 'lucide-react';
-import AccountsPayable from './AccountsPayable';
+import { ShoppingCart, Plus, Trash2, X, Paperclip, Upload, FileText, Image as ImageIcon } from 'lucide-react';
 import { DEFAULT_ACCOUNTS, getNormalSide, resequenceAccounts } from './ChartOfAccounts';
 import { ATC_SCHEDULE } from '../lib/atcSchedule';
-import type { Client, Purchase } from '../types';
-import { supabase } from '../lib/supabase';
+
+
+type PurchaseAttachment = {
+  name: string;
+  type: string;
+  size: number;
+  compressedSize: number;
+  encoding: 'optimized-image' | 'gzip' | 'raw';
+  data: string;
+};
+
+const bytesToBase64 = (bytes: Uint8Array) => {
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+};
+
+const base64ToBytes = (value: string) => {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+};
+
+const blobToDataUrl = (blob: Blob) => new Promise<string>((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(String(reader.result));
+  reader.onerror = reject;
+  reader.readAsDataURL(blob);
+});
+
+const gzipBytes = async (bytes: Uint8Array) => {
+  if (!('CompressionStream' in window)) return null;
+  const stream = new Blob([bytes as BlobPart]).stream().pipeThrough(new CompressionStream('gzip'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+};
+
+const optimizeImage = async (file: File): Promise<Blob | null> => {
+  if (!/^image\/(jpeg|png|webp)$/i.test(file.type)) return null;
+  const url = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    image.src = url;
+    await image.decode();
+    const maxDimension = 1920;
+    const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
+    const width = Math.max(1, Math.round(image.naturalWidth * scale));
+    const height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(image, 0, 0, width, height);
+    const mime = file.type.toLowerCase();
+    const quality = mime === 'image/png' ? undefined : 0.82;
+    return await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, mime, quality));
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+};
+
+const prepareAttachment = async (file: File): Promise<PurchaseAttachment> => {
+  const originalBytes = new Uint8Array(await file.arrayBuffer());
+
+  // Photos are re-encoded to a compact, visually faithful representation.
+  const optimized = await optimizeImage(file);
+  if (optimized && optimized.size < file.size) {
+    return {
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      compressedSize: optimized.size,
+      encoding: 'optimized-image',
+      data: await blobToDataUrl(optimized),
+    };
+  }
+
+  // PDFs and unsupported images are gzip-compressed only when it actually saves space.
+  const gzipped = await gzipBytes(originalBytes);
+  if (gzipped && gzipped.length < originalBytes.length) {
+    return {
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      compressedSize: gzipped.length,
+      encoding: 'gzip',
+      data: bytesToBase64(gzipped),
+    };
+  }
+
+  return {
+    name: file.name,
+    type: file.type,
+    size: file.size,
+    compressedSize: file.size,
+    encoding: 'raw',
+    data: await blobToDataUrl(file),
+  };
+};
+
+const attachmentFromStored = (value: unknown): PurchaseAttachment | null => {
+  if (!value || typeof value !== 'object') return null;
+  const v = value as Partial<PurchaseAttachment>;
+  if (!v.name || !v.type || !v.data || !v.encoding) return null;
+  return v as PurchaseAttachment;
+};
 
 export function Purchases() {
-  const { currentClient, currentClientId, currentDat, saveClient, showToast, setCurrentDat, activePage } = useAccounting();
-  const navigate = useNavigate();
-  // The active workspace is driven by the URL (/purchases/invoiced,
-  // /purchases/other-payments, /purchases/ap) rather than local state, so
-  // each tab is its own bookmarkable page and browser back/forward works.
-  const expenseWorkspace: 'receipted' | 'unreceipted' | 'ap' =
-    activePage === 'purchases/ap' ? 'ap'
-      : activePage === 'purchases/other-payments' ? 'unreceipted'
-      : 'receipted';
-  const setExpenseWorkspace = (workspace: 'receipted' | 'unreceipted' | 'ap') => {
-    const path = workspace === 'ap' ? '/purchases/ap'
-      : workspace === 'unreceipted' ? '/purchases/other-payments'
-      : '/purchases/invoiced';
-    navigate(path);
-  };
+  const { currentClient, currentClientId, currentDat, saveClient, showToast, setCurrentDat } = useAccounting();
   
   // Single record state (similar to original but react-friendly)
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -47,82 +139,8 @@ export function Purchases() {
   const [accountTitle, setAccountTitle] = useState('');
   const [transactionDetails, setTransactionDetails] = useState('');
   const [inputTax, setInputTax] = useState(0);
-  const [selectedAccountType, setSelectedAccountType] = useState('');
-  const [attachment, setAttachment] = useState<Purchase['attachment'] | null>(null);
-
-  const fileToDataUrl = (blob: Blob): Promise<string> => new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = reject;
-    reader.readAsDataURL(blob);
-  });
-
-  const optimizeImage = async (file: File): Promise<Blob> => {
-    try {
-      const bitmap = await createImageBitmap(file);
-      const maxDimension = 2200;
-      const scale = Math.min(1, maxDimension / Math.max(bitmap.width, bitmap.height));
-      const width = Math.max(1, Math.round(bitmap.width * scale));
-      const height = Math.max(1, Math.round(bitmap.height * scale));
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('Canvas unavailable');
-      ctx.drawImage(bitmap, 0, 0, width, height);
-      bitmap.close();
-      const optimized = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/webp', 0.82));
-      if (!optimized || optimized.size >= file.size) return file;
-      return optimized;
-    } catch {
-      return file;
-    }
-  };
-
-  const compressPdf = async (file: File): Promise<{ blob: Blob; compression: 'gzip' | 'none' }> => {
-    try {
-      if (!('CompressionStream' in window)) return { blob: file, compression: 'none' };
-      const stream = file.stream().pipeThrough(new CompressionStream('gzip'));
-      const compressed = await new Response(stream).blob();
-      return compressed.size < file.size ? { blob: compressed, compression: 'gzip' } : { blob: file, compression: 'none' };
-    } catch {
-      return { blob: file, compression: 'none' };
-    }
-  };
-
-  const handleAttachmentChange = async (file?: File) => {
-    if (!file) return;
-    if (!(file.type.startsWith('image/') || file.type === 'application/pdf')) {
-      alert('Please upload an image or PDF file.');
-      return;
-    }
-    try {
-      const isOptimizableImage = file.type.startsWith('image/') && !['image/gif', 'image/svg+xml'].includes(file.type);
-      const processed = file.type === 'application/pdf' ? await compressPdf(file) : { blob: isOptimizableImage ? await optimizeImage(file) : file, compression: 'none' as const };
-      const optimizedType = processed.compression === 'gzip' ? 'application/gzip' : (processed.blob.type || file.type);
-      if (!currentClientId) throw new Error('No client selected');
-      const attachmentId = 'purchase_attachment_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
-      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-      const storagePath = `${currentClientId}/${attachmentId}/${safeName}`;
-      const { error: uploadError } = await supabase.storage.from('client-files').upload(storagePath, processed.blob, {
-        contentType: optimizedType,
-        upsert: false,
-      });
-      if (uploadError) throw uploadError;
-      setAttachment({
-        name: file.name,
-        type: optimizedType,
-        originalType: file.type,
-        size: processed.blob.size,
-        originalSize: file.size,
-        compression: processed.compression,
-        content: '',
-        storagePath,
-      });
-    } catch {
-      alert('Unable to process the attachment. Please try another file.');
-    }
-  };
+  const [attachment, setAttachment] = useState<PurchaseAttachment | null>(null);
+  const [attachmentBusy, setAttachmentBusy] = useState(false);
 
   // Derive available accounts from Chart of Accounts
   const coaAccounts = useMemo(() => {
@@ -260,7 +278,7 @@ export function Purchases() {
       }
 
       setTransactionDetails(p.transactionDetails || '');
-      setAttachment(p.attachment || null);
+      setAttachment(attachmentFromStored((p as any).attachment));
       setSequenceNumber(p.sequenceNumber || (index + 1));
       setViewIndex(index);
     }
@@ -355,13 +373,11 @@ export function Purchases() {
     }
   }, [date, currentDat]);
 
-  const isOtherPayment = expenseWorkspace === 'unreceipted';
-
   const handleAddPurchase = () => {
     if (!currentClient || !currentClientId) return;
     
     const parsedAmount = parseFloat(String(amount).replace(/,/g, ''));
-    if (!date || !supplierName || !amount || isNaN(parsedAmount) || (!isOtherPayment && (!invoiceNo || !supplierTin))) {
+    if (!date || !invoiceNo || !supplierTin || !supplierName || !amount || isNaN(parsedAmount)) {
       alert('Please fill out all required fields with valid values.');
       return;
     }
@@ -381,27 +397,27 @@ export function Purchases() {
       paymentMethod,
       bankName: paymentMethod === 'Check' ? bankName : null,
       checkNumber: paymentMethod === 'Check' ? checkNumber : null,
-      invoiceNo: isOtherPayment ? '' : invoiceNo,
-      supplierTin: isOtherPayment ? '' : supplierTin,
+      invoiceNo,
+      supplierTin,
       supplierName,
-      supplierAddress: isOtherPayment ? '' : supplierAddress,
-      amount: isOtherPayment ? parsedAmount : netAmount,
-      vatType: isOtherPayment ? 'non-vat' : vatType,
-      withholdingOption: isOtherPayment ? 'w/o' : withholdingOption,
-      atcCode: isOtherPayment ? null : (withholdingOption === 'with' ? atcCode : null),
-      whtRate: isOtherPayment ? null : (withholdingOption === 'with' ? (ATC_SCHEDULE.find(e => e.code === atcCode)?.rate ?? null) : null),
-      whtAmount: isOtherPayment ? 0 : (withholdingOption === 'with' ? whtAmount : 0),
+      supplierAddress,
+      amount: netAmount,
+      vatType,
+      withholdingOption,
+      atcCode: withholdingOption === 'with' ? atcCode : null,
+      whtRate: withholdingOption === 'with' ? (ATC_SCHEDULE.find(e => e.code === atcCode)?.rate ?? null) : null,
+      whtAmount: withholdingOption === 'with' ? whtAmount : 0,
       expenseType,
       accountTitle,
       transactionDetails,
-      inputTax: isOtherPayment ? 0 : inputTax,
-      attachment: attachment || undefined
+      inputTax,
+      attachment
     };
 
     // Auto-add to TIN Library if new
     let updatedTinLibrary = currentClient.tinLibrary;
-    const exists = !isOtherPayment && currentClient.tinLibrary.suppliers.some(s => s.tin === supplierTin);
-    if (!isOtherPayment && !exists) {
+    const exists = currentClient.tinLibrary.suppliers.some(s => s.tin === supplierTin);
+    if (!exists) {
       updatedTinLibrary = {
         ...currentClient.tinLibrary,
         suppliers: [
@@ -428,7 +444,7 @@ export function Purchases() {
       tinLibrary: updatedTinLibrary
     };
     saveClient(currentClientId, updatedClient);
-    showToast(viewIndex !== null ? 'Entry updated' : (isOtherPayment ? 'Other payment added' : (exists ? 'Expense entry added' : 'Expense added & Supplier saved to Library')));
+    showToast(viewIndex !== null ? 'Entry updated' : (exists ? 'Expense entry added' : 'Expense added & Supplier saved to Library'));
 
     // Reset most form fields, keeping dates
     setInvoiceNo('');
@@ -454,42 +470,7 @@ export function Purchases() {
 
   return (
     <div className="w-full flex flex-col">
-      <PageHeader title={currentDat ? "Purchases (DAT)" : "Purchases"} icon={<ShoppingCart className="w-5 h-5 text-amber-500" />} />
-
-      <div className="px-4 md:px-6 pt-3 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
-        <div className="flex items-center gap-1 overflow-x-auto" role="tablist" aria-label="Expense workspace">
-          {[
-            { id: 'receipted' as const, label: 'Invoiced', icon: Receipt, description: 'Invoiced expenses with supporting documents' },
-            { id: 'unreceipted' as const, label: 'Other Payments', icon: FileQuestion, description: 'Other payments and non-invoice expenses' },
-            { id: 'ap' as const, label: 'AP', icon: Landmark, description: 'Accounts Payable workspace' },
-          ].map(tab => {
-            const Icon = tab.icon;
-            const active = expenseWorkspace === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                title={tab.description}
-                onClick={() => setExpenseWorkspace(tab.id)}
-                className={`flex items-center gap-2 px-4 py-3 text-sm font-bold whitespace-nowrap border-b-2 transition-colors ${active
-                  ? 'border-amber-500 text-amber-600 dark:text-amber-400'
-                  : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300 dark:text-slate-400 dark:hover:text-slate-200'}`}
-              >
-                <Icon className="w-4 h-4" />
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {expenseWorkspace === 'ap' ? (
-        <div className="flex-1 min-w-0">
-          <AccountsPayable />
-        </div>
-      ) : (
+      <PageHeader title={currentDat ? "Expense Data Entry Screen (DAT)" : "Expense Data Entry Screen"} icon={<ShoppingCart className="w-5 h-5 text-amber-500" />} />
       <div className="p-4 md:p-6 flex-1">
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-100 dark:border-slate-700 relative">
@@ -548,8 +529,6 @@ export function Purchases() {
           </>
         )}
 
-        {!isOtherPayment && (
-          <>
         <div>
            <label className="form-label text-red-500">Invoice # *</label>
            <input type="text" value={invoiceNo} onChange={e => setInvoiceNo(e.target.value)} placeholder="Supplier Invoice" className="form-input" />
@@ -571,20 +550,16 @@ export function Purchases() {
             </span>
           )}
         </div>
-          </>
-        )}
 
         <div>
           <label className="form-label text-red-500">Supplier Name *</label>
           <input type="text" value={supplierName} onChange={e => setSupplierName(e.target.value)} placeholder="Supplier Full Name" className="form-input" />
         </div>
 
-        {!isOtherPayment && (
-          <div className="lg:col-span-2">
-            <label className="form-label">Supplier Address</label>
-            <input type="text" value={supplierAddress} onChange={e => setSupplierAddress(e.target.value)} placeholder="Street, City, Province" className="form-input" />
-          </div>
-        )}
+        <div className="lg:col-span-2">
+          <label className="form-label">Supplier Address</label>
+          <input type="text" value={supplierAddress} onChange={e => setSupplierAddress(e.target.value)} placeholder="Street, City, Province" className="form-input" />
+        </div>
 
         <div>
            <label className="form-label text-red-500">VAT Type *</label>
@@ -624,38 +599,33 @@ export function Purchases() {
           </div>
         )}
 
-        <div>
-          <label className="form-label text-red-500">{isOtherPayment ? 'Amount (₱)' : 'Gross Amount (₱)'} *</label>
-          <input 
-            type="text" 
-            value={amount} 
-            onChange={e => {
-              const val = e.target.value;
-              if (/^[0-9.,]*$/.test(val)) {
-                setAmount(val);
-              }
-            }} 
-            onBlur={e => {
-              const raw = e.target.value.replace(/,/g, '');
-              if (raw && !isNaN(parseFloat(raw))) {
-                setAmount(parseFloat(raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
-              }
-            }}
-            placeholder="0.00" 
-            className="form-input font-bold text-amber-900 border-amber-300 dark:bg-amber-900/20 dark:text-amber-100" 
-          />
-        </div>
+        {vatType === 'non-vat' && (
+          <div>
+            <label className="form-label text-red-500">Exempt (₱) *</label>
+            <input type="text" value={exemptAmount} onChange={e => /^[0-9.,]*$/.test(e.target.value) && setExemptAmount(e.target.value)} onBlur={e => { const raw = e.target.value.replace(/,/g, ''); if (raw && !isNaN(parseFloat(raw))) setExemptAmount(parseFloat(raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })); }} placeholder="0.00" className="form-input font-bold text-amber-900 border-amber-300 dark:bg-amber-900/20 dark:text-amber-100" />
+          </div>
+        )}
 
-        {!isOtherPayment && (
+        {vatType === 'zero-rated' && (
+          <div>
+            <label className="form-label text-red-500">0-Rated (₱) *</label>
+            <input type="text" value={zeroRatedAmount} onChange={e => /^[0-9.,]*$/.test(e.target.value) && setZeroRatedAmount(e.target.value)} onBlur={e => { const raw = e.target.value.replace(/,/g, ''); if (raw && !isNaN(parseFloat(raw))) setZeroRatedAmount(parseFloat(raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })); }} placeholder="0.00" className="form-input font-bold text-amber-900 border-amber-300 dark:bg-amber-900/20 dark:text-amber-100" />
+          </div>
+        )}
+
+        {vatType === 'vat' && (
           <>
+            <div>
+              <label className="form-label text-red-500">Gross Amount (₱) *</label>
+              <input type="text" value={amount} onChange={e => /^[0-9.,]*$/.test(e.target.value) && setAmount(e.target.value)} onBlur={e => { const raw = e.target.value.replace(/,/g, ''); if (raw && !isNaN(parseFloat(raw))) setAmount(parseFloat(raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })); }} placeholder="0.00" className="form-input font-bold text-amber-900 border-amber-300 dark:bg-amber-900/20 dark:text-amber-100" />
+            </div>
             <div>
               <label className="form-label text-slate-500">Net Amount (₱)</label>
               <input type="text" readOnly value={netAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="form-input bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold cursor-not-allowed" />
             </div>
-
             <div>
               <label className="form-label text-slate-500">Input Tax (₱)</label>
-              <input type="text" readOnly value={inputTax.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="form-input bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold cursor-not-allowed" />
+              <input type="text" readOnly value={inputTax.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="form-input bg-blue-50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-900/50 text-blue-700 dark:text-blue-300 font-bold cursor-not-allowed" />
             </div>
           </>
         )}
@@ -671,17 +641,12 @@ export function Purchases() {
           </div>
         )}
 
-        <div className={currentDat ? "lg:col-span-2" : "lg:col-span-2 md:col-span-1"}>
+        <div className="lg:col-span-2 md:col-span-2">
           <div className="flex items-center justify-between">
             <label className="form-label">{currentDat ? "Account Title" : "Payment for"}</label>
             {!currentDat && (
               <div className="flex items-center gap-1 mb-1.5">
-                <button
-                  type="button"
-                  onClick={() => setShowAddPaymentAccount(v => !v)}
-                  className="p-1 rounded hover:bg-emerald-100 dark:hover:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 transition-colors"
-                  title="Add a new account"
-                >
+                <button type="button" onClick={() => setShowAddPaymentAccount(v => !v)} className="p-1 rounded hover:bg-emerald-100 dark:hover:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 transition-colors" title="Add a new account">
                   <Plus className="w-3.5 h-3.5" />
                 </button>
               </div>
@@ -694,61 +659,46 @@ export function Purchases() {
             placeholder="Type or choose an account..."
             inputClassName="form-input bg-blue-50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-900/50 font-bold text-blue-800 dark:text-blue-300"
           />
-
           {showAddPaymentAccount && (
             <div className="mt-2 p-3 bg-emerald-50 dark:bg-emerald-900/10 border border-emerald-200 dark:border-emerald-900/50 rounded-xl flex flex-col sm:flex-row gap-2 items-stretch sm:items-end">
               <div className="flex-1">
                 <label className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wide">New Account Name</label>
-                <input
-                  type="text"
-                  value={newPaymentAccountName}
-                  onChange={e => setNewPaymentAccountName(e.target.value)}
-                  placeholder="e.g. Office Supplies Expense"
-                  className="form-input"
-                />
+                <input type="text" value={newPaymentAccountName} onChange={e => setNewPaymentAccountName(e.target.value)} placeholder="e.g. Office Supplies Expense" className="form-input" />
               </div>
               <div className="sm:w-40">
                 <label className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wide">Type</label>
                 <select value={newPaymentAccountType} onChange={e => setNewPaymentAccountType(e.target.value as 'Asset' | 'Costs' | 'Expense')} className="form-input">
-                  <option value="Asset">Asset</option>
-                  <option value="Costs">Costs</option>
-                  <option value="Expense">Expense</option>
+                  <option value="Asset">Asset</option><option value="Costs">Costs</option><option value="Expense">Expense</option>
                 </select>
               </div>
               <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={handleAddPaymentAccount}
-                  className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold px-4 py-2.5 rounded-xl transition-colors text-sm"
-                >
-                  Add
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setShowAddPaymentAccount(false); setNewPaymentAccountName(''); }}
-                  className="bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-bold px-3 py-2.5 rounded-xl transition-colors"
-                  title="Cancel"
-                >
-                  <X className="w-4 h-4" />
-                </button>
+                <button type="button" onClick={handleAddPaymentAccount} className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold px-4 py-2.5 rounded-xl transition-colors text-sm">Add</button>
+                <button type="button" onClick={() => { setShowAddPaymentAccount(false); setNewPaymentAccountName(''); }} className="bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-bold px-3 py-2.5 rounded-xl transition-colors" title="Cancel"><X className="w-4 h-4" /></button>
               </div>
             </div>
           )}
         </div>
 
-        <div className="lg:col-span-1 md:col-span-1">
+        <div className="lg:col-span-1 md:col-span-2">
           <label className="form-label flex items-center gap-1"><Paperclip className="w-3.5 h-3.5" /> Attachment</label>
           <div className="flex items-center gap-2">
-            <label className="form-input cursor-pointer flex items-center justify-center gap-2 font-medium text-sm hover:bg-slate-50 dark:hover:bg-slate-800">
-              <Paperclip className="w-4 h-4" /> Upload image/PDF
-              <input type="file" accept="image/*,.pdf,application/pdf" className="hidden" onChange={e => { void handleAttachmentChange(e.target.files?.[0]); e.currentTarget.value = ''; }} />
+            <label className={`flex-1 cursor-pointer form-input flex items-center gap-2 ${attachmentBusy ? 'opacity-60 pointer-events-none' : ''}`}>
+              {attachmentBusy ? <Upload className="w-4 h-4 animate-pulse" /> : attachment?.type.startsWith('image/') ? <ImageIcon className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
+              <span className="truncate text-xs">{attachmentBusy ? 'Optimizing...' : attachment ? attachment.name : 'Upload image or PDF'}</span>
+              <input type="file" accept="image/*,application/pdf" className="hidden" disabled={attachmentBusy} onChange={async e => {
+                const file = e.target.files?.[0];
+                e.currentTarget.value = '';
+                if (!file) return;
+                if (!file.type.startsWith('image/') && file.type !== 'application/pdf') { alert('Please upload an image or PDF file.'); return; }
+                setAttachmentBusy(true);
+                try { setAttachment(await prepareAttachment(file)); showToast('Attachment optimized and saved with the expense.'); }
+                catch { alert('The attachment could not be processed. Please try another file.'); }
+                finally { setAttachmentBusy(false); }
+              }} />
             </label>
+            {attachment && <button type="button" onClick={() => setAttachment(null)} className="p-2 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20" title="Remove attachment"><X className="w-4 h-4" /></button>}
           </div>
-          {attachment && (
-            <p className="text-[11px] text-slate-500 mt-1 truncate" title={attachment.name}>
-              {attachment.name} · {(attachment.size / 1024).toFixed(0)} KB{attachment.originalSize && attachment.originalSize > attachment.size ? ` · optimized from ${(attachment.originalSize / 1024).toFixed(0)} KB` : ''}
-            </p>
-          )}
+          {attachment && <p className="text-[10px] text-slate-400 mt-1">{(attachment.compressedSize / 1024).toFixed(1)} KB stored · original {(attachment.size / 1024).toFixed(1)} KB</p>}
         </div>
 
         <div className="lg:col-span-3">
@@ -785,8 +735,6 @@ export function Purchases() {
       </div>
 
       </div>
-      )}
     </div>
-
   );
 }
