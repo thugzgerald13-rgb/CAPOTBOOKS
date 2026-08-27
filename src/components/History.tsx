@@ -452,10 +452,10 @@ export function History() {
   return (
     <div className="w-full flex flex-col">
       <PageHeader title={activeConfig.label} icon={<activeConfig.icon className="w-5 h-5 text-indigo-500" />} />
-      <div className="p-4 md:p-6 flex-1">
-      <div className="flex flex-col gap-6">
-        {/* Content Area */}
-        <div className="bg-white dark:bg-slate-900 overflow-hidden">
+      <div className="flex-1 w-full">
+      <div className="flex flex-col">
+        {/* Content Area - intentionally borderless; this is the page workspace, not a card/modal. */}
+        <div className="overflow-hidden">
           {!['slp', 'sls'].includes(activeTab) ? (
             <>
               <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex flex-col xl:flex-row justify-between items-stretch xl:items-center gap-4 bg-slate-50/50 dark:bg-slate-800/30">
@@ -683,7 +683,7 @@ export function History() {
                   )}
                 </div>
               ) : (
-                <div className="overflow-auto max-h-[70vh]">
+                <div className="overflow-x-auto">
                   <table className="w-full text-left border-collapse min-w-max">
                     <thead className="sticky top-0 z-20">
                       <tr className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-xs uppercase font-bold tracking-wider shadow-sm">
