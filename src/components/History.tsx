@@ -27,7 +27,7 @@ export function History() {
     { key: 'exemptAmount', label: 'Exempt' },
     { key: 'zeroRatedAmount', label: '0-Rated' },
     { key: 'amount', label: 'Gross / Recorded Amount' },
-    { key: 'netAmount', label: 'Net Amount' },
+    { key: 'netAmount', label: 'Net of VAT' },
     { key: 'inputTax', label: 'Input Tax' },
     { key: 'withholdingOption', label: 'Withholding Tax' },
     { key: 'atcCode', label: 'ATC Code' },
@@ -77,8 +77,8 @@ export function History() {
       case 'supplierName': return p.supplierName || '—';
       case 'supplierAddress': return p.supplierAddress || '—';
       case 'vatType': return p.vatType || '—';
-      case 'exemptAmount': return money(p.exemptAmount);
-      case 'zeroRatedAmount': return money(p.zeroRatedAmount);
+      case 'exemptAmount': return money(p.exemptAmount ?? (p.vatType === 'non-vat' ? p.amount : 0));
+      case 'zeroRatedAmount': return money(p.zeroRatedAmount ?? (p.vatType === 'zero-rated' ? p.amount : 0));
       case 'amount': return money(p.amount);
       case 'netAmount': return money(p.netAmount ?? p.amount);
       case 'inputTax': return money(p.inputTax);
