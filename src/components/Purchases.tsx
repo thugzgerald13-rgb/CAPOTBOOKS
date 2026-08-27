@@ -492,7 +492,7 @@ export function Purchases() {
   };
 
   return (
-    <div className="w-full flex flex-col">
+    <div className="w-full flex flex-col purchase-page-shell">
       <PageHeader title={currentDat ? "Expense Data Entry Screen (DAT)" : "Expense Data Entry Screen"} icon={<ShoppingCart className="w-5 h-5 text-amber-500" />} />
       <div className="p-4 md:p-6 flex-1">
 
