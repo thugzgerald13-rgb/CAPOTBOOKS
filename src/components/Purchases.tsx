@@ -1,11 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
 import { PageHeader } from './ui/PageHeader';
 import { Combobox } from './ui/Combobox';
 import { useAccounting } from '../context/AccountingContext';
 import { formatTIN, generateCSV, MONTHS, getMonthName } from '../lib/utils';
-import { ShoppingCart, Plus, Trash2, X, Paperclip, Upload, FileText, Image as ImageIcon, Receipt, FileQuestion, Landmark } from 'lucide-react';
-import AccountsPayable from './AccountsPayable';
+import { ShoppingCart, Plus, Trash2, X, Paperclip, Upload, FileText, Image as ImageIcon } from 'lucide-react';
 import { DEFAULT_ACCOUNTS, getNormalSide, resequenceAccounts } from './ChartOfAccounts';
 import { ATC_SCHEDULE } from '../lib/atcSchedule';
 
@@ -120,17 +118,7 @@ const attachmentFromStored = (value: unknown): PurchaseAttachment | null => {
 };
 
 export function Purchases() {
-  const { currentClient, currentClientId, currentDat, saveClient, showToast, setCurrentDat, activePage } = useAccounting();
-  const navigate = useNavigate();
-  const location = useLocation();
-  const expenseWorkspace: 'receipted' | 'unreceipted' | 'ap' =
-    location.pathname === '/purchases/ap' ? 'ap'
-      : location.pathname === '/purchases/other-payments' ? 'unreceipted'
-      : 'receipted';
-  const setExpenseWorkspace = (workspace: 'receipted' | 'unreceipted' | 'ap') => {
-    const path = workspace === 'ap' ? '/purchases/ap' : workspace === 'unreceipted' ? '/purchases/other-payments' : '/purchases/invoiced';
-    navigate(path);
-  };
+  const { currentClient, currentClientId, currentDat, saveClient, showToast, setCurrentDat } = useAccounting();
   
   // Single record state (similar to original but react-friendly)
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -487,30 +475,6 @@ export function Purchases() {
   return (
     <div className="w-full flex flex-col">
       <PageHeader title={currentDat ? "Expense Data Entry Screen (DAT)" : "Expense Data Entry Screen"} icon={<ShoppingCart className="w-5 h-5 text-amber-500" />} />
-
-      <div className="px-4 md:px-6 pt-3 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
-        <div className="flex items-center gap-1 overflow-x-auto" role="tablist" aria-label="Purchases workspace">
-          {[
-            { id: 'receipted' as const, label: 'Invoiced', icon: Receipt, description: 'Invoiced purchases' },
-            { id: 'unreceipted' as const, label: 'Other Payments', icon: FileQuestion, description: 'Other payments' },
-            { id: 'ap' as const, label: 'AP', icon: Landmark, description: 'Accounts Payable' },
-          ].map(tab => {
-            const Icon = tab.icon;
-            const active = expenseWorkspace === tab.id;
-            return (
-              <button key={tab.id} type="button" role="tab" aria-selected={active} title={tab.description}
-                onClick={() => setExpenseWorkspace(tab.id)}
-                className={`flex items-center gap-2 px-4 py-3 text-sm font-bold whitespace-nowrap border-b-2 transition-colors ${active ? 'border-amber-500 text-amber-600 dark:text-amber-400' : 'border-transparent text-slate-500 hover:text-slate-800 hover:border-slate-300 dark:text-slate-400 dark:hover:text-slate-200'}`}>
-                <Icon className="w-4 h-4" />{tab.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {expenseWorkspace === 'ap' ? (
-        <div className="flex-1 min-w-0"><AccountsPayable /></div>
-      ) : (
       <div className="p-4 md:p-6 flex-1">
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-100 dark:border-slate-700 relative">
@@ -771,9 +735,6 @@ export function Purchases() {
       </div>
 
       </div>
-      </div>
-      )}
-
     </div>
   );
 }
