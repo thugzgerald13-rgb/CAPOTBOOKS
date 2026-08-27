@@ -7,6 +7,7 @@ export interface TinEntry {
 
 export interface Purchase {
   id: number;
+  sequenceNumber?: number;
   datMonthYear: string;
   date: string;
   paymentMethod: string;
