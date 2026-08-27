@@ -16,22 +16,17 @@
   }
 }
 
-/* Page shell: no outer four-edge boundary. Keep borders on inner
-   cards, fields, tables, tabs, and controls unchanged. */
+/* Page shell: no outer four-edge frame. Inner cards, fields, tables,
+   tabs, and controls keep their own borders. */
 .app-main,
-.app-content {
+.app-content,
+.page-panel {
   border: 0 !important;
   outline: 0 !important;
-  box-shadow: none !important;
-  border-radius: 0 !important;
 }
 
-/* Some pages use a card-like root container. Remove only that outermost
-   page boundary; descendants keep their own borders, rounded corners,
-   shadows, and field/table/control styling. */
-.app-content > div {
-  border-width: 0 !important;
-  outline: 0 !important;
+.app-main,
+.app-content {
   box-shadow: none !important;
   border-radius: 0 !important;
 }
