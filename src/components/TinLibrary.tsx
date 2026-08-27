@@ -200,7 +200,7 @@ export function TinLibrary() {
       return;
     }
 
-    const newRecord = { id: Date.now(), tin, name, address };
+    const newRecord = { id: `tin_${activeTab === 'customers' ? 'customer' : 'supplier'}_${tin.replace(/\D/g, '')}`, tin, name, address };
     const updatedLib = { ...lib };
     
     if (activeTab === 'customers') {

@@ -440,6 +440,7 @@ export function Purchases() {
         suppliers: [
           ...currentClient.tinLibrary.suppliers,
           {
+            id: `tin_supplier_${supplierTin.replace(/\D/g, '')}`,
             tin: supplierTin,
             name: supplierName,
             address: supplierAddress
