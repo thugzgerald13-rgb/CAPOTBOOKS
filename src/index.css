@@ -47,11 +47,27 @@
 ::-webkit-scrollbar-thumb:hover {
   @apply bg-slate-300 dark:bg-slate-600;
 }
-/* Page shell: keep the application canvas open and borderless.
-   Individual controls/cards may still use their own borders. */
-.app-page-content {
-  border: 0 !important;
-  outline: 0 !important;
-  box-shadow: none !important;
-  border-radius: 0 !important;
+
+/* Application page shell is intentionally borderless.
+   Keep borders on cards, fields, tables, tabs, and other internal controls. */
+@layer base {
+  html, body, #root {
+    border: 0 !important;
+    outline: 0 !important;
+    box-shadow: none !important;
+  }
+
+  #root {
+    min-height: 100vh;
+    width: 100%;
+  }
+
+  .app-shell,
+  .app-main,
+  .app-content {
+    border: 0 !important;
+    outline: 0 !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+  }
 }

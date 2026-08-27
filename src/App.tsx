@@ -40,10 +40,10 @@ function AppLayout() {
   const hasClients = Object.keys(clients).length > 0;
 
   return (
-    <div className="flex h-screen bg-slate-50 dark:bg-slate-900 justify-center overflow-hidden font-sans">
+    <div className="app-shell flex h-screen bg-slate-50 dark:bg-slate-900 justify-center overflow-hidden font-sans border-0 outline-none shadow-none">
       <Sidebar isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} />
       
-      <main className="flex-1 flex flex-col h-screen overflow-y-auto w-full relative border-0 outline-none shadow-none rounded-none">
+      <main className="app-main flex-1 flex flex-col h-screen overflow-y-auto w-full relative border-0 outline-none shadow-none rounded-none">
         <Header onMenuClick={() => setIsSidebarOpen(true)} />
         <div className="px-4 md:px-8 pt-[1.5px] pb-1 md:pb-2 max-w-[1400px] mx-auto w-full">
           {!activePage && (
@@ -82,7 +82,7 @@ function AppLayout() {
             route, so navigating away actually unmounts the previous page
             (fresh state each visit) instead of keeping ~20 components alive
             and toggling visibility. */}
-        <div className="app-page-content px-4 md:px-8 pt-[1.5px] pb-4 md:pb-8 max-w-[1400px] mx-auto w-full border-0 outline-none shadow-none rounded-none">
+        <div className="app-content px-4 md:px-8 pt-[1.5px] pb-4 md:pb-8 max-w-[1400px] mx-auto w-full border-0 outline-none shadow-none rounded-none">
           <Routes>
             <Route path="/sales" element={<Sales />} />
             <Route path="/billing" element={<Billing />} />
