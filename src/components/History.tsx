@@ -9,92 +9,9 @@ import * as XLSX from 'xlsx';
 type HistoryTab = 'expenses' | 'income' | 'slp' | 'sls';
 
 export function History() {
-  const { currentClient, currentClientId, currentDat, saveClient, showToast, navigateToPage, setCurrentDat, historyTab, setHistoryTab, activeDevice } = useAccounting();
+  const { currentClient, currentClientId, saveClient, showToast, navigateToPage, historyTab, setHistoryTab, activeDevice } = useAccounting();
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedMonth, setSelectedMonth] = useState<number>(currentDat?.month || new Date().getMonth() + 1);
-  const [selectedYear, setSelectedYear] = useState<number>(currentDat?.year || new Date().getFullYear());
-
-  const currentYear = new Date().getFullYear();
-  const years = Array.from({ length: currentYear - 2022 }, (_, i) => 2023 + i);
-
-  // Expense History is also allowed to contribute suppliers to the registry.
-  // Merge by normalized TIN and preserve every unique supplier.
-  useEffect(() => {
-    if (!currentClient || !currentClientId) return;
-
-    const purchases = currentClient.purchases || [];
-    const existingSuppliers = currentClient.tinLibrary?.suppliers || [];
-    const merged = [...existingSuppliers];
-    const indexByTin = new Map<string, number>();
-
-    merged.forEach((supplier: any, index: number) => {
-      const tin = String(supplier.tin || '').replace(/\D/g, '');
-      if (tin) indexByTin.set(tin, index);
-    });
-
-    let changed = false;
-    for (const purchase of purchases as any[]) {
-      if (!purchase.supplierTin || !purchase.supplierName) continue;
-      const tin = String(purchase.supplierTin).replace(/\D/g, '');
-      if (!tin) continue;
-
-      const existingIndex = indexByTin.get(tin);
-      if (existingIndex !== undefined) {
-        const existing = merged[existingIndex];
-        if (!existing.name && purchase.supplierName) {
-          merged[existingIndex] = { ...existing, name: purchase.supplierName };
-          changed = true;
-        }
-        if (!existing.address && purchase.supplierAddress) {
-          merged[existingIndex] = { ...merged[existingIndex], address: purchase.supplierAddress };
-          changed = true;
-        }
-      } else {
-        let hash = 0;
-        for (let i = 0; i < tin.length; i++) {
-          hash = ((hash << 5) - hash + tin.charCodeAt(i)) | 0;
-        }
-        const id = `supplier-${Math.abs(hash) || Date.now()}`;
-        indexByTin.set(tin, merged.length);
-        merged.push({
-          id,
-          tin: purchase.supplierTin,
-          name: purchase.supplierName,
-          address: purchase.supplierAddress || ''
-        });
-        changed = true;
-      }
-    }
-
-    if (!changed) return;
-
-    saveClient(currentClientId, {
-      ...currentClient,
-      tinLibrary: {
-        ...(currentClient.tinLibrary || { customers: [], suppliers: [] }),
-        suppliers: merged
-      }
-    });
-  }, [currentClient, currentClientId, saveClient]);
-
-  useEffect(() => {
-    if (currentDat) {
-      setSelectedMonth(currentDat.month);
-      setSelectedYear(currentDat.year);
-    }
-  }, [currentDat]);
-
-  const handleLoadPeriod = () => {
-    const formatted = `${MONTHS[selectedMonth - 1]} ${selectedYear}`;
-    setCurrentDat({
-      month: selectedMonth,
-      year: selectedYear,
-      formatted
-    });
-    showToast(`Loaded data for ${formatted}`);
-  };
-
   const activeTab = historyTab as HistoryTab;
   const setActiveTab = (tab: HistoryTab) => setHistoryTab(tab);
 
@@ -134,9 +51,8 @@ export function History() {
     showToast('Income deleted');
   };
 
-  const targetFormatted = currentDat ? currentDat.formatted : `${MONTHS[selectedMonth - 1]} ${selectedYear}`;
-  const purchases = (currentClient.purchases || []).filter(p => p.datMonthYear === targetFormatted);
-  const sales = (currentClient.sales || []).filter(s => s.datMonthYear === targetFormatted);
+  const purchases = currentClient.purchases || [];
+  const sales = currentClient.sales || [];
 
   const filteredPurchases = purchases.filter(p => 
     p.supplierName.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -159,28 +75,8 @@ export function History() {
     return { outputTax, netOfVat };
   };
 
-  // Derive unique DAT periods from transactions
-  const allPeriods = Array.from(new Set([
-    ...(currentClient.sales || []).map(s => s.datMonthYear),
-    ...(currentClient.purchases || []).map(p => p.datMonthYear)
-  ])).filter(Boolean);
-
-  const handleSwitchPeriod = (period: string) => {
-    const [monthName, yearStr] = period.split(' ');
-    const year = parseInt(yearStr);
-    const monthIndex = MONTHS.indexOf(monthName);
-    if (monthIndex !== -1) {
-      setCurrentDat({
-        month: monthIndex + 1,
-        year,
-        formatted: period
-      });
-      showToast(`Switched to ${period}`);
-    }
-  };
-
   const handleExportSLP = () => {
-    if (!purchases.length || !currentDat || !currentClient) return;
+    if (!purchases.length || !currentClient) return;
 
     const workbook = XLSX.utils.book_new();
     
@@ -265,11 +161,11 @@ export function History() {
     ];
 
     XLSX.utils.book_append_sheet(workbook, worksheet, 'SLP');
-    XLSX.writeFile(workbook, `SLP_${currentDat.formatted.replace(' ', '_')}.xlsx`);
+    XLSX.writeFile(workbook, `SLP_All.xlsx`);
   };
 
   const handleExportSLS = () => {
-    if (!sales.length || !currentDat || !currentClient) return;
+    if (!sales.length || !currentClient) return;
 
     const workbook = XLSX.utils.book_new();
     
@@ -351,7 +247,7 @@ export function History() {
     ];
 
     XLSX.utils.book_append_sheet(workbook, worksheet, 'SLS');
-    XLSX.writeFile(workbook, `SLS_${currentDat.formatted.replace(' ', '_')}.xlsx`);
+    XLSX.writeFile(workbook, `SLS_All.xlsx`);
   };
 
   return (
@@ -366,38 +262,10 @@ export function History() {
               <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex flex-col xl:flex-row justify-between items-stretch xl:items-center gap-4 bg-slate-50/50 dark:bg-slate-800/30">
                 <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                   <h3 className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2 whitespace-nowrap">
-                    {activeTab === 'expenses' ? 'Expense Records' : activeTab === 'income' ? 'Income Records' : 'DAT File Summary'}
-                    <span className="text-[10px] font-bold text-slate-500 bg-slate-200 dark:bg-slate-700 px-2 py-0.5 rounded-full">
-                      {targetFormatted}
-                    </span>
+                    {activeTab === 'expenses' ? 'Expense Records' : activeTab === 'income' ? 'Income Records' : 'Transaction Summary'}
+
                   </h3>
                   
-                  <div className="flex items-center gap-1.5">
-                    <select 
-                      value={selectedMonth} 
-                      onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
-                      className="text-[11px] font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 min-w-[90px] text-slate-700 dark:text-slate-200"
-                    >
-                      {MONTHS.map((m, idx) => (
-                        <option key={m} value={idx + 1}>{m}</option>
-                      ))}
-                    </select>
-                    <select 
-                      value={selectedYear} 
-                      onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-                      className="text-[11px] font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 text-slate-700 dark:text-slate-200"
-                    >
-                      {years.map(y => (
-                        <option key={y} value={y}>{y}</option>
-                      ))}
-                    </select>
-                    <button 
-                      onClick={handleLoadPeriod}
-                      className="px-2.5 py-1.5 text-[11px] font-bold bg-indigo-50 hover:bg-indigo-100 text-indigo-700 dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-slate-200 rounded-lg transition-colors border border-indigo-100 dark:border-slate-700"
-                    >
-                      Load
-                    </button>
-                  </div>
                 </div>
                 <div className="relative w-full sm:w-64">
                   <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
@@ -560,7 +428,7 @@ export function History() {
                     <div className="text-center py-12 text-slate-500 dark:text-slate-400">
                       <HistoryIcon className="w-8 h-8 mx-auto mb-3 opacity-20" />
                       <p className="font-medium">No {activeTab} found for this period.</p>
-                      <p className="text-xs">Adjust your search or change the DAT File Selection.</p>
+                      <p className="text-xs">Adjust your search or filters.</p>
                     </div>
                   )}
                 </div>
@@ -723,7 +591,7 @@ export function History() {
                           <td colSpan={9} className="px-4 py-12 text-center text-slate-500 dark:text-slate-400">
                             <HistoryIcon className="w-8 h-8 mx-auto mb-3 opacity-20" />
                             <p className="font-medium">No {activeTab} found for this period.</p>
-                            <p className="text-xs">Adjust your search or change the DAT File Selection.</p>
+                            <p className="text-xs">Adjust your search or filters.</p>
                           </td>
                         </tr>
                       )}
@@ -740,32 +608,6 @@ export function History() {
                     <FolderClock className="w-4 h-4 text-cyan-500" />
                     Summary List of Purchases (SLP)
                   </h3>
-                  <div className="flex items-center gap-2">
-                    <select 
-                      value={selectedMonth} 
-                      onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
-                      className="text-[11px] font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-cyan-500/50 min-w-[100px]"
-                    >
-                      {MONTHS.map((m, idx) => (
-                        <option key={m} value={idx + 1}>{m}</option>
-                      ))}
-                    </select>
-                    <select 
-                      value={selectedYear} 
-                      onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-                      className="text-[11px] font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-cyan-500/50"
-                    >
-                      {years.map(y => (
-                        <option key={y} value={y}>{y}</option>
-                      ))}
-                    </select>
-                    <button 
-                      onClick={handleLoadPeriod}
-                      className="px-3 py-1.5 text-[11px] font-bold bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
-                    >
-                      Load
-                    </button>
-                  </div>
                 </div>
                 <div className="flex items-center gap-2">
                   {purchases.length > 0 && (
@@ -779,22 +621,10 @@ export function History() {
                 </div>
               </div>
 
-              {!currentDat ? (
-                <div className="p-12 text-center text-slate-500 dark:text-slate-400">
-                  <FolderClock className="w-12 h-12 mx-auto mb-4 opacity-10" />
-                  <p className="font-bold">No Period Selected</p>
-                  <p className="text-sm mb-6">Please select a period to view the summary list.</p>
-                  <button 
-                    onClick={() => navigateToPage('purchases')}
-                    className="px-6 py-2 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/20"
-                  >
-                    Select Period Now
-                  </button>
-                </div>
-              ) : purchases.length === 0 ? (
+              {purchases.length === 0 ? (
                 <div className="p-12 text-center text-slate-500 dark:text-slate-400">
                   <HistoryIcon className="w-12 h-12 mx-auto mb-4 opacity-10" />
-                  <p className="font-bold">No Records in {currentDat.formatted}</p>
+                  <p className="font-bold">No Records Found</p>
                   <p className="text-sm">Add some expense entries to see the summary here.</p>
                 </div>
               ) : (
@@ -827,7 +657,7 @@ export function History() {
                         const isCapital = p.expenseType === 'Capital Goods';
                         const isOthers = p.expenseType === 'Others';
 
-                        const monthNum = currentDat?.month?.toString().padStart(2, '0') || '—';
+                        const monthNum = p.date ? String(new Date(p.date).getMonth() + 1).padStart(2, '0') : '—';
                         const grossTotal = p.amount + (p.inputTax || 0);
 
                         return (
@@ -912,32 +742,6 @@ export function History() {
                     <FolderClock className="w-4 h-4 text-indigo-500" />
                     Summary List of Sales (SLS)
                   </h3>
-                  <div className="flex items-center gap-2">
-                    <select 
-                      value={selectedMonth} 
-                      onChange={(e) => setSelectedMonth(parseInt(e.target.value))}
-                      className="text-[11px] font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 min-w-[100px]"
-                    >
-                      {MONTHS.map((m, idx) => (
-                        <option key={m} value={idx + 1}>{m}</option>
-                      ))}
-                    </select>
-                    <select 
-                      value={selectedYear} 
-                      onChange={(e) => setSelectedYear(parseInt(e.target.value))}
-                      className="text-[11px] font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
-                    >
-                      {years.map(y => (
-                        <option key={y} value={y}>{y}</option>
-                      ))}
-                    </select>
-                    <button 
-                      onClick={handleLoadPeriod}
-                      className="px-3 py-1.5 text-[11px] font-bold bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-600 transition-colors"
-                    >
-                      Load
-                    </button>
-                  </div>
                 </div>
                 <div className="flex items-center gap-2">
                   {sales.length > 0 && (
@@ -951,22 +755,10 @@ export function History() {
                 </div>
               </div>
 
-              {!currentDat ? (
-                <div className="p-12 text-center text-slate-500 dark:text-slate-400">
-                  <FolderClock className="w-12 h-12 mx-auto mb-4 opacity-10" />
-                  <p className="font-bold">No Period Selected</p>
-                  <p className="text-sm mb-6">Please select a period to view the summary list.</p>
-                  <button 
-                    onClick={() => navigateToPage('sales')}
-                    className="px-6 py-2 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/20"
-                  >
-                    Select Period Now
-                  </button>
-                </div>
-              ) : sales.length === 0 ? (
+              {sales.length === 0 ? (
                 <div className="p-12 text-center text-slate-500 dark:text-slate-400">
                   <HistoryIcon className="w-12 h-12 mx-auto mb-4 opacity-10" />
-                  <p className="font-bold">No Records in {currentDat.formatted}</p>
+                  <p className="font-bold">No Records Found</p>
                   <p className="text-sm">Add some income entries to see the summary here.</p>
                 </div>
               ) : (
@@ -994,7 +786,7 @@ export function History() {
                         const isExempt = s.vatType === 'VAT Exempt';
                         const isZeroRated = s.vatType === 'Zero-Rated';
                         const taxableAmount = (isExempt || isZeroRated) ? 0 : netOfVat;
-                        const monthNum = currentDat?.month?.toString().padStart(2, '0') || '—';
+                        const monthNum = p.date ? String(new Date(p.date).getMonth() + 1).padStart(2, '0') : '—';
 
                         return (
                           <tr key={s.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">

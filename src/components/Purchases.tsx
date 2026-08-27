@@ -118,7 +118,7 @@ const attachmentFromStored = (value: unknown): PurchaseAttachment | null => {
 };
 
 export function Purchases() {
-  const { currentClient, currentClientId, currentDat, saveClient, showToast, setCurrentDat } = useAccounting();
+  const { currentClient, currentClientId, saveClient, showToast } = useAccounting();
   
   // Single record state (similar to original but react-friendly)
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -148,16 +148,12 @@ export function Purchases() {
   const coaAccounts = useMemo(() => {
     let accs = (currentClient?.accounts || []).filter(a => !a.hidden);
     if (accs.length === 0) accs = DEFAULT_ACCOUNTS;
-    if (currentDat) {
-      return accs.filter(a => expenseType === 'Capital Goods' ? (a.type.toLowerCase() === 'asset' || a.type.toLowerCase() === 'assets') : (a.type.toLowerCase() === 'expense' || a.type.toLowerCase() === 'expenses'));
-    } else {
-      // Payment for: always limited to Assets, Costs, and Expenses accounts
-      return accs.filter(a => {
-        const at = a.type.toLowerCase();
-        return at === 'asset' || at === 'assets' || at === 'costs' || at === 'cost' || at === 'expense' || at === 'expenses';
-      });
-    }
-  }, [currentClient?.accounts, currentDat, expenseType]);
+    // Purchases always uses the normal Payment/Account selection.
+    return accs.filter(a => {
+      const at = a.type.toLowerCase();
+      return at === 'asset' || at === 'assets' || at === 'costs' || at === 'cost' || at === 'expense' || at === 'expenses';
+    });
+  }, [currentClient?.accounts, expenseType]);
 
   // Clear the "Payment for" / "Account Title" selection whenever it no
   // longer matches an account in the current category (e.g. switching
@@ -167,7 +163,7 @@ export function Purchases() {
   useEffect(() => {
     setAccountTitle(prev => (coaAccounts.find(a => a.name === prev) ? prev : ''));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expenseType, currentDat, coaAccounts]);
+  }, [expenseType, coaAccounts]);
 
   // Let users customize the "Payment for" account list right from this tab —
   // adding a new Chart of Accounts entry or removing the currently selected
@@ -232,25 +228,14 @@ export function Purchases() {
   useEffect(() => {
     if (currentClient && viewIndex === null) {
       const periodPurchases = currentClient.purchases || [];
-      const count = currentDat ? periodPurchases.filter(p => p.datMonthYear === currentDat.formatted).length : 0;
+      const count = periodPurchases.length;
       setSequenceNumber(count + 1);
     }
-  }, [currentClient?.purchases.length, currentDat?.formatted, viewIndex]);
+  }, [currentClient?.purchases.length, viewIndex]);
 
   const [autoLoadMsg, setAutoLoadMsg] = useState('');
 
-  const periodPurchases = (() => {
-    if (!currentClient) return [];
-    const all = currentClient.purchases || [];
-    if (currentDat) {
-      return all.filter(p => p.datMonthYear === currentDat.formatted);
-    } else {
-      if (!date) return [];
-      const [y, m] = date.split('-');
-      const expected = `${MONTHS[parseInt(m) - 1]} ${y}`;
-      return all.filter(p => p.datMonthYear === expected);
-    }
-  })();
+  const periodPurchases = currentClient?.purchases || [];
 
   const loadPurchase = (index: number) => {
     if (index < 0 || index >= periodPurchases.length) return;
@@ -365,29 +350,6 @@ export function Purchases() {
     }
   }, [supplierTin, currentClient]);
 
-  // Date validation against DAT
-  useEffect(() => {
-    if (!currentDat || !date) {
-      setDateWarning(null);
-      return;
-    }
-    const selectedDate = new Date(date);
-    const y = selectedDate.getFullYear();
-    const m = selectedDate.getMonth() + 1;
-
-    if (y > currentDat.year) {
-      setDateWarning(`⚠️ Transaction year (${y}) cannot be later than DAT year (${currentDat.year})`);
-    } else if (y < currentDat.year) {
-      setDateWarning(`⚠️ Transaction year (${y}) is earlier than DAT year (${currentDat.year}). Please select a date within ${currentDat.formatted}.`);
-    } else if (m > currentDat.month) {
-      setDateWarning(`⚠️ Transaction month cannot be later than DAT month`);
-    } else if (m < currentDat.month) {
-      setDateWarning(`⚠️ Transaction month is earlier than DAT month. Please select a date within ${currentDat.formatted}.`);
-    } else {
-      setDateWarning(null);
-    }
-  }, [date, currentDat]);
-
   const handleAddPurchase = () => {
     if (!currentClient || !currentClientId) return;
     
@@ -407,7 +369,7 @@ export function Purchases() {
     const purchaseData = {
       id: viewIndex !== null ? periodPurchases[viewIndex].id : Date.now(),
       sequenceNumber: viewIndex !== null ? (periodPurchases[viewIndex].sequenceNumber || sequenceNumber) : sequenceNumber,
-      datMonthYear: currentDat ? currentDat.formatted : `${MONTHS[parseInt(m) - 1]} ${y}`,
+      datMonthYear: `${MONTHS[parseInt(m) - 1]} ${y}`,
       date: formattedDate,
       paymentMethod,
       bankName: paymentMethod === 'Check' ? bankName : null,
@@ -431,41 +393,22 @@ export function Purchases() {
       attachment
     };
 
-    // Add/update the Supplier Registry from an Invoiced Purchase without overwriting
-    // another supplier. TIN is the unique business key; the generated id is stable.
-    const normalizedTin = String(supplierTin || '').replace(/\D/g, '');
-    const existingSuppliers = currentClient.tinLibrary?.suppliers || [];
-    const existingIndex = existingSuppliers.findIndex(
-      (s: any) => String(s.tin || '').replace(/\D/g, '') === normalizedTin
-    );
-
-    let updatedSuppliers = [...existingSuppliers];
-    if (normalizedTin) {
-      if (existingIndex >= 0) {
-        updatedSuppliers[existingIndex] = {
-          ...updatedSuppliers[existingIndex],
-          tin: supplierTin,
-          name: supplierName || updatedSuppliers[existingIndex].name,
-          address: supplierAddress || updatedSuppliers[existingIndex].address || ''
-        };
-      } else {
-        let hash = 0;
-        for (let i = 0; i < normalizedTin.length; i++) {
-          hash = ((hash << 5) - hash + normalizedTin.charCodeAt(i)) | 0;
-        }
-        updatedSuppliers.push({
-          id: `supplier-${Math.abs(hash) || Date.now()}`,
-          tin: supplierTin,
-          name: supplierName,
-          address: supplierAddress || ''
-        });
-      }
+    // Auto-add to TIN Library if new
+    let updatedTinLibrary = currentClient.tinLibrary;
+    const exists = currentClient.tinLibrary.suppliers.some(s => s.tin === supplierTin);
+    if (!exists) {
+      updatedTinLibrary = {
+        ...currentClient.tinLibrary,
+        suppliers: [
+          ...currentClient.tinLibrary.suppliers,
+          {
+            tin: supplierTin,
+            name: supplierName,
+            address: supplierAddress
+          }
+        ]
+      };
     }
-
-    const updatedTinLibrary = {
-      ...(currentClient.tinLibrary || { customers: [], suppliers: [] }),
-      suppliers: updatedSuppliers
-    };
 
     let updatedPurchases;
     if (viewIndex !== null) {
@@ -508,7 +451,7 @@ export function Purchases() {
 
   return (
     <div className="w-full flex flex-col">
-      <PageHeader title={currentDat ? "Expense Data Entry Screen (DAT)" : "Expense Data Entry Screen"} icon={<ShoppingCart className="w-5 h-5 text-amber-500" />} />
+      <PageHeader title="Expense Data Entry Screen" icon={<ShoppingCart className="w-5 h-5 text-amber-500" />} />
       <div className="p-4 md:p-6 flex-1">
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-100 dark:border-slate-700 relative">
@@ -519,8 +462,7 @@ export function Purchases() {
                 type="date" 
                 value={date} 
                 onChange={e => setDate(e.target.value)} 
-                min={currentDat ? `${currentDat.year}-${String(currentDat.month).padStart(2, '0')}-01` : undefined}
-                max={currentDat ? `${currentDat.year}-${String(currentDat.month).padStart(2, '0')}-${String(new Date(currentDat.year, currentDat.month, 0).getDate()).padStart(2, '0')}` : undefined}
+
                 className="form-input" 
               />
               {dateWarning && <p className="text-xs text-amber-600 bg-amber-100 p-2 mt-1 rounded-lg">{dateWarning}</p>}
@@ -671,7 +613,7 @@ export function Purchases() {
           </>
         )}
 
-        {currentDat && (
+        {
           <div className="lg:col-span-1">
             <label className="form-label">Expense Class</label>
             <select value={expenseType} onChange={e => setExpenseType(e.target.value)} className="form-input">
@@ -684,8 +626,8 @@ export function Purchases() {
 
         <div className="lg:col-span-2 md:col-span-2">
           <div className="flex items-center justify-between">
-            <label className="form-label">{currentDat ? "Account Title" : "Payment for"}</label>
-            {!currentDat && (
+            <label className="form-label">Account Title</label>
+            {(
               <div className="flex items-center gap-1 mb-1.5">
                 <button type="button" onClick={() => setShowAddPaymentAccount(v => !v)} className="p-1 rounded hover:bg-emerald-100 dark:hover:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 transition-colors" title="Add a new account">
                   <Plus className="w-3.5 h-3.5" />
