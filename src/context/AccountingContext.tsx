@@ -337,9 +337,12 @@ const persistNormalizedClient = async (client: Client, userId: string) => {
   ];
   await syncMany('tin_entries', tins.map((x:any)=>{
     const normalizedTin=String(x.tin||'').replace(/\D/g,'');
-    const fallbackId=`tin_${x.partyType}_${normalizedTin || String(x.name||'').trim().toLowerCase().replace(/\s+/g,'_')}`;
+    const stableId=`tin_${x.partyType}_${normalizedTin || String(x.name||'').trim().toLowerCase().replace(/[^a-z0-9]+/g,'_')}`;
     return {
-      id:strId(x.id ?? fallbackId),
+      // TIN + party type is the logical identity of a library entry. Prefer
+      // the stable identity for UI-created entries so the 4th supplier can
+      // never reuse/overwrite the 3rd supplier's primary key.
+      id: strId(x.id || stableId),
       tin:String(x.tin||''),
       name:String(x.name||'').trim(),
       address:x.address||null,
