@@ -327,7 +327,25 @@ const persistNormalizedClient = async (client: Client, userId: string) => {
   await syncMany('inventory_movements',(client.inventoryMovements||[]).map((m:any)=>({id:strId(m.id),item_id:m.itemId||null,item_name:m.itemName||null,item_code:m.itemCode||null,date:m.date,type:m.type,qty:Number(m.qty||0),unit_cost:Number(m.unitCost||0),total_value:Number(m.totalValue||0),reference:m.reference||null,notes:m.notes||null})));
   await syncMany('app_folders',(client.folders||[]).map((f:any)=>({id:strId(f.id),name:f.name,is_default:!!f.isDefault,type:f.type||'custom'})));
   await syncMany('app_files',(client.files||[]).filter((f:any)=>f.storagePath).map((f:any)=>({id:strId(f.id),name:f.name,type:f.type||'application/octet-stream',size:Number(f.size||0),uploaded_at:f.uploadedAt||new Date().toISOString(),folder_id:f.folderId||null,storage_path:f.storagePath,description:f.description||null})));
-  const tins=[...(client.tinLibrary?.customers||[]).map((x:any)=>({...x,partyType:'customer'})),...(client.tinLibrary?.suppliers||[]).map((x:any)=>({...x,partyType:'supplier'}))]; await syncMany('tin_entries',tins.map((x:any)=>({id:strId(x.id),tin:x.tin,name:x.name,address:x.address||null,party_type:x.partyType})));
+  // Persist TIN Library entries with a stable ID. Older UI-created entries may
+  // not have an id, so never send "undefined" as a primary key. A deterministic
+  // ID based on party type + TIN also prevents the same supplier/customer from
+  // being inserted repeatedly during client synchronization.
+  const tins=[
+    ...(client.tinLibrary?.customers||[]).map((x:any)=>({...x,partyType:'customer'})),
+    ...(client.tinLibrary?.suppliers||[]).map((x:any)=>({...x,partyType:'supplier'}))
+  ];
+  await syncMany('tin_entries', tins.map((x:any)=>{
+    const normalizedTin=String(x.tin||'').replace(/\D/g,'');
+    const fallbackId=`tin_${x.partyType}_${normalizedTin || String(x.name||'').trim().toLowerCase().replace(/\s+/g,'_')}`;
+    return {
+      id:strId(x.id ?? fallbackId),
+      tin:String(x.tin||''),
+      name:String(x.name||'').trim(),
+      address:x.address||null,
+      party_type:x.partyType
+    };
+  }));
   await syncMany('tax_deadlines',(client.taxDeadlines||[]).map((t:any)=>({id:strId(t.id),form_type:t.formType,title:t.title,period:t.period,due_date:t.dueDate,status:t.status,tax_status:t.taxStatus||null,amount_due:t.amountDue??null,date_filed:t.dateFiled||null,date_paid:t.datePaid||null,reference_no:t.referenceNo||null,confirmation_no:t.confirmationNo||null,notes:t.notes||null})));
   await syncMany('bank_accounts',(client.bankAccounts||[]).map((b:any)=>({id:strId(b.id),bank_name:b.bankName,account_number:b.accountNumber,balance:Number(b.balance||0)})));
   await syncMany('supplier_advances',(client.supplierAdvances||[]).map((a:any)=>({id:strId(a.id),supplier_id:a.supplierId||null,supplier_name:a.supplierName||null,date:a.date,amount:Number(a.amount||0),is_liquidated:!!a.isLiquidated,notes:a.notes||null})));
