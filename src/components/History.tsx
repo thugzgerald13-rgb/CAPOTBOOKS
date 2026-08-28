@@ -41,6 +41,7 @@ export function History() {
 
   const defaultExpenseColumns = ['date', 'invoiceNo', 'supplierName', 'supplierTin', 'paymentMethod', 'vatType', 'amount', 'netAmount', 'inputTax'];
   const [showExpenseColumns, setShowExpenseColumns] = useState(false);
+  const [showExpenseExport, setShowExpenseExport] = useState(false);
   const [visibleExpenseColumns, setVisibleExpenseColumns] = useState<string[]>(defaultExpenseColumns);
 
   useEffect(() => {
@@ -63,6 +64,74 @@ export function History() {
 
   const toggleExpenseColumn = (key: string) => {
     setVisibleExpenseColumns(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
+  };
+
+  const getExpenseExportValue = (p: any, key: string) => {
+    switch (key) {
+      case 'date': return p.date || '';
+      case 'paymentMethod': return p.paymentMethod || '';
+      case 'bankName': return p.bankName || '';
+      case 'checkNumber': return p.checkNumber || '';
+      case 'invoiceNo': return p.invoiceNo || p.referenceNo || '';
+      case 'supplierTin': return p.supplierTin || '';
+      case 'supplierName': return p.supplierName || '';
+      case 'supplierAddress': return p.supplierAddress || '';
+      case 'vatType': return p.vatType || '';
+      case 'exemptAmount': {
+        const exempt = Number(p.exemptAmount);
+        return Number.isFinite(exempt) && exempt !== 0
+          ? exempt
+          : ((p.vatType === 'non-vat' || p.vatType === 'vat-nonvat') ? Number(p.amount || 0) : 0);
+      }
+      case 'zeroRatedAmount': {
+        const zeroRated = Number(p.zeroRatedAmount);
+        return Number.isFinite(zeroRated) && zeroRated !== 0
+          ? zeroRated
+          : (p.vatType === 'zero-rated' ? Number(p.amount || 0) : 0);
+      }
+      case 'amount': return Number(p.amount || 0) + Number(p.inputTax || 0) + Number(p.exemptAmount || 0) + Number(p.zeroRatedAmount || 0);
+      case 'netAmount': return Number(p.netAmount ?? p.amount ?? 0);
+      case 'inputTax': return Number(p.inputTax || 0);
+      case 'withholdingOption': return p.withholdingOption || '';
+      case 'atcCode': return p.atcCode || '';
+      case 'whtRate': return p.whtRate == null ? '' : Number(p.whtRate) * 100;
+      case 'whtAmount': return Number(p.whtAmount || 0);
+      case 'expenseType': return p.expenseType || '';
+      case 'accountTitle': return p.accountTitle || '';
+      case 'transactionDetails': return p.transactionDetails || '';
+      case 'attachment': return p.attachment ? 'Attached' : '';
+      default: return p[key] == null ? '' : p[key];
+    }
+  };
+
+  const handleExportExpenses = (format: 'xlsx' | 'csv') => {
+    if (!filteredPurchases.length || !currentDat) {
+      showToast('No expense records to export for this period.');
+      setShowExpenseExport(false);
+      return;
+    }
+
+    const columns = visibleExpenseColumns
+      .map(key => expenseColumnDefinitions.find(col => col.key === key))
+      .filter(Boolean) as typeof expenseColumnDefinitions;
+    const rows = [
+      columns.map(col => col.label),
+      ...filteredPurchases.map(p => columns.map(col => getExpenseExportValue(p, col.key)))
+    ];
+    const filenameBase = `Expense_History_${currentDat.formatted.replace(/\s+/g, '_')}`;
+
+    if (format === 'csv') {
+      generateCSV(`${filenameBase}.csv`, rows);
+    } else {
+      const workbook = XLSX.utils.book_new();
+      const worksheet = XLSX.utils.aoa_to_sheet(rows);
+      worksheet['!cols'] = columns.map(col => ({ wch: Math.max(col.label.length + 2, 15) }));
+      XLSX.utils.book_append_sheet(workbook, worksheet, 'Expense History');
+      XLSX.writeFile(workbook, `${filenameBase}.xlsx`);
+    }
+
+    setShowExpenseExport(false);
+    showToast(`Expense History exported to ${format.toUpperCase()}.`);
   };
 
   const formatExpenseColumnValue = (p: any, key: string) => {
@@ -515,6 +584,21 @@ export function History() {
                     <button type="button" onClick={() => setShowExpenseColumns(v => !v)} className="inline-flex items-center gap-2 px-3 py-2 text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
                       <Columns3 className="w-4 h-4" /> Columns <ChevronDown className="w-3.5 h-3.5" />
                     </button>
+                    <div className="relative">
+                      <button type="button" onClick={() => setShowExpenseExport(v => !v)} className="inline-flex items-center gap-2 px-3 py-2 text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
+                        <FileDown className="w-4 h-4" /> Export <ChevronDown className="w-3.5 h-3.5" />
+                      </button>
+                      {showExpenseExport && (
+                        <div className="absolute right-0 top-full mt-2 w-44 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl z-50 overflow-hidden">
+                          <button type="button" onClick={() => handleExportExpenses('xlsx')} className="w-full flex items-center gap-2 px-4 py-3 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 text-left">
+                            <FileSpreadsheet className="w-4 h-4 text-emerald-600" /> Export to Excel (.xlsx)
+                          </button>
+                          <button type="button" onClick={() => handleExportExpenses('csv')} className="w-full flex items-center gap-2 px-4 py-3 text-xs font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 text-left">
+                            <FileDown className="w-4 h-4 text-blue-600" /> Export to CSV (.csv)
+                          </button>
+                        </div>
+                      )}
+                    </div>
                     {showExpenseColumns && (
                       <div className="absolute right-0 top-11 z-50 w-72 max-h-96 overflow-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl p-3">
                         <div className="flex items-center justify-between mb-2">
