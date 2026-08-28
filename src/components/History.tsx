@@ -77,11 +77,23 @@ export function History() {
       case 'supplierName': return p.supplierName || '—';
       case 'supplierAddress': return p.supplierAddress || '—';
       case 'vatType': return p.vatType || '—';
-      // Exempt and 0-Rated must come exclusively from their dedicated fields.
-      // Never fall back to `amount`, because doing so can populate the wrong
-      // VAT column when an entry was saved with a different classification.
-      case 'exemptAmount': return money(p.exemptAmount);
-      case 'zeroRatedAmount': return money(p.zeroRatedAmount);
+      // Expense History must use the values entered in the Purchases VAT fields.
+      // Fall back to the recorded amount only for legacy records that did not
+      // have the dedicated exempt/0-rated fields saved.
+      case 'exemptAmount': {
+        const exempt = Number(p.exemptAmount);
+        if (Number.isFinite(exempt) && exempt !== 0) return money(exempt);
+        return money(
+          (p.vatType === 'non-vat' || p.vatType === 'vat-nonvat')
+            ? p.amount
+            : 0
+        );
+      }
+      case 'zeroRatedAmount': {
+        const zeroRated = Number(p.zeroRatedAmount);
+        if (Number.isFinite(zeroRated) && zeroRated !== 0) return money(zeroRated);
+        return money(p.vatType === 'zero-rated' ? p.amount : 0);
+      }
       case 'amount': return money(Number(p.amount || 0) + Number(p.inputTax || 0) + Number(p.exemptAmount || 0) + Number(p.zeroRatedAmount || 0));
       case 'netAmount': return money(p.netAmount ?? p.amount);
       case 'inputTax': return money(p.inputTax);
@@ -439,7 +451,23 @@ export function History() {
 
   return (
     <div className="w-full flex flex-col">
-      <PageHeader title={activeConfig.label} icon={<activeConfig.icon className="w-5 h-5 text-indigo-500" />} />
+      <PageHeader
+        title={activeConfig.label}
+        icon={<activeConfig.icon className="w-5 h-5 text-indigo-500" />}
+        actions={activeTab === 'expenses' ? (
+          <div className="flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 px-4 py-2 rounded-xl border border-amber-100 dark:border-amber-800/50 whitespace-nowrap">
+            <span className="text-[10px] uppercase font-bold text-amber-600 dark:text-amber-400">Period Total Expenses</span>
+            <span className="text-lg font-black text-amber-700 dark:text-amber-300">
+              ₱{purchases.reduce((sum, p) => {
+                const netOfVat = Number(p.netAmount ?? p.amount ?? 0);
+                const exempt = Number(p.exemptAmount || 0);
+                const zeroRated = Number(p.zeroRatedAmount || 0);
+                return sum + netOfVat + exempt + zeroRated;
+              }, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+            </span>
+          </div>
+        ) : undefined}
+      />
       <div className="flex-1 w-full">
       <div className="flex flex-col">
         {/* Content Area - intentionally borderless; this is the page workspace, not a card/modal. */}
@@ -503,19 +531,6 @@ export function History() {
                         </div>
                       </div>
                     )}
-                  </div>
-                )}
-                {activeTab === 'expenses' && (
-                  <div className="ml-auto flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 px-4 py-2 rounded-xl border border-amber-100 dark:border-amber-800/50 whitespace-nowrap">
-                    <span className="text-[10px] uppercase font-bold text-amber-600 dark:text-amber-400">Period Total Expenses</span>
-                    <span className="text-lg font-black text-amber-700 dark:text-amber-300">
-                      ₱{purchases.reduce((sum, p) => {
-                        const netOfVat = Number(p.netAmount ?? p.amount ?? 0);
-                        const exempt = Number(p.exemptAmount || 0);
-                        const zeroRated = Number(p.zeroRatedAmount || 0);
-                        return sum + netOfVat + exempt + zeroRated;
-                      }, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                    </span>
                   </div>
                 )}
                 <div className="relative w-full sm:w-64">
