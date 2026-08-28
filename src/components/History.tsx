@@ -94,7 +94,7 @@ export function History() {
         if (Number.isFinite(zeroRated) && zeroRated !== 0) return money(zeroRated);
         return money(p.vatType === 'zero-rated' ? p.amount : 0);
       }
-      case 'amount': return money(p.amount);
+      case 'amount': return money(Number(p.amount || 0) + Number(p.inputTax || 0) + Number(p.exemptAmount || 0) + Number(p.zeroRatedAmount || 0));
       case 'netAmount': return money(p.netAmount ?? p.amount);
       case 'inputTax': return money(p.inputTax);
       case 'withholdingOption': return p.withholdingOption || '—';
