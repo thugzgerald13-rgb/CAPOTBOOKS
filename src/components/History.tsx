@@ -94,7 +94,7 @@ export function History() {
         if (Number.isFinite(zeroRated) && zeroRated !== 0) return money(zeroRated);
         return money(p.vatType === 'zero-rated' ? p.amount : 0);
       }
-      case 'amount': return money(Number(p.amount || 0) + Number(p.inputTax || 0) + Number(p.exemptAmount || 0) + Number(p.zeroRatedAmount || 0));
+      case 'amount': return money(p.amount);
       case 'netAmount': return money(p.netAmount ?? p.amount);
       case 'inputTax': return money(p.inputTax);
       case 'withholdingOption': return p.withholdingOption || '—';
@@ -215,7 +215,20 @@ export function History() {
   };
 
   const handleEditExpense = (purchase: typeof purchases[number]) => {
-    const path = purchase.invoiceNo && purchase.supplierTin ? '/purchases/invoiced' : '/purchases/other-payments';
+    let source: string | null = null;
+    try {
+      const sourceKey = `capot-purchase-entry-source-${currentClientId}`;
+      const sources = JSON.parse(localStorage.getItem(sourceKey) || '{}');
+      source = sources[String(purchase.id)] || null;
+    } catch {}
+
+    const path = source === 'ap'
+      ? '/purchases/ap'
+      : source === 'other-payments'
+        ? '/purchases/other-payments'
+        : purchase.invoiceNo && purchase.supplierTin
+          ? '/purchases/invoiced'
+          : '/purchases/other-payments';
     navigate(path, { state: { editPurchaseId: purchase.id } });
   };
 

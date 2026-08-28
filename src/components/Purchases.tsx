@@ -122,6 +122,7 @@ export function Purchases() {
   const location = useLocation();
   const navigate = useNavigate();
   const isOtherPayments = location.pathname === '/purchases/other-payments';
+  const isAP = location.pathname === '/purchases/ap';
   const { currentClient, currentClientId, currentDat, saveClient, showToast, setCurrentDat } = useAccounting();
   
   // Single record state (similar to original but react-friendly)
@@ -297,12 +298,14 @@ export function Purchases() {
     const editPurchaseId = (location.state as { editPurchaseId?: number } | null)?.editPurchaseId;
     if (editPurchaseId == null || !currentClient) return;
 
-    const index = periodPurchases.findIndex(p => p.id === editPurchaseId);
-    if (index >= 0) {
-      loadPurchase(index);
-      navigate(location.pathname, { replace: true, state: null });
-    }
-  }, [location.state, location.pathname, currentClient, periodPurchases, navigate]);
+    const index = periodPurchases.findIndex(p => Number(p.id) === Number(editPurchaseId));
+    if (index < 0) return;
+
+    loadPurchase(index);
+    navigate(location.pathname, { replace: true, state: null });
+    // loadPurchase restores the complete saved entry into the form.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state, currentClient?.id, currentDat?.formatted, periodPurchases.length]);
 
   const handleAddNew = () => {
     setViewIndex(null);
@@ -444,6 +447,14 @@ export function Purchases() {
       attachment
     };
 
+    // Remember the original entry workspace without changing the existing database schema.
+    try {
+      const sourceKey = `capot-purchase-entry-source-${currentClientId}`;
+      const sources = JSON.parse(localStorage.getItem(sourceKey) || '{}');
+      sources[String(purchaseData.id)] = isAP ? 'ap' : isOtherPayments ? 'other-payments' : 'invoiced';
+      localStorage.setItem(sourceKey, JSON.stringify(sources));
+    } catch {}
+
     let updatedPurchases;
     if (viewIndex !== null) {
       updatedPurchases = currentClient.purchases.map(p => p.id === purchaseData.id ? purchaseData : p);
@@ -508,13 +519,13 @@ export function Purchases() {
       <div className="p-4 md:p-6 flex-1">
 
       <div className="mb-6 flex flex-wrap gap-2 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 shadow-sm">
-        <button type="button" onClick={() => navigate('/purchases/invoiced')} className={`flex-1 min-w-[140px] px-4 py-3 rounded-xl text-sm font-bold transition-all ${!isOtherPayments ? 'bg-amber-500 text-slate-900 shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Invoiced</button>
+        <button type="button" onClick={() => navigate('/purchases/invoiced')} className={`flex-1 min-w-[140px] px-4 py-3 rounded-xl text-sm font-bold transition-all ${!isOtherPayments && !isAP ? 'bg-amber-500 text-slate-900 shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Invoiced</button>
         <button type="button" onClick={() => navigate('/purchases/other-payments')} className={`flex-1 min-w-[140px] px-4 py-3 rounded-xl text-sm font-bold transition-all ${isOtherPayments ? 'bg-amber-500 text-slate-900 shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Other Payments</button>
-        <button type="button" onClick={() => navigate('/purchases/ap')} className="flex-1 min-w-[140px] px-4 py-3 rounded-xl text-sm font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all">Accounts Payable (AP)</button>
+        <button type="button" onClick={() => navigate('/purchases/ap')} className={`flex-1 min-w-[140px] px-4 py-3 rounded-xl text-sm font-bold transition-all ${isAP ? 'bg-amber-500 text-slate-900 shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Accounts Payable (AP)</button>
       </div>
 
       <div className="mb-4 rounded-xl bg-slate-100 dark:bg-slate-800/70 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-        {isOtherPayments ? 'Other Payments' : 'Invoiced'}
+        {isAP ? 'Accounts Payable (AP)' : isOtherPayments ? 'Other Payments' : 'Invoiced'}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-100 dark:border-slate-700 relative">
