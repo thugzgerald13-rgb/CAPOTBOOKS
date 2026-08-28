@@ -298,10 +298,19 @@ export function Purchases() {
     if (editPurchaseId == null || !currentClient) return;
 
     const allPurchases = currentClient.purchases || [];
-    const index = allPurchases.findIndex(p => p.id === editPurchaseId);
-    if (index >= 0) {
-      loadPurchase(index, allPurchases);
-      navigate(location.pathname, { replace: true, state: null });
+    const targetPurchase = allPurchases.find(p => p.id === editPurchaseId);
+    if (targetPurchase) {
+      // Load the record using a list scoped to its own period (datMonthYear),
+      // not the full/unfiltered purchases array. viewIndex is later used to
+      // index into periodPurchases (which is filtered by the currently
+      // selected period), so the index passed here must match that same
+      // scoping or the wrong entry can be read/updated.
+      const ownPeriodPurchases = allPurchases.filter(p => p.datMonthYear === targetPurchase.datMonthYear);
+      const index = ownPeriodPurchases.findIndex(p => p.id === editPurchaseId);
+      if (index >= 0) {
+        loadPurchase(index, ownPeriodPurchases);
+        navigate(location.pathname, { replace: true, state: null });
+      }
     }
   }, [location.state, location.pathname, currentClient, periodPurchases, navigate]);
 
