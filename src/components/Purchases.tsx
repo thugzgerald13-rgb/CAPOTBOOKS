@@ -232,6 +232,7 @@ export function Purchases() {
   const [sequenceNumber, setSequenceNumber] = useState(1);
 
   const [viewIndex, setViewIndex] = useState<number | null>(null);
+  const [editingPurchaseId, setEditingPurchaseId] = useState<number | null>(null);
 
   // Auto-count sequence number
   useEffect(() => {
@@ -294,23 +295,69 @@ export function Purchases() {
   };
 
   // History -> Edit Entry passes the purchase id through router state.
-  // Load that exact record when the Purchases screen opens so the Edit button
-  // works even when the record is not the first item in the current period.
+  // Do NOT rely on periodPurchases here: Expense History can be viewing a
+  // different month from the currently active DAT/month in Purchases.
+  // Find the record in the complete purchase list, load it directly, and keep
+  // its id separately so saving updates the original record instead of
+  // creating a duplicate.
   useEffect(() => {
     const editPurchaseId = location.state?.editPurchaseId;
     if (editPurchaseId == null || !currentClient) return;
 
-    const index = periodPurchases.findIndex(p => String(p.id) === String(editPurchaseId));
-    if (index >= 0) {
-      loadPurchase(index);
-      // Consume the navigation state so a later refresh/re-render does not
-      // unexpectedly reopen the same expense for editing.
+    const purchase = (currentClient.purchases || []).find(
+      p => String(p.id) === String(editPurchaseId)
+    );
+
+    if (purchase) {
+      const dateParts = purchase.date.split('/');
+      setDate(
+        purchase.date.match(/^\d{4}-\d{2}-\d{2}$/)
+          ? purchase.date
+          : (dateParts.length === 3
+              ? `${dateParts[2]}-${dateParts[0].padStart(2, '0')}-${dateParts[1].padStart(2, '0')}`
+              : purchase.date)
+      );
+      setPaymentMethod(purchase.paymentMethod);
+      setBankName(purchase.bankName || '');
+      setCheckNumber(purchase.checkNumber || '');
+      setInvoiceNo(purchase.invoiceNo || '');
+      setSupplierTin(purchase.supplierTin || '');
+      setSupplierName(purchase.supplierName || '');
+      setSupplierAddress(purchase.supplierAddress || '');
+      setVatType(purchase.vatType || 'vat');
+
+      const exempt = Number((purchase as any).exemptAmount || 0);
+      const zeroRated = Number((purchase as any).zeroRatedAmount || 0);
+      setExemptAmount(exempt ? exempt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '');
+      setZeroRatedAmount(zeroRated ? zeroRated.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '');
+
+      const storedVatType = purchase.vatType || 'vat';
+      const gross = storedVatType === 'vat'
+        ? Number(purchase.amount || 0) + Number(purchase.inputTax || 0)
+        : storedVatType === 'vat-nonvat'
+          ? Number(purchase.amount || 0) + Number(purchase.inputTax || 0) + exempt
+          : storedVatType === 'non-vat'
+            ? exempt
+            : zeroRated;
+      setAmount(gross ? gross.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '');
+      setWithholdingOption(purchase.withholdingOption || 'w/o');
+      setAtcCode(purchase.atcCode || '');
+      setExpenseType(purchase.expenseType || 'Capital Goods');
+      setAccountTitle(purchase.accountTitle || '');
+      setTransactionDetails(purchase.transactionDetails || '');
+      setAttachment(attachmentFromStored((purchase as any).attachment));
+      setSequenceNumber(purchase.sequenceNumber || 1);
+      setEditingPurchaseId(Number(purchase.id));
+      setViewIndex(null);
+
+      // Consume the router state after the record has been loaded.
       navigate(location.pathname, { replace: true, state: null });
     }
-  }, [location.state?.editPurchaseId, location.pathname, currentClient, periodPurchases]);
+  }, [location.state?.editPurchaseId, currentClient, navigate, location.pathname]);
 
   const handleAddNew = () => {
     setViewIndex(null);
+    setEditingPurchaseId(null);
     setInvoiceNo('');
     setSupplierTin('');
     setSupplierName('');
@@ -423,8 +470,10 @@ export function Purchases() {
     const formattedDate = `${m}/${d}/${y}`;
 
     const purchaseData = {
-      id: viewIndex !== null ? periodPurchases[viewIndex].id : Date.now(),
-      sequenceNumber: viewIndex !== null ? (periodPurchases[viewIndex].sequenceNumber || sequenceNumber) : sequenceNumber,
+      id: editingPurchaseId !== null ? editingPurchaseId : (viewIndex !== null ? periodPurchases[viewIndex].id : Date.now()),
+      sequenceNumber: editingPurchaseId !== null
+        ? (currentClient.purchases.find(p => p.id === editingPurchaseId)?.sequenceNumber || sequenceNumber)
+        : (viewIndex !== null ? (periodPurchases[viewIndex].sequenceNumber || sequenceNumber) : sequenceNumber),
       datMonthYear: currentDat ? currentDat.formatted : `${MONTHS[parseInt(m) - 1]} ${y}`,
       date: formattedDate,
       paymentMethod,
@@ -450,7 +499,7 @@ export function Purchases() {
     };
 
     let updatedPurchases;
-    if (viewIndex !== null) {
+    if (editingPurchaseId !== null || viewIndex !== null) {
       updatedPurchases = currentClient.purchases.map(p => p.id === purchaseData.id ? purchaseData : p);
     } else {
       updatedPurchases = [...currentClient.purchases, purchaseData];
@@ -461,7 +510,7 @@ export function Purchases() {
       purchases: updatedPurchases
     };
     saveClient(currentClientId, updatedClient);
-    showToast(viewIndex !== null ? 'Entry updated' : 'Expense entry added');
+    showToast(editingPurchaseId !== null || viewIndex !== null ? 'Entry updated' : 'Expense entry added');
 
     // Reset the complete entry form after Add Entry / Update Entry.
     // A saved transaction remains in currentClient.purchases; the input form
@@ -489,6 +538,7 @@ export function Purchases() {
     setInputTax(0);
     setAttachment(null);
     setAttachmentBusy(false);
+    setEditingPurchaseId(null);
 
     // After adding/updating an entry, place the cursor back on Transaction Date
     // so the next transaction always starts from the first field.
@@ -788,7 +838,7 @@ export function Purchases() {
                </button>
              )}
              <button onClick={handleAddPurchase} className="bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold px-8 py-2.5 rounded-xl transition-colors shadow-sm shadow-amber-500/20 flex items-center gap-2">
-               <Plus className="w-5 h-5" /> {viewIndex !== null ? 'Update Entry' : 'Add Entry'}
+               <Plus className="w-5 h-5" /> {(editingPurchaseId !== null || viewIndex !== null) ? 'Update Entry' : 'Add Entry'}
              </button>
            </div>
         </div>
