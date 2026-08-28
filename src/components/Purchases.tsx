@@ -298,14 +298,32 @@ export function Purchases() {
     const editPurchaseId = (location.state as { editPurchaseId?: number } | null)?.editPurchaseId;
     if (editPurchaseId == null || !currentClient) return;
 
-    const index = periodPurchases.findIndex(p => Number(p.id) === Number(editPurchaseId));
-    if (index < 0) return;
+    let index = periodPurchases.findIndex(p => Number(p.id) === Number(editPurchaseId));
+
+    // The history entry may be from a period that is not yet reflected in the
+    // data-entry screen's local date filter. Restore that entry's date first;
+    // the effect will run again after the period list is recalculated.
+    if (index < 0) {
+      const purchase = (currentClient.purchases || []).find(p => Number(p.id) === Number(editPurchaseId));
+      if (!purchase) return;
+
+      const dateParts = purchase.date.split('/');
+      const restoredDate = purchase.date.match(/^\d{4}-\d{2}-\d{2}$/)
+        ? purchase.date
+        : (dateParts.length === 3 ? `${dateParts[2]}-${dateParts[0].padStart(2, '0')}-${dateParts[1].padStart(2, '0')}` : purchase.date);
+
+      if (!currentDat) {
+        setDate(restoredDate);
+        return;
+      }
+      return;
+    }
 
     loadPurchase(index);
     navigate(location.pathname, { replace: true, state: null });
     // loadPurchase restores the complete saved entry into the form.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.state, currentClient?.id, currentDat?.formatted, periodPurchases.length]);
+  }, [location.state, currentClient?.id, currentDat?.formatted, periodPurchases.length, date]);
 
   const handleAddNew = () => {
     setViewIndex(null);
