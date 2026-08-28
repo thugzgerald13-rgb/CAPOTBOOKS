@@ -18,7 +18,6 @@ export interface Purchase {
   supplierTin: string;
   amount: number;
   vatType: string;
-  entrySource?: 'invoiced' | 'other-payments' | 'ap';
   exemptAmount?: number;
   zeroRatedAmount?: number;
   expenseType: string;
