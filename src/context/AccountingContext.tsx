@@ -265,8 +265,11 @@ const persistNormalizedClient = async (client: Client, userId: string) => {
     accounting_type:client.accountingType||'Calendar',fiscal_month_end:client.fiscalMonthEnd||12,
     coa_format:client.coaFormat||'numeric',data:withoutNormalizedKeys(client),updated_at:new Date().toISOString()
   };
-  const { error: parentError } = await supabase.from('clients').upsert(parent,{onConflict:'id'});
-  if (parentError) throw parentError;
+  // IMPORTANT: write all normalized child rows before touching the parent client row.
+  // The realtime listener watches `clients`; if the parent is updated first, it can
+  // immediately reload normalized data while `journal_columns` is still being
+  // written. That race makes newly-added CDJ columns briefly appear and then vanish.
+  // The parent is therefore updated last, after every normalized table is complete.
 
   // Normalized persistence is intentionally non-destructive.  The old implementation
   // deleted every row for the client and recreated the entire dataset on every save.
@@ -377,6 +380,11 @@ const persistNormalizedClient = async (client: Client, userId: string) => {
   await syncMany('asset_lapsing_schedule',(client.assetLapsingSchedule||[]).map((a:any)=>({id:strId(a.id),date_purchased:a.datePurchased,invoice_no:a.invoiceNo||null,description:a.description,cost:Number(a.cost||0),useful_life_years:Number(a.usefulLifeYears||0),salvage_value:Number(a.salvageValue||0)})));
   await syncMany('billing_invoices',(client.billingInvoices||[]).map((b:any)=>({id:strId(b.id),date:b.date,due_date:b.dueDate,invoice_no:b.invoiceNo,customer_tin:b.customerTin||null,customer_name:b.customerName||null,customer_address:b.customerAddress||null,vat_type:b.vatType||null,amount:Number(b.amount||0),net_of_vat:Number(b.netOfVat||0),output_tax:Number(b.outputTax||0),description:b.description||null,status:b.status,payment_type:b.paymentType||null,date_paid:b.datePaid||null,is_recurring:!!b.isRecurring,recurrence_frequency:b.recurrenceFrequency||null,next_billing_date:b.nextBillingDate||null,parent_invoice_id:b.parentInvoiceId||null})));
   const snaps:any[]=[]; if(client.plData) snaps.push({id:`${clientId}:pl`,report_type:'P&L',period_key:client.plData.period||'current',data:client.plData}); if(client.bsData) snaps.push({id:`${clientId}:bs`,report_type:'Balance Sheet',period_key:client.bsData.asOfDate||'current',data:client.bsData}); if(client.cfData) snaps.push({id:`${clientId}:cf`,report_type:'Cash Flow',period_key:client.cfData.period||'current',data:client.cfData}); await syncMany('financial_report_snapshots',snaps);
+
+  // Publish the parent row only after all normalized children have been persisted.
+  // This is the synchronization barrier for the realtime `clients` listener.
+  const { error: parentError } = await supabase.from('clients').upsert(parent,{onConflict:'id'});
+  if (parentError) throw parentError;
 };
 
 type AccountingProviderProps = {
