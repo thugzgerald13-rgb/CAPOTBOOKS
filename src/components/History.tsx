@@ -94,7 +94,7 @@ export function History() {
         if (Number.isFinite(zeroRated) && zeroRated !== 0) return money(zeroRated);
         return money(p.vatType === 'zero-rated' ? p.amount : 0);
       }
-      case 'amount': return money(p.amount);
+      case 'amount': return money(Number(p.amount || 0) + Number(p.inputTax || 0) + Number(p.exemptAmount || 0) + Number(p.zeroRatedAmount || 0));
       case 'netAmount': return money(p.netAmount ?? p.amount);
       case 'inputTax': return money(p.inputTax);
       case 'withholdingOption': return p.withholdingOption || '—';
@@ -215,20 +215,7 @@ export function History() {
   };
 
   const handleEditExpense = (purchase: typeof purchases[number]) => {
-    let source: string | null = null;
-    try {
-      const sourceKey = `capot-purchase-entry-source-${currentClientId}`;
-      const sources = JSON.parse(localStorage.getItem(sourceKey) || '{}');
-      source = sources[String(purchase.id)] || null;
-    } catch {}
-
-    const path = source === 'ap'
-      ? '/purchases/ap'
-      : source === 'other-payments'
-        ? '/purchases/other-payments'
-        : purchase.invoiceNo && purchase.supplierTin
-          ? '/purchases/invoiced'
-          : '/purchases/other-payments';
+    const path = purchase.invoiceNo && purchase.supplierTin ? '/purchases/invoiced' : '/purchases/other-payments';
     navigate(path, { state: { editPurchaseId: purchase.id } });
   };
 
@@ -528,6 +515,19 @@ export function History() {
                         </div>
                       </div>
                     )}
+                  </div>
+                )}
+                {activeTab === 'expenses' && (
+                  <div className="ml-auto flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 px-4 py-2 rounded-xl border border-amber-100 dark:border-amber-800/50 whitespace-nowrap">
+                    <span className="text-[10px] uppercase font-bold text-amber-600 dark:text-amber-400">Period Total Expenses</span>
+                    <span className="text-lg font-black text-amber-700 dark:text-amber-300">
+                      ₱{purchases.reduce((sum, p) => {
+                        const netOfVat = Number(p.netAmount ?? p.amount ?? 0);
+                        const exempt = Number(p.exemptAmount || 0);
+                        const zeroRated = Number(p.zeroRatedAmount || 0);
+                        return sum + netOfVat + exempt + zeroRated;
+                      }, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </span>
                   </div>
                 )}
                 <div className="relative w-full sm:w-64">
@@ -1098,24 +1098,14 @@ export function History() {
         </div>
 
         {/* Footer Summary */}
-        {!['slp', 'sls'].includes(activeTab) && (
-          <div className={cn("grid gap-4", activeTab === 'expenses' || activeTab === 'income' ? "grid-cols-1" : "grid-cols-2")}>
-            {activeTab !== 'income' && (
-              <div className="bg-amber-50 dark:bg-amber-900/20 p-4 rounded-xl border border-amber-100 dark:border-amber-800/50">
-                <span className="block text-xs uppercase font-bold text-amber-600 dark:text-amber-400 mb-1">Period Total Expenses</span>
-                <span className="text-xl font-black text-amber-700 dark:text-amber-300">
-                  ₱{purchases.reduce((sum, p) => sum + p.amount, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                </span>
-              </div>
-            )}
-            {activeTab !== 'expenses' && (
-              <div className="bg-emerald-50 dark:bg-emerald-900/20 p-4 rounded-xl border border-emerald-100 dark:border-emerald-800/50">
-                <span className="block text-xs uppercase font-bold text-emerald-600 dark:text-emerald-400 mb-1">Period Total Income</span>
-                <span className="text-xl font-black text-emerald-700 dark:text-emerald-300">
-                  ₱{sales.reduce((sum, s) => sum + s.amount, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                </span>
-              </div>
-            )}
+        {!['slp', 'sls'].includes(activeTab) && activeTab === 'income' && (
+          <div className="grid gap-4 grid-cols-1">
+            <div className="bg-emerald-50 dark:bg-emerald-900/20 p-4 rounded-xl border border-emerald-100 dark:border-emerald-800/50">
+              <span className="block text-xs uppercase font-bold text-emerald-600 dark:text-emerald-400 mb-1">Period Total Income</span>
+              <span className="text-xl font-black text-emerald-700 dark:text-emerald-300">
+                ₱{sales.reduce((sum, s) => sum + s.amount, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+              </span>
+            </div>
           </div>
         )}
       </div>
