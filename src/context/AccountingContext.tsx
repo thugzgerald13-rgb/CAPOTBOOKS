@@ -418,7 +418,6 @@ export function AccountingProvider({
   const [isReady, setIsReady] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
-  const pendingClientSaves = useRef(new Set<string>());
 
   const syncData = async () => {
     if (!user || !isReady) return;
@@ -427,11 +426,12 @@ export function AccountingProvider({
     try {
       const { data, error } = await supabase.from('clients').select('*').eq('user_id', user.id);
       if (error) throw error;
-      const hydratedClients = await Promise.all((data || []).map(async (row) => {
+      const cloudClients: Record<string, Client> = {};
+      for (const row of data || []) {
         const legacy = (row.data || {}) as Partial<Client>;
         let normalized: Partial<Client> = {};
         try { normalized = await loadNormalizedClient(row.id); } catch (e) { console.warn('Normalized client load failed; using legacy payload:', e); }
-        const hydratedClient = {
+        cloudClients[row.id] = {
           ...(legacy as Client), id: row.id, name: row.name || legacy.name || 'Client',
           tin: row.tin ?? legacy.tin, taxpayerClassification: row.taxpayer_classification ?? legacy.taxpayerClassification,
           registeredName: row.registered_name ?? legacy.registeredName, lastName: row.last_name ?? legacy.lastName, firstName: row.first_name ?? legacy.firstName,
@@ -444,10 +444,8 @@ export function AccountingProvider({
           sales: normalized.sales ?? legacy.sales ?? [], purchases: normalized.purchases ?? legacy.purchases ?? [], expenses: normalized.expenses ?? legacy.expenses ?? [],
           ...(normalized as any)
         } as Client;
-        return [row.id, hydratedClient] as const;
-    }));
-    const cloudClients: Record<string, Client> = Object.fromEntries(hydratedClients);
-    setClients(cloudClients);
+      }
+      setClients(cloudClients);
       showToast('Cloud sync complete');
     } catch (e) {
       console.error('Manual sync failed', e);
@@ -627,21 +625,20 @@ export function AccountingProvider({
         if (error) throw error;
 
         clearTimeout(timeout);
-        const hydratedClients = await Promise.all((data || []).map(async (row) => {
+        const cloudClients: Record<string, Client> = {};
+        for (const row of data || []) {
           const legacy = (row.data || {}) as Partial<Client>;
           let normalized: Partial<Client> = {};
           try { normalized = await loadNormalizedClient(row.id); } catch (e) { console.warn('Normalized client load failed; using legacy payload:', e); }
-          const hydratedClient = { ...(legacy as Client), id: row.id, name: row.name || legacy.name || 'Client',
+          cloudClients[row.id] = { ...(legacy as Client), id: row.id, name: row.name || legacy.name || 'Client',
             tin: row.tin ?? legacy.tin, taxpayerClassification: row.taxpayer_classification ?? legacy.taxpayerClassification, registeredName: row.registered_name ?? legacy.registeredName,
             lastName: row.last_name ?? legacy.lastName, firstName: row.first_name ?? legacy.firstName, middleName: row.middle_name ?? legacy.middleName, tradeName: row.trade_name ?? legacy.tradeName,
             substreet: row.substreet ?? legacy.substreet, street: row.street ?? legacy.street, barangay: row.barangay ?? legacy.barangay, district: row.district ?? legacy.district, city: row.city ?? legacy.city,
             zipCode: row.zip_code ?? legacy.zipCode, rdoCode: row.rdo_code ?? legacy.rdoCode, phone: row.phone ?? legacy.phone, email: row.email ?? legacy.email, category: row.category ?? legacy.category,
             hasMultipleBusinessLines: row.has_multiple_business_lines ?? legacy.hasMultipleBusinessLines, accountingType: row.accounting_type ?? legacy.accountingType, fiscalMonthEnd: row.fiscal_month_end ?? legacy.fiscalMonthEnd, coaFormat: row.coa_format ?? legacy.coaFormat,
             tinLibrary: normalized.tinLibrary ?? legacy.tinLibrary ?? {customers:[], suppliers:[]}, sales: normalized.sales ?? legacy.sales ?? [], purchases: normalized.purchases ?? legacy.purchases ?? [], expenses: normalized.expenses ?? legacy.expenses ?? [], ...(normalized as any) } as Client;
-          return [row.id, hydratedClient] as const;
-    }));
-    const cloudClients: Record<string, Client> = Object.fromEntries(hydratedClients);
-    mergeCloudClients(cloudClients);
+        }
+        mergeCloudClients(cloudClients);
         setIsSyncing(false);
         setIsReady(true);
         setSyncError(null);
@@ -657,7 +654,6 @@ export function AccountingProvider({
                 setClients((prev) => { const next={...prev}; delete next[(payload.old as any).id]; return next; });
               } else {
                 const row = payload.new as any;
-                if (pendingClientSaves.current.has(row.id)) return;
                 loadNormalizedClient(row.id).then(normalized => setClients(prev => ({ ...prev, [row.id]: { ...(prev[row.id] || {} as Client), id:row.id, name:row.name, tin:row.tin, taxpayerClassification:row.taxpayer_classification, registeredName:row.registered_name, lastName:row.last_name, firstName:row.first_name, middleName:row.middle_name, tradeName:row.trade_name, substreet:row.substreet, street:row.street, barangay:row.barangay, district:row.district, city:row.city, zipCode:row.zip_code, rdoCode:row.rdo_code, phone:row.phone, email:row.email, category:row.category, hasMultipleBusinessLines:row.has_multiple_business_lines, accountingType:row.accounting_type, fiscalMonthEnd:row.fiscal_month_end, coaFormat:row.coa_format, ...(normalized as any) } as Client }))).catch(e=>console.warn('Realtime normalized reload failed',e));
               }
             }
@@ -808,15 +804,12 @@ export function AccountingProvider({
     const updatedClient = { ...clientData, id, userId: user ? user.id : undefined } as Client;
     setClients((prev) => ({ ...prev, [id]: updatedClient }));
     if (!user) return;
-    pendingClientSaves.current.add(id);
     try {
       await persistNormalizedClient(updatedClient, user.id);
       showToast('Saved to normalized Supabase tables');
     } catch (error) {
       console.error('Normalized client save failed:', error);
       await handleSupabaseError(error, OperationType.UPDATE, `normalized-client/${id}`);
-    } finally {
-      pendingClientSaves.current.delete(id);
     }
   };
 
