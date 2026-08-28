@@ -521,7 +521,12 @@ export function History() {
                   <div className="ml-auto flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 px-4 py-2 rounded-xl border border-amber-100 dark:border-amber-800/50 whitespace-nowrap">
                     <span className="text-[10px] uppercase font-bold text-amber-600 dark:text-amber-400">Period Total Expenses</span>
                     <span className="text-lg font-black text-amber-700 dark:text-amber-300">
-                      ₱{purchases.reduce((sum, p) => sum + p.amount, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      ₱{purchases.reduce((sum, p) => {
+                        const netOfVat = Number(p.netAmount ?? p.amount ?? 0);
+                        const exempt = Number(p.exemptAmount || 0);
+                        const zeroRated = Number(p.zeroRatedAmount || 0);
+                        return sum + netOfVat + exempt + zeroRated;
+                      }, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                     </span>
                   </div>
                 )}
