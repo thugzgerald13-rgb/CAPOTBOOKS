@@ -273,12 +273,18 @@ const persistNormalizedClient = async (client: Client, userId: string) => {
   // That caused unnecessary writes, changed child-row identities, and made concurrent
   // edits unsafe.  We now upsert the current rows and remove only rows that no longer
   // exist in the client aggregate.
-  const syncMany = async (table:string, rows:any[]) => {
+  const syncMany = async (table:string, rows:any[], scope?: Record<string, any>) => {
     const normalizedRows = rows.map(r => ({ ...r, client_id: clientId }));
-    const { data: existingRows, error: existingError } = await supabase
+    let existingQuery = supabase
       .from(table)
       .select('id')
       .eq('client_id', clientId);
+    if (scope) {
+      Object.entries(scope).forEach(([key, value]) => {
+        existingQuery = existingQuery.eq(key, value);
+      });
+    }
+    const { data: existingRows, error: existingError } = await existingQuery;
     if (existingError) throw existingError;
 
     const currentIds = new Set(normalizedRows.map(r => String(r.id)));
@@ -311,8 +317,20 @@ const persistNormalizedClient = async (client: Client, userId: string) => {
   await syncMany('coa_accounts',(client.accounts||[]).map((a:any)=>{const {id,name,type,normalSide,parentId,hidden,openingBalance,...custom}=a;return {id:strId(id),name:name||'',type:type||'',normal_side:normalSide||null,parent_id:parentId||null,hidden:!!hidden,opening_balance:Number(openingBalance||0),custom_values:custom};}));
   const journalTypes:[string,string,string][]=[['CRJ','crjColumns','crjEntries'],['CDJ','cdjColumns','cdjEntries'],['PJ','pjColumns','pjEntries'],['GJ','gjColumns','gjEntries']];
   for(const [type,colKey,entryKey] of journalTypes){
-    await syncMany('journal_columns',((client as any)[colKey]||[]).map((c:any)=>({id:strId(c.id),journal_type:type,name:c.name,type:c.type,category:c.category,is_system:!!c.isSystem})));
-    await syncMany('journal_entries',((client as any)[entryKey]||[]).map((e:any)=>({id:strId(e.id),journal_type:type,values:e.values||{},auto:!!e.auto,auto_source:e.autoSource||null})));
+    // Journal rows share the same physical table, so stale-row detection must
+    // be scoped to the current journal type. Without this filter, saving one
+    // journal (e.g. CRJ) treats another journal's columns (e.g. CDJ custom
+    // account columns) as stale and deletes them.
+    await syncMany(
+      'journal_columns',
+      ((client as any)[colKey]||[]).map((c:any)=>({id:strId(c.id),journal_type:type,name:c.name,type:c.type,category:c.category,is_system:!!c.isSystem})),
+      { journal_type: type }
+    );
+    await syncMany(
+      'journal_entries',
+      ((client as any)[entryKey]||[]).map((e:any)=>({id:strId(e.id),journal_type:type,values:e.values||{},auto:!!e.auto,auto_source:e.autoSource||null})),
+      { journal_type: type }
+    );
   }
   await syncMany('journal_vouchers',(client.journalVouchers||[]).map((v:any)=>({id:strId(v.id),date:v.date,reference:v.reference||null,memo:v.memo||null})));
   const jvl:any[]=[];(client.journalVouchers||[]).forEach((v:any)=>(v.lines||[]).forEach((l:any)=>jvl.push({id:strId(l.id),journal_voucher_id:strId(v.id),account_id:l.accountId||null,account_name:l.accountName||null,debit:Number(l.debit||0),credit:Number(l.credit||0)}))); await syncMany('journal_voucher_lines',jvl);
