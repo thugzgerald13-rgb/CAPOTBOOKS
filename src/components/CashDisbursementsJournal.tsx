@@ -1,38 +1,118 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Wallet, Plus, Trash2, Settings, X, Check } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
-import { JournalColumn, JournalEntry } from '../types';
+import { JournalColumn, JournalEntry, CoaAccount } from '../types';
 import { cn } from '../lib/utils';
+
+export const CDJ_SUNDRY_ACCOUNT_TITLE_ID = 'sundry_account_title';
+export const CDJ_SUNDRY_AMOUNT_ID = 'sundry_amount';
 
 export const DEFAULT_CDJ_COLUMNS: JournalColumn[] = [
   { id: 'date', name: 'Date', type: 'text', category: 'None', isSystem: true },
-  { id: 'payee', name: 'Payee', type: 'text', category: 'None', isSystem: true },
-  { id: 'account_title', name: 'Account Title', type: 'text', category: 'None', isSystem: true },
-  { id: 'amount', name: 'Amount Dr(Cr)', type: 'number', category: 'Dr', isSystem: false },
-  { id: 'cash', name: 'Cash', type: 'number', category: 'Cr', isSystem: false },
-  { id: 'input_tax', name: 'Input Tax', type: 'number', category: 'Dr', isSystem: false },
-  { id: 'direct_labor', name: 'Direct Labor', type: 'number', category: 'Dr', isSystem: false },
-  { id: 'light_water', name: 'Light & Water', type: 'number', category: 'Dr', isSystem: false },
-  { id: 'materials', name: 'Materials', type: 'number', category: 'Dr', isSystem: false },
-  { id: 'office_supplies', name: 'Office Supplies', type: 'number', category: 'Dr', isSystem: false },
-  { id: 'gasoline', name: 'Gasoline', type: 'number', category: 'Dr', isSystem: false },
-  { id: 'telecom', name: 'Telecom', type: 'number', category: 'Dr', isSystem: false },
-  { id: 'repairs', name: 'Repairs & Maintenance', type: 'number', category: 'Dr', isSystem: false },
-  { id: 'representation', name: 'Representation', type: 'number', category: 'Dr', isSystem: false },
+  { id: 'payee', name: 'Payees', type: 'text', category: 'None', isSystem: true },
+  { id: 'folio_f', name: 'Folio/F', type: 'text', category: 'None', isSystem: true },
+  { id: CDJ_SUNDRY_ACCOUNT_TITLE_ID, name: 'Account Title', type: 'text', category: 'None', isSystem: true },
+  { id: CDJ_SUNDRY_AMOUNT_ID, name: 'Amount Dr/Cr', type: 'number', category: 'None', isSystem: true },
 ];
+
+const MAX_CDJ_ACCOUNT_COLUMNS = 10;
+const CDJ_ACCOUNT_PREFIX = 'cdj_coa_';
+
+function accountColumnId(accountId: string) {
+  return `${CDJ_ACCOUNT_PREFIX}${accountId}`;
+}
+
+function accountIdFromColumn(column: JournalColumn): string | undefined {
+  return column.id.startsWith(CDJ_ACCOUNT_PREFIX) ? column.id.slice(CDJ_ACCOUNT_PREFIX.length) : undefined;
+}
+
+function getClientAccounts(client: any): CoaAccount[] {
+  return (client.accounts || []).filter((a: CoaAccount) => !a.hidden);
+}
+
+function normalizeCdjColumns(columns: JournalColumn[] | undefined, accounts: CoaAccount[]): JournalColumn[] {
+  if (!columns || columns.length === 0) return [...DEFAULT_CDJ_COLUMNS];
+
+  const alreadyNew = columns.some(c => c.id === CDJ_SUNDRY_ACCOUNT_TITLE_ID || c.id === CDJ_SUNDRY_AMOUNT_ID || c.id.startsWith(CDJ_ACCOUNT_PREFIX));
+  if (alreadyNew) {
+    const accountCols = columns.filter(c => accountIdFromColumn(c)).slice(0, MAX_CDJ_ACCOUNT_COLUMNS);
+    return [
+      DEFAULT_CDJ_COLUMNS[0],
+      DEFAULT_CDJ_COLUMNS[1],
+      DEFAULT_CDJ_COLUMNS[2],
+      ...accountCols,
+      DEFAULT_CDJ_COLUMNS[3],
+      DEFAULT_CDJ_COLUMNS[4],
+    ];
+  }
+
+  // Migrate the previous CDJ layout to the new structure without changing
+  // unrelated journals or database structures. Numeric columns that match a
+  // Chart of Accounts account become the first 10 selectable account columns.
+  const used = new Set<string>();
+  const accountCols: JournalColumn[] = [];
+  columns.filter(c => c.type === 'number' && !c.isSystem).forEach(c => {
+    if (accountCols.length >= MAX_CDJ_ACCOUNT_COLUMNS) return;
+    const match = accounts.find(a => a.id === c.id || a.name.toLowerCase() === c.name.toLowerCase());
+    if (!match || used.has(match.id)) return;
+    used.add(match.id);
+    accountCols.push({
+      id: accountColumnId(match.id),
+      name: match.name,
+      type: 'number',
+      category: match.normalSide === 'credit' ? 'Cr' : 'Dr',
+      isSystem: false,
+    });
+  });
+
+  return [
+    DEFAULT_CDJ_COLUMNS[0],
+    DEFAULT_CDJ_COLUMNS[1],
+    DEFAULT_CDJ_COLUMNS[2],
+    ...accountCols,
+    DEFAULT_CDJ_COLUMNS[3],
+    DEFAULT_CDJ_COLUMNS[4],
+  ];
+}
 
 export function CashDisbursementsJournal() {
   const { currentClient, currentClientId, saveClient, activeDevice } = useAccounting();
   
   const [isEditingHeaders, setIsEditingHeaders] = useState(false);
-  const [newColName, setNewColName] = useState('');
-  const [newColCategory, setNewColCategory] = useState<'Dr' | 'Cr'>('Dr');
+  const [selectedAccountId, setSelectedAccountId] = useState('');
+
+  const accounts = getClientAccounts(currentClient);
+  const rawColumns = currentClient.cdjColumns;
+  const columns = normalizeCdjColumns(rawColumns, accounts);
+  const entries = currentClient.cdjEntries || [];
+
+  useEffect(() => {
+    if (!currentClient || !currentClientId) return;
+    const changed = JSON.stringify(rawColumns || []) !== JSON.stringify(columns);
+    if (!changed) return;
+
+    // Preserve old Account Title/Amount values as Sundries during migration.
+    const oldAccountTitle = rawColumns?.find(c => c.id === 'account_title');
+    const oldAmount = rawColumns?.find(c => c.id === 'amount');
+    const oldAccountColumns = rawColumns?.filter(c => c.type === 'number' && !c.isSystem) || [];
+    const migratedEntries = entries.map(entry => {
+      const next = { ...entry.values };
+      if (oldAccountTitle && next[oldAccountTitle.id] !== undefined) next[CDJ_SUNDRY_ACCOUNT_TITLE_ID] = next[oldAccountTitle.id];
+      if (oldAmount && next[oldAmount.id] !== undefined) next[CDJ_SUNDRY_AMOUNT_ID] = next[oldAmount.id];
+      columns.filter(c => accountIdFromColumn(c)).forEach(c => {
+        const account = accounts.find(a => a.id === accountIdFromColumn(c));
+        const old = account && oldAccountColumns.find(x => x.name.toLowerCase() === account.name.toLowerCase());
+        if (old && next[old.id] !== undefined) next[c.id] = next[old.id];
+      });
+      return { ...entry, values: next };
+    });
+
+    saveClient(currentClientId, { ...currentClient, cdjColumns: columns, cdjEntries: migratedEntries });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentClientId, rawColumns, currentClient, columns, accounts, entries, saveClient]);
 
   if (!currentClient || !currentClientId) return null;
-
-  const columns = currentClient.cdjColumns || DEFAULT_CDJ_COLUMNS;
-  const entries = currentClient.cdjEntries || [];
 
   const handleSaveColumns = (newCols: JournalColumn[]) => {
     saveClient(currentClientId, { ...currentClient, cdjColumns: newCols });
@@ -43,20 +123,27 @@ export function CashDisbursementsJournal() {
   };
 
   const addColumn = () => {
-    if (!newColName) return;
+    if (!selectedAccountId) return;
+    if (columns.filter(c => accountIdFromColumn(c)).length >= MAX_CDJ_ACCOUNT_COLUMNS) return;
+    if (columns.some(c => accountIdFromColumn(c) === selectedAccountId)) return;
+    const account = accounts.find(a => a.id === selectedAccountId);
+    if (!account) return;
     const newCol: JournalColumn = {
-      id: `col_${crypto.randomUUID()}`,
-      name: newColName,
+      id: accountColumnId(account.id),
+      name: account.name,
       type: 'number',
-      category: newColCategory,
+      category: account.normalSide === 'credit' ? 'Cr' : 'Dr',
       isSystem: false,
     };
-    handleSaveColumns([...columns, newCol]);
-    setNewColName('');
+    const sundryIndex = columns.findIndex(c => c.id === CDJ_SUNDRY_ACCOUNT_TITLE_ID);
+    const next = [...columns];
+    next.splice(sundryIndex < 0 ? next.length : sundryIndex, 0, newCol);
+    handleSaveColumns(next);
+    setSelectedAccountId('');
   };
 
   const removeColumn = (id: string) => {
-    if (confirm("Are you sure you want to remove this column? Data in this column for existing entries may be lost.")) {
+    if (confirm("Are you sure you want to remove this Chart of Accounts column? Data in this column for existing entries may be lost.")) {
       handleSaveColumns(columns.filter(c => c.id !== id));
     }
   };
@@ -99,8 +186,10 @@ export function CashDisbursementsJournal() {
   };
 
   const totals = getTotals();
-  const totalDr = columns.filter(c => c.category === 'Dr').reduce((s, c) => s + (totals[c.id] || 0), 0);
-  const totalCr = columns.filter(c => c.category === 'Cr').reduce((s, c) => s + (totals[c.id] || 0), 0);
+  const totalDr = columns.filter(c => c.category === 'Dr').reduce((s, c) => s + (totals[c.id] || 0), 0)
+    + Math.max(0, totals[CDJ_SUNDRY_AMOUNT_ID] || 0);
+  const totalCr = columns.filter(c => c.category === 'Cr').reduce((s, c) => s + (totals[c.id] || 0), 0)
+    + Math.max(0, -(totals[CDJ_SUNDRY_AMOUNT_ID] || 0));
   const isBalanced = Math.abs(totalDr - totalCr) < 0.01;
 
   return (
@@ -130,54 +219,38 @@ export function CashDisbursementsJournal() {
 
         {isEditingHeaders && (
           <div className="mb-6 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
-            <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-4">Manage Custom Columns</h4>
+            <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Cash Disbursements Journal Columns</h4>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">The first 10 account columns are selected directly from the Chart of Accounts. Sundries is fixed as columns 11 and 12.</p>
             <div className="flex flex-wrap gap-2 mb-4">
-              {columns.map(col => (
-                <div key={col.id} className={cn(
-                  "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold border",
-                  col.isSystem 
-                    ? "bg-white dark:bg-slate-800 text-slate-400 border-slate-200 dark:border-slate-700" 
-                    : "bg-cyan-50 dark:bg-cyan-900/20 text-cyan-700 dark:text-cyan-400 border-cyan-200 dark:border-cyan-800"
-                )}>
-                  <span>{col.name} {col.category !== 'None' ? `(${col.category})` : ''}</span>
-                  {!col.isSystem && (
-                    <button onClick={() => removeColumn(col.id)} className="text-red-400 hover:text-red-600">
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  )}
-                </div>
-              ))}
+              {columns.map((col, index) => {
+                const accountId = accountIdFromColumn(col);
+                return (
+                  <div key={col.id} className={cn(
+                    "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold border",
+                    accountId ? "bg-cyan-50 dark:bg-cyan-900/20 text-cyan-700 dark:text-cyan-400 border-cyan-200 dark:border-cyan-800" : "bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700"
+                  )}>
+                    <span>{accountId ? `${columns.filter(c => accountIdFromColumn(c)).indexOf(col) + 1}. ${col.name}` : `${index >= 3 ? index + 1 : ''} ${col.name}`}</span>
+                    {accountId && <button onClick={() => removeColumn(col.id)} className="text-red-400 hover:text-red-600"><X className="w-3.5 h-3.5" /></button>}
+                  </div>
+                );
+              })}
             </div>
-            
-            <div className="flex items-end gap-3">
+            <div className="flex flex-wrap items-end gap-3">
               <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1">New Column Name</label>
-                <input 
-                  type="text" 
-                  value={newColName} 
-                  onChange={e => setNewColName(e.target.value)} 
-                  className="form-input text-sm py-1.5"
-                  placeholder="e.g. Sales Auth"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1">Dr/Cr</label>
-                <select 
-                  value={newColCategory} 
-                  onChange={e => setNewColCategory(e.target.value as 'Dr'|'Cr')} 
-                  className="form-input text-sm py-1.5"
-                >
-                  <option value="Dr">Debit (Dr)</option>
-                  <option value="Cr">Credit (Cr)</option>
+                <label className="block text-xs font-bold text-slate-500 mb-1">Add Chart of Accounts Column ({columns.filter(c => accountIdFromColumn(c)).length}/{MAX_CDJ_ACCOUNT_COLUMNS})</label>
+                <select value={selectedAccountId} onChange={e => setSelectedAccountId(e.target.value)} className="form-input text-sm py-1.5 min-w-[260px]" disabled={columns.filter(c => accountIdFromColumn(c)).length >= MAX_CDJ_ACCOUNT_COLUMNS}>
+                  <option value="">Select an account...</option>
+                  {accounts.filter(a => !columns.some(c => accountIdFromColumn(c) === a.id)).map(a => (
+                    <option key={a.id} value={a.id}>{a.id} — {a.name}</option>
+                  ))}
                 </select>
               </div>
-              <button 
-                onClick={addColumn}
-                disabled={!newColName}
-                className="bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white font-bold px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1"
-              >
-                <Plus className="w-4 h-4" /> Add Column
+              <button onClick={addColumn} disabled={!selectedAccountId || columns.filter(c => accountIdFromColumn(c)).length >= MAX_CDJ_ACCOUNT_COLUMNS} className="bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white font-bold px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1">
+                <Plus className="w-4 h-4" /> Add Account Column
               </button>
+            </div>
+            <div className="mt-4 p-3 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400">
+              <strong>Sundries (columns 11–12):</strong> Account Title and Amount Dr/Cr. Enter a positive amount for a debit and a negative amount for a credit.
             </div>
           </div>
         )}
@@ -264,12 +337,19 @@ export function CashDisbursementsJournal() {
             <table className="w-full text-xs text-left whitespace-nowrap min-w-[800px]">
               <thead>
                 <tr className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 uppercase tracking-wider font-bold border-b border-slate-200 dark:border-slate-700">
-                  <th className="px-3 py-3 w-10 text-center">#</th>
-                  {columns.map(col => (
-                    <th key={col.id} className={cn("px-3 py-3", col.type === 'number' ? 'text-right' : 'text-left')}>
-                      {col.name} {col.category !== 'None' ? `(${col.category})` : ''}
-                    </th>
+                  <th className="px-3 py-3 w-10 text-center">Existing #</th>
+                  {columns.filter(c => c.id === 'date' || c.id === 'payee' || c.id === 'folio_f').map(col => (
+                    <th key={col.id} className="px-3 py-3">{col.name}</th>
                   ))}
+                  {columns.filter(c => !!accountIdFromColumn(c)).map(col => (
+                    <th key={col.id} className="px-3 py-3 text-right">{col.name}</th>
+                  ))}
+                  <th colSpan={2} className="px-3 py-2 text-center border-l border-slate-200 dark:border-slate-700">
+                    <div>Sundries</div>
+                    <div className="grid grid-cols-2 mt-1 text-[10px] font-semibold normal-case tracking-normal">
+                      <span>Account Title</span><span>Amount Dr/Cr</span>
+                    </div>
+                  </th>
                   <th className="px-3 py-3 w-10 text-center">Action</th>
                 </tr>
               </thead>
