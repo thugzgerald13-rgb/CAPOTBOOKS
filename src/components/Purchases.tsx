@@ -257,9 +257,9 @@ export function Purchases() {
     }
   })();
 
-  const loadPurchase = (index: number) => {
-    if (index < 0 || index >= periodPurchases.length) return;
-    const p = periodPurchases[index];
+  const loadPurchase = (index: number, purchaseList = periodPurchases) => {
+    if (index < 0 || index >= purchaseList.length) return;
+    const p = purchaseList[index];
     if (p) {
       const dateParts = p.date.split('/');
       setDate(p.date.match(/^\d{4}-\d{2}-\d{2}$/) ? p.date : (dateParts.length === 3 ? `${dateParts[2]}-${dateParts[0].padStart(2, '0')}-${dateParts[1].padStart(2, '0')}` : p.date));
@@ -297,9 +297,10 @@ export function Purchases() {
     const editPurchaseId = (location.state as { editPurchaseId?: number } | null)?.editPurchaseId;
     if (editPurchaseId == null || !currentClient) return;
 
-    const index = periodPurchases.findIndex(p => p.id === editPurchaseId);
+    const allPurchases = currentClient.purchases || [];
+    const index = allPurchases.findIndex(p => p.id === editPurchaseId);
     if (index >= 0) {
-      loadPurchase(index);
+      loadPurchase(index, allPurchases);
       navigate(location.pathname, { replace: true, state: null });
     }
   }, [location.state, location.pathname, currentClient, periodPurchases, navigate]);
