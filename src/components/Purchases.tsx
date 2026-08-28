@@ -429,9 +429,9 @@ export function Purchases() {
       supplierTin,
       supplierName,
       supplierAddress,
-      amount: isOtherPayments ? 0 : (vatType === 'vat-nonvat' || vatType === 'vat' ? netAmount : (vatType === 'non-vat' ? (parseFloat(String(exemptAmount).replace(/,/g, '')) || 0) : (parseFloat(String(zeroRatedAmount).replace(/,/g, '')) || 0))),
+      amount: isOtherPayments ? parsedAmount : (vatType === 'vat-nonvat' || vatType === 'vat' ? netAmount : (vatType === 'non-vat' ? (parseFloat(String(exemptAmount).replace(/,/g, '')) || 0) : (parseFloat(String(zeroRatedAmount).replace(/,/g, '')) || 0))),
       vatType: isOtherPayments ? 'non-vat' : vatType,
-      exemptAmount: isOtherPayments ? parsedAmount : ((vatType === 'non-vat' || vatType === 'vat-nonvat') ? (parseFloat(String(exemptAmount).replace(/,/g, '')) || 0) : 0),
+      exemptAmount: isOtherPayments ? 0 : ((vatType === 'non-vat' || vatType === 'vat-nonvat') ? (parseFloat(String(exemptAmount).replace(/,/g, '')) || 0) : 0),
       zeroRatedAmount: isOtherPayments ? 0 : (vatType === 'zero-rated' ? (parseFloat(String(zeroRatedAmount).replace(/,/g, '')) || 0) : 0),
       withholdingOption,
       atcCode: withholdingOption === 'with' ? atcCode : null,
@@ -440,7 +440,7 @@ export function Purchases() {
       expenseType,
       accountTitle,
       transactionDetails,
-      inputTax: isOtherPayments ? 0 : inputTax,
+      inputTax,
       attachment
     };
 

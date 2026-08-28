@@ -517,19 +517,6 @@ export function History() {
                     )}
                   </div>
                 )}
-                {activeTab === 'expenses' && (
-                  <div className="ml-auto flex items-center gap-3 bg-amber-50 dark:bg-amber-900/20 px-4 py-2 rounded-xl border border-amber-100 dark:border-amber-800/50 whitespace-nowrap">
-                    <span className="text-[10px] uppercase font-bold text-amber-600 dark:text-amber-400">Period Total Expenses</span>
-                    <span className="text-lg font-black text-amber-700 dark:text-amber-300">
-                      ₱{purchases.reduce((sum, p) => {
-                        const netOfVat = Number(p.netAmount ?? p.amount ?? 0);
-                        const exempt = Number(p.exemptAmount || 0);
-                        const zeroRated = Number(p.zeroRatedAmount || 0);
-                        return sum + netOfVat + exempt + zeroRated;
-                      }, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                    </span>
-                  </div>
-                )}
                 <div className="relative w-full sm:w-64">
                   <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
                   <input 
@@ -1098,14 +1085,24 @@ export function History() {
         </div>
 
         {/* Footer Summary */}
-        {!['slp', 'sls'].includes(activeTab) && activeTab === 'income' && (
-          <div className="grid gap-4 grid-cols-1">
-            <div className="bg-emerald-50 dark:bg-emerald-900/20 p-4 rounded-xl border border-emerald-100 dark:border-emerald-800/50">
-              <span className="block text-xs uppercase font-bold text-emerald-600 dark:text-emerald-400 mb-1">Period Total Income</span>
-              <span className="text-xl font-black text-emerald-700 dark:text-emerald-300">
-                ₱{sales.reduce((sum, s) => sum + s.amount, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-              </span>
-            </div>
+        {!['slp', 'sls'].includes(activeTab) && (
+          <div className={cn("grid gap-4", activeTab === 'expenses' || activeTab === 'income' ? "grid-cols-1" : "grid-cols-2")}>
+            {activeTab !== 'income' && (
+              <div className="bg-amber-50 dark:bg-amber-900/20 p-4 rounded-xl border border-amber-100 dark:border-amber-800/50">
+                <span className="block text-xs uppercase font-bold text-amber-600 dark:text-amber-400 mb-1">Period Total Expenses</span>
+                <span className="text-xl font-black text-amber-700 dark:text-amber-300">
+                  ₱{purchases.reduce((sum, p) => sum + p.amount, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+            )}
+            {activeTab !== 'expenses' && (
+              <div className="bg-emerald-50 dark:bg-emerald-900/20 p-4 rounded-xl border border-emerald-100 dark:border-emerald-800/50">
+                <span className="block text-xs uppercase font-bold text-emerald-600 dark:text-emerald-400 mb-1">Period Total Income</span>
+                <span className="text-xl font-black text-emerald-700 dark:text-emerald-300">
+                  ₱{sales.reduce((sum, s) => sum + s.amount, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                </span>
+              </div>
+            )}
           </div>
         )}
       </div>
