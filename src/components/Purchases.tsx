@@ -439,8 +439,8 @@ export function Purchases() {
     const formattedDate = `${m}/${d}/${y}`;
 
     const purchaseData = {
-      id: viewIndex !== null ? periodPurchases[viewIndex].id : Date.now(),
-      sequenceNumber: viewIndex !== null ? (periodPurchases[viewIndex].sequenceNumber || sequenceNumber) : sequenceNumber,
+      id: viewIndex !== null ? currentClient.purchases[viewIndex].id : Date.now(),
+      sequenceNumber: viewIndex !== null ? (currentClient.purchases[viewIndex].sequenceNumber || sequenceNumber) : sequenceNumber,
       datMonthYear: currentDat ? currentDat.formatted : `${MONTHS[parseInt(m) - 1]} ${y}`,
       date: formattedDate,
       paymentMethod,
