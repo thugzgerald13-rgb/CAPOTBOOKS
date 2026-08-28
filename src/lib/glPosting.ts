@@ -270,9 +270,9 @@ function postPurchases(client: Client, accounts: CoaAccount[]): Posting[] {
 
 // ---------------------------------------------------------------------------
 // Source: Cash Disbursements Journal auto-entries — every payment made in
-// cash elsewhere in the app (a cash-basis Purchase, or a Journal Voucher
-// that credits Cash) is a cash disbursement, so it belongs in the Cash
-// Disbursements Journal even if nobody typed it there directly. These rows
+// cash/check elsewhere in the app (Purchases, Journal Vouchers, AP Check
+// Vouchers, and Miscellaneous Payments) is a cash disbursement, so it belongs
+// in the Cash Disbursements Journal even if nobody typed it there directly. These rows
 // are generated here and merged into `cdjEntries`; see
 // `syncCashDisbursementsJournal` below. They're excluded from
 // `postColumnarJournal`'s own CDJ pass (via the `cdjManualOnly` filter in
@@ -283,14 +283,20 @@ function postPurchases(client: Client, accounts: CoaAccount[]): Posting[] {
 
 function cashPurchasesToCdjEntries(client: Client): JournalEntry[] {
   return (client.purchases || [])
-    .filter(p => p.paymentMethod === 'Cash')
+    .filter(p => p.paymentMethod === 'Cash' || p.paymentMethod === 'Check')
     .map(p => {
-      const net = Number(p.amount) || 0;
+      // "Other Payments" stores its actual payment amount in exemptAmount
+      // (amount is intentionally 0 there). Use that field so those cash
+      // payments are not silently omitted from the CDJ.
+      const isOtherPayment = p.vatType === 'non-vat' && (Number(p.amount) || 0) === 0
+        && (Number(p.exemptAmount) || 0) > 0;
+      const net = isOtherPayment ? (Number(p.exemptAmount) || 0) : (Number(p.amount) || 0);
       const tax = Number(p.inputTax) || 0;
       const total = net + tax;
       const wht = p.withholdingOption === 'with' ? (Number(p.whtAmount) || 0) : 0;
       const cashDue = total - wht;
       if (cashDue <= 0) return null;
+
       const entry: JournalEntry = {
         id: `cdj-auto:purchase:${p.id}`,
         auto: true,
@@ -298,7 +304,7 @@ function cashPurchasesToCdjEntries(client: Client): JournalEntry[] {
         values: {
           date: p.date,
           payee: p.supplierName,
-          account_title: p.accountTitle,
+          account_title: p.accountTitle || p.expenseType || 'Expense',
           amount: net > 0 ? two(net) : '',
           cash: two(cashDue),
           input_tax: tax > 0 ? two(tax) : '',
@@ -317,10 +323,10 @@ function cashJournalVouchersToCdjEntries(client: Client, accounts: CoaAccount[])
   (client.journalVouchers || []).forEach(v => {
     const creditLines = v.lines.filter(l => l.credit > 0);
     if (creditLines.length === 0) return;
+
     // Only treat this voucher as a cash disbursement when every credit line
-    // on it is the Cash account — a mixed voucher (e.g. Cr Cash + Cr Notes
-    // Payable) isn't a straightforward "paid in cash" transaction, so it's
-    // left for manual entry instead of guessed at.
+    // on it is the Cash account. Mixed-credit vouchers are left for manual
+    // CDJ entry rather than guessing which portion was paid in cash.
     const isCashOnlyCredit = creditLines.every(l => l.accountId === cashAccount.id);
     if (!isCashOnlyCredit) return;
 
@@ -342,6 +348,51 @@ function cashJournalVouchersToCdjEntries(client: Client, accounts: CoaAccount[])
   return entries;
 }
 
+function cashCheckVouchersToCdjEntries(client: Client): JournalEntry[] {
+  return (client.checkVouchers || [])
+    .filter(v => v.status !== 'Reversed' && Number(v.amount) > 0)
+    .map(v => ({
+      id: `cdj-auto:check-voucher:${v.id}`,
+      auto: true,
+      autoSource: 'Check Voucher',
+      values: {
+        date: v.date,
+        payee: v.payeeName,
+        account_title: v.paymentType === 'Miscellaneous'
+          ? (v.miscDetails || 'Miscellaneous Expense')
+          : v.paymentType === 'Advance'
+            ? 'Supplier Advances'
+            : 'Accounts Payable',
+        amount: two(Number(v.amount) || 0),
+        cash: two(Number(v.amount) || 0),
+      },
+    }));
+}
+
+function cashMiscellaneousPaymentsToCdjEntries(client: Client): JournalEntry[] {
+  const vouchers = client.checkVouchers || [];
+  return (client.miscellaneousPayments || [])
+    .filter(m => Number(m.amount) > 0)
+    .filter(m => !vouchers.some(v =>
+      v.status !== 'Reversed'
+      && v.date === m.date
+      && v.checkNumber === m.checkNumber
+      && Math.abs(Number(v.amount) - Number(m.amount)) < 0.01
+    ))
+    .map(m => ({
+      id: `cdj-auto:misc-payment:${m.id}`,
+      auto: true,
+      autoSource: 'Miscellaneous Payment',
+      values: {
+        date: m.date,
+        payee: m.payeeName,
+        account_title: m.expenseCategory || 'Expense',
+        amount: two(Number(m.amount) || 0),
+        cash: two(Number(m.amount) || 0),
+      },
+    }));
+}
+
 /**
  * Returns the client with its Cash Disbursements Journal (`cdjEntries`)
  * synced: every manually-typed row is kept untouched, plus a freshly
@@ -356,6 +407,8 @@ export function syncCashDisbursementsJournal(client: Client): Client {
   const autoEntries = [
     ...cashPurchasesToCdjEntries(client),
     ...cashJournalVouchersToCdjEntries(client, accounts),
+    ...cashCheckVouchersToCdjEntries(client),
+    ...cashMiscellaneousPaymentsToCdjEntries(client),
   ];
   const manualEntries = (client.cdjEntries || []).filter(e => !e.auto);
 
