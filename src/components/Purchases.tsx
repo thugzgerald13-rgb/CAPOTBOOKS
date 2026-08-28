@@ -266,9 +266,9 @@ export function Purchases() {
       setPaymentMethod(p.paymentMethod);
       setBankName(p.bankName || '');
       setCheckNumber(p.checkNumber || '');
-      setInvoiceNo(p.invoiceNo);
-      setSupplierTin(p.supplierTin);
-      setSupplierName(p.supplierName);
+      setInvoiceNo(p.invoiceNo || '');
+      setSupplierTin(p.supplierTin || '');
+      setSupplierName(p.supplierName || '');
       setSupplierAddress(p.supplierAddress || '');
       
       const storedVatType = p.vatType || 'vat';
@@ -281,8 +281,8 @@ export function Purchases() {
       setAmount(gross ? gross.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '');
       setWithholdingOption(p.withholdingOption || 'w/o');
       setAtcCode(p.atcCode || '');
-      setExpenseType(p.expenseType);
-      setAccountTitle(p.accountTitle);
+      setExpenseType(p.expenseType || 'Capital Goods');
+      setAccountTitle(p.accountTitle || '');
       
       const acct = currentClient?.accounts?.find(a => a.name === p.accountTitle);
 
@@ -298,19 +298,10 @@ export function Purchases() {
     if (editPurchaseId == null || !currentClient) return;
 
     const allPurchases = currentClient.purchases || [];
-    const targetPurchase = allPurchases.find(p => p.id === editPurchaseId);
-    if (targetPurchase) {
-      // Load the record using a list scoped to its own period (datMonthYear),
-      // not the full/unfiltered purchases array. viewIndex is later used to
-      // index into periodPurchases (which is filtered by the currently
-      // selected period), so the index passed here must match that same
-      // scoping or the wrong entry can be read/updated.
-      const ownPeriodPurchases = allPurchases.filter(p => p.datMonthYear === targetPurchase.datMonthYear);
-      const index = ownPeriodPurchases.findIndex(p => p.id === editPurchaseId);
-      if (index >= 0) {
-        loadPurchase(index, ownPeriodPurchases);
-        navigate(location.pathname, { replace: true, state: null });
-      }
+    const index = allPurchases.findIndex(p => p.id === editPurchaseId);
+    if (index >= 0) {
+      loadPurchase(index, allPurchases);
+      navigate(location.pathname, { replace: true, state: null });
     }
   }, [location.state, location.pathname, currentClient, periodPurchases, navigate]);
 
@@ -413,12 +404,32 @@ export function Purchases() {
 
   const handleAddPurchase = () => {
     if (!currentClient || !currentClientId) return;
-    
-    const parsedAmount = parseFloat(String(amount).replace(/,/g, ''));
-    if (!date || !supplierName || (!isOtherPayments && (!invoiceNo || !supplierTin)) || !amount || (!isOtherPayments && isNaN(vatType === 'non-vat' ? (parseFloat(String(exemptAmount).replace(/,/g, '')) || NaN) : (vatType === 'zero-rated' ? (parseFloat(String(zeroRatedAmount).replace(/,/g, '')) || NaN) : parsedAmount)))) {
+
+    // Validate the values currently shown in the form. In edit mode, fields
+    // loaded from an existing record must remain valid even when the user only
+    // changes one field (for example, Amount).
+    const parsedAmount = parseFloat(String(amount || '').replace(/,/g, '').trim());
+    const parsedExemptAmount = parseFloat(String(exemptAmount || '').replace(/,/g, '').trim());
+    const parsedZeroRatedAmount = parseFloat(String(zeroRatedAmount || '').replace(/,/g, '').trim());
+
+    const hasDate = Boolean(String(date || '').trim());
+    const hasSupplierName = Boolean(String(supplierName || '').trim());
+    const hasAmount = Number.isFinite(parsedAmount) && parsedAmount >= 0;
+    const hasInvoiceAndTin = isOtherPayments
+      || (Boolean(String(invoiceNo || '').trim()) && Boolean(String(supplierTin || '').trim()));
+
+    const hasVatAmount = isOtherPayments
+      || (vatType === 'non-vat'
+        ? Number.isFinite(parsedExemptAmount) && parsedExemptAmount >= 0
+        : vatType === 'zero-rated'
+          ? Number.isFinite(parsedZeroRatedAmount) && parsedZeroRatedAmount >= 0
+          : hasAmount);
+
+    if (!hasDate || !hasSupplierName || !hasInvoiceAndTin || !hasVatAmount || (isOtherPayments && !hasAmount)) {
       alert('Please fill out all required fields with valid values.');
       return;
     }
+
     if (dateWarning) {
       alert('Please fix date warning before saving.');
       return;
