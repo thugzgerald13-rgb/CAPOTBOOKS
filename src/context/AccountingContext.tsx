@@ -800,16 +800,33 @@ export function AccountingProvider({
     }
   }, [businessProfile, clients, currentClientId, user, isReady]);
 
+  // Serialize saves per client.  Column customization can trigger several
+  // saves in quick succession; overlapping normalized saves can otherwise race
+  // their stale-row cleanup and make recently-added journal columns disappear.
+  const saveQueuesRef = React.useRef<Record<string, Promise<void>>>({});
+
   const saveClient = async (id: string, clientData: Client) => {
     const updatedClient = { ...clientData, id, userId: user ? user.id : undefined } as Client;
     setClients((prev) => ({ ...prev, [id]: updatedClient }));
     if (!user) return;
-    try {
-      await persistNormalizedClient(updatedClient, user.id);
-      showToast('Saved to normalized Supabase tables');
-    } catch (error) {
-      console.error('Normalized client save failed:', error);
-      await handleSupabaseError(error, OperationType.UPDATE, `normalized-client/${id}`);
+
+    const previousSave = saveQueuesRef.current[id] || Promise.resolve();
+    const currentSave = previousSave
+      .catch(() => undefined)
+      .then(async () => {
+        try {
+          await persistNormalizedClient(updatedClient, user.id);
+          showToast('Saved to normalized Supabase tables');
+        } catch (error) {
+          console.error('Normalized client save failed:', error);
+          await handleSupabaseError(error, OperationType.UPDATE, `normalized-client/${id}`);
+        }
+      });
+
+    saveQueuesRef.current[id] = currentSave;
+    await currentSave;
+    if (saveQueuesRef.current[id] === currentSave) {
+      delete saveQueuesRef.current[id];
     }
   };
 
