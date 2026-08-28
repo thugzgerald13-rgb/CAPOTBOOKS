@@ -450,9 +450,14 @@ export function Purchases() {
       supplierTin,
       supplierName,
       supplierAddress,
-      amount: isOtherPayments ? 0 : (vatType === 'vat-nonvat' || vatType === 'vat' ? netAmount : (vatType === 'non-vat' ? (parseFloat(String(exemptAmount).replace(/,/g, '')) || 0) : (parseFloat(String(zeroRatedAmount).replace(/,/g, '')) || 0))),
+      // Keep each VAT classification in its own field. `amount` is the
+      // VATable net amount only; exempt and 0-rated values are stored only in
+      // their dedicated fields so they cannot be duplicated in Expense History
+      // or mapped into the wrong Supabase column. Other Payments intentionally
+      // uses only exemptAmount because that screen's Amount represents exempt.
+      amount: isOtherPayments ? 0 : ((vatType === 'vat-nonvat' || vatType === 'vat') ? netAmount : 0),
       vatType: isOtherPayments ? 'non-vat' : vatType,
-      exemptAmount: isOtherPayments ? parsedAmount : ((vatType === 'non-vat' || vatType === 'vat-nonvat') ? (parseFloat(String(exemptAmount).replace(/,/g, '')) || 0) : 0),
+      exemptAmount: isOtherPayments ? parsedAmount : (vatType === 'non-vat' || vatType === 'vat-nonvat' ? (parseFloat(String(exemptAmount).replace(/,/g, '')) || 0) : 0),
       zeroRatedAmount: isOtherPayments ? 0 : (vatType === 'zero-rated' ? (parseFloat(String(zeroRatedAmount).replace(/,/g, '')) || 0) : 0),
       withholdingOption,
       atcCode: withholdingOption === 'with' ? atcCode : null,

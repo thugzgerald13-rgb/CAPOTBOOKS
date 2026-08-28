@@ -77,23 +77,11 @@ export function History() {
       case 'supplierName': return p.supplierName || '—';
       case 'supplierAddress': return p.supplierAddress || '—';
       case 'vatType': return p.vatType || '—';
-      // Expense History must use the values entered in the Purchases VAT fields.
-      // Fall back to the recorded amount only for legacy records that did not
-      // have the dedicated exempt/0-rated fields saved.
-      case 'exemptAmount': {
-        const exempt = Number(p.exemptAmount);
-        if (Number.isFinite(exempt) && exempt !== 0) return money(exempt);
-        return money(
-          (p.vatType === 'non-vat' || p.vatType === 'vat-nonvat')
-            ? p.amount
-            : 0
-        );
-      }
-      case 'zeroRatedAmount': {
-        const zeroRated = Number(p.zeroRatedAmount);
-        if (Number.isFinite(zeroRated) && zeroRated !== 0) return money(zeroRated);
-        return money(p.vatType === 'zero-rated' ? p.amount : 0);
-      }
+      // Exempt and 0-Rated must come exclusively from their dedicated fields.
+      // Never fall back to `amount`, because doing so can populate the wrong
+      // VAT column when an entry was saved with a different classification.
+      case 'exemptAmount': return money(p.exemptAmount);
+      case 'zeroRatedAmount': return money(p.zeroRatedAmount);
       case 'amount': return money(Number(p.amount || 0) + Number(p.inputTax || 0) + Number(p.exemptAmount || 0) + Number(p.zeroRatedAmount || 0));
       case 'netAmount': return money(p.netAmount ?? p.amount);
       case 'inputTax': return money(p.inputTax);
