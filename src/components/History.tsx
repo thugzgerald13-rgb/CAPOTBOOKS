@@ -26,7 +26,7 @@ export function History() {
     { key: 'vatType', label: 'VAT Type' },
     { key: 'exemptAmount', label: 'Exempt' },
     { key: 'zeroRatedAmount', label: '0-Rated' },
-    { key: 'amount', label: 'GROSS' },
+    { key: 'amount', label: 'Gross / Recorded Amount' },
     { key: 'netAmount', label: 'Net of VAT' },
     { key: 'inputTax', label: 'Input Tax' },
     { key: 'withholdingOption', label: 'Withholding Tax' },
