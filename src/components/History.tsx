@@ -105,8 +105,8 @@ export function History() {
   };
 
   const handleExportExpenses = (format: 'xlsx' | 'csv') => {
-    if (!filteredPurchases.length || !currentDat) {
-      showToast('No expense records to export for this period.');
+    if (!filteredPurchases.length) {
+      showToast(`No expense records to export for ${targetFormatted}.`);
       setShowExpenseExport(false);
       return;
     }
@@ -118,7 +118,7 @@ export function History() {
       columns.map(col => col.label),
       ...filteredPurchases.map(p => columns.map(col => getExpenseExportValue(p, col.key)))
     ];
-    const filenameBase = `Expense_History_${currentDat.formatted.replace(/\s+/g, '_')}`;
+    const filenameBase = `Expense_History_${targetFormatted.replace(/\s+/g, '_')}`;
 
     if (format === 'csv') {
       generateCSV(`${filenameBase}.csv`, rows);
