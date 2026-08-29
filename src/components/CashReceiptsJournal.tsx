@@ -7,14 +7,15 @@ import { cn } from '../lib/utils';
 
 export const DEFAULT_CRJ_COLUMNS: JournalColumn[] = [
   { id: 'date', name: 'Date', type: 'text', category: 'None', isSystem: true },
-  { id: 'reference', name: 'Reference', type: 'text', category: 'None', isSystem: true },
+  { id: 'reference', name: 'OR / Invoice No.', type: 'text', category: 'None', isSystem: true },
+  { id: 'payor', name: "Customer / Payor", type: 'text', category: 'None', isSystem: true },
   { id: 'description', name: 'Account Credited / Description', type: 'text', category: 'None', isSystem: true },
-  { id: 'post_ref', name: 'Post. Ref.', type: 'text', category: 'None', isSystem: true },
-  { id: 'sales_disc', name: 'Sales Discount', type: 'number', category: 'Dr', isSystem: false },
-  { id: 'cash', name: 'Cash', type: 'number', category: 'Dr', isSystem: false },
-  { id: 'ar', name: 'Accounts Receivable', type: 'number', category: 'Cr', isSystem: false },
-  { id: 'sales', name: 'Sales', type: 'number', category: 'Cr', isSystem: false },
-  { id: 'sundry', name: 'Sundry Accounts', type: 'number', category: 'Cr', isSystem: false },
+  { id: 'post_ref', name: 'PR', type: 'text', category: 'None', isSystem: true },
+  { id: 'cash', name: 'Cash on Hand / Bank', type: 'number', category: 'Dr', isSystem: true },
+  { id: 'sales_disc', name: 'Sales Discount', type: 'number', category: 'Dr', isSystem: true },
+  { id: 'ar', name: 'Accounts Receivable', type: 'number', category: 'Cr', isSystem: true },
+  { id: 'sales', name: 'Sales', type: 'number', category: 'Cr', isSystem: true },
+  { id: 'sundry', name: 'Other Accounts / Sundry', type: 'number', category: 'Cr', isSystem: true },
 ];
 
 export function CashReceiptsJournal() {
@@ -26,7 +27,17 @@ export function CashReceiptsJournal() {
 
   if (!currentClient || !currentClientId) return null;
 
-  const columns = currentClient.crjColumns || DEFAULT_CRJ_COLUMNS;
+  const savedColumns = currentClient.crjColumns || [];
+  const requiredIds = new Set(DEFAULT_CRJ_COLUMNS.map(c => c.id));
+  const legacyCustomColumns = savedColumns.filter(c => !requiredIds.has(c.id) && ![
+    'reference', 'description', 'post_ref', 'sales_disc', 'cash', 'ar', 'sales', 'sundry'
+  ].includes(c.id));
+  const hasCurrentRequiredColumns = DEFAULT_CRJ_COLUMNS.every(required =>
+    savedColumns.some(saved => saved.id === required.id && saved.name === required.name)
+  );
+  const columns = hasCurrentRequiredColumns && savedColumns.length
+    ? savedColumns
+    : [...DEFAULT_CRJ_COLUMNS, ...legacyCustomColumns];
   const entries = currentClient.crjEntries || [];
 
   const handleSaveColumns = (newCols: JournalColumn[]) => {
