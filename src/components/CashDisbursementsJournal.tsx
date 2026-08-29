@@ -223,83 +223,61 @@ export function CashDisbursementsJournal() {
   const columns = normalizeCdjColumns(rawColumns, accounts);
   const entries = currentClient.cdjEntries || [];
 
-  useEffect(() => {
-    if (!currentClient || !currentClientId) return;
-    const syncedEntries = entries.map(entry => {
-      const cashValue = getCreditedCashValue(entry);
-      if (!cashValue || entry.values[CDJ_CASH_ON_HAND_BANK_ID] === cashValue) return entry;
-      return { ...entry, values: { ...entry.values, [CDJ_CASH_ON_HAND_BANK_ID]: cashValue } };
-    });
-    if (JSON.stringify(syncedEntries) !== JSON.stringify(entries)) {
-      saveClient(currentClientId, { ...currentClient, cdjEntries: syncedEntries });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentClientId, currentClient, entries, saveClient]);
-
-  useEffect(() => {
-    if (!currentClient || !currentClientId || entries.length === 0) return;
-    const syncedEntries = entries.map(entry => {
-      if (!entry.auto) return entry;
-      const next = { ...entry.values };
-      columns.filter(c => accountIdFromColumn(c)).forEach(c => { delete next[c.id]; });
-      delete next[CDJ_SUNDRY_ACCOUNT_TITLE_ID];
-      delete next[CDJ_SUNDRY_AMOUNT_ID];
-      const allocation = getDebitAllocation(entry, columns, accounts);
-      if (allocation.matchedColumnId) {
-        next[allocation.matchedColumnId] = allocation.amount;
-      } else if (allocation.title) {
-        next[CDJ_SUNDRY_ACCOUNT_TITLE_ID] = allocation.title;
-        next[CDJ_SUNDRY_AMOUNT_ID] = allocation.amount;
-      }
-
-      // Purchases carry Input Tax separately from the main debit allocation.
-      // Put it into the fixed COA-linked Input Tax column when that account exists.
-      const inputTaxAccount = getInputTaxAccount(accounts);
-      const inputTaxColumn = inputTaxAccount
-        ? columns.find(c => accountIdFromColumn(c) === inputTaxAccount.id)
-        : undefined;
-      const inputTaxValue = getInputTaxValue(entry);
-      if (inputTaxColumn && inputTaxValue) {
-        next[inputTaxColumn.id] = inputTaxValue;
-      }
-
-      const cashValue = getCreditedCashValue(entry);
-      if (cashValue) next[CDJ_CASH_ON_HAND_BANK_ID] = cashValue;
-      return JSON.stringify(next) === JSON.stringify(entry.values) ? entry : { ...entry, values: next };
-    });
-    if (JSON.stringify(syncedEntries) !== JSON.stringify(entries)) {
-      saveClient(currentClientId, { ...currentClient, cdjEntries: syncedEntries });
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentClientId, currentClient, columns, accounts, entries, saveClient]);
+  // IMPORTANT: CDJ is a derived journal. Do not continuously write back to
+  // the client whenever currentClient/entries/accounts change. That created a
+  // save -> context update -> effect -> save loop which could keep the page
+  // busy and make navigation appear frozen. Display values are derived from
+  // the source transactions, so persistence is only needed for the one-time
+  // legacy column migration.
+  const migrationClientRef = React.useRef<string | null>(null);
 
   useEffect(() => {
     if (!currentClient || !currentClientId) return;
-    const changed = JSON.stringify(rawColumns || []) !== JSON.stringify(columns);
-    if (!changed) return;
+    if (migrationClientRef.current === currentClientId) return;
+
+    const raw = currentClient.cdjColumns || [];
+    const normalized = normalizeCdjColumns(raw, accounts);
+    const rawSignature = JSON.stringify(raw);
+    const normalizedSignature = JSON.stringify(normalized);
+
+    // Mark this client as inspected before any async/state update. This
+    // prevents navigation or a context refresh from starting the migration
+    // repeatedly.
+    migrationClientRef.current = currentClientId;
+
+    if (rawSignature === normalizedSignature) return;
 
     // Preserve old Account Title/Amount values as Sundries during migration.
-    const oldAccountTitle = rawColumns?.find(c => c.id === 'account_title');
-    const oldAmount = rawColumns?.find(c => c.id === 'amount');
-    const oldAccountColumns = rawColumns?.filter(c => c.type === 'number' && !c.isSystem) || [];
-    const migratedEntries = entries.map(entry => {
+    const oldAccountTitle = raw.find(c => c.id === 'account_title');
+    const oldAmount = raw.find(c => c.id === 'amount');
+    const oldAccountColumns = raw.filter(c => c.type === 'number' && !c.isSystem);
+
+    const migratedEntries = (currentClient.cdjEntries || []).map(entry => {
       const next = { ...entry.values };
-      if (oldAccountTitle && next[oldAccountTitle.id] !== undefined) next[CDJ_SUNDRY_ACCOUNT_TITLE_ID] = next[oldAccountTitle.id];
-      if (oldAmount && next[oldAmount.id] !== undefined) next[CDJ_SUNDRY_AMOUNT_ID] = next[oldAmount.id];
-      columns.filter(c => accountIdFromColumn(c)).forEach(c => {
+
+      if (oldAccountTitle && next[oldAccountTitle.id] !== undefined) {
+        next[CDJ_SUNDRY_ACCOUNT_TITLE_ID] = next[oldAccountTitle.id];
+      }
+      if (oldAmount && next[oldAmount.id] !== undefined) {
+        next[CDJ_SUNDRY_AMOUNT_ID] = next[oldAmount.id];
+      }
+
+      normalized.filter(c => accountIdFromColumn(c)).forEach(c => {
         const account = accounts.find(a => a.id === accountIdFromColumn(c));
-        const old = account && oldAccountColumns.find(x => x.name.toLowerCase() === account.name.toLowerCase());
+        const old = account && oldAccountColumns.find(
+          x => x.name.trim().toLowerCase() === account.name.trim().toLowerCase()
+        );
         if (old && next[old.id] !== undefined) next[c.id] = next[old.id];
       });
 
-      // For every auto-generated transaction, allocate its debit to the matching
-      // added COA column. If that account is not one of the selected columns,
-      // place the account title and debit amount in Sundries.
+      // Existing auto rows are still displayed from their source values; only
+      // migrate their old stored allocation when a legacy column is present.
       if (entry.auto) {
-        const allocation = getDebitAllocation(entry, columns, accounts);
-        columns.filter(c => accountIdFromColumn(c)).forEach(c => { delete next[c.id]; });
+        const allocation = getDebitAllocation(entry, normalized, accounts);
+        normalized.filter(c => accountIdFromColumn(c)).forEach(c => { delete next[c.id]; });
         delete next[CDJ_SUNDRY_ACCOUNT_TITLE_ID];
         delete next[CDJ_SUNDRY_AMOUNT_ID];
+
         if (allocation.matchedColumnId) {
           next[allocation.matchedColumnId] = allocation.amount;
         } else if (allocation.title) {
@@ -309,22 +287,30 @@ export function CashDisbursementsJournal() {
 
         const inputTaxAccount = getInputTaxAccount(accounts);
         const inputTaxColumn = inputTaxAccount
-          ? columns.find(c => accountIdFromColumn(c) === inputTaxAccount.id)
+          ? normalized.find(c => accountIdFromColumn(c) === inputTaxAccount.id)
           : undefined;
         const inputTaxValue = getInputTaxValue(entry);
-        if (inputTaxColumn && inputTaxValue) {
-          next[inputTaxColumn.id] = inputTaxValue;
-        }
+        if (inputTaxColumn && inputTaxValue) next[inputTaxColumn.id] = inputTaxValue;
       }
 
       const cashValue = getCreditedCashValue(entry);
       if (cashValue) next[CDJ_CASH_ON_HAND_BANK_ID] = cashValue;
-      return { ...entry, values: next };
+
+      return JSON.stringify(next) === JSON.stringify(entry.values)
+        ? entry
+        : { ...entry, values: next };
     });
 
-    saveClient(currentClientId, { ...currentClient, cdjColumns: columns, cdjEntries: migratedEntries });
+    // One save only, for legacy/default column migration. No dependency on
+    // currentClient/entries/saveClient is intentionally used here because a
+    // save changes the context object and must not re-trigger this effect.
+    void saveClient(currentClientId, {
+      ...currentClient,
+      cdjColumns: normalized,
+      cdjEntries: migratedEntries,
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentClientId, rawColumns, currentClient, columns, accounts, entries, saveClient]);
+  }, [currentClientId]);
 
   if (!currentClient || !currentClientId) return null;
 
