@@ -301,7 +301,9 @@ function cashPurchasesToCdjEntries(client: Client): JournalEntry[] {
       const exempt = Number(p.exemptAmount) || 0;
       const zeroRated = Number(p.zeroRatedAmount) || 0;
       const gross = amount + tax + exempt + zeroRated;
-      const net = isOtherPayment ? exempt : amount;
+      // CDJ added COA columns and Sundries represent the purchase cost
+      // excluding Input Tax: Net of VAT + Exempt + 0-Rated.
+      const purchaseDebit = amount + exempt + zeroRated;
       if (gross <= 0) return null;
 
       const entry: JournalEntry = {
@@ -312,7 +314,7 @@ function cashPurchasesToCdjEntries(client: Client): JournalEntry[] {
           date: p.date,
           payee: p.supplierName,
           account_title: p.accountTitle || p.expenseType || 'Expense',
-          amount: net > 0 ? two(net) : '',
+          amount: purchaseDebit > 0 ? two(purchaseDebit) : '',
           // Must be identical to Expense History's GROSS function.
           cash: two(gross),
           input_tax: tax > 0 ? two(tax) : '',
