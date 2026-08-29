@@ -45,8 +45,8 @@ function normalizeCdjColumns(columns: JournalColumn[] | undefined, accounts: Coa
       DEFAULT_CDJ_COLUMNS[2],
       DEFAULT_CDJ_COLUMNS[3],
       ...accountCols,
+      DEFAULT_CDJ_COLUMNS[3],
       DEFAULT_CDJ_COLUMNS[4],
-      DEFAULT_CDJ_COLUMNS[5],
     ];
   }
 
@@ -75,9 +75,28 @@ function normalizeCdjColumns(columns: JournalColumn[] | undefined, accounts: Coa
     DEFAULT_CDJ_COLUMNS[2],
     DEFAULT_CDJ_COLUMNS[3],
     ...accountCols,
+    DEFAULT_CDJ_COLUMNS[3],
     DEFAULT_CDJ_COLUMNS[4],
-    DEFAULT_CDJ_COLUMNS[5],
   ];
+}
+
+function getCreditedCashValue(entry: JournalEntry): string {
+  const values = entry.values || {};
+  const candidates = [
+    values[CDJ_CASH_ON_HAND_BANK_ID],
+    values.cash_on_hand_bank,
+    values.cash,
+    values.cashAmount,
+    values.cash_amount,
+  ];
+  for (const candidate of candidates) {
+    if (candidate !== undefined && candidate !== null && String(candidate).trim() !== '') {
+      const n = Number(String(candidate).replace(/,/g, ''));
+      if (Number.isFinite(n) && n > 0) return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      return String(candidate);
+    }
+  }
+  return '';
 }
 
 export function CashDisbursementsJournal() {
@@ -93,18 +112,21 @@ export function CashDisbursementsJournal() {
 
   useEffect(() => {
     if (!currentClient || !currentClientId) return;
-    const columnsChanged = JSON.stringify(rawColumns || []) !== JSON.stringify(columns);
-
-    // Preserve old Account Title/Amount values as Sundries during migration,
-    // and continuously derive the Cash on Hand/Bank column from the source
-    // cash credit value carried by auto-posted cash transactions.
-    const needsCashPopulation = entries.some(entry => {
-      const cash = String(entry.values?.cash ?? '').replace(/,/g, '');
-      const target = String(entry.values?.[CDJ_CASH_ON_HAND_BANK_ID] ?? '').replace(/,/g, '');
-      const amount = parseFloat(cash);
-      return Number.isFinite(amount) && amount > 0 && target !== cash;
+    const syncedEntries = entries.map(entry => {
+      const cashValue = getCreditedCashValue(entry);
+      if (!cashValue || entry.values[CDJ_CASH_ON_HAND_BANK_ID] === cashValue) return entry;
+      return { ...entry, values: { ...entry.values, [CDJ_CASH_ON_HAND_BANK_ID]: cashValue } };
     });
-    if (!columnsChanged && !needsCashPopulation) return;
+    if (JSON.stringify(syncedEntries) !== JSON.stringify(entries)) {
+      saveClient(currentClientId, { ...currentClient, cdjEntries: syncedEntries });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentClientId, currentClient, entries, saveClient]);
+
+  useEffect(() => {
+    if (!currentClient || !currentClientId) return;
+    const changed = JSON.stringify(rawColumns || []) !== JSON.stringify(columns);
+    if (!changed) return;
 
     // Preserve old Account Title/Amount values as Sundries during migration.
     const oldAccountTitle = rawColumns?.find(c => c.id === 'account_title');
@@ -114,22 +136,13 @@ export function CashDisbursementsJournal() {
       const next = { ...entry.values };
       if (oldAccountTitle && next[oldAccountTitle.id] !== undefined) next[CDJ_SUNDRY_ACCOUNT_TITLE_ID] = next[oldAccountTitle.id];
       if (oldAmount && next[oldAmount.id] !== undefined) next[CDJ_SUNDRY_AMOUNT_ID] = next[oldAmount.id];
-      // Auto-generated cash transactions already carry their cash credit in
-      // `values.cash`. Promote that source value into the fixed Cash on
-      // Hand/Bank column. This covers cash/check purchases, JV cash credits,
-      // check vouchers and miscellaneous cash payments.
-      if (entry.auto && next.cash !== undefined) {
-        const rawCash = String(next.cash).replace(/,/g, '');
-        const cashAmount = parseFloat(rawCash);
-        if (Number.isFinite(cashAmount) && cashAmount > 0) {
-          next[CDJ_CASH_ON_HAND_BANK_ID] = parseFloat(cashAmount.toFixed(2)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-        }
-      }
       columns.filter(c => accountIdFromColumn(c)).forEach(c => {
         const account = accounts.find(a => a.id === accountIdFromColumn(c));
         const old = account && oldAccountColumns.find(x => x.name.toLowerCase() === account.name.toLowerCase());
         if (old && next[old.id] !== undefined) next[c.id] = next[old.id];
       });
+      const cashValue = getCreditedCashValue(entry);
+      if (cashValue) next[CDJ_CASH_ON_HAND_BANK_ID] = cashValue;
       return { ...entry, values: next };
     });
 
@@ -311,9 +324,12 @@ export function CashDisbursementsJournal() {
                       <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">{col.name}</label>
                       <input 
                         type="text"
-                        readOnly={isAuto}
-                        value={entry.values[col.id] || ''}
-                        onChange={e => updateEntry(entry.id, col.id, e.target.value)}
+                        readOnly={isAuto || col.id === CDJ_CASH_ON_HAND_BANK_ID}
+                        value={col.id === CDJ_CASH_ON_HAND_BANK_ID ? getCreditedCashValue(entry) : (entry.values[col.id] || '')}
+                        onChange={e => {
+                          if (col.id === CDJ_CASH_ON_HAND_BANK_ID) return;
+                          updateEntry(entry.id, col.id, e.target.value);
+                        }}
                         className={cn("w-full border rounded-xl px-2.5 py-1.5 text-xs outline-none", isAuto ? "bg-slate-100 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 cursor-default" : "bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-600 focus:border-cyan-500 text-slate-900 dark:text-white")}
                         placeholder={`Enter ${col.name.toLowerCase()}`}
                       />
@@ -363,10 +379,9 @@ export function CashDisbursementsJournal() {
               <thead>
                 <tr className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 uppercase tracking-wider font-bold border-b border-slate-200 dark:border-slate-700">
                   <th className="px-3 py-3 w-10 text-center">Existing #</th>
-                  {columns.filter(c => c.id === 'date' || c.id === 'payee' || c.id === 'folio_f').map(col => (
+                  {columns.filter(c => c.id === 'date' || c.id === 'payee' || c.id === 'folio_f' || c.id === CDJ_CASH_ON_HAND_BANK_ID).map(col => (
                     <th key={col.id} className="px-3 py-3">{col.name}</th>
                   ))}
-                  <th className="px-3 py-3 text-right">Cash on Hand/Bank</th>
                   {columns.filter(c => !!accountIdFromColumn(c)).map(col => (
                     <th key={col.id} className="px-3 py-3 text-right">{col.name}</th>
                   ))}
@@ -389,9 +404,10 @@ export function CashDisbursementsJournal() {
                       <td key={col.id} className="px-2 py-1">
                         <input 
                           type={col.type === 'number' ? 'text' : 'text'}
-                          readOnly={isAuto}
-                          value={entry.values[col.id] || ''}
+                          readOnly={isAuto || col.id === CDJ_CASH_ON_HAND_BANK_ID}
+                          value={col.id === CDJ_CASH_ON_HAND_BANK_ID ? getCreditedCashValue(entry) : (entry.values[col.id] || '')}
                           onChange={e => {
+                            if (col.id === CDJ_CASH_ON_HAND_BANK_ID) return;
                             let val = e.target.value;
                             if (col.type === 'number') {
                                if (/^[0-9.,-]*$/.test(val)) {
