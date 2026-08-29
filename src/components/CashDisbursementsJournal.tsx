@@ -34,30 +34,36 @@ function getClientAccounts(client: any): CoaAccount[] {
 }
 
 function normalizeCdjColumns(columns: JournalColumn[] | undefined, accounts: CoaAccount[]): JournalColumn[] {
-  if (!columns || columns.length === 0) return [...DEFAULT_CDJ_COLUMNS];
+  const base = DEFAULT_CDJ_COLUMNS.slice(0, 4); // Date, Payees, Folio/F, Cash on Hand/Bank
+  const sundries = DEFAULT_CDJ_COLUMNS.slice(4); // Account Title, Amount Dr/Cr
 
-  const alreadyNew = columns.some(c => c.id === CDJ_SUNDRY_ACCOUNT_TITLE_ID || c.id === CDJ_SUNDRY_AMOUNT_ID || c.id.startsWith(CDJ_ACCOUNT_PREFIX));
-  if (alreadyNew) {
-    const accountCols = columns.filter(c => accountIdFromColumn(c)).slice(0, MAX_CDJ_ACCOUNT_COLUMNS);
-    return [
-      DEFAULT_CDJ_COLUMNS[0],
-      DEFAULT_CDJ_COLUMNS[1],
-      DEFAULT_CDJ_COLUMNS[2],
-      DEFAULT_CDJ_COLUMNS[3],
-      ...accountCols,
-      DEFAULT_CDJ_COLUMNS[4],
-      DEFAULT_CDJ_COLUMNS[5],
-    ];
-  }
+  if (!columns || columns.length === 0) return [...base, ...sundries];
 
-  // Migrate the previous CDJ layout to the new structure without changing
-  // unrelated journals or database structures. Numeric columns that match a
-  // Chart of Accounts account become the first 9 selectable account columns.
-  const used = new Set<string>();
   const accountCols: JournalColumn[] = [];
+  const used = new Set<string>();
+
+  // Preserve existing CDJ account columns, but never allow more than 9.
+  columns.forEach(c => {
+    const accountId = accountIdFromColumn(c);
+    if (!accountId || accountCols.length >= MAX_CDJ_ACCOUNT_COLUMNS || used.has(accountId)) return;
+    const account = accounts.find(a => a.id === accountId);
+    if (!account) return;
+    used.add(account.id);
+    accountCols.push({
+      id: accountColumnId(account.id),
+      name: account.name,
+      type: 'number',
+      category: account.normalSide === 'credit' ? 'Cr' : 'Dr',
+      isSystem: false,
+    });
+  });
+
+  // Migrate older user-created numeric columns that were named after a COA account.
   columns.filter(c => c.type === 'number' && !c.isSystem).forEach(c => {
     if (accountCols.length >= MAX_CDJ_ACCOUNT_COLUMNS) return;
-    const match = accounts.find(a => a.id === c.id || a.name.toLowerCase() === c.name.toLowerCase());
+    const match = accounts.find(a =>
+      a.id === c.id || a.name.trim().toLowerCase() === c.name.trim().toLowerCase()
+    );
     if (!match || used.has(match.id)) return;
     used.add(match.id);
     accountCols.push({
@@ -69,65 +75,31 @@ function normalizeCdjColumns(columns: JournalColumn[] | undefined, accounts: Coa
     });
   });
 
-  return [
-    DEFAULT_CDJ_COLUMNS[0],
-    DEFAULT_CDJ_COLUMNS[1],
-    DEFAULT_CDJ_COLUMNS[2],
-    DEFAULT_CDJ_COLUMNS[3],
-    ...accountCols,
-    DEFAULT_CDJ_COLUMNS[4],
-    DEFAULT_CDJ_COLUMNS[5],
-  ];
+  return [...base, ...accountCols, ...sundries];
 }
 
-function normalizeAmount(value: unknown): string {
-  if (value === undefined || value === null || String(value).trim() === '') return '';
-  const n = Number(String(value).replace(/,/g, ''));
-  return Number.isFinite(n)
-    ? n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    : String(value);
-}
-
-/**
- * Populate the CDJ debit columns from the transaction's debited account.
- * If the debited account is one of the user's selected COA columns, its
- * debit amount goes into that column. Otherwise the account title and debit
- * amount are placed in Sundries.
- */
-function populateCdjDebitColumns(entry: JournalEntry, columns: JournalColumn[], accounts: CoaAccount[]): JournalEntry {
+function getDebitAllocation(entry: JournalEntry, columns: JournalColumn[], accounts: CoaAccount[]) {
   const values = entry.values || {};
-  const accountTitle = String(
-    values[CDJ_SUNDRY_ACCOUNT_TITLE_ID] ?? values.account_title ?? values.accountTitle ?? ''
-  ).trim();
-  const amountRaw = values.amount ?? values.debitAmount ?? values.debit_amount ?? values[CDJ_SUNDRY_AMOUNT_ID];
-  const amount = normalizeAmount(amountRaw);
-  if (!accountTitle || !amount) return entry;
-
-  const selectedColumns = columns.filter(c => !!accountIdFromColumn(c));
-  const matchedColumn = selectedColumns.find(c => {
-    const id = accountIdFromColumn(c);
-    const account = accounts.find(a => a.id === id);
-    return !!account && (
-      account.name.trim().toLowerCase() === accountTitle.toLowerCase() ||
-      account.id.trim().toLowerCase() === accountTitle.toLowerCase()
-    );
-  });
-
-  const next = { ...values };
-  // Clear the selected COA columns and Sundries first so a transaction cannot
-  // remain populated in a column after its debit account changes.
-  selectedColumns.forEach(c => { delete next[c.id]; });
-  delete next[CDJ_SUNDRY_ACCOUNT_TITLE_ID];
-  delete next[CDJ_SUNDRY_AMOUNT_ID];
-
-  if (matchedColumn) {
-    next[matchedColumn.id] = amount;
-  } else {
-    next[CDJ_SUNDRY_ACCOUNT_TITLE_ID] = accountTitle;
-    next[CDJ_SUNDRY_AMOUNT_ID] = amount;
+  const title = String(values.account_title ?? values.accountTitle ?? '').trim();
+  const amountRaw = values.amount ?? values.debitAmount ?? values.debit_amount ?? '';
+  const amount = Number(String(amountRaw).replace(/,/g, ''));
+  if (!title || !Number.isFinite(amount) || amount === 0) {
+    return { title: '', amount: '' as string, matchedColumnId: undefined as string | undefined };
   }
 
-  return JSON.stringify(next) === JSON.stringify(values) ? entry : { ...entry, values: next };
+  const account = accounts.find(a =>
+    a.id === title || a.name.trim().toLowerCase() === title.toLowerCase()
+  );
+  if (!account) {
+    return { title, amount: amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }), matchedColumnId: undefined };
+  }
+
+  const matched = columns.find(c => accountIdFromColumn(c) === account.id);
+  if (matched) {
+    return { title: account.name, amount: amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }), matchedColumnId: matched.id };
+  }
+
+  return { title: account.name, amount: amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }), matchedColumnId: undefined };
 }
 
 function getCreditedCashValue(entry: JournalEntry): string {
@@ -163,17 +135,40 @@ export function CashDisbursementsJournal() {
   useEffect(() => {
     if (!currentClient || !currentClientId) return;
     const syncedEntries = entries.map(entry => {
-      const withDebit = populateCdjDebitColumns(entry, columns, accounts);
-      const cashValue = getCreditedCashValue(withDebit);
-      if (!cashValue) return withDebit;
-      if (withDebit.values[CDJ_CASH_ON_HAND_BANK_ID] === cashValue) return withDebit;
-      return { ...withDebit, values: { ...withDebit.values, [CDJ_CASH_ON_HAND_BANK_ID]: cashValue } };
+      const cashValue = getCreditedCashValue(entry);
+      if (!cashValue || entry.values[CDJ_CASH_ON_HAND_BANK_ID] === cashValue) return entry;
+      return { ...entry, values: { ...entry.values, [CDJ_CASH_ON_HAND_BANK_ID]: cashValue } };
     });
     if (JSON.stringify(syncedEntries) !== JSON.stringify(entries)) {
       saveClient(currentClientId, { ...currentClient, cdjEntries: syncedEntries });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentClientId, currentClient, entries, saveClient]);
+
+  useEffect(() => {
+    if (!currentClient || !currentClientId || entries.length === 0) return;
+    const syncedEntries = entries.map(entry => {
+      if (!entry.auto) return entry;
+      const next = { ...entry.values };
+      columns.filter(c => accountIdFromColumn(c)).forEach(c => { delete next[c.id]; });
+      delete next[CDJ_SUNDRY_ACCOUNT_TITLE_ID];
+      delete next[CDJ_SUNDRY_AMOUNT_ID];
+      const allocation = getDebitAllocation(entry, columns, accounts);
+      if (allocation.matchedColumnId) {
+        next[allocation.matchedColumnId] = allocation.amount;
+      } else if (allocation.title) {
+        next[CDJ_SUNDRY_ACCOUNT_TITLE_ID] = allocation.title;
+        next[CDJ_SUNDRY_AMOUNT_ID] = allocation.amount;
+      }
+      const cashValue = getCreditedCashValue(entry);
+      if (cashValue) next[CDJ_CASH_ON_HAND_BANK_ID] = cashValue;
+      return JSON.stringify(next) === JSON.stringify(entry.values) ? entry : { ...entry, values: next };
+    });
+    if (JSON.stringify(syncedEntries) !== JSON.stringify(entries)) {
+      saveClient(currentClientId, { ...currentClient, cdjEntries: syncedEntries });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentClientId, currentClient, columns, accounts, entries, saveClient]);
 
   useEffect(() => {
     if (!currentClient || !currentClientId) return;
@@ -193,9 +188,26 @@ export function CashDisbursementsJournal() {
         const old = account && oldAccountColumns.find(x => x.name.toLowerCase() === account.name.toLowerCase());
         if (old && next[old.id] !== undefined) next[c.id] = next[old.id];
       });
+
+      // For every auto-generated transaction, allocate its debit to the matching
+      // added COA column. If that account is not one of the selected columns,
+      // place the account title and debit amount in Sundries.
+      if (entry.auto) {
+        const allocation = getDebitAllocation(entry, columns, accounts);
+        columns.filter(c => accountIdFromColumn(c)).forEach(c => { delete next[c.id]; });
+        delete next[CDJ_SUNDRY_ACCOUNT_TITLE_ID];
+        delete next[CDJ_SUNDRY_AMOUNT_ID];
+        if (allocation.matchedColumnId) {
+          next[allocation.matchedColumnId] = allocation.amount;
+        } else if (allocation.title) {
+          next[CDJ_SUNDRY_ACCOUNT_TITLE_ID] = allocation.title;
+          next[CDJ_SUNDRY_AMOUNT_ID] = allocation.amount;
+        }
+      }
+
       const cashValue = getCreditedCashValue(entry);
       if (cashValue) next[CDJ_CASH_ON_HAND_BANK_ID] = cashValue;
-      return populateCdjDebitColumns({ ...entry, values: next }, columns, accounts);
+      return { ...entry, values: next };
     });
 
     saveClient(currentClientId, { ...currentClient, cdjColumns: columns, cdjEntries: migratedEntries });
@@ -310,7 +322,7 @@ export function CashDisbursementsJournal() {
         {isEditingHeaders && (
           <div className="mb-6 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
             <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Cash Disbursements Journal Columns</h4>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">Users may add up to 9 account columns from the Chart of Accounts after Cash on Hand/Bank. Sundries remain fixed after those columns.</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">Up to 9 account columns are selected directly from the Chart of Accounts. Sundries is fixed after those account columns.</p>
             <div className="flex flex-wrap gap-2 mb-4">
               {columns.map((col, index) => {
                 const accountId = accountIdFromColumn(col);
@@ -340,7 +352,7 @@ export function CashDisbursementsJournal() {
               </button>
             </div>
             <div className="mt-4 p-3 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400">
-              <strong>Sundries (columns 14–15):</strong> Account Title and Amount Dr/Cr. Enter a positive amount for a debit and a negative amount for a credit.
+              <strong>Sundries:</strong> Account Title and Amount Dr/Cr. Enter a positive amount for a debit and a negative amount for a credit.
             </div>
           </div>
         )}
