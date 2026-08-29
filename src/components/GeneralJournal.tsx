@@ -8,7 +8,7 @@ import { cn } from '../lib/utils';
 export const DEFAULT_GJ_COLUMNS: JournalColumn[] = [
   { id: 'date', name: 'DATE', type: 'text', category: 'None', isSystem: true },
   { id: 'particulars', name: 'ACCOUNT TITLES & DESCRIPTION', type: 'text', category: 'None', isSystem: true },
-  { id: 'ref_no', name: 'POSTING REFERENCE (PR)', type: 'text', category: 'None', isSystem: true },
+  { id: 'ref_no', name: 'PR', type: 'text', category: 'None', isSystem: true },
   { id: 'debit', name: 'DEBIT', type: 'number', category: 'Dr', isSystem: true },
   { id: 'credit', name: 'CREDIT', type: 'number', category: 'Cr', isSystem: true },
 ];
@@ -22,7 +22,19 @@ export function GeneralJournal() {
 
   if (!currentClient || !currentClientId) return null;
 
-  const columns = currentClient.gjColumns || DEFAULT_GJ_COLUMNS;
+  // Always enforce the required General Journal system columns for existing clients too.
+  // Older saved configurations may still contain the previous header names/order.
+  const savedColumns = currentClient.gjColumns || [];
+  const systemIds = new Set(DEFAULT_GJ_COLUMNS.map(c => c.id));
+  const savedById = new Map(savedColumns.map(c => [c.id, c]));
+  const columns: JournalColumn[] = [
+    ...DEFAULT_GJ_COLUMNS.map(required => ({
+      ...required,
+      // Preserve existing system-column metadata while enforcing the required label/type/category.
+      ...(savedById.has(required.id) ? { isSystem: true } : {}),
+    })),
+    ...savedColumns.filter(c => !systemIds.has(c.id)),
+  ];
   const entries = currentClient.gjEntries || [];
 
   const handleSaveColumns = (newCols: JournalColumn[]) => {
