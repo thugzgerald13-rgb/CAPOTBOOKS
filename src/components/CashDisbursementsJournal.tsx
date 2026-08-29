@@ -37,8 +37,11 @@ function getInputTaxAccount(accounts: CoaAccount[]): CoaAccount | undefined {
   // The CDJ default column is linked to the actual Chart of Accounts account.
   // Prefer an exact "Input Tax" title; also recognize the app's VAT input
   // receivable naming when that is the account used in the client's COA.
-  return accounts.find(a => a.name.trim().toLowerCase() === 'input tax')
-    || accounts.find(a => a.name.trim().toLowerCase() === 'vat input receivable');
+  const normalized = (s: string) => s.trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  return accounts.find(a => normalized(a.name) === 'input tax')
+    || accounts.find(a => normalized(a.name) === 'vat input receivable')
+    || accounts.find(a => normalized(a.name) === 'input vat')
+    || accounts.find(a => normalized(a.name) === 'vat input');
 }
 
 function normalizeCdjColumns(columns: JournalColumn[] | undefined, accounts: CoaAccount[]): JournalColumn[] {
@@ -114,9 +117,20 @@ function getDebitAllocation(entry: JournalEntry, columns: JournalColumn[], accou
     return { title: '', amount: '' as string, matchedColumnId: undefined as string | undefined };
   }
 
-  const account = accounts.find(a =>
-    a.id === title || a.name.trim().toLowerCase() === title.toLowerCase()
+  const normalizeAccountLabel = (s: string) =>
+    String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+  const exact = accounts.find(a =>
+    a.id === title || normalizeAccountLabel(a.name) === normalizeAccountLabel(title)
   );
+  const account = exact || accounts.find(a => {
+    const t = new Set(normalizeAccountLabel(title).split(' ').filter(Boolean));
+    const n = new Set(normalizeAccountLabel(a.name).split(' ').filter(Boolean));
+    if (!t.size || !n.size) return false;
+    let overlap = 0;
+    t.forEach(token => { if (n.has(token)) overlap++; });
+    return overlap > 0 && overlap === Math.min(t.size, n.size);
+  });
   if (!account) {
     return { title, amount: amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }), matchedColumnId: undefined };
   }
@@ -164,6 +178,38 @@ function getCreditedCashValue(entry: JournalEntry): string {
     }
   }
   return '';
+}
+
+function getCdjDisplayValue(entry: JournalEntry, column: JournalColumn, columns: JournalColumn[], accounts: CoaAccount[]): string {
+  const values = entry.values || {};
+
+  // Auto-posted rows are derived from their source transaction.  Calculate the
+  // display values directly instead of waiting for an async persistence effect.
+  // This guarantees Input Tax, selected COA columns, and Sundries appear
+  // immediately even while the normalized Supabase row is being saved.
+  if (entry.auto) {
+    if (column.id === CDJ_CASH_ON_HAND_BANK_ID) return getCreditedCashValue(entry);
+
+    const inputTaxAccount = getInputTaxAccount(accounts);
+    if (inputTaxAccount && accountIdFromColumn(column) === inputTaxAccount.id) {
+      return getInputTaxValue(entry);
+    }
+
+    const allocation = getDebitAllocation(entry, columns, accounts);
+    const accountId = accountIdFromColumn(column);
+    if (accountId && allocation.matchedColumnId === column.id) return allocation.amount;
+
+    if (column.id === CDJ_SUNDRY_ACCOUNT_TITLE_ID) {
+      return allocation.matchedColumnId ? '' : allocation.title;
+    }
+    if (column.id === CDJ_SUNDRY_AMOUNT_ID) {
+      return allocation.matchedColumnId ? '' : allocation.amount;
+    }
+  }
+
+  return values[column.id] === undefined || values[column.id] === null
+    ? ''
+    : String(values[column.id]);
 }
 
 export function CashDisbursementsJournal() {
@@ -345,7 +391,8 @@ export function CashDisbursementsJournal() {
     columns.forEach(c => {
       if (c.type === 'number') {
         totals[c.id] = entries.reduce((sum, e) => {
-          const val = parseFloat((e.values[c.id] || '').replace(/,/g, ''));
+          const display = getCdjDisplayValue(e, c, columns, accounts);
+          const val = parseFloat(display.replace(/,/g, ''));
           return sum + (isNaN(val) ? 0 : val);
         }, 0);
       }
@@ -455,7 +502,7 @@ export function CashDisbursementsJournal() {
                       <input 
                         type="text"
                         readOnly={isAuto || col.id === CDJ_CASH_ON_HAND_BANK_ID}
-                        value={col.id === CDJ_CASH_ON_HAND_BANK_ID ? getCreditedCashValue(entry) : (entry.values[col.id] || '')}
+                        value={getCdjDisplayValue(entry, col, columns, accounts)}
                         onChange={e => {
                           if (col.id === CDJ_CASH_ON_HAND_BANK_ID) return;
                           updateEntry(entry.id, col.id, e.target.value);
@@ -476,7 +523,7 @@ export function CashDisbursementsJournal() {
                         <input 
                           type="text"
                           readOnly={isAuto}
-                          value={entry.values[col.id] || ''}
+                          value={getCdjDisplayValue(entry, col, columns, accounts)}
                           onChange={e => {
                             let val = e.target.value;
                             if (/^[0-9.,-]*$/.test(val)) {
@@ -535,7 +582,7 @@ export function CashDisbursementsJournal() {
                         <input 
                           type={col.type === 'number' ? 'text' : 'text'}
                           readOnly={isAuto || col.id === CDJ_CASH_ON_HAND_BANK_ID}
-                          value={col.id === CDJ_CASH_ON_HAND_BANK_ID ? getCreditedCashValue(entry) : (entry.values[col.id] || '')}
+                          value={getCdjDisplayValue(entry, col, columns, accounts)}
                           onChange={e => {
                             if (col.id === CDJ_CASH_ON_HAND_BANK_ID) return;
                             let val = e.target.value;
