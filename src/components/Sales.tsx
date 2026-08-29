@@ -5,7 +5,6 @@ import { formatTIN, MONTHS, getMonthName } from '../lib/utils';
 import { Receipt, Plus } from 'lucide-react';
 import { DEFAULT_CRJ_COLUMNS } from './CashReceiptsJournal';
 import { JournalEntry } from '../types';
-import { DEFAULT_SJ_COLUMNS } from './SalesJournal';
 
 const CASH_RECEIPT_PAYMENT_TYPES = ['Cash', 'Check', 'E-Payment', 'Bank Transfer'];
 const SALES_JOURNAL_PAYMENT_TYPES = ['Credit Card', 'On Account'];
@@ -131,32 +130,11 @@ export function Sales() {
     const updatedClient = {
       ...currentClient,
       sales: [...currentClient.sales, newSale],
+      // Sales Journal (Credit Card / On Account) is derived by filtering `sales` on paymentType,
+      // so nothing else needs to change there. Cash Receipts Journal is a separate free-form
+      // ledger, so we append a matching row to it here when payment was cash-like.
       ...(CASH_RECEIPT_PAYMENT_TYPES.includes(paymentType)
         ? { crjEntries: [...(currentClient.crjEntries || []), buildCashReceiptEntry()] }
-        : {}),
-      ...(SALES_JOURNAL_PAYMENT_TYPES.includes(paymentType)
-        ? {
-            sjColumns: currentClient.sjColumns || DEFAULT_SJ_COLUMNS,
-            sjEntries: [
-              ...(currentClient.sjEntries || []),
-              {
-                id: String(newSale.id),
-                values: {
-                  date,
-                  invoice_no: ref,
-                  customer: buyerName,
-                  customer_tin: buyerTin,
-                  description: `${incomeType}${desc ? ` - ${desc}` : ''}`.trim(),
-                  net_sales: netOfVat.toFixed(2),
-                  output_vat: outputTax.toFixed(2),
-                  accounts_receivable: grossAmount.toFixed(2),
-                  payment_type: paymentType,
-                },
-                auto: true,
-                autoSource: 'Sales',
-              }
-            ]
-          }
         : {})
     };
 
