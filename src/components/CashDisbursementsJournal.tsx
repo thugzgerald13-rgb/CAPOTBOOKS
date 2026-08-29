@@ -33,14 +33,41 @@ function getClientAccounts(client: any): CoaAccount[] {
   return (client.accounts || []).filter((a: CoaAccount) => !a.hidden);
 }
 
+function getInputTaxAccount(accounts: CoaAccount[]): CoaAccount | undefined {
+  // The CDJ default column is linked to the actual Chart of Accounts account.
+  // Prefer an exact "Input Tax" title; also recognize the app's VAT input
+  // receivable naming when that is the account used in the client's COA.
+  return accounts.find(a => a.name.trim().toLowerCase() === 'input tax')
+    || accounts.find(a => a.name.trim().toLowerCase() === 'vat input receivable');
+}
+
 function normalizeCdjColumns(columns: JournalColumn[] | undefined, accounts: CoaAccount[]): JournalColumn[] {
   const base = DEFAULT_CDJ_COLUMNS.slice(0, 4); // Date, Payees, Folio/F, Cash on Hand/Bank
   const sundries = DEFAULT_CDJ_COLUMNS.slice(4); // Account Title, Amount Dr/Cr
 
-  if (!columns || columns.length === 0) return [...base, ...sundries];
+  const inputTaxAccount = getInputTaxAccount(accounts);
+  const inputTaxColumn: JournalColumn | undefined = inputTaxAccount ? {
+    id: accountColumnId(inputTaxAccount.id),
+    name: inputTaxAccount.name,
+    type: 'number',
+    category: 'Dr',
+    isSystem: true,
+  } : undefined;
+
+  if (!columns || columns.length === 0) {
+    return inputTaxColumn
+      ? [...base, inputTaxColumn, ...sundries]
+      : [...base, ...sundries];
+  }
 
   const accountCols: JournalColumn[] = [];
   const used = new Set<string>();
+
+  // Input Tax is a fixed default account column immediately after Cash on Hand/Bank.
+  if (inputTaxAccount) {
+    used.add(inputTaxAccount.id);
+    accountCols.push(inputTaxColumn!);
+  }
 
   // Preserve existing CDJ account columns, but never allow more than 9.
   columns.forEach(c => {
@@ -102,6 +129,24 @@ function getDebitAllocation(entry: JournalEntry, columns: JournalColumn[], accou
   return { title: account.name, amount: amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }), matchedColumnId: undefined };
 }
 
+function getInputTaxValue(entry: JournalEntry): string {
+  const values = entry.values || {};
+  const candidates = [
+    values.input_tax,
+    values.inputTax,
+    values['Input Tax'],
+  ];
+  for (const candidate of candidates) {
+    if (candidate !== undefined && candidate !== null && String(candidate).trim() !== '') {
+      const n = Number(String(candidate).replace(/,/g, ''));
+      if (Number.isFinite(n) && n > 0) {
+        return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      }
+    }
+  }
+  return '';
+}
+
 function getCreditedCashValue(entry: JournalEntry): string {
   const values = entry.values || {};
   const candidates = [
@@ -160,6 +205,18 @@ export function CashDisbursementsJournal() {
         next[CDJ_SUNDRY_ACCOUNT_TITLE_ID] = allocation.title;
         next[CDJ_SUNDRY_AMOUNT_ID] = allocation.amount;
       }
+
+      // Purchases carry Input Tax separately from the main debit allocation.
+      // Put it into the fixed COA-linked Input Tax column when that account exists.
+      const inputTaxAccount = getInputTaxAccount(accounts);
+      const inputTaxColumn = inputTaxAccount
+        ? columns.find(c => accountIdFromColumn(c) === inputTaxAccount.id)
+        : undefined;
+      const inputTaxValue = getInputTaxValue(entry);
+      if (inputTaxColumn && inputTaxValue) {
+        next[inputTaxColumn.id] = inputTaxValue;
+      }
+
       const cashValue = getCreditedCashValue(entry);
       if (cashValue) next[CDJ_CASH_ON_HAND_BANK_ID] = cashValue;
       return JSON.stringify(next) === JSON.stringify(entry.values) ? entry : { ...entry, values: next };
@@ -202,6 +259,15 @@ export function CashDisbursementsJournal() {
         } else if (allocation.title) {
           next[CDJ_SUNDRY_ACCOUNT_TITLE_ID] = allocation.title;
           next[CDJ_SUNDRY_AMOUNT_ID] = allocation.amount;
+        }
+
+        const inputTaxAccount = getInputTaxAccount(accounts);
+        const inputTaxColumn = inputTaxAccount
+          ? columns.find(c => accountIdFromColumn(c) === inputTaxAccount.id)
+          : undefined;
+        const inputTaxValue = getInputTaxValue(entry);
+        if (inputTaxColumn && inputTaxValue) {
+          next[inputTaxColumn.id] = inputTaxValue;
         }
       }
 
