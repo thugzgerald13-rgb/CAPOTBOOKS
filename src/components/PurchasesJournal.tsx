@@ -7,15 +7,16 @@ import { cn } from '../lib/utils';
 
 export const DEFAULT_PJ_COLUMNS: JournalColumn[] = [
   { id: 'date', name: 'Date', type: 'text', category: 'None', isSystem: true },
-  { id: 'supplier_tin', name: 'Supplier TIN', type: 'text', category: 'None', isSystem: true },
-  { id: 'supplier_name', name: 'Supplier Name', type: 'text', category: 'None', isSystem: true },
-  { id: 'supplier_address', name: 'Address', type: 'text', category: 'None', isSystem: true },
-  { id: 'description', name: 'Description', type: 'text', category: 'None', isSystem: true },
-  { id: 'invoice_no', name: 'Reference / Document No. / Invoice No.', type: 'text', category: 'None', isSystem: true },
-  { id: 'amount', name: 'Amount', type: 'number', category: 'Dr', isSystem: true },
-  { id: 'discount', name: 'Discount', type: 'number', category: 'Dr', isSystem: true },
-  { id: 'input_tax', name: 'VAT Amount (Input Tax)', type: 'number', category: 'Dr', isSystem: true },
-  { id: 'net_purchases', name: 'Net Purchases', type: 'number', category: 'Dr', isSystem: true },
+  { id: 'supplier_name', name: "Supplier's Name", type: 'text', category: 'None', isSystem: true },
+  { id: 'supplier_tin', name: 'TIN', type: 'text', category: 'None', isSystem: true },
+  { id: 'invoice_no', name: 'Invoice', type: 'text', category: 'None', isSystem: true },
+  { id: 'description', name: 'Nature of Purchase', type: 'text', category: 'None', isSystem: true },
+  { id: 'net_purchase', name: 'Net of VAT', type: 'number', category: 'Dr', isSystem: true },
+  { id: 'exempt_zero_rated', name: 'Exempt / 0-Rated', type: 'number', category: 'Dr', isSystem: true },
+  { id: 'input_tax', name: 'Input Tax', type: 'number', category: 'Dr', isSystem: true },
+  { id: 'debit_account', name: 'Account Title', type: 'text', category: 'None', isSystem: true },
+  { id: 'accounts_payable', name: 'Accounts Payable', type: 'number', category: 'Cr', isSystem: true },
+  { id: 'withholding_tax', name: 'Withholding Tax', type: 'number', category: 'Cr', isSystem: true },
 ];
 
 export function PurchasesJournal() {
@@ -27,7 +28,22 @@ export function PurchasesJournal() {
 
   if (!currentClient || !currentClientId) return null;
 
-  const columns = currentClient.pjColumns || DEFAULT_PJ_COLUMNS;
+  // Keep existing user-defined columns, but ensure the Philippine purchase-journal
+  // accounting columns needed for credit purchases are always available.
+  const savedColumns = currentClient.pjColumns || [];
+  const requiredIds = new Set(DEFAULT_PJ_COLUMNS.map(col => col.id));
+  const obsoleteSystemIds = new Set(['supplier_address', 'gross_amount', 'discount', 'exempt', 'zero_rated']);
+
+  // Always use the required Philippine purchase-journal columns in the prescribed order.
+  // Existing custom columns are preserved after the required columns, while obsolete
+  // legacy system columns are removed from the displayed journal.
+  const columns = [
+    ...DEFAULT_PJ_COLUMNS.map(required => {
+      const existing = savedColumns.find(col => col.id === required.id);
+      return existing ? { ...required, name: required.name, type: required.type, category: required.category, isSystem: true } : required;
+    }),
+    ...savedColumns.filter(col => !requiredIds.has(col.id) && !obsoleteSystemIds.has(col.id))
+  ];
   const entries = currentClient.pjEntries || [];
 
   const handleSaveColumns = (newCols: JournalColumn[]) => {
@@ -79,13 +95,31 @@ export function PurchasesJournal() {
     handleSaveEntries(entries.filter(e => e.id !== id));
   };
 
+  // The Exempt / 0-Rated column combines legacy Exempt and 0-Rated values.
+  const getEntryValue = (entry: JournalEntry, colId: string) => {
+    if (colId === 'exempt_zero_rated') {
+      const combined = entry.values[colId];
+      if (combined !== undefined && combined !== '') return combined;
+
+      const exempt = parseFloat((entry.values['exempt'] || '').replace(/,/g, ''));
+      const zeroRated = parseFloat((entry.values['zero_rated'] || '').replace(/,/g, ''));
+      const hasExempt = !isNaN(exempt);
+      const hasZeroRated = !isNaN(zeroRated);
+      if (hasExempt || hasZeroRated) {
+        return (hasExempt ? exempt : 0) + (hasZeroRated ? zeroRated : 0);
+      }
+    }
+    return entry.values[colId] || '';
+  };
+
   // Calculate totals for number columns
   const getTotals = () => {
     const totals: Record<string, number> = {};
     columns.forEach(c => {
       if (c.type === 'number') {
         totals[c.id] = entries.reduce((sum, e) => {
-          const val = parseFloat((e.values[c.id] || '').replace(/,/g, ''));
+          const raw = getEntryValue(e, c.id);
+          const val = parseFloat((raw || '').toString().replace(/,/g, ''));
           return sum + (isNaN(val) ? 0 : val);
         }, 0);
       }
@@ -105,7 +139,7 @@ export function PurchasesJournal() {
       <div className="p-6">
         <div className="flex justify-between items-center mb-6">
           <div className="flex items-center gap-4">
-             <p className="text-slate-500 dark:text-slate-400">Record daily purchases and related supplier, document, discount, VAT input tax, and net purchase information in accordance with Philippine purchase-journal requirements.</p>
+             <p className="text-slate-500 dark:text-slate-400">Record daily purchases with supplier, invoice, nature of purchase, VAT treatment, account classification, Accounts Payable, and withholding tax in accordance with Philippine accounting records.</p>
              <button 
                onClick={() => setIsEditingHeaders(!isEditingHeaders)}
                className={cn("px-3 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5", 
@@ -198,7 +232,7 @@ export function PurchasesJournal() {
                     <td key={col.id} className="px-2 py-1">
                       <input 
                         type={col.type === 'number' ? 'text' : 'text'}
-                        value={entry.values[col.id] || ''}
+                        value={getEntryValue(entry, col.id)}
                         onChange={e => {
                           let val = e.target.value;
                           if (col.type === 'number') {
