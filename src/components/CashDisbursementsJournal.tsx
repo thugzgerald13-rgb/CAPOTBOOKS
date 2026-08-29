@@ -7,11 +7,13 @@ import { cn } from '../lib/utils';
 
 export const CDJ_SUNDRY_ACCOUNT_TITLE_ID = 'sundry_account_title';
 export const CDJ_SUNDRY_AMOUNT_ID = 'sundry_amount';
+export const CDJ_CASH_ACCOUNT_ID = 'cash_on_hand_bank';
 
 export const DEFAULT_CDJ_COLUMNS: JournalColumn[] = [
   { id: 'date', name: 'Date', type: 'text', category: 'None', isSystem: true },
   { id: 'payee', name: 'Payees', type: 'text', category: 'None', isSystem: true },
   { id: 'folio_f', name: 'Folio/F', type: 'text', category: 'None', isSystem: true },
+  { id: CDJ_CASH_ACCOUNT_ID, name: 'Cash on Hand/Bank', type: 'text', category: 'None', isSystem: true },
   { id: CDJ_SUNDRY_ACCOUNT_TITLE_ID, name: 'Account Title', type: 'text', category: 'None', isSystem: true },
   { id: CDJ_SUNDRY_AMOUNT_ID, name: 'Amount Dr/Cr', type: 'number', category: 'None', isSystem: true },
 ];
@@ -41,9 +43,10 @@ function normalizeCdjColumns(columns: JournalColumn[] | undefined, accounts: Coa
       DEFAULT_CDJ_COLUMNS[0],
       DEFAULT_CDJ_COLUMNS[1],
       DEFAULT_CDJ_COLUMNS[2],
-      ...accountCols,
       DEFAULT_CDJ_COLUMNS[3],
+      ...accountCols,
       DEFAULT_CDJ_COLUMNS[4],
+      DEFAULT_CDJ_COLUMNS[5],
     ];
   }
 
@@ -70,9 +73,10 @@ function normalizeCdjColumns(columns: JournalColumn[] | undefined, accounts: Coa
     DEFAULT_CDJ_COLUMNS[0],
     DEFAULT_CDJ_COLUMNS[1],
     DEFAULT_CDJ_COLUMNS[2],
-    ...accountCols,
     DEFAULT_CDJ_COLUMNS[3],
+    ...accountCols,
     DEFAULT_CDJ_COLUMNS[4],
+    DEFAULT_CDJ_COLUMNS[5],
   ];
 }
 
@@ -220,7 +224,7 @@ export function CashDisbursementsJournal() {
         {isEditingHeaders && (
           <div className="mb-6 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
             <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Cash Disbursements Journal Columns</h4>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">The first 10 account columns are selected directly from the Chart of Accounts. Sundries is fixed as columns 11 and 12.</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">The first 10 account columns are selected directly from the Chart of Accounts. Cash on Hand/Bank is fixed after Folio/F. Sundries follows the selectable account columns.</p>
             <div className="flex flex-wrap gap-2 mb-4">
               {columns.map((col, index) => {
                 const accountId = accountIdFromColumn(col);
@@ -250,7 +254,7 @@ export function CashDisbursementsJournal() {
               </button>
             </div>
             <div className="mt-4 p-3 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400">
-              <strong>Sundries (columns 11–12):</strong> Account Title and Amount Dr/Cr. Enter a positive amount for a debit and a negative amount for a credit.
+              <strong>Cash on Hand/Bank:</strong> Enter the cash account used for the disbursement. <strong>Sundries:</strong> Account Title and Amount Dr/Cr. Enter a positive amount for a debit and a negative amount for a credit.
             </div>
           </div>
         )}
@@ -338,7 +342,7 @@ export function CashDisbursementsJournal() {
               <thead>
                 <tr className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 uppercase tracking-wider font-bold border-b border-slate-200 dark:border-slate-700">
                   <th className="px-3 py-3 w-10 text-center">Existing #</th>
-                  {columns.filter(c => c.id === 'date' || c.id === 'payee' || c.id === 'folio_f').map(col => (
+                  {columns.filter(c => c.id === 'date' || c.id === 'payee' || c.id === 'folio_f' || c.id === CDJ_CASH_ACCOUNT_ID).map(col => (
                     <th key={col.id} className="px-3 py-3">{col.name}</th>
                   ))}
                   {columns.filter(c => !!accountIdFromColumn(c)).map(col => (
