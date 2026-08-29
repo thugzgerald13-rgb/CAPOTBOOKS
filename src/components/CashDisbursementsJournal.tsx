@@ -5,15 +5,15 @@ import { useAccounting } from '../context/AccountingContext';
 import { JournalColumn, JournalEntry, CoaAccount } from '../types';
 import { cn } from '../lib/utils';
 
+export const CDJ_CASH_ON_HAND_BANK_ID = 'cash_on_hand_bank';
 export const CDJ_SUNDRY_ACCOUNT_TITLE_ID = 'sundry_account_title';
 export const CDJ_SUNDRY_AMOUNT_ID = 'sundry_amount';
-export const CDJ_CASH_ACCOUNT_ID = 'cash_on_hand_bank';
 
 export const DEFAULT_CDJ_COLUMNS: JournalColumn[] = [
   { id: 'date', name: 'Date', type: 'text', category: 'None', isSystem: true },
   { id: 'payee', name: 'Payees', type: 'text', category: 'None', isSystem: true },
   { id: 'folio_f', name: 'Folio/F', type: 'text', category: 'None', isSystem: true },
-  { id: CDJ_CASH_ACCOUNT_ID, name: 'Cash on Hand/Bank', type: 'text', category: 'None', isSystem: true },
+  { id: CDJ_CASH_ON_HAND_BANK_ID, name: 'Cash on Hand/Bank', type: 'number', category: 'Cr', isSystem: true },
   { id: CDJ_SUNDRY_ACCOUNT_TITLE_ID, name: 'Account Title', type: 'text', category: 'None', isSystem: true },
   { id: CDJ_SUNDRY_AMOUNT_ID, name: 'Amount Dr/Cr', type: 'number', category: 'None', isSystem: true },
 ];
@@ -93,8 +93,18 @@ export function CashDisbursementsJournal() {
 
   useEffect(() => {
     if (!currentClient || !currentClientId) return;
-    const changed = JSON.stringify(rawColumns || []) !== JSON.stringify(columns);
-    if (!changed) return;
+    const columnsChanged = JSON.stringify(rawColumns || []) !== JSON.stringify(columns);
+
+    // Preserve old Account Title/Amount values as Sundries during migration,
+    // and continuously derive the Cash on Hand/Bank column from the source
+    // cash credit value carried by auto-posted cash transactions.
+    const needsCashPopulation = entries.some(entry => {
+      const cash = String(entry.values?.cash ?? '').replace(/,/g, '');
+      const target = String(entry.values?.[CDJ_CASH_ON_HAND_BANK_ID] ?? '').replace(/,/g, '');
+      const amount = parseFloat(cash);
+      return Number.isFinite(amount) && amount > 0 && target !== cash;
+    });
+    if (!columnsChanged && !needsCashPopulation) return;
 
     // Preserve old Account Title/Amount values as Sundries during migration.
     const oldAccountTitle = rawColumns?.find(c => c.id === 'account_title');
@@ -104,6 +114,17 @@ export function CashDisbursementsJournal() {
       const next = { ...entry.values };
       if (oldAccountTitle && next[oldAccountTitle.id] !== undefined) next[CDJ_SUNDRY_ACCOUNT_TITLE_ID] = next[oldAccountTitle.id];
       if (oldAmount && next[oldAmount.id] !== undefined) next[CDJ_SUNDRY_AMOUNT_ID] = next[oldAmount.id];
+      // Auto-generated cash transactions already carry their cash credit in
+      // `values.cash`. Promote that source value into the fixed Cash on
+      // Hand/Bank column. This covers cash/check purchases, JV cash credits,
+      // check vouchers and miscellaneous cash payments.
+      if (entry.auto && next.cash !== undefined) {
+        const rawCash = String(next.cash).replace(/,/g, '');
+        const cashAmount = parseFloat(rawCash);
+        if (Number.isFinite(cashAmount) && cashAmount > 0) {
+          next[CDJ_CASH_ON_HAND_BANK_ID] = parseFloat(cashAmount.toFixed(2)).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+      }
       columns.filter(c => accountIdFromColumn(c)).forEach(c => {
         const account = accounts.find(a => a.id === accountIdFromColumn(c));
         const old = account && oldAccountColumns.find(x => x.name.toLowerCase() === account.name.toLowerCase());
@@ -224,7 +245,7 @@ export function CashDisbursementsJournal() {
         {isEditingHeaders && (
           <div className="mb-6 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
             <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Cash Disbursements Journal Columns</h4>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">The first 10 account columns are selected directly from the Chart of Accounts. Cash on Hand/Bank is fixed after Folio/F. Sundries follows the selectable account columns.</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">The first 10 account columns are selected directly from the Chart of Accounts. Sundries is fixed as columns 11 and 12.</p>
             <div className="flex flex-wrap gap-2 mb-4">
               {columns.map((col, index) => {
                 const accountId = accountIdFromColumn(col);
@@ -254,7 +275,7 @@ export function CashDisbursementsJournal() {
               </button>
             </div>
             <div className="mt-4 p-3 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400">
-              <strong>Cash on Hand/Bank:</strong> Enter the cash account used for the disbursement. <strong>Sundries:</strong> Account Title and Amount Dr/Cr. Enter a positive amount for a debit and a negative amount for a credit.
+              <strong>Sundries (columns 11–12):</strong> Account Title and Amount Dr/Cr. Enter a positive amount for a debit and a negative amount for a credit.
             </div>
           </div>
         )}
@@ -342,9 +363,10 @@ export function CashDisbursementsJournal() {
               <thead>
                 <tr className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 uppercase tracking-wider font-bold border-b border-slate-200 dark:border-slate-700">
                   <th className="px-3 py-3 w-10 text-center">Existing #</th>
-                  {columns.filter(c => c.id === 'date' || c.id === 'payee' || c.id === 'folio_f' || c.id === CDJ_CASH_ACCOUNT_ID).map(col => (
+                  {columns.filter(c => c.id === 'date' || c.id === 'payee' || c.id === 'folio_f').map(col => (
                     <th key={col.id} className="px-3 py-3">{col.name}</th>
                   ))}
+                  <th className="px-3 py-3 text-right">Cash on Hand/Bank</th>
                   {columns.filter(c => !!accountIdFromColumn(c)).map(col => (
                     <th key={col.id} className="px-3 py-3 text-right">{col.name}</th>
                   ))}
