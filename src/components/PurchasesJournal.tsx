@@ -7,13 +7,15 @@ import { cn } from '../lib/utils';
 
 export const DEFAULT_PJ_COLUMNS: JournalColumn[] = [
   { id: 'date', name: 'Date', type: 'text', category: 'None', isSystem: true },
-  { id: 'supplier_name', name: 'Name of Supplier', type: 'text', category: 'None', isSystem: true },
-  { id: 'invoice_no', name: 'Invoice No.', type: 'text', category: 'None', isSystem: true },
-  { id: 'tin', name: 'TIN', type: 'text', category: 'None', isSystem: true },
-  { id: 'vatable_purchases', name: 'Vatable Purchases (Goods)', type: 'number', category: 'Dr', isSystem: false },
-  { id: 'input_tax', name: 'Input Tax', type: 'number', category: 'Dr', isSystem: false },
-  { id: 'non_vat_purchases', name: 'Non-VAT Purchases (Goods)', type: 'number', category: 'Dr', isSystem: false },
-  { id: 'accounts_payable', name: 'Accounts Payable', type: 'number', category: 'Cr', isSystem: false },
+  { id: 'supplier_tin', name: 'Supplier TIN', type: 'text', category: 'None', isSystem: true },
+  { id: 'supplier_name', name: 'Supplier Name', type: 'text', category: 'None', isSystem: true },
+  { id: 'supplier_address', name: 'Address', type: 'text', category: 'None', isSystem: true },
+  { id: 'description', name: 'Description', type: 'text', category: 'None', isSystem: true },
+  { id: 'invoice_no', name: 'Reference / Document No. / Invoice No.', type: 'text', category: 'None', isSystem: true },
+  { id: 'amount', name: 'Amount', type: 'number', category: 'Dr', isSystem: true },
+  { id: 'discount', name: 'Discount', type: 'number', category: 'Dr', isSystem: true },
+  { id: 'input_tax', name: 'VAT Amount (Input Tax)', type: 'number', category: 'Dr', isSystem: true },
+  { id: 'net_purchases', name: 'Net Purchases', type: 'number', category: 'Dr', isSystem: true },
 ];
 
 export function PurchasesJournal() {
@@ -98,12 +100,12 @@ export function PurchasesJournal() {
 
   return (
     <div className="w-full flex flex-col">
-      <PageHeader title="Purchase Journal" icon={<ShoppingCart />} />
+      <PageHeader title="Subsidiary Purchase Journal" icon={<ShoppingCart />} />
       <div className="p-4 md:p-6 flex-1">
       <div className="p-6">
         <div className="flex justify-between items-center mb-6">
           <div className="flex items-center gap-4">
-             <p className="text-slate-500 dark:text-slate-400">Record purchases on account.</p>
+             <p className="text-slate-500 dark:text-slate-400">Record daily purchases and related supplier, document, discount, VAT input tax, and net purchase information in accordance with Philippine purchase-journal requirements.</p>
              <button 
                onClick={() => setIsEditingHeaders(!isEditingHeaders)}
                className={cn("px-3 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5", 
