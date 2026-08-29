@@ -7,8 +7,8 @@ import { cn } from '../lib/utils';
 
 export const DEFAULT_GJ_COLUMNS: JournalColumn[] = [
   { id: 'date', name: 'DATE', type: 'text', category: 'None', isSystem: true },
-  { id: 'particulars', name: 'PARTICULARS', type: 'text', category: 'None', isSystem: true },
-  { id: 'ref_no', name: 'REF. NO.', type: 'text', category: 'None', isSystem: true },
+  { id: 'particulars', name: 'ACCOUNT TITLES & DESCRIPTION', type: 'text', category: 'None', isSystem: true },
+  { id: 'ref_no', name: 'POSTING REFERENCE (PR)', type: 'text', category: 'None', isSystem: true },
   { id: 'debit', name: 'DEBIT', type: 'number', category: 'Dr', isSystem: true },
   { id: 'credit', name: 'CREDIT', type: 'number', category: 'Cr', isSystem: true },
 ];
