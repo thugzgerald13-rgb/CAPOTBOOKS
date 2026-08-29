@@ -290,12 +290,19 @@ function cashPurchasesToCdjEntries(client: Client): JournalEntry[] {
       // payments are not silently omitted from the CDJ.
       const isOtherPayment = p.vatType === 'non-vat' && (Number(p.amount) || 0) === 0
         && (Number(p.exemptAmount) || 0) > 0;
-      const net = isOtherPayment ? (Number(p.exemptAmount) || 0) : (Number(p.amount) || 0);
+      // Keep the CDJ Cash on Hand/Bank amount exactly aligned with the
+      // Expense History GROSS calculation. Expense History defines GROSS as:
+      // amount + input tax + exempt amount + zero-rated amount.
+      // This is intentionally the same source calculation used by History.tsx
+      // so a purchase cannot show one gross amount in Expense History and a
+      // different amount in the CDJ.
+      const amount = Number(p.amount) || 0;
       const tax = Number(p.inputTax) || 0;
-      const total = net + tax;
-      const wht = p.withholdingOption === 'with' ? (Number(p.whtAmount) || 0) : 0;
-      const cashDue = total - wht;
-      if (cashDue <= 0) return null;
+      const exempt = Number(p.exemptAmount) || 0;
+      const zeroRated = Number(p.zeroRatedAmount) || 0;
+      const gross = amount + tax + exempt + zeroRated;
+      const net = isOtherPayment ? exempt : amount;
+      if (gross <= 0) return null;
 
       const entry: JournalEntry = {
         id: `cdj-auto:purchase:${p.id}`,
@@ -306,7 +313,8 @@ function cashPurchasesToCdjEntries(client: Client): JournalEntry[] {
           payee: p.supplierName,
           account_title: p.accountTitle || p.expenseType || 'Expense',
           amount: net > 0 ? two(net) : '',
-          cash: two(cashDue),
+          // Must be identical to Expense History's GROSS function.
+          cash: two(gross),
           input_tax: tax > 0 ? two(tax) : '',
         },
       };
