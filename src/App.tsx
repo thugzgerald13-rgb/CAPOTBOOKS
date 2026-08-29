@@ -17,7 +17,6 @@ const TinLibrary = lazy(() => import('./components/TinLibrary').then(m => ({ def
 const History = lazy(() => import('./components/History').then(m => ({ default: m.History })));
 const ChartOfAccounts = lazy(() => import('./components/ChartOfAccounts').then(m => ({ default: m.ChartOfAccounts })));
 const CashReceiptsJournal = lazy(() => import('./components/CashReceiptsJournal').then(m => ({ default: m.CashReceiptsJournal })));
-const SalesJournal = lazy(() => import('./components/SalesJournal').then(m => ({ default: m.SalesJournal })));
 const CashDisbursementsJournal = lazy(() => import('./components/CashDisbursementsJournal').then(m => ({ default: m.CashDisbursementsJournal })));
 const PurchasesJournal = lazy(() => import('./components/PurchasesJournal').then(m => ({ default: m.PurchasesJournal })));
 const GeneralJournal = lazy(() => import('./components/GeneralJournal').then(m => ({ default: m.GeneralJournal })));
@@ -126,7 +125,7 @@ function AppLayout() {
             <Route path="/balancesheet" element={<BalanceSheet />} />
             <Route path="/cashflow" element={<CashFlow />} />
             <Route path="/assetlapsing" element={<AssetLapsing />} />
-            <Route path="/sales-journal" element={<SalesJournal />} />
+            <Route path="/sales-journal" element={<Extras />} />
             <Route path="/files" element={<FileManager />} />
             <Route path="/inventory" element={<Inventory />} />
             <Route path="/bir-forms" element={<BIRForms />} />

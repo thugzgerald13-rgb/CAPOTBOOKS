@@ -154,8 +154,6 @@ export interface Client {
   accounts?: CoaAccount[];
   coaColumns?: CoaColumn[];
   crjColumns?: JournalColumn[];
-  sjColumns?: JournalColumn[];
-  sjEntries?: JournalEntry[];
   crjEntries?: JournalEntry[];
   cdjColumns?: JournalColumn[];
   cdjEntries?: JournalEntry[];
