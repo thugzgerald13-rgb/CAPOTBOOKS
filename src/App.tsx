@@ -1,36 +1,38 @@
-import React, { useState, useEffect } from 'react';
+import React, { lazy, Suspense, useState } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { Dashboard } from './components/Dashboard';
 import { AccountingProvider, useAccounting } from './context/AccountingContext';
 import { AnimatePresence, motion } from 'motion/react';
-import { Sales } from './components/Sales';
-import { Billing } from './components/Billing';
-import { JournalVoucher } from './components/JournalVoucher';
-import { Purchases } from './components/Purchases';
-import { TinLibrary } from './components/TinLibrary';
-import { History } from './components/History';
-import { ChartOfAccounts } from './components/ChartOfAccounts';
-import { CashReceiptsJournal } from './components/CashReceiptsJournal';
-import { CashDisbursementsJournal } from './components/CashDisbursementsJournal';
-import { PurchasesJournal } from './components/PurchasesJournal';
-import { GeneralJournal } from './components/GeneralJournal';
-import { GeneralLedger } from './components/GeneralLedger';
-import { ProfitAndLoss } from './components/ProfitAndLoss';
-import { BalanceSheet } from './components/BalanceSheet';
-import { CashFlow } from './components/CashFlow';
-import { AssetLapsing } from './components/AssetLapsing';
-import { Extras } from './components/Extras';
-import { AdminSettings } from './components/AdminSettings';
-import { Diagnostics } from './components/Diagnostics';
-import { FileManager } from './components/FileManager';
-import { Inventory } from './components/Inventory';
-import { BIRForms } from './components/BIRForms';
-import { ComplianceTracker } from './components/ComplianceTracker';
-import AccountsPayable from './components/AccountsPayable';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AuthContainer } from './components/AuthContainer';
+import { RoleSelection } from './components/RoleSelection';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
+
+const Sales = lazy(() => import('./components/Sales').then(m => ({ default: m.Sales })));
+const Billing = lazy(() => import('./components/Billing').then(m => ({ default: m.Billing })));
+const JournalVoucher = lazy(() => import('./components/JournalVoucher').then(m => ({ default: m.JournalVoucher })));
+const Purchases = lazy(() => import('./components/Purchases').then(m => ({ default: m.Purchases })));
+const TinLibrary = lazy(() => import('./components/TinLibrary').then(m => ({ default: m.TinLibrary })));
+const History = lazy(() => import('./components/History').then(m => ({ default: m.History })));
+const ChartOfAccounts = lazy(() => import('./components/ChartOfAccounts').then(m => ({ default: m.ChartOfAccounts })));
+const CashReceiptsJournal = lazy(() => import('./components/CashReceiptsJournal').then(m => ({ default: m.CashReceiptsJournal })));
+const CashDisbursementsJournal = lazy(() => import('./components/CashDisbursementsJournal').then(m => ({ default: m.CashDisbursementsJournal })));
+const PurchasesJournal = lazy(() => import('./components/PurchasesJournal').then(m => ({ default: m.PurchasesJournal })));
+const GeneralJournal = lazy(() => import('./components/GeneralJournal').then(m => ({ default: m.GeneralJournal })));
+const GeneralLedger = lazy(() => import('./components/GeneralLedger').then(m => ({ default: m.GeneralLedger })));
+const ProfitAndLoss = lazy(() => import('./components/ProfitAndLoss').then(m => ({ default: m.ProfitAndLoss })));
+const BalanceSheet = lazy(() => import('./components/BalanceSheet').then(m => ({ default: m.BalanceSheet })));
+const CashFlow = lazy(() => import('./components/CashFlow').then(m => ({ default: m.CashFlow })));
+const AssetLapsing = lazy(() => import('./components/AssetLapsing').then(m => ({ default: m.AssetLapsing })));
+const Extras = lazy(() => import('./components/Extras').then(m => ({ default: m.Extras })));
+const AdminSettings = lazy(() => import('./components/AdminSettings').then(m => ({ default: m.AdminSettings })));
+const Diagnostics = lazy(() => import('./components/Diagnostics').then(m => ({ default: m.Diagnostics })));
+const FileManager = lazy(() => import('./components/FileManager').then(m => ({ default: m.FileManager })));
+const Inventory = lazy(() => import('./components/Inventory').then(m => ({ default: m.Inventory })));
+const BIRForms = lazy(() => import('./components/BIRForms').then(m => ({ default: m.BIRForms })));
+const ComplianceTracker = lazy(() => import('./components/ComplianceTracker').then(m => ({ default: m.ComplianceTracker })));
+const AccountsPayable = lazy(() => import('./components/AccountsPayable'));
 
 function AppLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -83,6 +85,11 @@ function AppLayout() {
             (fresh state each visit) instead of keeping ~20 components alive
             and toggling visibility. */}
         <div className="app-content transaction-page-content px-4 md:px-8 pt-[1.5px] pb-4 md:pb-8 max-w-[1400px] mx-auto w-full">
+          <Suspense fallback={
+            <div className="flex min-h-[240px] items-center justify-center">
+              <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-300 border-t-cyan-600" aria-label="Loading page" />
+            </div>
+          }>
           <Routes>
             <Route path="/sales" element={<Sales />} />
             <Route path="/billing" element={<Billing />} />
@@ -125,13 +132,13 @@ function AppLayout() {
             <Route path="/compliance-tracker" element={<ComplianceTracker />} />
             <Route path="/ap-workspace" element={<AccountsPayable />} />
           </Routes>
+          </Suspense>
         </div>
       </main>
     </div>
   );
 }
 
-import { RoleSelection } from './components/RoleSelection';
 
 function MainApp() {
   const { user, loading, userRole, setUserRole } = useAuth();
