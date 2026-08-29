@@ -80,6 +80,56 @@ function normalizeCdjColumns(columns: JournalColumn[] | undefined, accounts: Coa
   ];
 }
 
+function normalizeAmount(value: unknown): string {
+  if (value === undefined || value === null || String(value).trim() === '') return '';
+  const n = Number(String(value).replace(/,/g, ''));
+  return Number.isFinite(n)
+    ? n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    : String(value);
+}
+
+/**
+ * Populate the CDJ debit columns from the transaction's debited account.
+ * If the debited account is one of the user's selected COA columns, its
+ * debit amount goes into that column. Otherwise the account title and debit
+ * amount are placed in Sundries.
+ */
+function populateCdjDebitColumns(entry: JournalEntry, columns: JournalColumn[], accounts: CoaAccount[]): JournalEntry {
+  const values = entry.values || {};
+  const accountTitle = String(
+    values[CDJ_SUNDRY_ACCOUNT_TITLE_ID] ?? values.account_title ?? values.accountTitle ?? ''
+  ).trim();
+  const amountRaw = values.amount ?? values.debitAmount ?? values.debit_amount ?? values[CDJ_SUNDRY_AMOUNT_ID];
+  const amount = normalizeAmount(amountRaw);
+  if (!accountTitle || !amount) return entry;
+
+  const selectedColumns = columns.filter(c => !!accountIdFromColumn(c));
+  const matchedColumn = selectedColumns.find(c => {
+    const id = accountIdFromColumn(c);
+    const account = accounts.find(a => a.id === id);
+    return !!account && (
+      account.name.trim().toLowerCase() === accountTitle.toLowerCase() ||
+      account.id.trim().toLowerCase() === accountTitle.toLowerCase()
+    );
+  });
+
+  const next = { ...values };
+  // Clear the selected COA columns and Sundries first so a transaction cannot
+  // remain populated in a column after its debit account changes.
+  selectedColumns.forEach(c => { delete next[c.id]; });
+  delete next[CDJ_SUNDRY_ACCOUNT_TITLE_ID];
+  delete next[CDJ_SUNDRY_AMOUNT_ID];
+
+  if (matchedColumn) {
+    next[matchedColumn.id] = amount;
+  } else {
+    next[CDJ_SUNDRY_ACCOUNT_TITLE_ID] = accountTitle;
+    next[CDJ_SUNDRY_AMOUNT_ID] = amount;
+  }
+
+  return JSON.stringify(next) === JSON.stringify(values) ? entry : { ...entry, values: next };
+}
+
 function getCreditedCashValue(entry: JournalEntry): string {
   const values = entry.values || {};
   const candidates = [
@@ -113,9 +163,11 @@ export function CashDisbursementsJournal() {
   useEffect(() => {
     if (!currentClient || !currentClientId) return;
     const syncedEntries = entries.map(entry => {
-      const cashValue = getCreditedCashValue(entry);
-      if (!cashValue || entry.values[CDJ_CASH_ON_HAND_BANK_ID] === cashValue) return entry;
-      return { ...entry, values: { ...entry.values, [CDJ_CASH_ON_HAND_BANK_ID]: cashValue } };
+      const withDebit = populateCdjDebitColumns(entry, columns, accounts);
+      const cashValue = getCreditedCashValue(withDebit);
+      if (!cashValue) return withDebit;
+      if (withDebit.values[CDJ_CASH_ON_HAND_BANK_ID] === cashValue) return withDebit;
+      return { ...withDebit, values: { ...withDebit.values, [CDJ_CASH_ON_HAND_BANK_ID]: cashValue } };
     });
     if (JSON.stringify(syncedEntries) !== JSON.stringify(entries)) {
       saveClient(currentClientId, { ...currentClient, cdjEntries: syncedEntries });
@@ -143,7 +195,7 @@ export function CashDisbursementsJournal() {
       });
       const cashValue = getCreditedCashValue(entry);
       if (cashValue) next[CDJ_CASH_ON_HAND_BANK_ID] = cashValue;
-      return { ...entry, values: next };
+      return populateCdjDebitColumns({ ...entry, values: next }, columns, accounts);
     });
 
     saveClient(currentClientId, { ...currentClient, cdjColumns: columns, cdjEntries: migratedEntries });
