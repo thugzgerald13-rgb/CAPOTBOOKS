@@ -32,6 +32,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   const navigate = useNavigate();
   const [isTransactionsOpen, setIsTransactionsOpen] = useState(false);
   const [isReportsOpen, setIsReportsOpen] = useState(false);
+  const [isAfsDraftOpen, setIsAfsDraftOpen] = useState(false);
   const [isFormsOpen, setIsFormsOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isBooksOpen, setIsBooksOpen] = useState(false);
@@ -46,6 +47,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     if (isCollapsed) {
       setIsTransactionsOpen(false);
       setIsReportsOpen(false);
+      setIsAfsDraftOpen(false);
       setIsFormsOpen(false);
       setIsSettingsOpen(false);
       setIsBooksOpen(false);
@@ -60,6 +62,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
       if (sidebarRef.current && !sidebarRef.current.contains(event.target as Node)) {
         setIsTransactionsOpen(false);
         setIsReportsOpen(false);
+        setIsAfsDraftOpen(false);
         setIsFormsOpen(false);
         setIsSettingsOpen(false);
         setIsBooksOpen(false);
@@ -119,7 +122,6 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     { id: 'trialbalance', label: 'Trial Balance', icon: Scale },
     { id: 'balancesheet', label: 'Balance Sheet', icon: Landmark },
     { id: 'pl', label: 'Profit & Loss', icon: TrendingUp },
-    { id: 'cashflow', label: 'Cash Flow', icon: ArrowLeftRight },
     { id: 'assetlapsing', label: 'Asset Lapsing', icon: Wrench },
   ];
 
@@ -397,6 +399,53 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       </button>
                     );
                   })}
+
+                  {/* AFS Draft - separate financial statement drafts */}
+                  <div className="flex flex-col">
+                    <button
+                      onClick={() => setIsAfsDraftOpen(!isAfsDraftOpen)}
+                      className="flex items-center justify-between gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-amber-50 hover:text-amber-600 dark:hover:bg-slate-800 dark:hover:text-amber-400 transition-all w-full text-left"
+                    >
+                      <span className="flex items-center gap-3">
+                        <FileText className="w-4 h-4" />
+                        AFS Draft
+                      </span>
+                      <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", isAfsDraftOpen ? "rotate-180" : "")} />
+                    </button>
+                    <AnimatePresence>
+                      {isAfsDraftOpen && (
+                        <motion.div
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: 'auto', opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.15 }}
+                          className="overflow-hidden flex flex-col gap-1 pl-4"
+                        >
+                          <button onClick={() => handleNavClick('afs-financial-position')} className="flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-amber-50 hover:text-amber-600 dark:hover:bg-slate-800 dark:hover:text-amber-400 transition-all w-full text-left">
+                            <Landmark className="w-3.5 h-3.5" /> Financial Position
+                          </button>
+                          <button onClick={() => handleNavClick('afs-income-statements')} className="flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-amber-50 hover:text-amber-600 dark:hover:bg-slate-800 dark:hover:text-amber-400 transition-all w-full text-left">
+                            <TrendingUp className="w-3.5 h-3.5" /> Income Statements
+                          </button>
+                          <button onClick={() => handleNavClick('cashflow')} className="flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-amber-50 hover:text-amber-600 dark:hover:bg-slate-800 dark:hover:text-amber-400 transition-all w-full text-left">
+                            <ArrowLeftRight className="w-3.5 h-3.5" /> Cash Flow
+                          </button>
+                          <button onClick={() => handleNavClick('afs-equity-retained-earnings')} className="flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-amber-50 hover:text-amber-600 dark:hover:bg-slate-800 dark:hover:text-amber-400 transition-all w-full text-left">
+                            <Scale className="w-3.5 h-3.5" /> Equity & Retained Earnings
+                          </button>
+                          <button onClick={() => handleNavClick('afs-ppe')} className="flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-amber-50 hover:text-amber-600 dark:hover:bg-slate-800 dark:hover:text-amber-400 transition-all w-full text-left">
+                            <Wrench className="w-3.5 h-3.5" /> PPE
+                          </button>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                      )}
+                    </AnimatePresence>
+                  </div>
                 </motion.div>
               )}
             </AnimatePresence>
