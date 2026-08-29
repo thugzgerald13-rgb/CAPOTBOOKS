@@ -18,7 +18,7 @@ export const DEFAULT_CDJ_COLUMNS: JournalColumn[] = [
   { id: CDJ_SUNDRY_AMOUNT_ID, name: 'Amount Dr/Cr', type: 'number', category: 'None', isSystem: true },
 ];
 
-const MAX_CDJ_ACCOUNT_COLUMNS = 10;
+const MAX_CDJ_ACCOUNT_COLUMNS = 9;
 const CDJ_ACCOUNT_PREFIX = 'cdj_coa_';
 
 function accountColumnId(accountId: string) {
@@ -45,14 +45,14 @@ function normalizeCdjColumns(columns: JournalColumn[] | undefined, accounts: Coa
       DEFAULT_CDJ_COLUMNS[2],
       DEFAULT_CDJ_COLUMNS[3],
       ...accountCols,
-      DEFAULT_CDJ_COLUMNS[3],
       DEFAULT_CDJ_COLUMNS[4],
+      DEFAULT_CDJ_COLUMNS[5],
     ];
   }
 
   // Migrate the previous CDJ layout to the new structure without changing
   // unrelated journals or database structures. Numeric columns that match a
-  // Chart of Accounts account become the first 10 selectable account columns.
+  // Chart of Accounts account become the first 9 selectable account columns.
   const used = new Set<string>();
   const accountCols: JournalColumn[] = [];
   columns.filter(c => c.type === 'number' && !c.isSystem).forEach(c => {
@@ -75,8 +75,8 @@ function normalizeCdjColumns(columns: JournalColumn[] | undefined, accounts: Coa
     DEFAULT_CDJ_COLUMNS[2],
     DEFAULT_CDJ_COLUMNS[3],
     ...accountCols,
-    DEFAULT_CDJ_COLUMNS[3],
     DEFAULT_CDJ_COLUMNS[4],
+    DEFAULT_CDJ_COLUMNS[5],
   ];
 }
 
@@ -258,7 +258,7 @@ export function CashDisbursementsJournal() {
         {isEditingHeaders && (
           <div className="mb-6 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
             <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Cash Disbursements Journal Columns</h4>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">The first 10 account columns are selected directly from the Chart of Accounts. Sundries is fixed as columns 11 and 12.</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">Users may add up to 9 account columns from the Chart of Accounts after Cash on Hand/Bank. Sundries remain fixed after those columns.</p>
             <div className="flex flex-wrap gap-2 mb-4">
               {columns.map((col, index) => {
                 const accountId = accountIdFromColumn(col);
@@ -288,7 +288,7 @@ export function CashDisbursementsJournal() {
               </button>
             </div>
             <div className="mt-4 p-3 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs text-slate-500 dark:text-slate-400">
-              <strong>Sundries (columns 11–12):</strong> Account Title and Amount Dr/Cr. Enter a positive amount for a debit and a negative amount for a credit.
+              <strong>Sundries (columns 14–15):</strong> Account Title and Amount Dr/Cr. Enter a positive amount for a debit and a negative amount for a credit.
             </div>
           </div>
         )}
