@@ -440,12 +440,6 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       )}
                     </AnimatePresence>
                   </div>
-                      )}
-                    </AnimatePresence>
-                  </div>
-                      )}
-                    </AnimatePresence>
-                  </div>
                 </motion.div>
               )}
             </AnimatePresence>
