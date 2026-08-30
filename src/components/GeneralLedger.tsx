@@ -205,20 +205,21 @@ export function GeneralLedger() {
 
                 {isExpanded && (
                   <div className="overflow-x-auto">
-                    <table className="w-full text-xs text-left whitespace-nowrap min-w-[800px]">
+                    <table className="w-full text-xs text-left whitespace-nowrap min-w-[850px]">
                       <thead>
                         <tr className="bg-slate-50 dark:bg-slate-800/50 text-slate-600 dark:text-slate-400 font-bold">
-                          <th className="px-3 py-2 w-10 border-b border-r border-slate-200 dark:border-slate-700 text-center">#</th>
-                          <th className="px-3 py-2 border-b border-slate-200 dark:border-slate-700 w-24">DATE</th>
-                          <th className="px-3 py-2 border-b border-slate-200 dark:border-slate-700 min-w-[150px]">PARTICULARS</th>
-                          <th className="px-3 py-2 border-b border-slate-200 dark:border-slate-700 w-20">REF NO.</th>
-                          <th className="px-3 py-2 border-b border-r border-slate-200 dark:border-slate-700 text-right w-24">DEBIT</th>
-                          <th className="px-3 py-2 border-b border-slate-200 dark:border-slate-700 w-24">DATE</th>
-                          <th className="px-3 py-2 border-b border-slate-200 dark:border-slate-700 min-w-[150px]">PARTICULARS</th>
-                          <th className="px-3 py-2 border-b border-slate-200 dark:border-slate-700 w-20">REF NO.</th>
-                          <th className="px-3 py-2 border-b border-slate-200 dark:border-slate-700 text-right w-24">CREDIT</th>
-                          <th className="px-2 py-2 border-b border-slate-200 dark:border-slate-700 w-10 text-center"></th>
-                          <th className="px-3 py-2 border-b border-slate-200 dark:border-slate-700 text-right w-28">RUNNING BALANCE</th>
+                          <th rowSpan={2} className="px-3 py-2 w-10 border-b border-r border-slate-200 dark:border-slate-700 text-center">#</th>
+                          <th rowSpan={2} className="px-3 py-2 border-b border-r border-slate-200 dark:border-slate-700 w-28">DATE</th>
+                          <th rowSpan={2} className="px-3 py-2 border-b border-r border-slate-200 dark:border-slate-700 min-w-[260px]">PARTICULARS / EXPLANATION</th>
+                          <th rowSpan={2} className="px-3 py-2 border-b border-r border-slate-200 dark:border-slate-700 w-28">POSTING REF. (PR)</th>
+                          <th rowSpan={2} className="px-3 py-2 border-b border-r border-slate-200 dark:border-slate-700 text-right w-28">DEBIT</th>
+                          <th rowSpan={2} className="px-3 py-2 border-b border-r border-slate-200 dark:border-slate-700 text-right w-28">CREDIT</th>
+                          <th colSpan={2} className="px-3 py-2 border-b border-slate-200 dark:border-slate-700 text-center">BALANCE</th>
+                          <th rowSpan={2} className="px-2 py-2 border-b border-slate-200 dark:border-slate-700 w-10 text-center"></th>
+                        </tr>
+                        <tr className="bg-slate-50 dark:bg-slate-800/50 text-slate-600 dark:text-slate-400 font-bold">
+                          <th className="px-3 py-1.5 border-b border-r border-slate-200 dark:border-slate-700 text-right w-28">DEBIT</th>
+                          <th className="px-3 py-1.5 border-b border-slate-200 dark:border-slate-700 text-right w-28">CREDIT</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
@@ -226,189 +227,100 @@ export function GeneralLedger() {
                           <tr className="bg-slate-50 dark:bg-slate-800/30 font-semibold text-slate-600 dark:text-slate-300">
                             <td className="px-3 py-1.5 text-center text-slate-400 font-mono border-r border-slate-200 dark:border-slate-700">—</td>
                             <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-800"></td>
-                            <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-800 italic">
-                              {openingIsDebit ? 'Beginning Balance' : ''}
-                            </td>
+                            <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-800 italic">Beginning Balance</td>
                             <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-800"></td>
-                            <td className="px-2 py-1.5 border-r border-slate-300 dark:border-slate-600 text-right font-mono">
+                            <td className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-700 text-right font-mono">
                               {openingIsDebit ? openingBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}
                             </td>
-                            <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-800"></td>
-                            <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-800 italic">
-                              {!openingIsDebit ? 'Beginning Balance' : ''}
+                            <td className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-700 text-right font-mono">
+                              {!openingIsDebit ? openingBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}
                             </td>
-                            <td className="px-2 py-1.5 border-r border-slate-100 dark:border-slate-800"></td>
+                            <td className="px-2 py-1.5 border-r border-slate-200 dark:border-slate-700 text-right font-mono">
+                              {openingIsDebit ? openingBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}
+                            </td>
                             <td className="px-2 py-1.5 text-right font-mono">
                               {!openingIsDebit ? openingBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}
                             </td>
-                            <td className="px-3 py-1.5 text-right font-mono font-semibold">
-                              {formatAccountAmount((openingIsDebit ? openingBalance : -openingBalance))}
-                            </td>
-                            <td className="px-2 py-1.5"></td>
+                            <td></td>
                           </tr>
                         )}
                         {account.entries.map((entry, idx) => {
                           const running = runningBalances[idx]?.balance ?? 0;
                           const isAuto = !!entry.auto;
+                          const date = entry.dateDr || entry.dateCr || '';
+                          const particulars = entry.particularsDr || entry.particularsCr || '';
+                          const postingRef = entry.refDr || entry.refCr || '';
                           const inputCls = cn(
                             "w-full bg-transparent border border-transparent rounded px-2 py-1 transition-all outline-none",
                             isAuto
                               ? "text-slate-500 dark:text-slate-400 cursor-default"
                               : "hover:border-slate-300 dark:hover:border-slate-600 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500"
                           );
+                          const debit = parseFloat((entry.debit || '').replace(/,/g, '')) || 0;
+                          const credit = parseFloat((entry.credit || '').replace(/,/g, '')) || 0;
+                          const balanceDebit = running >= 0 ? running : 0;
+                          const balanceCredit = running < 0 ? Math.abs(running) : 0;
                           return (
-                          <tr key={entry.id} className={cn("group", isAuto ? "bg-cyan-50/40 dark:bg-cyan-950/10" : "hover:bg-slate-50/50 dark:hover:bg-slate-800/20")}>
-                            <td className="px-3 py-1.5 text-center text-slate-400 font-mono border-r border-slate-200 dark:border-slate-700">{idx + 1}</td>
-                            
-                            {/* DEBIT SIDE */}
-                            <td className="px-2 py-1 border-r border-slate-100 dark:border-slate-800">
-                              <input 
-                                type="text"
-                                readOnly={isAuto}
-                                value={entry.dateDr}
-                                onChange={e => updateEntry(account.accountId!, entry.id, 'dateDr', e.target.value)}
-                                className={inputCls}
-                              />
-                            </td>
-                            <td className="px-2 py-1 border-r border-slate-100 dark:border-slate-800">
-                              <input 
-                                type="text"
-                                readOnly={isAuto}
-                                value={entry.particularsDr}
-                                onChange={e => updateEntry(account.accountId!, entry.id, 'particularsDr', e.target.value)}
-                                title={isAuto ? `Auto-posted from ${entry.autoSource}` : undefined}
-                                className={inputCls}
-                              />
-                            </td>
-                            <td className="px-2 py-1 border-r border-slate-100 dark:border-slate-800">
-                              <input 
-                                type="text"
-                                readOnly={isAuto}
-                                value={entry.refDr}
-                                onChange={e => updateEntry(account.accountId!, entry.id, 'refDr', e.target.value)}
-                                className={inputCls}
-                              />
-                            </td>
-                            <td className="px-2 py-1 border-r border-slate-300 dark:border-slate-600">
-                              <input 
-                                type="text"
-                                readOnly={isAuto}
-                                value={entry.debit}
-                                onChange={e => {
-                                  if (/^[0-9.,-]*$/.test(e.target.value)) {
-                                    updateEntry(account.accountId!, entry.id, 'debit', e.target.value);
-                                  }
-                                }}
-                                onBlur={e => {
-                                  const raw = e.target.value.replace(/,/g, '');
-                                  if (raw && !isNaN(parseFloat(raw))) {
-                                    updateEntry(account.accountId!, entry.id, 'debit', parseFloat(raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
-                                  }
-                                }}
-                                className={cn(inputCls, "text-right font-mono")}
-                                placeholder="0.00"
-                              />
-                            </td>
-
-                            {/* CREDIT SIDE */}
-                            <td className="px-2 py-1 border-r border-slate-100 dark:border-slate-800">
-                              <input 
-                                type="text"
-                                readOnly={isAuto}
-                                value={entry.dateCr}
-                                onChange={e => updateEntry(account.accountId!, entry.id, 'dateCr', e.target.value)}
-                                className={inputCls}
-                              />
-                            </td>
-                            <td className="px-2 py-1 border-r border-slate-100 dark:border-slate-800">
-                              <input 
-                                type="text"
-                                readOnly={isAuto}
-                                value={entry.particularsCr}
-                                onChange={e => updateEntry(account.accountId!, entry.id, 'particularsCr', e.target.value)}
-                                title={isAuto ? `Auto-posted from ${entry.autoSource}` : undefined}
-                                className={inputCls}
-                              />
-                            </td>
-                            <td className="px-2 py-1 border-r border-slate-100 dark:border-slate-800">
-                              <input 
-                                type="text"
-                                readOnly={isAuto}
-                                value={entry.refCr}
-                                onChange={e => updateEntry(account.accountId!, entry.id, 'refCr', e.target.value)}
-                                className={inputCls}
-                              />
-                            </td>
-                            <td className="px-2 py-1">
-                              <input 
-                                type="text"
-                                readOnly={isAuto}
-                                value={entry.credit}
-                                onChange={e => {
-                                  if (/^[0-9.,-]*$/.test(e.target.value)) {
-                                    updateEntry(account.accountId!, entry.id, 'credit', e.target.value);
-                                  }
-                                }}
-                                onBlur={e => {
-                                  const raw = e.target.value.replace(/,/g, '');
-                                  if (raw && !isNaN(parseFloat(raw))) {
-                                    updateEntry(account.accountId!, entry.id, 'credit', parseFloat(raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
-                                  }
-                                }}
-                                className={cn(inputCls, "text-right font-mono")}
-                                placeholder="0.00"
-                              />
-                            </td>
-                            <td className="px-3 py-1 text-right font-mono font-semibold">
-                              {formatAccountAmount(running)}
-                            </td>
-                            <td className="px-2 py-1 text-center">
-                              {isAuto ? (
-                                <span
-                                  title={`Auto-posted from ${entry.autoSource} — edit at the source`}
-                                  className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-cyan-100 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300"
-                                >
-                                  Auto
-                                </span>
-                              ) : (
-                                <button 
-                                  onClick={() => deleteEntry(account.accountId!, entry.id)}
-                                  className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors opacity-0 group-hover:opacity-100"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              )}
-                            </td>
-                          </tr>
+                            <tr key={entry.id} className={cn("group", isAuto ? "bg-cyan-50/40 dark:bg-cyan-950/10" : "hover:bg-slate-50/50 dark:hover:bg-slate-800/20")}>
+                              <td className="px-3 py-1.5 text-center text-slate-400 font-mono border-r border-slate-200 dark:border-slate-700">{idx + 1}</td>
+                              <td className="px-2 py-1 border-r border-slate-100 dark:border-slate-800">
+                                <input type="text" readOnly={isAuto} value={date}
+                                  onChange={e => updateEntry(account.accountId!, entry.id, entry.dateDr ? 'dateDr' : 'dateCr', e.target.value)}
+                                  className={inputCls} />
+                              </td>
+                              <td className="px-2 py-1 border-r border-slate-100 dark:border-slate-800">
+                                <input type="text" readOnly={isAuto} value={particulars}
+                                  onChange={e => updateEntry(account.accountId!, entry.id, entry.particularsDr ? 'particularsDr' : 'particularsCr', e.target.value)}
+                                  title={isAuto ? `Auto-posted from ${entry.autoSource}` : undefined}
+                                  className={inputCls} />
+                              </td>
+                              <td className="px-2 py-1 border-r border-slate-100 dark:border-slate-800">
+                                <input type="text" readOnly={isAuto} value={postingRef}
+                                  onChange={e => updateEntry(account.accountId!, entry.id, entry.refDr ? 'refDr' : 'refCr', e.target.value)}
+                                  className={inputCls} />
+                              </td>
+                              <td className="px-2 py-1 border-r border-slate-200 dark:border-slate-700 text-right">
+                                <input type="text" readOnly={isAuto} value={entry.debit}
+                                  onChange={e => { if (/^[0-9.,-]*$/.test(e.target.value)) updateEntry(account.accountId!, entry.id, 'debit', e.target.value); }}
+                                  onBlur={e => { const raw = e.target.value.replace(/,/g, ''); if (raw && !isNaN(parseFloat(raw))) updateEntry(account.accountId!, entry.id, 'debit', parseFloat(raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })); }}
+                                  className={cn(inputCls, "text-right font-mono")} placeholder="0.00" />
+                              </td>
+                              <td className="px-2 py-1 border-r border-slate-200 dark:border-slate-700 text-right">
+                                <input type="text" readOnly={isAuto} value={entry.credit}
+                                  onChange={e => { if (/^[0-9.,-]*$/.test(e.target.value)) updateEntry(account.accountId!, entry.id, 'credit', e.target.value); }}
+                                  onBlur={e => { const raw = e.target.value.replace(/,/g, ''); if (raw && !isNaN(parseFloat(raw))) updateEntry(account.accountId!, entry.id, 'credit', parseFloat(raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })); }}
+                                  className={cn(inputCls, "text-right font-mono")} placeholder="0.00" />
+                              </td>
+                              <td className="px-3 py-1.5 text-right font-mono font-semibold border-r border-slate-200 dark:border-slate-700">{balanceDebit ? balanceDebit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</td>
+                              <td className="px-3 py-1.5 text-right font-mono font-semibold">{balanceCredit ? balanceCredit.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</td>
+                              <td className="px-2 py-1 text-center">
+                                {isAuto ? (
+                                  <span title={`Auto-posted from ${entry.autoSource} — edit at the source`} className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-cyan-100 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300">Auto</span>
+                                ) : (
+                                  <button onClick={() => deleteEntry(account.accountId!, entry.id)} className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors opacity-0 group-hover:opacity-100">
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
                           );
                         })}
                       </tbody>
                       <tfoot>
                         <tr>
-                          <td colSpan={11} className="px-3 py-2 bg-slate-50 dark:bg-slate-800/30">
-                            <button 
-                              onClick={() => addEntry(account.accountId!)}
-                              className="text-xs font-bold text-cyan-600 hover:text-cyan-700 dark:text-cyan-400 dark:hover:text-cyan-300 flex items-center gap-1"
-                            >
+                          <td colSpan={9} className="px-3 py-2 bg-slate-50 dark:bg-slate-800/30">
+                            <button onClick={() => addEntry(account.accountId!)} className="text-xs font-bold text-cyan-600 hover:text-cyan-700 dark:text-cyan-400 dark:hover:text-cyan-300 flex items-center gap-1">
                               <Plus className="w-3.5 h-3.5" /> Add Row
                             </button>
                           </td>
                         </tr>
                         {(account.entries.length > 0 || openingBalance !== 0) && (
                           <tr className="bg-slate-100 dark:bg-slate-800 font-bold text-slate-700 dark:text-slate-300 border-t-2 border-slate-200 dark:border-slate-700">
-                            <td colSpan={3} className="px-3 py-2">ENDING BALANCE</td>
-                            <td className="px-3 py-2 text-right border-r border-slate-200 dark:border-slate-700 font-mono">
-                              {balance > 0 ? (
-                                balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                              ) : ''}
-                            </td>
-                            <td colSpan={4} className="px-3 py-2"></td>
-                            <td className="px-3 py-2 text-right font-mono">
-                              {balance < 0 ? (
-                                (balance * -1).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-                              ) : ''}
-                            </td>
-                            <td className="px-3 py-2 text-right font-mono">{formatAccountAmount(balance)}</td>
+                            <td colSpan={4} className="px-3 py-2">ENDING BALANCE</td>
+                            <td className="px-3 py-2 text-right border-r border-slate-200 dark:border-slate-700 font-mono">{balance > 0 ? balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</td>
+                            <td className="px-3 py-2 text-right border-r border-slate-200 dark:border-slate-700 font-mono">{balance < 0 ? (balance * -1).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</td>
+                            <td className="px-3 py-2 text-right font-mono">{balance > 0 ? balance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</td>
+                            <td className="px-3 py-2 text-right font-mono">{balance < 0 ? (balance * -1).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''}</td>
                             <td></td>
                           </tr>
                         )}
