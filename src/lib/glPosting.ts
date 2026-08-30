@@ -104,7 +104,7 @@ function getCoaAccounts(client: Client): CoaAccount[] {
 // Per-journal, per-column overrides for labels that don't literally match an
 // account title (e.g. the CDJ's generic "Amount Dr(Cr)" column, whose actual
 // account is typed into the companion "Account Title" field).
-const CRJ_LABEL_OVERRIDES: Record<string, string> = { sundry: 'Output Tax' };
+const CRJ_LABEL_OVERRIDES: Record<string, string> = { cash: 'Cash' };
 const CDJ_LABEL_OVERRIDES: Record<string, string> = { cash: 'Cash', input_tax: 'Input Tax' };
 
 interface Posting {
@@ -152,8 +152,8 @@ function postColumnarJournal(
     particularsCol: string;
     refCol?: string;
     overrides?: Record<string, string>;
-    accountTitleCol?: string; // when a numeric column's real account is named in another text column (CDJ)
-    accountTitleColMatchesId?: string; // which numeric column id uses accountTitleCol
+    accountTitleCol?: string; // text column containing the account for a special numeric column
+    accountTitleColMatchesId?: string; // numeric column whose account comes from accountTitleCol
   }
 ): Posting[] {
   const postings: Posting[] = [];
@@ -164,30 +164,96 @@ function postColumnarJournal(
     const particulars = String(values[opts.particularsCol] || '');
     const ref = opts.refCol ? String(values[opts.refCol] || '') : '';
 
-    columns.filter(c => c.type === 'number' && c.category !== 'None').forEach(col => {
-      const raw = String(values[col.id] ?? '').replace(/,/g, '');
-      const amount = parseFloat(raw);
-      if (!raw || isNaN(amount) || amount === 0) return;
+    columns
+      .filter(c => c.type === 'number' && c.category !== 'None')
+      .forEach(col => {
+        const raw = String(values[col.id] ?? '').replace(/,/g, '');
+        const amount = parseFloat(raw);
+        if (!raw || !Number.isFinite(amount) || amount === 0) return;
 
-      const label = opts.accountTitleCol && col.id === opts.accountTitleColMatchesId
-        ? String(values[opts.accountTitleCol] || '')
-        : (opts.overrides?.[col.id] || col.name);
+        const label = opts.accountTitleCol && col.id === opts.accountTitleColMatchesId
+          ? String(values[opts.accountTitleCol] || '')
+          : (opts.overrides?.[col.id] || col.name);
 
-      const account = findAccountByLabel(label, accounts);
-      if (!account) return;
+        const account = findAccountByLabel(label, accounts);
+        if (!account) return;
 
-      const side: 'debit' | 'credit' = col.category === 'Dr' ? 'debit' : 'credit';
-      const key = `${opts.prefix}:${entry.id}:${col.id}`;
-      postings.push({
-        accountId: account.id,
-        entry: makeLeg(key, side, amount, date, particulars, ref, opts.sourceLabel),
+        const side: 'debit' | 'credit' = col.category === 'Dr' ? 'debit' : 'credit';
+        postings.push({
+          accountId: account.id,
+          entry: makeLeg(
+            `${opts.prefix}:${entry.id}:${col.id}`,
+            side,
+            amount,
+            date,
+            particulars,
+            ref,
+            opts.sourceLabel
+          ),
+        });
       });
-    });
+
+    // CDJ's "Amount Dr/Cr" is intentionally category=None because the side is
+    // determined by the account named in the adjacent Account Title field.
+    // Post it explicitly instead of silently ignoring it.
+    if (opts.accountTitleCol && opts.accountTitleColMatchesId) {
+      const amountCol = columns.find(c => c.id === opts.accountTitleColMatchesId);
+      if (amountCol) {
+        const raw = String(values[amountCol.id] ?? '').replace(/,/g, '');
+        const amount = parseFloat(raw);
+        const title = String(values[opts.accountTitleCol] || '').trim();
+        if (title && Number.isFinite(amount) && amount !== 0) {
+          const account = findAccountByLabel(title, accounts);
+          if (account) {
+            // In the CDJ this companion amount is a debit/sundry amount.
+            postings.push({
+              accountId: account.id,
+              entry: makeLeg(
+                `${opts.prefix}:${entry.id}:${amountCol.id}`,
+                'debit',
+                Math.abs(amount),
+                date,
+                particulars,
+                ref,
+                opts.sourceLabel
+              ),
+            });
+          }
+        }
+      }
+    }
+
+    // CRJ's Sundry amount is also category=None because its account is named
+    // in the "Account Credited / Description" field. Resolve that account
+    // from the row description rather than hard-coding it to Output Tax.
+    if (opts.prefix === 'crj') {
+      const sundryCol = columns.find(c => c.id === 'sundry');
+      if (sundryCol) {
+        const raw = String(values[sundryCol.id] ?? '').replace(/,/g, '');
+        const amount = parseFloat(raw);
+        if (Number.isFinite(amount) && amount !== 0 && particulars) {
+          const account = findAccountByLabel(particulars, accounts);
+          if (account && !postings.some(p => p.entry.id === `${opts.prefix}:${entry.id}:sundry`)) {
+            postings.push({
+              accountId: account.id,
+              entry: makeLeg(
+                `${opts.prefix}:${entry.id}:sundry`,
+                'credit',
+                Math.abs(amount),
+                date,
+                particulars,
+                ref,
+                opts.sourceLabel
+              ),
+            });
+          }
+        }
+      }
+    }
   });
 
   return postings;
 }
-
 
 // ---------------------------------------------------------------------------
 // Source: Sales Journal — the subsidiary book of original entry for credit
@@ -663,18 +729,94 @@ export function computeAutoPostings(client: Client): Posting[] {
     }
   );
 
-  const pj = postColumnarJournal(
-    client.pjEntries || [],
-    client.pjColumns || DEFAULT_PJ_COLUMNS,
-    accounts,
-    {
-      prefix: 'pj',
-      sourceLabel: 'Purchases Journal',
-      dateCol: 'date',
-      particularsCol: 'supplier_name',
-      refCol: 'invoice_no',
+  // Purchases Journal: Net of VAT and Exempt/0-Rated are debits to the
+  // account named in "Account Title"; Input Tax is a debit to Input Tax;
+  // Accounts Payable and Withholding Tax are credits.  The account-title
+  // column is text, so the generic column-name matcher cannot post the first
+  // two cost columns correctly.
+  const pj: Posting[] = [];
+  const pjColumns = client.pjColumns || DEFAULT_PJ_COLUMNS;
+  (client.pjEntries || []).forEach(entry => {
+    const v = entry.values || {};
+    const date = String(v.date || '');
+    const particulars = String(v.supplier_name || '');
+    const ref = String(v.invoice_no || '');
+    const amount = (id: string) => {
+      const n = parseFloat(String(v[id] ?? '').replace(/,/g, ''));
+      return Number.isFinite(n) ? n : 0;
+    };
+
+    const debitAccount = findAccountByLabel(
+      String(v.debit_account || v.account_title || ''),
+      accounts
+    );
+
+    const cost = amount('net_purchase') + amount('exempt_zero_rated');
+    if (debitAccount && cost > 0) {
+      pj.push({
+        accountId: debitAccount.id,
+        entry: makeLeg(`pj:${entry.id}:debit_account`, 'debit', cost, date, particulars, ref, 'Purchases Journal'),
+      });
     }
-  );
+
+    const inputTax = amount('input_tax');
+    if (inputTax > 0) {
+      const acct = findAccountByLabel('Input Tax', accounts);
+      if (acct) {
+        pj.push({
+          accountId: acct.id,
+          entry: makeLeg(`pj:${entry.id}:input_tax`, 'debit', inputTax, date, particulars, ref, 'Purchases Journal'),
+        });
+      }
+    }
+
+    const ap = amount('accounts_payable');
+    if (ap > 0) {
+      const acct = findAccountByLabel('Accounts Payable', accounts);
+      if (acct) {
+        pj.push({
+          accountId: acct.id,
+          entry: makeLeg(`pj:${entry.id}:accounts_payable`, 'credit', ap, date, particulars, ref, 'Purchases Journal'),
+        });
+      }
+    }
+
+    const wht = amount('withholding_tax');
+    if (wht > 0) {
+      const acct = findAccountByLabel('Withholding Tax Payable - Expanded', accounts)
+        || findAccountByLabel('Withholding Tax Payable', accounts)
+        || findAccountByLabel('Withholding Tax', accounts);
+      if (acct) {
+        pj.push({
+          accountId: acct.id,
+          entry: makeLeg(`pj:${entry.id}:withholding_tax`, 'credit', wht, date, particulars, ref, 'Purchases Journal'),
+        });
+      }
+    }
+
+    // Preserve user-added numeric PJ columns.
+    const systemIds = new Set(DEFAULT_PJ_COLUMNS.map(c => c.id));
+    pjColumns
+      .filter(c => !systemIds.has(c.id) && c.type === 'number' && c.category !== 'None')
+      .forEach(col => {
+        const n = amount(col.id);
+        if (n === 0) return;
+        const acct = findAccountByLabel(col.name, accounts);
+        if (!acct) return;
+        pj.push({
+          accountId: acct.id,
+          entry: makeLeg(
+            `pj:${entry.id}:${col.id}`,
+            col.category === 'Dr' ? 'debit' : 'credit',
+            Math.abs(n),
+            date,
+            particulars,
+            ref,
+            'Purchases Journal'
+          ),
+        });
+      });
+  });
 
   const sj = postSalesJournal(client, accounts);
   const gj = postGeneralJournal(client, accounts);
