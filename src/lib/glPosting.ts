@@ -3,6 +3,8 @@ import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA } from '../components/ChartOfA
 import { DEFAULT_CRJ_COLUMNS } from '../components/CashReceiptsJournal';
 import { DEFAULT_CDJ_COLUMNS } from '../components/CashDisbursementsJournal';
 import { DEFAULT_PJ_COLUMNS } from '../components/PurchasesJournal';
+import { DEFAULT_SJ_COLUMNS } from '../components/SalesJournal';
+import { DEFAULT_GJ_COLUMNS } from '../components/GeneralJournal';
 
 /**
  * Automatic General Ledger posting.
@@ -181,6 +183,185 @@ function postColumnarJournal(
         entry: makeLeg(key, side, amount, date, particulars, ref, opts.sourceLabel),
       });
     });
+  });
+
+  return postings;
+}
+
+
+// ---------------------------------------------------------------------------
+// Source: Sales Journal — the subsidiary book of original entry for credit
+// sales and credit-card sales.
+//
+// The Sales Journal's debit columns are Accounts Receivable / Credit Card.
+// Its revenue is the Account Title credited for Net of VAT + Exempt/0-Rated,
+// while Output VAT is credited separately.
+// ---------------------------------------------------------------------------
+
+function postSalesJournal(client: Client, accounts: CoaAccount[]): Posting[] {
+  const postings: Posting[] = [];
+  const columns = client.sjColumns || DEFAULT_SJ_COLUMNS;
+
+  (client.sjEntries || []).forEach(entry => {
+    const v = entry.values || {};
+    const date = String(v.date || '');
+    const ref = String(v.invoice_no || '');
+    const particulars = String(v.customer_name || v.account_title || 'Sales');
+    const revenueAccount = findAccountByLabel(String(v.account_title || 'Sales'), accounts);
+
+    const numValue = (id: string) => {
+      const raw = String(v[id] ?? '').replace(/,/g, '');
+      const n = parseFloat(raw);
+      return Number.isFinite(n) ? n : 0;
+    };
+
+    // Debit Accounts Receivable for On Account sales.
+    const ar = numValue('accounts_receivable');
+    if (ar > 0) {
+      const acct = findAccountByLabel('Accounts Receivable', accounts);
+      if (acct) {
+        postings.push({
+          accountId: acct.id,
+          entry: makeLeg(`sj:${entry.id}:ar`, 'debit', ar, date, particulars, ref, 'Sales Journal'),
+        });
+      }
+    }
+
+    // Debit Credit Card for credit-card sales.
+    const cc = numValue('credit_card');
+    if (cc > 0) {
+      const acct = findAccountByLabel('Credit Card', accounts)
+        || findAccountByLabel('Credit Card Receivable', accounts);
+      if (acct) {
+        postings.push({
+          accountId: acct.id,
+          entry: makeLeg(`sj:${entry.id}:cc`, 'debit', cc, date, particulars, ref, 'Sales Journal'),
+        });
+      }
+    }
+
+    // Credit the selected revenue account for both taxable net sales and
+    // exempt/zero-rated sales.
+    const revenueAmount = numValue('net_of_vat') + numValue('exempt_zero_rated');
+    if (revenueAccount && revenueAmount > 0) {
+      postings.push({
+        accountId: revenueAccount.id,
+        entry: makeLeg(`sj:${entry.id}:revenue`, 'credit', revenueAmount, date, particulars, ref, 'Sales Journal'),
+      });
+    }
+
+    // Credit Output Tax for VAT.
+    const outputVat = numValue('output_vat');
+    if (outputVat > 0) {
+      const acct = findAccountByLabel('Output Tax', accounts)
+        || findAccountByLabel('Output VAT', accounts);
+      if (acct) {
+        postings.push({
+          accountId: acct.id,
+          entry: makeLeg(`sj:${entry.id}:outputvat`, 'credit', outputVat, date, particulars, ref, 'Sales Journal'),
+        });
+      }
+    }
+
+    // Custom Dr/Cr columns added by the user are also posted, provided they
+    // resolve unambiguously to a Chart of Accounts account. System columns are
+    // excluded here because they were already handled above.
+    const systemIds = new Set(DEFAULT_SJ_COLUMNS.map(c => c.id));
+    columns
+      .filter(c => !systemIds.has(c.id) && c.type === 'number' && c.category !== 'None')
+      .forEach(col => {
+        const raw = String(v[col.id] ?? '').replace(/,/g, '');
+        const amount = parseFloat(raw);
+        if (!Number.isFinite(amount) || amount === 0) return;
+
+        const acct = findAccountByLabel(col.name, accounts);
+        if (!acct) return;
+
+        postings.push({
+          accountId: acct.id,
+          entry: makeLeg(
+            `sj:${entry.id}:${col.id}`,
+            col.category === 'Dr' ? 'debit' : 'credit',
+            amount,
+            date,
+            particulars,
+            ref,
+            'Sales Journal'
+          ),
+        });
+      });
+  });
+
+  return postings;
+}
+
+// ---------------------------------------------------------------------------
+// Source: General Journal — the general book of original entry.
+//
+// Each General Journal row already represents an account-title line. The
+// account title is resolved from the "ACCOUNT TITLES & DESCRIPTION" field and
+// the debit/credit amount is posted to that account.
+// ---------------------------------------------------------------------------
+
+function postGeneralJournal(client: Client, accounts: CoaAccount[]): Posting[] {
+  const postings: Posting[] = [];
+  const columns = client.gjColumns || DEFAULT_GJ_COLUMNS;
+
+  const dateCol = columns.find(c => c.id === 'date')?.id || 'date';
+  const particularsCol = columns.find(c => c.id === 'particulars')?.id || 'particulars';
+  const refCol = columns.find(c => c.id === 'ref_no')?.id || 'ref_no';
+  const debitCol = columns.find(c => c.id === 'debit')?.id || 'debit';
+  const creditCol = columns.find(c => c.id === 'credit')?.id || 'credit';
+
+  (client.gjEntries || []).forEach(entry => {
+    const v = entry.values || {};
+    const date = String(v[dateCol] || '');
+    const particulars = String(v[particularsCol] || '');
+    const ref = String(v[refCol] || '');
+
+    const account = findAccountByLabel(particulars, accounts);
+    if (!account) return;
+
+    const debit = parseFloat(String(v[debitCol] ?? '').replace(/,/g, ''));
+    if (Number.isFinite(debit) && debit > 0) {
+      postings.push({
+        accountId: account.id,
+        entry: makeLeg(`gj:${entry.id}:dr`, 'debit', debit, date, particulars, ref, 'General Journal'),
+      });
+    }
+
+    const credit = parseFloat(String(v[creditCol] ?? '').replace(/,/g, ''));
+    if (Number.isFinite(credit) && credit > 0) {
+      postings.push({
+        accountId: account.id,
+        entry: makeLeg(`gj:${entry.id}:cr`, 'credit', credit, date, particulars, ref, 'General Journal'),
+      });
+    }
+
+    // Post user-defined numeric columns as well.
+    const systemIds = new Set(DEFAULT_GJ_COLUMNS.map(c => c.id));
+    columns
+      .filter(c => !systemIds.has(c.id) && c.type === 'number' && c.category !== 'None')
+      .forEach(col => {
+        const amount = parseFloat(String(v[col.id] ?? '').replace(/,/g, ''));
+        if (!Number.isFinite(amount) || amount === 0) return;
+
+        const acct = findAccountByLabel(col.name, accounts);
+        if (!acct) return;
+
+        postings.push({
+          accountId: acct.id,
+          entry: makeLeg(
+            `gj:${entry.id}:${col.id}`,
+            col.category === 'Dr' ? 'debit' : 'credit',
+            amount,
+            date,
+            particulars,
+            ref,
+            'General Journal'
+          ),
+        });
+      });
   });
 
   return postings;
@@ -448,48 +629,64 @@ function dateSortKey(entry: GeneralLedgerEntry): number {
 export function computeAutoPostings(client: Client): Posting[] {
   const accounts = getCoaAccounts(client);
 
-  const crj = postColumnarJournal(client.crjEntries || [], client.crjColumns || DEFAULT_CRJ_COLUMNS, accounts, {
-    prefix: 'crj',
-    sourceLabel: 'Cash Receipts Journal',
-    dateCol: 'date',
-    particularsCol: 'description',
-    refCol: 'reference',
-    overrides: CRJ_LABEL_OVERRIDES,
-  });
+  // The General Ledger is a posting ledger, not a second transaction-entry
+  // screen. Its source data comes only from the books of original entry:
+  // Cash Receipts Journal, Cash Disbursements Journal, Purchases Journal,
+  // Sales Journal, and General Journal.
+  const crj = postColumnarJournal(
+    client.crjEntries || [],
+    client.crjColumns || DEFAULT_CRJ_COLUMNS,
+    accounts,
+    {
+      prefix: 'crj',
+      sourceLabel: 'Cash Receipts Journal',
+      dateCol: 'date',
+      particularsCol: 'description',
+      refCol: 'reference',
+      overrides: CRJ_LABEL_OVERRIDES,
+    }
+  );
 
-  // Only the manually-typed CDJ rows are posted from here — rows that were
-  // themselves auto-generated from Purchases/Journal Vouchers are posted to
-  // the GL directly by postPurchases()/postJournalVouchers() below, so
-  // including them again here would double-post the same cash-out.
   const cdjManualEntries = (client.cdjEntries || []).filter(e => !e.auto);
-  const cdj = postColumnarJournal(cdjManualEntries, client.cdjColumns || DEFAULT_CDJ_COLUMNS, accounts, {
-    prefix: 'cdj',
-    sourceLabel: 'Cash Disbursements Journal',
-    dateCol: 'date',
-    particularsCol: 'payee',
-    overrides: CDJ_LABEL_OVERRIDES,
-    accountTitleCol: 'account_title',
-    accountTitleColMatchesId: 'amount',
-  });
+  const cdj = postColumnarJournal(
+    cdjManualEntries,
+    client.cdjColumns || DEFAULT_CDJ_COLUMNS,
+    accounts,
+    {
+      prefix: 'cdj',
+      sourceLabel: 'Cash Disbursements Journal',
+      dateCol: 'date',
+      particularsCol: 'payee',
+      overrides: CDJ_LABEL_OVERRIDES,
+      accountTitleCol: 'account_title',
+      accountTitleColMatchesId: 'amount',
+    }
+  );
 
-  const pj = postColumnarJournal(client.pjEntries || [], client.pjColumns || DEFAULT_PJ_COLUMNS, accounts, {
-    prefix: 'pj',
-    sourceLabel: 'Purchases Journal',
-    dateCol: 'date',
-    particularsCol: 'supplier_name',
-    refCol: 'invoice_no',
-  });
+  const pj = postColumnarJournal(
+    client.pjEntries || [],
+    client.pjColumns || DEFAULT_PJ_COLUMNS,
+    accounts,
+    {
+      prefix: 'pj',
+      sourceLabel: 'Purchases Journal',
+      dateCol: 'date',
+      particularsCol: 'supplier_name',
+      refCol: 'invoice_no',
+    }
+  );
 
-  const jv = postJournalVouchers(client);
-  const purchases = postPurchases(client, accounts);
+  const sj = postSalesJournal(client, accounts);
+  const gj = postGeneralJournal(client, accounts);
 
-  return [...crj, ...cdj, ...pj, ...jv, ...purchases];
+  return [...crj, ...cdj, ...pj, ...sj, ...gj];
 }
 
 /**
  * Returns the client with its General Ledger (`glAccounts`) fully synced:
- * every account title keeps its manually-typed entries untouched, plus a
- * freshly regenerated set of auto-posted entries from every source journal.
+ * every account title is rebuilt from the books of original entry (CRJ, CDJ,
+ * PJ, SJ and GJ), while any legacy manually-entered GL rows are retained only
+ * for backward compatibility.
  * Safe to call repeatedly — it's idempotent and cheap enough to run on
  * every save/read.
  */
