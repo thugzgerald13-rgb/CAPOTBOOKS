@@ -1,7 +1,7 @@
 import { Client, CoaAccount, GeneralLedgerAccount, GeneralLedgerEntry, JournalColumn, JournalEntry } from '../types';
 import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA } from '../components/ChartOfAccounts';
 import { DEFAULT_CRJ_COLUMNS } from '../components/CashReceiptsJournal';
-import { DEFAULT_CDJ_COLUMNS } from '../components/CashDisbursementsJournal';
+import { DEFAULT_CDJ_COLUMNS, CDJ_CASH_ON_HAND_BANK_ID, CDJ_SUNDRY_ACCOUNT_TITLE_ID, CDJ_SUNDRY_AMOUNT_ID } from '../components/CashDisbursementsJournal';
 import { DEFAULT_PJ_COLUMNS } from '../components/PurchasesJournal';
 import { DEFAULT_SJ_COLUMNS } from '../components/SalesJournal';
 import { DEFAULT_GJ_COLUMNS } from '../components/GeneralJournal';
@@ -268,48 +268,7 @@ function postSalesJournal(client: Client, accounts: CoaAccount[]): Posting[] {
   const postings: Posting[] = [];
   const columns = client.sjColumns || DEFAULT_SJ_COLUMNS;
 
-  // The Sales Journal page derives its automatic rows directly from `sales`
-  // (Credit Card / On Account) instead of persisting those rows to sjEntries.
-  // The GL must use the same source, otherwise the journal can visibly contain
-  // a transaction while the GL sees nothing.
-  const sourceSales = (client.sales || []).filter(
-    (sale: any) => sale.paymentType === 'Credit Card' || sale.paymentType === 'On Account'
-  );
-
-  const derivedEntries: JournalEntry[] = sourceSales.map((sale: any) => {
-    const gross = Number(sale.amount) || 0;
-    const net = Number(sale.netOfVat ?? gross) || 0;
-    const vat = Number(sale.outputTax ?? 0) || 0;
-    const exemptZeroRated =
-      sale.vatType === 'VAT Exempt' || sale.vatType === 'Zero-Rated' ? gross : 0;
-
-    return {
-      id: `sale_${sale.id}`,
-      auto: true,
-      autoSource: 'Sales',
-      values: {
-        date: sale.date || '',
-        invoice_no: sale.ref || '',
-        customer_name: sale.buyerName || '',
-        customer_tin: sale.buyerTin || '',
-        customer_address: sale.buyerAddress || '',
-        net_of_vat: net ? net.toFixed(2) : '',
-        output_vat: vat ? vat.toFixed(2) : '',
-        exempt_zero_rated: exemptZeroRated ? exemptZeroRated.toFixed(2) : '',
-        account_title: sale.incomeType || 'Sales',
-        accounts_receivable: sale.paymentType === 'On Account' ? gross.toFixed(2) : '',
-        credit_card: sale.paymentType === 'Credit Card' ? gross.toFixed(2) : '',
-      },
-    };
-  });
-
-  // Keep manually-entered Sales Journal rows. Ignore persisted auto rows because
-  // the automatic rows above are always rebuilt from the authoritative sales
-  // transactions and therefore cannot become stale or duplicate.
-  const manualEntries = (client.sjEntries || []).filter(e => !e.auto);
-  const entries = [...derivedEntries, ...manualEntries];
-
-  entries.forEach(entry => {
+  (client.sjEntries || []).forEach(entry => {
     const v = entry.values || {};
     const date = String(v.date || '');
     const ref = String(v.invoice_no || '');
@@ -401,6 +360,7 @@ function postSalesJournal(client: Client, accounts: CoaAccount[]): Posting[] {
 
   return postings;
 }
+
 // ---------------------------------------------------------------------------
 // Source: General Journal — the general book of original entry.
 //
@@ -753,21 +713,93 @@ export function computeAutoPostings(client: Client): Posting[] {
     }
   );
 
-  const cdjManualEntries = (client.cdjEntries || []).filter(e => !e.auto);
-  const cdj = postColumnarJournal(
-    cdjManualEntries,
-    client.cdjColumns || DEFAULT_CDJ_COLUMNS,
-    accounts,
-    {
-      prefix: 'cdj',
-      sourceLabel: 'Cash Disbursements Journal',
-      dateCol: 'date',
-      particularsCol: 'payee',
-      overrides: CDJ_LABEL_OVERRIDES,
-      accountTitleCol: 'account_title',
-      accountTitleColMatchesId: 'amount',
+  // Cash Disbursements Journal: post EVERY CDJ row, including auto-generated rows.
+  // CDJ's current schema uses cash_on_hand_bank, sundry_account_title,
+  // sundry_amount, and cdj_coa_<accountId>. Older rows may still contain
+  // cash/account_title/amount, so both schemas are supported.
+  const cdj: Posting[] = [];
+  const cdjColumns = client.cdjColumns || DEFAULT_CDJ_COLUMNS;
+  const cashAccount = accounts.find(a => a.name.trim().toLowerCase() === 'cash on hand')
+    || accounts.find(a => a.name.trim().toLowerCase() === 'cash')
+    || accounts.find(a => a.name.toLowerCase().includes('cash on hand'));
+
+  (client.cdjEntries || []).forEach(entry => {
+    const v = entry.values || {};
+    const date = String(v.date || '');
+    const particulars = String(v.payee || v.description || '');
+    const ref = String(v.folio_f || v.reference || '');
+    const num = (value: any) => {
+      const n = parseFloat(String(value ?? '').replace(/,/g, ''));
+      return Number.isFinite(n) ? Math.abs(n) : 0;
+    };
+
+    // Cash on Hand/Bank is always the credit side of a CDJ transaction.
+    const cashRaw = v[CDJ_CASH_ON_HAND_BANK_ID] ?? v.cash_on_hand_bank ?? v.cash ?? v.cashAmount ?? v.cash_amount;
+    const cash = num(cashRaw);
+    if (cash > 0 && cashAccount) {
+      cdj.push({
+        accountId: cashAccount.id,
+        entry: makeLeg(`cdj:${entry.id}:${CDJ_CASH_ON_HAND_BANK_ID}`, 'credit', cash, date, particulars, ref, 'Cash Disbursements Journal'),
+      });
     }
-  );
+
+    // Every configured CDJ COA column represents its linked COA account.
+    // Input Tax is handled below so it can also read legacy input_tax values.
+    const inputTaxAccountForColumn = findAccountByLabel('Input Tax', accounts)
+      || findAccountByLabel('VAT Input Receivable', accounts)
+      || findAccountByLabel('Input VAT', accounts);
+    cdjColumns.filter(c => c.id.startsWith('cdj_coa_') && c.type === 'number').forEach(col => {
+      const accountId = col.id.slice('cdj_coa_'.length);
+      const acct = accounts.find(a => a.id === accountId);
+      if (inputTaxAccountForColumn && accountId === inputTaxAccountForColumn.id) return;
+      const amount = num(v[col.id]);
+      if (!acct || amount === 0) return;
+      cdj.push({
+        accountId: acct.id,
+        entry: makeLeg(
+          `cdj:${entry.id}:${col.id}`,
+          col.category === 'Cr' ? 'credit' : 'debit',
+          amount, date, particulars, ref, 'Cash Disbursements Journal'
+        ),
+      });
+    });
+
+    // Current Sundries fields.
+    let title = String(v[CDJ_SUNDRY_ACCOUNT_TITLE_ID] ?? v.account_title ?? v.accountTitle ?? '').trim();
+    let amountRaw = v[CDJ_SUNDRY_AMOUNT_ID] ?? v.amount ?? v.debitAmount ?? v.debit_amount ?? '';
+    let signedAmount = parseFloat(String(amountRaw).replace(/,/g, ''));
+
+    // Resolve an older/auto row's account title and amount as well.
+    if (title && Number.isFinite(signedAmount) && signedAmount !== 0) {
+      const acct = findAccountByLabel(title, accounts);
+      if (acct) {
+        cdj.push({
+          accountId: acct.id,
+          entry: makeLeg(
+            `cdj:${entry.id}:${CDJ_SUNDRY_AMOUNT_ID}`,
+            signedAmount < 0 ? 'credit' : 'debit',
+            Math.abs(signedAmount), date, particulars, ref, 'Cash Disbursements Journal'
+          ),
+        });
+      }
+    }
+
+    // Input Tax is a fixed debit column in the CDJ. Support both the current
+    // linked COA column and legacy input_tax field.
+    const inputTaxAccount = findAccountByLabel('Input Tax', accounts)
+      || findAccountByLabel('VAT Input Receivable', accounts)
+      || findAccountByLabel('Input VAT', accounts);
+    if (inputTaxAccount) {
+      const linked = cdjColumns.find(c => c.id === `cdj_coa_${inputTaxAccount.id}`);
+      const tax = num(v[linked?.id || 'input_tax'] ?? v.inputTax ?? v['Input Tax']);
+      if (tax > 0) {
+        cdj.push({
+          accountId: inputTaxAccount.id,
+          entry: makeLeg(`cdj:${entry.id}:input_tax`, 'debit', tax, date, particulars, ref, 'Cash Disbursements Journal'),
+        });
+      }
+    }
+  });
 
   // Purchases Journal: Net of VAT and Exempt/0-Rated are debits to the
   // account named in "Account Title"; Input Tax is a debit to Input Tax;
@@ -858,18 +890,10 @@ export function computeAutoPostings(client: Client): Posting[] {
       });
   });
 
-  // Cash/check purchases are entered in the Purchases module and automatically
-  // appear in the CDJ. The CDJ auto rows are intentionally excluded above to
-  // prevent double-posting, so the actual purchase transaction must be posted
-  // here once to the GL.
-  const purchases = postPurchases(client, accounts);
-
-  // Credit-card/on-account sales are displayed by Sales Journal as derived rows
-  // from `sales`; postSalesJournal rebuilds those same rows for the GL.
   const sj = postSalesJournal(client, accounts);
   const gj = postGeneralJournal(client, accounts);
 
-  return [...crj, ...cdj, ...pj, ...purchases, ...sj, ...gj];
+  return [...crj, ...cdj, ...pj, ...sj, ...gj];
 }
 
 /**
