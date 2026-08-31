@@ -268,7 +268,48 @@ function postSalesJournal(client: Client, accounts: CoaAccount[]): Posting[] {
   const postings: Posting[] = [];
   const columns = client.sjColumns || DEFAULT_SJ_COLUMNS;
 
-  (client.sjEntries || []).forEach(entry => {
+  // The Sales Journal page derives its automatic rows directly from `sales`
+  // (Credit Card / On Account) instead of persisting those rows to sjEntries.
+  // The GL must use the same source, otherwise the journal can visibly contain
+  // a transaction while the GL sees nothing.
+  const sourceSales = (client.sales || []).filter(
+    (sale: any) => sale.paymentType === 'Credit Card' || sale.paymentType === 'On Account'
+  );
+
+  const derivedEntries: JournalEntry[] = sourceSales.map((sale: any) => {
+    const gross = Number(sale.amount) || 0;
+    const net = Number(sale.netOfVat ?? gross) || 0;
+    const vat = Number(sale.outputTax ?? 0) || 0;
+    const exemptZeroRated =
+      sale.vatType === 'VAT Exempt' || sale.vatType === 'Zero-Rated' ? gross : 0;
+
+    return {
+      id: `sale_${sale.id}`,
+      auto: true,
+      autoSource: 'Sales',
+      values: {
+        date: sale.date || '',
+        invoice_no: sale.ref || '',
+        customer_name: sale.buyerName || '',
+        customer_tin: sale.buyerTin || '',
+        customer_address: sale.buyerAddress || '',
+        net_of_vat: net ? net.toFixed(2) : '',
+        output_vat: vat ? vat.toFixed(2) : '',
+        exempt_zero_rated: exemptZeroRated ? exemptZeroRated.toFixed(2) : '',
+        account_title: sale.incomeType || 'Sales',
+        accounts_receivable: sale.paymentType === 'On Account' ? gross.toFixed(2) : '',
+        credit_card: sale.paymentType === 'Credit Card' ? gross.toFixed(2) : '',
+      },
+    };
+  });
+
+  // Keep manually-entered Sales Journal rows. Ignore persisted auto rows because
+  // the automatic rows above are always rebuilt from the authoritative sales
+  // transactions and therefore cannot become stale or duplicate.
+  const manualEntries = (client.sjEntries || []).filter(e => !e.auto);
+  const entries = [...derivedEntries, ...manualEntries];
+
+  entries.forEach(entry => {
     const v = entry.values || {};
     const date = String(v.date || '');
     const ref = String(v.invoice_no || '');
@@ -360,7 +401,6 @@ function postSalesJournal(client: Client, accounts: CoaAccount[]): Posting[] {
 
   return postings;
 }
-
 // ---------------------------------------------------------------------------
 // Source: General Journal — the general book of original entry.
 //
@@ -818,10 +858,18 @@ export function computeAutoPostings(client: Client): Posting[] {
       });
   });
 
+  // Cash/check purchases are entered in the Purchases module and automatically
+  // appear in the CDJ. The CDJ auto rows are intentionally excluded above to
+  // prevent double-posting, so the actual purchase transaction must be posted
+  // here once to the GL.
+  const purchases = postPurchases(client, accounts);
+
+  // Credit-card/on-account sales are displayed by Sales Journal as derived rows
+  // from `sales`; postSalesJournal rebuilds those same rows for the GL.
   const sj = postSalesJournal(client, accounts);
   const gj = postGeneralJournal(client, accounts);
 
-  return [...crj, ...cdj, ...pj, ...sj, ...gj];
+  return [...crj, ...cdj, ...pj, ...purchases, ...sj, ...gj];
 }
 
 /**
