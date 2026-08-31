@@ -10,6 +10,7 @@ interface AuthContextType {
   setUserRole: (role: string | null) => void;
   signOut: () => Promise<void>;
   needsAccountSetup: boolean;
+  completeAccountSetup: (username: string, password: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -20,6 +21,7 @@ const AuthContext = createContext<AuthContextType>({
   setUserRole: () => {},
   signOut: async () => {},
   needsAccountSetup: false,
+  completeAccountSetup: async () => {},
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -47,11 +49,16 @@ export function AuthProvider({
     (import.meta.env.VITE_ADMIN_EMAIL || 'thugz.gerald13@gmail.com').trim().toLowerCase();
   const isAdmin = !!user?.email && user.email.trim().toLowerCase() === DEVELOPER_EMAIL;
 
+  const isGoogleUser = (usr: User) =>
+    (usr.identities || []).some((identity) => identity.provider === 'google') ||
+    usr.app_metadata?.provider === 'google' ||
+    (Array.isArray(usr.app_metadata?.providers) && usr.app_metadata.providers.includes('google'));
+
   const syncAccountSetupState = (usr: User) => {
-    const isGoogleUser = (usr.identities || []).some((identity) => identity.provider === 'google');
+    const googleUser = isGoogleUser(usr);
     const username = String(usr.user_metadata?.account_username || '').trim();
     const hasPassword = Boolean(usr.user_metadata?.account_password_set);
-    setNeedsAccountSetup(isGoogleUser && (!username || !hasPassword));
+    setNeedsAccountSetup(googleUser && (!username || !hasPassword));
   };
 
   useEffect(() => {
@@ -121,12 +128,35 @@ export function AuthProvider({
     setUserRoleState(role);
   };
 
+  const completeAccountSetup = async (username: string, password: string) => {
+    if (!user) throw new Error('You must be signed in to complete account setup.');
+
+    const cleanUsername = username.trim();
+    if (!cleanUsername) throw new Error('Username is required.');
+    if (password.length < 6) throw new Error('Password must be at least 6 characters.');
+
+    const { data, error } = await supabase.auth.updateUser({
+      password,
+      data: {
+        ...user.user_metadata,
+        account_username: cleanUsername,
+        account_password_set: true,
+      },
+    });
+
+    if (error) throw error;
+
+    const updatedUser = data.user || user;
+    setUser(updatedUser);
+    setNeedsAccountSetup(false);
+  };
+
   const signOut = async () => {
     await supabase.auth.signOut();
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, isAdmin, userRole, setUserRole, signOut, needsAccountSetup }}>
+    <AuthContext.Provider value={{ user, loading, isAdmin, userRole, setUserRole, signOut, needsAccountSetup, completeAccountSetup }}>
       {children}
     </AuthContext.Provider>
   );
