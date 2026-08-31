@@ -784,14 +784,45 @@ export function computeAutoPostings(client: Client): Posting[] {
       }
     }
 
-    // Input Tax is a fixed debit column in the CDJ. Support both the current
-    // linked COA column and legacy input_tax field.
-    const inputTaxAccount = findAccountByLabel('Input Tax', accounts)
+    // Input Tax is a fixed debit column in the CDJ. Resolve it from the
+    // actual CDJ column first, then fall back to the known COA labels and
+    // legacy field names. This is intentionally independent of the column
+    // array's ordering so Input Tax cannot be skipped when CDJ columns were
+    // migrated/customized.
+    const inputTaxLabels = new Set(['input tax', 'input vat', 'vat input', 'vat input receivable']);
+    const normalizeInputTaxLabel = (value: unknown) =>
+      String(value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+
+    const inputTaxColumn = cdjColumns.find(c => {
+      if (c.type !== 'number') return false;
+      const accountId = c.id.startsWith('cdj_coa_') ? c.id.slice('cdj_coa_'.length) : '';
+      const linkedAccount = accountId ? accounts.find(a => a.id === accountId) : undefined;
+      return inputTaxLabels.has(normalizeInputTaxLabel(c.name))
+        || !!linkedAccount && inputTaxLabels.has(normalizeInputTaxLabel(linkedAccount.name));
+    });
+
+    const inputTaxAccount = (inputTaxColumn?.id.startsWith('cdj_coa_')
+      ? accounts.find(a => a.id === inputTaxColumn.id.slice('cdj_coa_'.length))
+      : undefined)
+      || findAccountByLabel('Input Tax', accounts)
       || findAccountByLabel('VAT Input Receivable', accounts)
-      || findAccountByLabel('Input VAT', accounts);
+      || findAccountByLabel('Input VAT', accounts)
+      || findAccountByLabel('VAT Input', accounts);
+
     if (inputTaxAccount) {
-      const linked = cdjColumns.find(c => c.id === `cdj_coa_${inputTaxAccount.id}`);
-      const tax = num(v[linked?.id || 'input_tax'] ?? v.inputTax ?? v['Input Tax']);
+      // Prefer the value stored under the actual linked CDJ column. Then
+      // support all legacy representations used by older CDJ rows.
+      const legacyKey = Object.keys(v).find(key =>
+        inputTaxLabels.has(normalizeInputTaxLabel(key))
+      );
+      const tax = num(
+        (inputTaxColumn ? v[inputTaxColumn.id] : undefined)
+        ?? v.input_tax
+        ?? v.inputTax
+        ?? v['Input Tax']
+        ?? (legacyKey ? v[legacyKey] : undefined)
+      );
+
       if (tax > 0) {
         cdj.push({
           accountId: inputTaxAccount.id,
