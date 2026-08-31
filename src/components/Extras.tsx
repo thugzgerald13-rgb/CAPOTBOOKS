@@ -1046,8 +1046,8 @@ export function Extras() {
             {currentClient ? (() => {
               const year = getCurrentYear(currentClient);
               const balances = getAccountBalances(currentClient, year);
-              const totalDebit = balances.reduce((n, x) => n + Math.max(0, x.currentYearBalance), 0);
-              const totalCredit = balances.reduce((n, x) => n + Math.max(0, -x.currentYearBalance), 0);
+              const totalDebit = balances.reduce((n, x) => n + Math.max(0, x.balance), 0);
+              const totalCredit = balances.reduce((n, x) => n + Math.max(0, -x.balance), 0);
               return (
                 <div className="max-w-4xl mx-auto">
                   <div className="text-center mb-6">
@@ -1066,8 +1066,8 @@ export function Extras() {
                       </thead>
                       <tbody>
                         {balances.map(x => {
-                          const debit = Math.max(0, x.currentYearBalance);
-                          const credit = Math.max(0, -x.currentYearBalance);
+                          const debit = Math.max(0, x.balance);
+                          const credit = Math.max(0, -x.balance);
                           return (
                             <tr key={x.account.id} className="border-t border-slate-100 dark:border-slate-800">
                               <td className="px-4 py-2">{x.account.id} — {x.account.name}</td>

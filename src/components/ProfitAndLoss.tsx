@@ -14,9 +14,9 @@ export function ProfitAndLoss() {
   const costs = balances.filter(x => ['cost', 'costs'].includes((x.account.type || '').toLowerCase()));
   const expenses = balances.filter(x => ['expense', 'expenses'].includes((x.account.type || '').toLowerCase()));
 
-  const revenueTotal = revenue.reduce((n, x) => n + Math.max(0, -x.currentYearBalance), 0);
-  const costTotal = costs.reduce((n, x) => n + Math.max(0, x.currentYearBalance), 0);
-  const expenseTotal = expenses.reduce((n, x) => n + Math.max(0, x.currentYearBalance), 0);
+  const revenueTotal = revenue.reduce((n, x) => n + Math.max(0, x.currentYearCredit - x.currentYearDebit), 0);
+  const costTotal = costs.reduce((n, x) => n + Math.max(0, x.currentYearDebit - x.currentYearCredit), 0);
+  const expenseTotal = expenses.reduce((n, x) => n + Math.max(0, x.currentYearDebit - x.currentYearCredit), 0);
   const grossIncome = revenueTotal - costTotal;
   const netIncome = grossIncome - expenseTotal;
 
@@ -34,7 +34,7 @@ export function ProfitAndLoss() {
   const renderAccounts = (items: typeof balances) => items.length ? items.map(x => (
     <tr key={x.account.id}>
       <td className="pl-6 py-1.5">{x.account.id} — {x.account.name}</td>
-      <td className="w-40 py-1.5 text-right font-mono pr-2">{formatAccountAmount(Math.abs(x.currentYearBalance))}</td>
+      <td className="w-40 py-1.5 text-right font-mono pr-2">{formatAccountAmount(Math.abs(x.currentYearCredit - x.currentYearDebit))}</td>
     </tr>
   )) : <tr><td colSpan={2} className="pl-6 py-2 text-slate-400">No accounts in this category.</td></tr>;
 

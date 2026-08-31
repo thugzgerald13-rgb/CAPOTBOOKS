@@ -14,16 +14,16 @@ export function BalanceSheet() {
   const liabilities = balances.filter(x => ['liability', 'liabilities'].includes((x.account.type || '').toLowerCase()));
   const equity = balances.filter(x => (x.account.type || '').toLowerCase() === 'equity');
 
-  const assetTotal = assets.reduce((n, x) => n + Math.max(0, x.currentYearBalance), 0);
-  const liabilityTotal = liabilities.reduce((n, x) => n + Math.max(0, -x.currentYearBalance), 0);
-  const equityAccountsTotal = equity.reduce((n, x) => n + Math.max(0, -x.currentYearBalance), 0);
+  const assetTotal = assets.reduce((n, x) => n + Math.max(0, x.balance), 0);
+  const liabilityTotal = liabilities.reduce((n, x) => n + Math.max(0, -x.balance), 0);
+  const equityAccountsTotal = equity.reduce((n, x) => n + Math.max(0, -x.balance), 0);
 
   const revenue = balances.filter(x => (x.account.type || '').toLowerCase() === 'revenue')
-    .reduce((n, x) => n + Math.max(0, -x.currentYearBalance), 0);
+    .reduce((n, x) => n + Math.max(0, -x.balance), 0);
   const costs = balances.filter(x => ['cost','costs'].includes((x.account.type || '').toLowerCase()))
-    .reduce((n, x) => n + Math.max(0, x.currentYearBalance), 0);
+    .reduce((n, x) => n + Math.max(0, x.balance), 0);
   const expenses = balances.filter(x => ['expense','expenses'].includes((x.account.type || '').toLowerCase()))
-    .reduce((n, x) => n + Math.max(0, x.currentYearBalance), 0);
+    .reduce((n, x) => n + Math.max(0, x.balance), 0);
   const netIncome = revenue - costs - expenses;
   const totalEquity = equityAccountsTotal + netIncome;
   const totalLiabEquity = liabilityTotal + totalEquity;
@@ -42,7 +42,7 @@ export function BalanceSheet() {
     saveClient(currentClientId, { ...currentClient, bsData: { ...data, [field]: value } });
 
   const renderAccounts = (items: typeof balances, sign: 'debit' | 'credit') => items.map(x => {
-    const amount = sign === 'debit' ? Math.max(0, x.currentYearBalance) : Math.max(0, -x.currentYearBalance);
+    const amount = sign === 'debit' ? Math.max(0, x.balance) : Math.max(0, -x.balance);
     return (
       <tr key={x.account.id}>
         <td className="pl-6 py-1.5">{x.account.id} — {x.account.name}</td>
