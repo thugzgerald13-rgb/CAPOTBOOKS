@@ -9,6 +9,7 @@ interface AuthContextType {
   userRole: string | null;
   setUserRole: (role: string | null) => void;
   signOut: () => Promise<void>;
+  needsAccountSetup: boolean;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -18,6 +19,7 @@ const AuthContext = createContext<AuthContextType>({
   userRole: null,
   setUserRole: () => {},
   signOut: async () => {},
+  needsAccountSetup: false,
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -32,6 +34,7 @@ export function AuthProvider({
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [userRole, setUserRoleState] = useState<string | null>(null);
+  const [needsAccountSetup, setNeedsAccountSetup] = useState(false);
 
   // Hardcode the developer's email as superuser for now.
   // Falls back to the literal address below if VITE_ADMIN_EMAIL isn't baked
@@ -44,9 +47,17 @@ export function AuthProvider({
     (import.meta.env.VITE_ADMIN_EMAIL || 'thugz.gerald13@gmail.com').trim().toLowerCase();
   const isAdmin = !!user?.email && user.email.trim().toLowerCase() === DEVELOPER_EMAIL;
 
+  const syncAccountSetupState = (usr: User) => {
+    const isGoogleUser = (usr.identities || []).some((identity) => identity.provider === 'google');
+    const username = String(usr.user_metadata?.account_username || '').trim();
+    const hasPassword = Boolean(usr.user_metadata?.account_password_set);
+    setNeedsAccountSetup(isGoogleUser && (!username || !hasPassword));
+  };
+
   useEffect(() => {
     const syncUser = async (usr: User) => {
       try {
+        syncAccountSetupState(usr);
         // Upsert the profile row; doesn't block the UI if this is slow
         await supabase.from('profiles').upsert(
           {
@@ -89,6 +100,7 @@ export function AuthProvider({
         await syncUser(session.user);
       } else {
         setUserRoleState(null);
+        setNeedsAccountSetup(false);
       }
       setLoading(false);
     });
@@ -114,7 +126,7 @@ export function AuthProvider({
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, isAdmin, userRole, setUserRole, signOut }}>
+    <AuthContext.Provider value={{ user, loading, isAdmin, userRole, setUserRole, signOut, needsAccountSetup }}>
       {children}
     </AuthContext.Provider>
   );
