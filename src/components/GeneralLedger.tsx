@@ -211,7 +211,7 @@ export function GeneralLedger() {
                           <th rowSpan={2} className="px-3 py-2 w-10 border-b border-r border-slate-200 dark:border-slate-700 text-center">#</th>
                           <th rowSpan={2} className="px-3 py-2 border-b border-r border-slate-200 dark:border-slate-700 w-28">DATE</th>
                           <th rowSpan={2} className="px-3 py-2 border-b border-r border-slate-200 dark:border-slate-700 min-w-[260px]">PARTICULARS / EXPLANATION</th>
-                          <th rowSpan={2} className="px-3 py-2 border-b border-r border-slate-200 dark:border-slate-700 w-28">POSTING REF. (PR)</th>
+                          <th rowSpan={2} className="px-3 py-2 border-b border-r border-slate-200 dark:border-slate-700 w-28">PR</th>
                           <th rowSpan={2} className="px-3 py-2 border-b border-r border-slate-200 dark:border-slate-700 text-right w-28">DEBIT</th>
                           <th rowSpan={2} className="px-3 py-2 border-b border-r border-slate-200 dark:border-slate-700 text-right w-28">CREDIT</th>
                           <th colSpan={2} className="px-3 py-2 border-b border-slate-200 dark:border-slate-700 text-center">BALANCE</th>
