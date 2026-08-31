@@ -9,7 +9,7 @@ import {
   LineChart, Scale, Receipt, ShoppingCart, 
   TrendingUp, FileText, Library, FolderClock, History,
   ChevronDown, ChevronLeft, ChevronRight, Settings, Key, Banknote, Wallet, CreditCard, ShieldAlert, RefreshCw, LogOut, Shield, FolderUp,
-  Boxes, CheckCircle2, FileSignature, Home, Landmark, ArrowLeftRight, Wrench
+  Boxes, CheckCircle2, FileSignature, Home, Landmark, ArrowLeftRight, Wrench, UserCircle
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -549,6 +549,13 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   >
                     <Building2 className="w-4 h-4" />
                     TIN Library
+                  </button>
+                  <button
+                    onClick={() => handleNavClick('account-settings')}
+                    className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-all w-full text-left"
+                  >
+                    <UserCircle className="w-4 h-4" />
+                    Account Settings
                   </button>
                   <button
                     onClick={() => {
