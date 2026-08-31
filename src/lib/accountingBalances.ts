@@ -41,45 +41,29 @@ export function getCoaAccounts(client: Client): CoaAccount[] {
 }
 
 export function getAccountBalances(client: Client, year = getCurrentYear(client)): AccountBalance[] {
-  // Financial reports use the General Ledger as their accounting source.
-  // The Chart of Accounts supplies only the account master data (title/type,
-  // normal side and opening balance); all posted activity is read from
-  // glAccounts[].entries. syncGeneralLedger() in AccountingContext keeps that
-  // ledger current with the books of original entry before reports render.
   const gl = client.glAccounts || [];
-  const coa = client.accounts && client.accounts.length > 0
-    ? client.accounts
-    : (client.coaFormat === 'alphanumeric' ? DEFAULT_ACCOUNTS_ALPHA : DEFAULT_ACCOUNTS);
-  const coaById = new Map(coa.map(a => [a.id, a]));
+  return getCoaAccounts(client).map(account => {
+    const g = gl.find(x => x.accountId === account.id || x.id === account.id);
+    const opening = Number(account.openingBalance) || 0;
+    const normal = account.normalSide || getNormalSide(account.type || '');
+    let debit = normal === 'debit' ? opening : 0;
+    let credit = normal === 'credit' ? opening : 0;
+    let currentYearDebit = 0;
+    let currentYearCredit = 0;
 
-  return gl
-    .filter(g => !!g.accountId || !!g.id)
-    .map(g => {
-      const accountId = g.accountId || g.id;
-      const account = coaById.get(accountId);
-      if (!account) return null;
+    (g?.entries || []).forEach(e => {
+      const d = num(e.debit);
+      const c = num(e.credit);
+      debit += d;
+      credit += c;
+      if (entryYear(e.dateDr) === year) currentYearDebit += d;
+      if (entryYear(e.dateCr) === year) currentYearCredit += c;
+    });
 
-      const opening = Number(account.openingBalance) || 0;
-      const normal = account.normalSide || g.normalSide || getNormalSide(account.type || g.accountType || '');
-      let debit = normal === 'debit' ? opening : 0;
-      let credit = normal === 'credit' ? opening : 0;
-      let currentYearDebit = 0;
-      let currentYearCredit = 0;
-
-      (g.entries || []).forEach(e => {
-        const d = num(e.debit);
-        const c = num(e.credit);
-        debit += d;
-        credit += c;
-        if (entryYear(e.dateDr) === year) currentYearDebit += d;
-        if (entryYear(e.dateCr) === year) currentYearCredit += c;
-      });
-
-      const balance = debit - credit;
-      const currentYearBalance = (normal === 'debit' ? opening : -opening) + currentYearDebit - currentYearCredit;
-      return { account, debit, credit, balance, currentYearDebit, currentYearCredit, currentYearBalance };
-    })
-    .filter((x): x is AccountBalance => x !== null);
+    const balance = debit - credit;
+    const currentYearBalance = (normal === 'debit' ? opening : -opening) + currentYearDebit - currentYearCredit;
+    return { account, debit, credit, balance, currentYearDebit, currentYearCredit, currentYearBalance };
+  });
 }
 
 /**
