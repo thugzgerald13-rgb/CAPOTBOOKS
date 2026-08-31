@@ -112,24 +112,46 @@ interface Posting {
   entry: GeneralLedgerEntry;
 }
 
+function sourceBookAcronym(sourceLabel: string): string {
+  switch (sourceLabel.trim().toLowerCase()) {
+    case 'cash receipts journal':
+      return 'CRJ';
+    case 'cash disbursements journal':
+      return 'CDJ';
+    case 'purchases journal':
+      return 'PJ';
+    case 'sales journal':
+      return 'SJ';
+    case 'general journal':
+      return 'GJ';
+    default:
+      return '';
+  }
+}
+
 function makeLeg(
   key: string,
   side: 'debit' | 'credit',
   amount: number,
   date: string,
   particulars: string,
-  ref: string,
+  _ref: string,
   sourceLabel: string
 ): GeneralLedgerEntry {
+  // The General Ledger PR is a Posting Reference to the Book of Original
+  // Entry, not the source transaction/invoice/reference number. Every
+  // automatically posted line therefore receives the same BOE acronym.
+  const pr = sourceBookAcronym(sourceLabel);
+
   return {
     id: key,
     dateDr: side === 'debit' ? date : '',
     particularsDr: side === 'debit' ? particulars : '',
-    refDr: side === 'debit' ? ref : '',
+    refDr: side === 'debit' ? pr : '',
     debit: side === 'debit' ? fmt(amount) : '',
     dateCr: side === 'credit' ? date : '',
     particularsCr: side === 'credit' ? particulars : '',
-    refCr: side === 'credit' ? ref : '',
+    refCr: side === 'credit' ? pr : '',
     credit: side === 'credit' ? fmt(amount) : '',
     auto: true,
     autoSource: sourceLabel,
