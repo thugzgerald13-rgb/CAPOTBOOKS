@@ -288,7 +288,7 @@ function postSalesJournal(client: Client, accounts: CoaAccount[]): Posting[] {
       if (acct) {
         postings.push({
           accountId: acct.id,
-          entry: makeLeg(`sj:${entry.id}:ar`, 'debit', ar, date, particulars, ref, 'Sales Journal'),
+          entry: makeLeg(`sj:${entry.id}:ar`, 'debit', ar, date, particulars, ref, 'SJ'),
         });
       }
     }
@@ -301,7 +301,7 @@ function postSalesJournal(client: Client, accounts: CoaAccount[]): Posting[] {
       if (acct) {
         postings.push({
           accountId: acct.id,
-          entry: makeLeg(`sj:${entry.id}:cc`, 'debit', cc, date, particulars, ref, 'Sales Journal'),
+          entry: makeLeg(`sj:${entry.id}:cc`, 'debit', cc, date, particulars, ref, 'SJ'),
         });
       }
     }
@@ -312,7 +312,7 @@ function postSalesJournal(client: Client, accounts: CoaAccount[]): Posting[] {
     if (revenueAccount && revenueAmount > 0) {
       postings.push({
         accountId: revenueAccount.id,
-        entry: makeLeg(`sj:${entry.id}:revenue`, 'credit', revenueAmount, date, particulars, ref, 'Sales Journal'),
+        entry: makeLeg(`sj:${entry.id}:revenue`, 'credit', revenueAmount, date, particulars, ref, 'SJ'),
       });
     }
 
@@ -324,7 +324,7 @@ function postSalesJournal(client: Client, accounts: CoaAccount[]): Posting[] {
       if (acct) {
         postings.push({
           accountId: acct.id,
-          entry: makeLeg(`sj:${entry.id}:outputvat`, 'credit', outputVat, date, particulars, ref, 'Sales Journal'),
+          entry: makeLeg(`sj:${entry.id}:outputvat`, 'credit', outputVat, date, particulars, ref, 'SJ'),
         });
       }
     }
@@ -352,7 +352,7 @@ function postSalesJournal(client: Client, accounts: CoaAccount[]): Posting[] {
             date,
             particulars,
             ref,
-            'Sales Journal'
+            'SJ'
           ),
         });
       });
@@ -392,7 +392,7 @@ function postGeneralJournal(client: Client, accounts: CoaAccount[]): Posting[] {
     if (Number.isFinite(debit) && debit > 0) {
       postings.push({
         accountId: account.id,
-        entry: makeLeg(`gj:${entry.id}:dr`, 'debit', debit, date, particulars, ref, 'General Journal'),
+        entry: makeLeg(`gj:${entry.id}:dr`, 'debit', debit, date, particulars, ref, 'GJ'),
       });
     }
 
@@ -400,7 +400,7 @@ function postGeneralJournal(client: Client, accounts: CoaAccount[]): Posting[] {
     if (Number.isFinite(credit) && credit > 0) {
       postings.push({
         accountId: account.id,
-        entry: makeLeg(`gj:${entry.id}:cr`, 'credit', credit, date, particulars, ref, 'General Journal'),
+        entry: makeLeg(`gj:${entry.id}:cr`, 'credit', credit, date, particulars, ref, 'GJ'),
       });
     }
 
@@ -424,7 +424,7 @@ function postGeneralJournal(client: Client, accounts: CoaAccount[]): Posting[] {
             date,
             particulars,
             ref,
-            'General Journal'
+            'GJ'
           ),
         });
       });
@@ -444,13 +444,13 @@ function postJournalVouchers(client: Client): Posting[] {
       if (line.debit > 0) {
         postings.push({
           accountId: line.accountId,
-          entry: makeLeg(`jv:${v.id}:${line.id}:dr`, 'debit', line.debit, v.date, v.memo || 'Journal Voucher', v.reference, 'Journal Voucher'),
+          entry: makeLeg(`jv:${v.id}:${line.id}:dr`, 'debit', line.debit, v.date, v.memo || 'JV', v.reference, 'JV'),
         });
       }
       if (line.credit > 0) {
         postings.push({
           accountId: line.accountId,
-          entry: makeLeg(`jv:${v.id}:${line.id}:cr`, 'credit', line.credit, v.date, v.memo || 'Journal Voucher', v.reference, 'Journal Voucher'),
+          entry: makeLeg(`jv:${v.id}:${line.id}:cr`, 'credit', line.credit, v.date, v.memo || 'JV', v.reference, 'JV'),
         });
       }
     });
@@ -474,7 +474,7 @@ function postPurchases(client: Client, accounts: CoaAccount[]): Posting[] {
     if (debitAcct && netAmount > 0) {
       postings.push({
         accountId: debitAcct.id,
-        entry: makeLeg(`purchase:${p.id}:debit`, 'debit', netAmount, p.date, particulars, ref, 'Purchases'),
+        entry: makeLeg(`purchase:${p.id}:debit`, 'debit', netAmount, p.date, particulars, ref, 'PJ'),
       });
     }
 
@@ -483,7 +483,7 @@ function postPurchases(client: Client, accounts: CoaAccount[]): Posting[] {
       if (taxAcct) {
         postings.push({
           accountId: taxAcct.id,
-          entry: makeLeg(`purchase:${p.id}:inputtax`, 'debit', inputTax, p.date, particulars, ref, 'Purchases'),
+          entry: makeLeg(`purchase:${p.id}:inputtax`, 'debit', inputTax, p.date, particulars, ref, 'PJ'),
         });
       }
     }
@@ -497,7 +497,7 @@ function postPurchases(client: Client, accounts: CoaAccount[]): Posting[] {
       if (creditAcct) {
         postings.push({
           accountId: creditAcct.id,
-          entry: makeLeg(`purchase:${p.id}:credit`, 'credit', cashDue, p.date, particulars, ref, 'Purchases'),
+          entry: makeLeg(`purchase:${p.id}:credit`, 'credit', cashDue, p.date, particulars, ref, 'PJ'),
         });
       }
     }
@@ -507,7 +507,7 @@ function postPurchases(client: Client, accounts: CoaAccount[]): Posting[] {
       if (whtAcct) {
         postings.push({
           accountId: whtAcct.id,
-          entry: makeLeg(`purchase:${p.id}:wht`, 'credit', wht, p.date, particulars, ref, 'Purchases'),
+          entry: makeLeg(`purchase:${p.id}:wht`, 'credit', wht, p.date, particulars, ref, 'PJ'),
         });
       }
     }
@@ -556,7 +556,7 @@ function cashPurchasesToCdjEntries(client: Client): JournalEntry[] {
       const entry: JournalEntry = {
         id: `cdj-auto:purchase:${p.id}`,
         auto: true,
-        autoSource: 'Purchases',
+        autoSource: 'PJ',
         values: {
           date: p.date,
           payee: p.supplierName,
@@ -591,7 +591,7 @@ function cashJournalVouchersToCdjEntries(client: Client, accounts: CoaAccount[])
       entries.push({
         id: `cdj-auto:jv:${v.id}:${l.id}`,
         auto: true,
-        autoSource: 'Journal Voucher',
+        autoSource: 'JV',
         values: {
           date: v.date,
           payee: v.memo || v.reference,
@@ -705,7 +705,7 @@ export function computeAutoPostings(client: Client): Posting[] {
     accounts,
     {
       prefix: 'crj',
-      sourceLabel: 'Cash Receipts Journal',
+      sourceLabel: 'CRJ',
       dateCol: 'date',
       particularsCol: 'description',
       refCol: 'reference',
@@ -739,7 +739,7 @@ export function computeAutoPostings(client: Client): Posting[] {
     if (cash > 0 && cashAccount) {
       cdj.push({
         accountId: cashAccount.id,
-        entry: makeLeg(`cdj:${entry.id}:${CDJ_CASH_ON_HAND_BANK_ID}`, 'credit', cash, date, particulars, ref, 'Cash Disbursements Journal'),
+        entry: makeLeg(`cdj:${entry.id}:${CDJ_CASH_ON_HAND_BANK_ID}`, 'credit', cash, date, particulars, ref, 'CDJ'),
       });
     }
 
@@ -759,7 +759,7 @@ export function computeAutoPostings(client: Client): Posting[] {
         entry: makeLeg(
           `cdj:${entry.id}:${col.id}`,
           col.category === 'Cr' ? 'credit' : 'debit',
-          amount, date, particulars, ref, 'Cash Disbursements Journal'
+          amount, date, particulars, ref, 'CDJ'
         ),
       });
     });
@@ -778,55 +778,24 @@ export function computeAutoPostings(client: Client): Posting[] {
           entry: makeLeg(
             `cdj:${entry.id}:${CDJ_SUNDRY_AMOUNT_ID}`,
             signedAmount < 0 ? 'credit' : 'debit',
-            Math.abs(signedAmount), date, particulars, ref, 'Cash Disbursements Journal'
+            Math.abs(signedAmount), date, particulars, ref, 'CDJ'
           ),
         });
       }
     }
 
-    // Input Tax is a fixed debit column in the CDJ. Resolve it from the
-    // actual CDJ column first, then fall back to the known COA labels and
-    // legacy field names. This is intentionally independent of the column
-    // array's ordering so Input Tax cannot be skipped when CDJ columns were
-    // migrated/customized.
-    const inputTaxLabels = new Set(['input tax', 'input vat', 'vat input', 'vat input receivable']);
-    const normalizeInputTaxLabel = (value: unknown) =>
-      String(value ?? '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-
-    const inputTaxColumn = cdjColumns.find(c => {
-      if (c.type !== 'number') return false;
-      const accountId = c.id.startsWith('cdj_coa_') ? c.id.slice('cdj_coa_'.length) : '';
-      const linkedAccount = accountId ? accounts.find(a => a.id === accountId) : undefined;
-      return inputTaxLabels.has(normalizeInputTaxLabel(c.name))
-        || !!linkedAccount && inputTaxLabels.has(normalizeInputTaxLabel(linkedAccount.name));
-    });
-
-    const inputTaxAccount = (inputTaxColumn?.id.startsWith('cdj_coa_')
-      ? accounts.find(a => a.id === inputTaxColumn.id.slice('cdj_coa_'.length))
-      : undefined)
-      || findAccountByLabel('Input Tax', accounts)
+    // Input Tax is a fixed debit column in the CDJ. Support both the current
+    // linked COA column and legacy input_tax field.
+    const inputTaxAccount = findAccountByLabel('Input Tax', accounts)
       || findAccountByLabel('VAT Input Receivable', accounts)
-      || findAccountByLabel('Input VAT', accounts)
-      || findAccountByLabel('VAT Input', accounts);
-
+      || findAccountByLabel('Input VAT', accounts);
     if (inputTaxAccount) {
-      // Prefer the value stored under the actual linked CDJ column. Then
-      // support all legacy representations used by older CDJ rows.
-      const legacyKey = Object.keys(v).find(key =>
-        inputTaxLabels.has(normalizeInputTaxLabel(key))
-      );
-      const tax = num(
-        (inputTaxColumn ? v[inputTaxColumn.id] : undefined)
-        ?? v.input_tax
-        ?? v.inputTax
-        ?? v['Input Tax']
-        ?? (legacyKey ? v[legacyKey] : undefined)
-      );
-
+      const linked = cdjColumns.find(c => c.id === `cdj_coa_${inputTaxAccount.id}`);
+      const tax = num(v[linked?.id || 'input_tax'] ?? v.inputTax ?? v['Input Tax']);
       if (tax > 0) {
         cdj.push({
           accountId: inputTaxAccount.id,
-          entry: makeLeg(`cdj:${entry.id}:input_tax`, 'debit', tax, date, particulars, ref, 'Cash Disbursements Journal'),
+          entry: makeLeg(`cdj:${entry.id}:input_tax`, 'debit', tax, date, particulars, ref, 'CDJ'),
         });
       }
     }
@@ -858,7 +827,7 @@ export function computeAutoPostings(client: Client): Posting[] {
     if (debitAccount && cost > 0) {
       pj.push({
         accountId: debitAccount.id,
-        entry: makeLeg(`pj:${entry.id}:debit_account`, 'debit', cost, date, particulars, ref, 'Purchases Journal'),
+        entry: makeLeg(`pj:${entry.id}:debit_account`, 'debit', cost, date, particulars, ref, 'PJ'),
       });
     }
 
@@ -868,7 +837,7 @@ export function computeAutoPostings(client: Client): Posting[] {
       if (acct) {
         pj.push({
           accountId: acct.id,
-          entry: makeLeg(`pj:${entry.id}:input_tax`, 'debit', inputTax, date, particulars, ref, 'Purchases Journal'),
+          entry: makeLeg(`pj:${entry.id}:input_tax`, 'debit', inputTax, date, particulars, ref, 'PJ'),
         });
       }
     }
@@ -879,7 +848,7 @@ export function computeAutoPostings(client: Client): Posting[] {
       if (acct) {
         pj.push({
           accountId: acct.id,
-          entry: makeLeg(`pj:${entry.id}:accounts_payable`, 'credit', ap, date, particulars, ref, 'Purchases Journal'),
+          entry: makeLeg(`pj:${entry.id}:accounts_payable`, 'credit', ap, date, particulars, ref, 'PJ'),
         });
       }
     }
@@ -892,7 +861,7 @@ export function computeAutoPostings(client: Client): Posting[] {
       if (acct) {
         pj.push({
           accountId: acct.id,
-          entry: makeLeg(`pj:${entry.id}:withholding_tax`, 'credit', wht, date, particulars, ref, 'Purchases Journal'),
+          entry: makeLeg(`pj:${entry.id}:withholding_tax`, 'credit', wht, date, particulars, ref, 'PJ'),
         });
       }
     }
@@ -915,7 +884,7 @@ export function computeAutoPostings(client: Client): Posting[] {
             date,
             particulars,
             ref,
-            'Purchases Journal'
+            'PJ'
           ),
         });
       });
