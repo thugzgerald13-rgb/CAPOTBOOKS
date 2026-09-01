@@ -10,7 +10,7 @@ interface AuthContextType {
   setUserRole: (role: string | null) => void;
   signOut: () => Promise<void>;
   needsAccountSetup: boolean;
-  completeAccountSetup: (username: string, password: string) => Promise<void>;
+  completeAccountSetup: (password: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -56,9 +56,8 @@ export function AuthProvider({
 
   const syncAccountSetupState = (usr: User) => {
     const googleUser = isGoogleUser(usr);
-    const username = String(usr.user_metadata?.account_username || '').trim();
     const hasPassword = Boolean(usr.user_metadata?.account_password_set);
-    setNeedsAccountSetup(googleUser && (!username || !hasPassword));
+    setNeedsAccountSetup(googleUser && !hasPassword);
   };
 
   useEffect(() => {
@@ -128,18 +127,15 @@ export function AuthProvider({
     setUserRoleState(role);
   };
 
-  const completeAccountSetup = async (username: string, password: string) => {
+  const completeAccountSetup = async (password: string) => {
     if (!user) throw new Error('You must be signed in to complete account setup.');
 
-    const cleanUsername = username.trim();
-    if (!cleanUsername) throw new Error('Username is required.');
     if (password.length < 6) throw new Error('Password must be at least 6 characters.');
 
     const { data, error } = await supabase.auth.updateUser({
       password,
       data: {
         ...user.user_metadata,
-        account_username: cleanUsername,
         account_password_set: true,
       },
     });
