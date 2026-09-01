@@ -1,11 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { UserCircle, CheckCircle2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { supabase } from '../lib/supabase';
 
 export function AccountSettings() {
   const { user, userRole, needsAccountSetup, completeAccountSetup } = useAuth();
-  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -18,27 +16,20 @@ export function AccountSettings() {
     (Array.isArray(user.app_metadata?.providers) && user.app_metadata.providers.includes('google'))
   ));
 
-  useEffect(() => {
-    setUsername(String(user?.user_metadata?.account_username || ''));
-  }, [user?.id, user?.user_metadata?.account_username]);
-
   const saveCredentials = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setMessage('');
 
-    const cleanUsername = username.trim();
-    if (!cleanUsername) return setError('Username is required.');
     if (password.length < 6) return setError('Password must be at least 6 characters.');
     if (password !== confirmPassword) return setError('Passwords do not match.');
 
     setLoading(true);
     try {
-      await completeAccountSetup(cleanUsername, password);
-      setUsername(cleanUsername);
+      await completeAccountSetup(password);
       setPassword('');
       setConfirmPassword('');
-      setMessage('Your CAPOT username and password have been created successfully.');
+      setMessage('Your CAPOT email/password login has been created successfully. You can now sign in with your email and password or continue using Google.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to save account settings.');
     } finally {
@@ -66,7 +57,7 @@ export function AccountSettings() {
             <div className="rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-4">
               <p className="font-bold text-amber-800 dark:text-amber-300">Complete your account setup</p>
               <p className="text-sm text-amber-700 dark:text-amber-400 mt-1">
-                Because you registered with Google, you must create a CAPOT username and password before continuing to use the application.
+                Because you registered with Google, you must create a password for your CAPOT email account. You can then sign in with either your email and password or Google.
               </p>
             </div>
           )}
@@ -88,11 +79,7 @@ export function AccountSettings() {
             <form onSubmit={saveCredentials} className="pt-2 space-y-4">
               <div className="border-t border-slate-200 dark:border-slate-700 pt-5">
                 <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">CAPOT Login Credentials</h2>
-                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Create the username and password associated with your CAPOT account. These fields are required for Google-registered accounts.</p>
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-slate-600 dark:text-slate-400 mb-1">Username</label>
-                <input value={username} onChange={(e) => setUsername(e.target.value)} required autoComplete="username" className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500" placeholder="Choose a username" />
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Create a password for your CAPOT email account. Google login remains available, and you can also sign in with your email and password.</p>
               </div>
               <div>
                 <label className="block text-sm font-bold text-slate-600 dark:text-slate-400 mb-1">Password</label>
@@ -103,7 +90,7 @@ export function AccountSettings() {
                 <input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required minLength={6} autoComplete="new-password" className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500" placeholder="Re-enter password" />
               </div>
               <button type="submit" disabled={loading} className="px-6 py-3 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl font-bold transition-colors disabled:opacity-50">
-                {loading ? 'Saving...' : needsAccountSetup ? 'Complete Account Setup' : 'Save Credentials'}
+                {loading ? 'Saving...' : needsAccountSetup ? 'Create Password' : 'Update Password'}
               </button>
             </form>
           )}
