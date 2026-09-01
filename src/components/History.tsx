@@ -4,6 +4,7 @@ import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { Search, Trash2, Receipt, ShoppingCart, FolderClock, History as HistoryIcon, FileDown, FileSpreadsheet, Download, Pencil, Columns3, ChevronDown } from 'lucide-react';
 import { cn, MONTHS, generateCSV, formatTIN, downloadAttachment } from '../lib/utils';
+import { supabase } from '../lib/supabase';
 import * as XLSX from 'xlsx';
 
 type HistoryTab = 'expenses' | 'income' | 'slp' | 'sls';
@@ -12,6 +13,8 @@ export function History() {
   const { currentClient, currentClientId, currentDat, saveClient, showToast, navigateToPage, setCurrentDat, historyTab, setHistoryTab, activeDevice } = useAccounting();
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
+  const [localHistoryPurchases, setLocalHistoryPurchases] = useState<any[]>([]);
+  const [localHistorySales, setLocalHistorySales] = useState<any[]>([]);
   const [selectedMonth, setSelectedMonth] = useState<number>(currentDat?.month || new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState<number>(currentDat?.year || new Date().getFullYear());
   const expenseColumnDefinitions = useMemo(() => [
@@ -290,13 +293,17 @@ export function History() {
 
   const activeConfig = TabConfig[activeTab] || TabConfig.expenses;
 
-  const handleDeleteExpense = (id: number) => {
+  useEffect(() => {
+    setLocalHistoryPurchases((currentClient.purchases || []).filter(p => p.datMonthYear === targetFormatted));
+    setLocalHistorySales((currentClient.sales || []).filter(s => s.datMonthYear === targetFormatted));
+  }, [currentClient.purchases, currentClient.sales, targetFormatted]);
+
+
+  const handleDeleteExpense = async (id: number) => {
     if (!currentClientId) return;
-    const updatedClient = {
-      ...currentClient,
-      purchases: currentClient.purchases.filter(p => p.id !== id)
-    };
-    saveClient(currentClientId, updatedClient);
+    const { error } = await supabase.from('purchases').delete().eq('client_id', currentClientId).eq('id', id);
+    if (error) { console.error(error); showToast('Unable to delete expense'); return; }
+    setLocalHistoryPurchases(prev => prev.filter(p => p.id !== id));
     showToast('Expense deleted');
   };
 
@@ -305,19 +312,17 @@ export function History() {
     navigate(path, { state: { editPurchaseId: purchase.id } });
   };
 
-  const handleDeleteIncome = (id: number) => {
+  const handleDeleteIncome = async (id: number) => {
     if (!currentClientId) return;
-    const updatedClient = {
-      ...currentClient,
-      sales: currentClient.sales.filter(s => s.id !== id)
-    };
-    saveClient(currentClientId, updatedClient);
+    const { error } = await supabase.from('sales').delete().eq('client_id', currentClientId).eq('id', id);
+    if (error) { console.error(error); showToast('Unable to delete income'); return; }
+    setLocalHistorySales(prev => prev.filter(s => s.id !== id));
     showToast('Income deleted');
   };
 
   const targetFormatted = currentDat ? currentDat.formatted : `${MONTHS[selectedMonth - 1]} ${selectedYear}`;
-  const purchases = (currentClient.purchases || []).filter(p => p.datMonthYear === targetFormatted);
-  const sales = (currentClient.sales || []).filter(s => s.datMonthYear === targetFormatted);
+  const purchases = localHistoryPurchases;
+  const sales = localHistorySales;
 
   const filteredPurchases = purchases.filter(p => 
     p.supplierName.toLowerCase().includes(searchTerm.toLowerCase()) || 
