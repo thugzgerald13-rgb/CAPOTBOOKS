@@ -7,6 +7,7 @@ import { formatTIN, generateCSV, MONTHS, getMonthName } from '../lib/utils';
 import { ShoppingCart, Plus, Trash2, X, Paperclip, Upload, FileText, Image as ImageIcon } from 'lucide-react';
 import { DEFAULT_ACCOUNTS, getNormalSide, resequenceAccounts } from './ChartOfAccounts';
 import { ATC_SCHEDULE } from '../lib/atcSchedule';
+import AccountsPayable from './AccountsPayable';
 
 
 type PurchaseAttachment = {
@@ -122,7 +123,12 @@ export function Purchases() {
   const location = useLocation();
   const navigate = useNavigate();
   const isOtherPayments = location.pathname === '/purchases/other-payments';
+  const isAccountsPayable = location.pathname === '/purchases/ap';
   const { currentClient, currentClientId, currentDat, saveClient, showToast, setCurrentDat } = useAccounting();
+
+  if (isAccountsPayable) {
+    return <AccountsPayable />;
+  }
   
   // Single record state (similar to original but react-friendly)
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
