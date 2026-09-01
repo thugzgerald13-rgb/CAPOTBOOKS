@@ -514,6 +514,13 @@ export function AccountingProvider({
     ? (currentDat?.formatted || new Date().toLocaleString('en-US', { month: 'long' }) + ' ' + new Date().getFullYear())
     : undefined;
   const [currentDat, setCurrentDat] = useState<DatSelection | null>(null);
+
+  // Transaction-entry screens work on the currently selected DAT period.
+  // Do not download a client's entire lifetime of purchases/sales merely to
+  // render the current month entry form. History has its own period below.
+  const transactionPeriod = (activePage === 'sales' || activePage === 'purchases/invoiced' || activePage === 'purchases/other-payments')
+    ? (currentDat?.formatted || undefined)
+    : undefined;
   const [historyTab, setHistoryTab] = useState('expenses');
   const [birFormTab, setBirFormTab] = useState('tracker');
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -579,7 +586,7 @@ export function AccountingProvider({
         const loaded = loadedSectionsRef.current.get(currentClientId) || new Set<ClientSection>();
         const missing = sections.filter(section => !loaded.has(section));
         if (missing.length) {
-          const normalized = await loadNormalizedClient(currentClientId, missing, activePage === 'history' ? historyPeriod : undefined);
+          const normalized = await loadNormalizedClient(currentClientId, missing, activePage === 'history' ? historyPeriod : transactionPeriod);
           missing.forEach(section => { if (!(activePage === 'history' && (section === 'purchases' || section === 'sales'))) loaded.add(section); });
           loadedSectionsRef.current.set(currentClientId, loaded);
           setClients(prev => ({ ...prev, [currentClientId]: { ...prev[currentClientId], ...(normalized.data as any) } as Client }));
@@ -681,7 +688,7 @@ export function AccountingProvider({
       setActiveClientDataReady(false);
       setIsSyncing(true);
       try {
-        const normalized = await loadNormalizedClient(currentClientId, missing, activePage === 'history' ? historyPeriod : undefined);
+        const normalized = await loadNormalizedClient(currentClientId, missing, activePage === 'history' ? historyPeriod : transactionPeriod);
         if (cancelled) return;
         missing.forEach(section => { if (!(activePage === 'history' && (section === 'purchases' || section === 'sales'))) loaded.add(section); });
         loadedSectionsRef.current.set(currentClientId, loaded);
@@ -704,7 +711,7 @@ export function AccountingProvider({
 
     hydrateActiveClient();
     return () => { cancelled = true; };
-  }, [currentClientId, user?.id, isReady, activePage, historyPeriod]);
+  }, [currentClientId, user?.id, isReady, activePage, historyPeriod, transactionPeriod, currentDat?.formatted]);
 
   // Sync the active client/profile selection to the cloud so it follows the
   // user across devices, same as the dark mode / sidebar prefs below.
