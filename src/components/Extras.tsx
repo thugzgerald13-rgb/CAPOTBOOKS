@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { Users, TrendingUp, Key, Lightbulb, BookOpen, BookText, LineChart, Scale, Plus, Building2, Save, X, RotateCcw, Library, FileText, Receipt, ShoppingCart, Banknote, Wallet, CreditCard, Trash2, Pencil } from 'lucide-react';
 import { Client, BusinessProfile } from '../types';
 import { RDO_CODES } from '../lib/utils';
-import { getAccountBalances, getCurrentYear, formatAccountAmount } from '../lib/accountingBalances';
+import { formatAccountAmount } from '../lib/accountingBalances';
 
 export function Extras() {
   const { 
@@ -20,11 +20,25 @@ export function Extras() {
     deleteClient,
     businessProfile,
     saveBusinessProfile,
-    ownerClientId
+    ownerClientId,
+    fetchServerAccountBalances
   } = useAccounting();
   const { userRole } = useAuth();
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [trialBalances, setTrialBalances] = useState<any[]>([]);
+  const [trialBalanceError, setTrialBalanceError] = useState<string | null>(null);
+  const trialBalanceYear = new Date().getFullYear();
+
+  useEffect(() => {
+    let cancelled = false;
+    if (activePage !== 'trialbalance' || !currentClientId) return;
+    setTrialBalanceError(null);
+    fetchServerAccountBalances(`${trialBalanceYear}-01-01`, `${trialBalanceYear}-12-31`)
+      .then(rows => { if (!cancelled) setTrialBalances(rows); })
+      .catch(err => { if (!cancelled) setTrialBalanceError(err?.message || 'Unable to load trial balance.'); });
+    return () => { cancelled = true; };
+  }, [activePage, currentClientId, trialBalanceYear, fetchServerAccountBalances]);
   // Once a profile is saved, its fields lock (gray out/disabled) until the
   // Edit button is pressed again.
   const [isClientLocked, setIsClientLocked] = useState(false);
@@ -1044,15 +1058,16 @@ export function Extras() {
           <PageHeader title="Trial Balance" icon={<Scale />} centered />
           <div className="p-4 md:p-6 flex-1">
             {currentClient ? (() => {
-              const year = getCurrentYear(currentClient);
-              const balances = getAccountBalances(currentClient, year);
+              const balances = trialBalances;
               const totalDebit = balances.reduce((n, x) => n + Math.max(0, x.balance), 0);
               const totalCredit = balances.reduce((n, x) => n + Math.max(0, -x.balance), 0);
               return (
                 <div className="max-w-4xl mx-auto">
+                  {trialBalanceError && <div className="mb-4 p-3 rounded-lg bg-red-50 text-red-700 text-sm">{trialBalanceError}</div>}
+                  {!trialBalanceError && balances.length === 0 && <div className="mb-4 text-center text-sm text-slate-400">Loading server-calculated balances…</div>}
                   <div className="text-center mb-6">
                     <h2 className="font-bold text-lg uppercase">{currentClient.tradeName || currentClient.name}</h2>
-                    <p className="text-sm text-slate-500">Trial Balance — Current Year {year}</p>
+                    <p className="text-sm text-slate-500">Trial Balance — Current Year {trialBalanceYear}</p>
                   </div>
                   <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
                     <table className="w-full text-sm">
@@ -1069,9 +1084,9 @@ export function Extras() {
                           const debit = Math.max(0, x.balance);
                           const credit = Math.max(0, -x.balance);
                           return (
-                            <tr key={x.account.id} className="border-t border-slate-100 dark:border-slate-800">
-                              <td className="px-4 py-2">{x.account.id} — {x.account.name}</td>
-                              <td className="px-4 py-2">{x.account.type}</td>
+                            <tr key={x.account_id} className="border-t border-slate-100 dark:border-slate-800">
+                              <td className="px-4 py-2">{x.account_id} — {x.account_name}</td>
+                              <td className="px-4 py-2">{x.account_type}</td>
                               <td className="px-4 py-2 text-right font-mono">{debit ? formatAccountAmount(debit) : ''}</td>
                               <td className="px-4 py-2 text-right font-mono">{credit ? formatAccountAmount(credit) : ''}</td>
                             </tr>

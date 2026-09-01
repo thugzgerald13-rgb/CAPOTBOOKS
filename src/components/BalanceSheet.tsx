@@ -1,28 +1,39 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Landmark } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
-import { getAccountBalances, getCurrentYear, formatAccountAmount } from '../lib/accountingBalances';
+import { formatAccountAmount } from '../lib/accountingBalances';
 
 export function BalanceSheet() {
-  const { currentClient, currentClientId, saveClient } = useAccounting();
-  if (!currentClient || !currentClientId) return null;
+  const { currentClient, currentClientId, saveClient, fetchServerAccountBalances } = useAccounting();
+  const [balances, setBalances] = useState<any[]>([]);
+  const [reportError, setReportError] = useState<string | null>(null);
+  const year = new Date().getFullYear();
 
-  const year = getCurrentYear(currentClient);
-  const balances = getAccountBalances(currentClient, year);
-  const assets = balances.filter(x => ['asset', 'assets'].includes((x.account.type || '').toLowerCase()));
-  const liabilities = balances.filter(x => ['liability', 'liabilities'].includes((x.account.type || '').toLowerCase()));
-  const equity = balances.filter(x => (x.account.type || '').toLowerCase() === 'equity');
+  useEffect(() => {
+    let cancelled = false;
+    if (!currentClientId) { setBalances([]); return; }
+    setReportError(null);
+    fetchServerAccountBalances(`${year}-01-01`, `${year}-12-31`)
+      .then(rows => { if (!cancelled) setBalances(rows); })
+      .catch(err => { if (!cancelled) setReportError(err?.message || 'Unable to load report balances.'); });
+    return () => { cancelled = true; };
+  }, [currentClientId, year, fetchServerAccountBalances]);
+
+  if (!currentClient || !currentClientId) return null;
+  const assets = balances.filter(x => ['asset', 'assets'].includes((x.account_type || '').toLowerCase()));
+  const liabilities = balances.filter(x => ['liability', 'liabilities'].includes((x.account_type || '').toLowerCase()));
+  const equity = balances.filter(x => (x.account_type || '').toLowerCase() === 'equity');
 
   const assetTotal = assets.reduce((n, x) => n + Math.max(0, x.balance), 0);
   const liabilityTotal = liabilities.reduce((n, x) => n + Math.max(0, -x.balance), 0);
   const equityAccountsTotal = equity.reduce((n, x) => n + Math.max(0, -x.balance), 0);
 
-  const revenue = balances.filter(x => (x.account.type || '').toLowerCase() === 'revenue')
+  const revenue = balances.filter(x => (x.account_type || '').toLowerCase() === 'revenue')
     .reduce((n, x) => n + Math.max(0, -x.balance), 0);
-  const costs = balances.filter(x => ['cost','costs'].includes((x.account.type || '').toLowerCase()))
+  const costs = balances.filter(x => ['cost','costs'].includes((x.account_type || '').toLowerCase()))
     .reduce((n, x) => n + Math.max(0, x.balance), 0);
-  const expenses = balances.filter(x => ['expense','expenses'].includes((x.account.type || '').toLowerCase()))
+  const expenses = balances.filter(x => ['expense','expenses'].includes((x.account_type || '').toLowerCase()))
     .reduce((n, x) => n + Math.max(0, x.balance), 0);
   const netIncome = revenue - costs - expenses;
   const totalEquity = equityAccountsTotal + netIncome;
@@ -44,8 +55,8 @@ export function BalanceSheet() {
   const renderAccounts = (items: typeof balances, sign: 'debit' | 'credit') => items.map(x => {
     const amount = sign === 'debit' ? Math.max(0, x.balance) : Math.max(0, -x.balance);
     return (
-      <tr key={x.account.id}>
-        <td className="pl-6 py-1.5">{x.account.id} — {x.account.name}</td>
+      <tr key={x.account_id}>
+        <td className="pl-6 py-1.5">{x.account_id} — {x.account_name}</td>
         <td className="w-40 py-1.5 text-right font-mono pr-2">{formatAccountAmount(amount)}</td>
       </tr>
     );
@@ -68,6 +79,8 @@ export function BalanceSheet() {
             </div>
           </div>
 
+          {reportError && <div className="mb-4 p-3 rounded-lg bg-red-50 text-red-700 text-sm">{reportError}</div>}
+          {!reportError && balances.length === 0 && <div className="mb-4 text-center text-sm text-slate-400">Loading server-calculated balances…</div>}
           <div className="max-w-3xl mx-auto space-y-6">
             <section>
               <div className="uppercase mb-2 font-bold">ASSETS</div>
