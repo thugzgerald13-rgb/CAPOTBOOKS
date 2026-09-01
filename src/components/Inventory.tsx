@@ -8,12 +8,16 @@ import {
   RefreshCw, Layers, MapPin, Tag, X
 } from 'lucide-react';
 import { InventoryItem, InventoryMovement, InventoryColumn, Client } from '../types';
+import { supabase } from '../lib/supabase';
 
 export function Inventory() {
   const { currentClient, saveClient, activePage, navigateToPage } = useAccounting();
 
   // Tab state
   const [activeTab, setActiveTab] = useState<'registry' | 'movements' | 'alerts'>('registry');
+  const [loadedMovements, setLoadedMovements] = useState<InventoryMovement[]>([]);
+  const [movementsLoading, setMovementsLoading] = useState(false);
+  const [movementsError, setMovementsError] = useState<string | null>(null);
 
   // Search & Filter state
   const [searchQuery, setSearchQuery] = useState('');
@@ -53,10 +57,42 @@ export function Inventory() {
     return currentClient.inventoryItems || [];
   }, [currentClient]);
 
-  const inventoryMovements: InventoryMovement[] = useMemo(() => {
-    if (!currentClient) return [];
-    return currentClient.inventoryMovements || [];
-  }, [currentClient]);
+  // Inventory movements are intentionally lazy-loaded. The registry and alerts
+  // only need inventory item metadata; potentially large movement history is
+  // fetched when the user actually opens the Movements tab.
+  const inventoryMovements = loadedMovements;
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadMovements = async () => {
+      if (!currentClient?.id || activeTab !== 'movements') return;
+      setMovementsLoading(true);
+      setMovementsError(null);
+      try {
+        const { data, error } = await supabase
+          .from('inventory_movements')
+          .select('id,item_id,item_name,item_code,date,type,qty,unit_cost,total_value,reference,notes')
+          .eq('client_id', currentClient.id)
+          .order('date', { ascending: false })
+          .limit(500);
+        if (error) throw error;
+        if (!cancelled) {
+          setLoadedMovements((data || []).map((m: any) => ({
+            id: String(m.id), itemId: m.item_id || '', itemName: m.item_name || '',
+            itemCode: m.item_code || '', date: m.date ? String(m.date).slice(0, 10) : '',
+            type: m.type, qty: Number(m.qty || 0), unitCost: Number(m.unit_cost || 0),
+            totalValue: Number(m.total_value || 0), reference: m.reference || '', notes: m.notes || ''
+          })));
+        }
+      } catch (e: any) {
+        if (!cancelled) setMovementsError(e?.message || 'Unable to load inventory movements.');
+      } finally {
+        if (!cancelled) setMovementsLoading(false);
+      }
+    };
+    loadMovements();
+    return () => { cancelled = true; };
+  }, [currentClient?.id, activeTab]);
 
   // Make sure client's data matches
   const syncWithCloud = async (newItems: InventoryItem[], newMovements: InventoryMovement[]) => {
@@ -290,6 +326,7 @@ export function Inventory() {
     });
 
     const updatedMovs = [newMov, ...inventoryMovements];
+    setLoadedMovements(updatedMovs);
 
     await syncWithCloud(updatedItems, updatedMovs);
     setIsAdjFormOpen(false);
@@ -564,6 +601,12 @@ export function Inventory() {
         {/* Movements Log View */}
         {activeTab === 'movements' && (
           <div className="space-y-4">
+            {movementsLoading && (
+              <div className="px-4 py-3 text-sm text-slate-500">Loading inventory movements…</div>
+            )}
+            {movementsError && (
+              <div className="px-4 py-3 text-sm text-rose-600">{movementsError}</div>
+            )}
             <div className="bg-white dark:bg-slate-800/40 rounded-2xl border border-slate-100 dark:border-slate-800 overflow-hidden shadow-sm">
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
