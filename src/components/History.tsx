@@ -293,10 +293,108 @@ export function History() {
 
   const activeConfig = TabConfig[activeTab] || TabConfig.expenses;
 
+  // History is intentionally period-scoped for low Supabase egress.
+  // Phase 3 previously filtered currentClient.purchases/currentClient.sales,
+  // but those arrays are no longer hydrated for History by AccountingContext.
+  // That made History appear empty. Fetch the selected DAT period directly
+  // instead, without reloading the client's complete transaction history.
   useEffect(() => {
-    setLocalHistoryPurchases((currentClient.purchases || []).filter(p => p.datMonthYear === targetFormatted));
-    setLocalHistorySales((currentClient.sales || []).filter(s => s.datMonthYear === targetFormatted));
-  }, [currentClient.purchases, currentClient.sales, targetFormatted]);
+    let cancelled = false;
+
+    const loadHistoryPeriod = async () => {
+      if (!currentClientId || !targetFormatted) {
+        setLocalHistoryPurchases([]);
+        setLocalHistorySales([]);
+        return;
+      }
+
+      try {
+        const [purchasesResult, salesResult] = await Promise.all([
+          supabase
+            .from('purchases')
+            .select('id,dat_month_year,date,payment_method,check_number,bank_name,invoice_no,supplier_name,supplier_address,supplier_tin,amount,vat_type,exempt_amount,zero_rated_amount,expense_type,account_title,transaction_details,input_tax,attachment_name,attachment_type,attachment_original_type,attachment_size,attachment_original_size,attachment_compression,attachment_storage_path,withholding_option,atc_code,wht_rate,wht_amount')
+            .eq('client_id', currentClientId)
+            .eq('dat_month_year', targetFormatted)
+            .order('date', { ascending: true }),
+          supabase
+            .from('sales')
+            .select('id,dat_month_year,date,ref,payment_type,buyer_tin,buyer_name,buyer_address,vat_type,amount,net_of_vat,output_tax,income_type,description')
+            .eq('client_id', currentClientId)
+            .eq('dat_month_year', targetFormatted)
+            .order('date', { ascending: true })
+        ]);
+
+        if (purchasesResult.error) throw purchasesResult.error;
+        if (salesResult.error) throw salesResult.error;
+        if (cancelled) return;
+
+        const mappedPurchases = (purchasesResult.data || []).map((r: any) => ({
+          id: Number(r.id) || r.id,
+          datMonthYear: r.dat_month_year || '',
+          date: r.date ? String(r.date).slice(0, 10) : '',
+          paymentMethod: r.payment_method || '',
+          checkNumber: r.check_number,
+          bankName: r.bank_name,
+          invoiceNo: r.invoice_no || '',
+          supplierName: r.supplier_name || '',
+          supplierAddress: r.supplier_address || '',
+          supplierTin: r.supplier_tin || '',
+          amount: Number(r.amount || 0),
+          vatType: r.vat_type || '',
+          exemptAmount: Number(r.exempt_amount || 0),
+          zeroRatedAmount: Number(r.zero_rated_amount || 0),
+          expenseType: r.expense_type || '',
+          accountTitle: r.account_title || '',
+          transactionDetails: r.transaction_details,
+          inputTax: Number(r.input_tax || 0),
+          attachment: r.attachment_name ? {
+            name: r.attachment_name,
+            type: r.attachment_type || '',
+            originalType: r.attachment_original_type || r.attachment_type || '',
+            size: Number(r.attachment_size || 0),
+            originalSize: Number(r.attachment_original_size || r.attachment_size || 0),
+            compression: r.attachment_compression,
+            content: '',
+            storagePath: r.attachment_storage_path
+          } : undefined,
+          withholdingOption: r.withholding_option,
+          atcCode: r.atc_code,
+          whtRate: r.wht_rate == null ? null : Number(r.wht_rate),
+          whtAmount: r.wht_amount == null ? undefined : Number(r.wht_amount)
+        }));
+
+        const mappedSales = (salesResult.data || []).map((r: any) => ({
+          id: Number(r.id) || r.id,
+          datMonthYear: r.dat_month_year || '',
+          date: r.date ? String(r.date).slice(0, 10) : '',
+          ref: r.ref || '',
+          paymentType: r.payment_type || '',
+          buyerTin: r.buyer_tin || '',
+          buyerName: r.buyer_name || '',
+          buyerAddress: r.buyer_address || '',
+          vatType: r.vat_type || '',
+          amount: Number(r.amount || 0),
+          netOfVat: Number(r.net_of_vat || 0),
+          outputTax: Number(r.output_tax || 0),
+          incomeType: r.income_type || '',
+          desc: r.description || ''
+        }));
+
+        setLocalHistoryPurchases(mappedPurchases);
+        setLocalHistorySales(mappedSales);
+      } catch (error) {
+        if (!cancelled) {
+          console.error('Failed to load History period:', error);
+          setLocalHistoryPurchases([]);
+          setLocalHistorySales([]);
+          showToast('Unable to load History for this period.');
+        }
+      }
+    };
+
+    loadHistoryPeriod();
+    return () => { cancelled = true; };
+  }, [currentClientId, targetFormatted, showToast]);
 
 
   const handleDeleteExpense = async (id: number) => {
@@ -344,12 +442,6 @@ export function History() {
     const netOfVat = hasVatBreakdown ? s.netOfVat : s.amount;
     return { outputTax, netOfVat };
   };
-
-  // Derive unique DAT periods from transactions
-  const allPeriods = Array.from(new Set([
-    ...(currentClient.sales || []).map(s => s.datMonthYear),
-    ...(currentClient.purchases || []).map(p => p.datMonthYear)
-  ])).filter(Boolean);
 
   const handleSwitchPeriod = (period: string) => {
     const [monthName, yearStr] = period.split(' ');
