@@ -122,6 +122,7 @@ export function Purchases() {
   const location = useLocation();
   const navigate = useNavigate();
   const isOtherPayments = location.pathname === '/purchases/other-payments';
+  const isAP = location.pathname === '/purchases/ap';
   const { currentClient, currentClientId, currentDat, saveClient, showToast, setCurrentDat } = useAccounting();
   
   // Single record state (similar to original but react-friendly)
@@ -438,6 +439,46 @@ export function Purchases() {
     const [y, m, d] = date.split('-');
     const formattedDate = `${m}/${d}/${y}`;
 
+    if (isAP) {
+      const payableInvoices = currentClient.payableInvoices || [];
+      const apId = viewIndex !== null
+        ? String((payableInvoices[viewIndex] as any)?.id || `AP-${Date.now()}`)
+        : `AP-${new Date().getFullYear()}-${String(payableInvoices.length + 1).padStart(4, '0')}`;
+      const apNet = vatType === 'vat' || vatType === 'vat-nonvat' ? netAmount : 0;
+      const apVat = vatType === 'vat' || vatType === 'vat-nonvat' ? inputTax : 0;
+      const apExempt = vatType === 'non-vat' || vatType === 'vat-nonvat' ? (parseFloat(String(exemptAmount).replace(/,/g, '')) || 0) : 0;
+      const apZeroRated = vatType === 'zero-rated' ? (parseFloat(String(zeroRatedAmount).replace(/,/g, '')) || 0) : 0;
+      const apSubtotal = apNet + apExempt + apZeroRated;
+      const apTotal = Math.max(0, apSubtotal + apVat - whtAmount);
+      const existingAP = viewIndex !== null ? payableInvoices[viewIndex] : undefined;
+      const newPayableInvoice = {
+        ...(existingAP || {}),
+        id: apId,
+        invoiceNumber: invoiceNo.trim(),
+        date: formattedDate,
+        dueDate: existingAP?.dueDate || formattedDate,
+        supplierId: supplierTin.replace(/\D/g, '') || `SUP-${Date.now()}`,
+        supplierName: supplierName.trim(),
+        items: [{
+          itemCode: accountTitle.trim() || 'AP',
+          description: transactionDetails.trim() || accountTitle.trim() || 'Accounts Payable Purchase',
+          qty: 1,
+          unitPrice: apSubtotal,
+        }],
+        subtotal: apSubtotal,
+        vatAmount: apVat,
+        isVatable: vatType === 'vat' || vatType === 'vat-nonvat',
+        withholdingTaxId: withholdingOption === 'with' ? atcCode || undefined : undefined,
+        whtAmount: withholdingOption === 'with' ? whtAmount : 0,
+        totalAmount: apTotal,
+        status: existingAP?.status || 'Unmatched',
+      };
+      const updatedPayableInvoices = viewIndex !== null
+        ? payableInvoices.map((inv, i) => i === viewIndex ? newPayableInvoice : inv)
+        : [...payableInvoices, newPayableInvoice];
+      saveClient(currentClientId, { ...currentClient, payableInvoices: updatedPayableInvoices });
+      showToast(viewIndex !== null ? 'AP invoice updated' : 'AP invoice added');
+    } else {
     const purchaseData = {
       id: viewIndex !== null ? currentClient.purchases[viewIndex].id : Date.now(),
       sequenceNumber: viewIndex !== null ? (currentClient.purchases[viewIndex].sequenceNumber || sequenceNumber) : sequenceNumber,
@@ -470,6 +511,7 @@ export function Purchases() {
       attachment
     };
 
+
     let updatedPurchases;
     if (viewIndex !== null) {
       updatedPurchases = currentClient.purchases.map(p => p.id === purchaseData.id ? purchaseData : p);
@@ -483,6 +525,8 @@ export function Purchases() {
     };
     saveClient(currentClientId, updatedClient);
     showToast(viewIndex !== null ? 'Entry updated' : 'Expense entry added');
+
+    }
 
     // Reset the complete entry form after Add Entry / Update Entry.
     // A saved transaction remains in currentClient.purchases; the input form
@@ -528,19 +572,29 @@ export function Purchases() {
     showToast('Expense deleted');
   };
 
+  const handleDeleteAP = (id: string) => {
+    if (!currentClient || !currentClientId) return;
+    const updatedClient = {
+      ...currentClient,
+      payableInvoices: (currentClient.payableInvoices || []).filter(i => String(i.id) !== id),
+    };
+    saveClient(currentClientId, updatedClient);
+    showToast('AP invoice deleted');
+  };
+
   return (
     <div className="w-full flex flex-col purchase-page-shell">
-      <PageHeader title={currentDat ? "Expense Data Entry Screen (DAT)" : "Expense Data Entry Screen"} icon={<ShoppingCart className="w-5 h-5 text-amber-500" />} />
+      <PageHeader title={isAP ? "Accounts Payable Data Entry Screen" : (currentDat ? "Expense Data Entry Screen (DAT)" : "Expense Data Entry Screen")} icon={<ShoppingCart className="w-5 h-5 text-amber-500" />} />
       <div className="p-4 md:p-6 flex-1">
 
       <div className="mb-6 flex flex-wrap gap-2 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 shadow-sm">
         <button type="button" onClick={() => navigate('/purchases/invoiced')} className={`flex-1 min-w-[140px] px-4 py-3 rounded-xl text-sm font-bold transition-all ${!isOtherPayments ? 'bg-amber-500 text-slate-900 shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Invoiced</button>
         <button type="button" onClick={() => navigate('/purchases/other-payments')} className={`flex-1 min-w-[140px] px-4 py-3 rounded-xl text-sm font-bold transition-all ${isOtherPayments ? 'bg-amber-500 text-slate-900 shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Other Payments</button>
-        <button type="button" onClick={() => navigate('/ap-workspace')} className="flex-1 min-w-[140px] px-4 py-3 rounded-xl text-sm font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all">Accounts Payable (AP)</button>
+        <button type="button" onClick={() => navigate('/purchases/ap')} className={`flex-1 min-w-[140px] px-4 py-3 rounded-xl text-sm font-bold transition-all ${isAP ? 'bg-amber-500 text-slate-900 shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Accounts Payable (AP)</button>
       </div>
 
       <div className="mb-4 rounded-xl bg-slate-100 dark:bg-slate-800/70 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-        {isOtherPayments ? 'Other Payments' : 'Invoiced'}
+        {isAP ? 'Accounts Payable (AP)' : (isOtherPayments ? 'Other Payments' : 'Invoiced')}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-100 dark:border-slate-700 relative">
@@ -559,22 +613,24 @@ export function Purchases() {
               {dateWarning && <p className="text-xs text-amber-600 bg-amber-100 p-2 mt-1 rounded-lg">{dateWarning}</p>}
             </div>
             
-            <div className="w-full md:w-2/3 flex flex-col justify-end">
-               <label className="form-label">Payment Method</label>
-               <div className="flex items-center gap-6 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5">
-                  <label className="flex items-center gap-2 cursor-pointer font-medium text-sm">
-                    <input type="radio" value="Cash" checked={paymentMethod === 'Cash'} onChange={() => setPaymentMethod('Cash')} className="w-4 h-4 text-amber-500" />
-                    💵 Cash
-                  </label>
-                  <label className="flex items-center gap-2 cursor-pointer font-medium text-sm">
-                    <input type="radio" value="Check" checked={paymentMethod === 'Check'} onChange={() => setPaymentMethod('Check')} className="w-4 h-4 text-amber-500" />
-                    📝 Check
-                  </label>
-               </div>
-            </div>
+            {!isAP && (
+              <div className="w-full md:w-2/3 flex flex-col justify-end">
+                 <label className="form-label">Payment Method</label>
+                 <div className="flex items-center gap-6 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5">
+                    <label className="flex items-center gap-2 cursor-pointer font-medium text-sm">
+                      <input type="radio" value="Cash" checked={paymentMethod === 'Cash'} onChange={() => setPaymentMethod('Cash')} className="w-4 h-4 text-amber-500" />
+                      💵 Cash
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer font-medium text-sm">
+                      <input type="radio" value="Check" checked={paymentMethod === 'Check'} onChange={() => setPaymentMethod('Check')} className="w-4 h-4 text-amber-500" />
+                      📝 Check
+                    </label>
+                 </div>
+              </div>
+            )}
         </div>
 
-        {paymentMethod === 'Check' && (
+        {!isAP && paymentMethod === 'Check' && (
           <>
             <div className="lg:col-span-1">
               <label className="form-label text-red-500">Bank Name *</label>
@@ -799,7 +855,13 @@ export function Purchases() {
                <button 
                  onClick={() => {
                    if (confirm('Are you sure you want to delete this entry?')) {
-                     handleDelete(periodPurchases[viewIndex].id);
+                     if (isAP) {
+                       const apInvoices = currentClient?.payableInvoices || [];
+                       const apId = viewIndex !== null ? String(apInvoices[viewIndex]?.id || '') : '';
+                       if (apId) handleDeleteAP(apId);
+                     } else {
+                       handleDelete(periodPurchases[viewIndex].id);
+                     }
                      handleAddNew();
                    }
                  }}
