@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Client, BusinessProfile, DatSelection } from '../types';
 import { supabase } from '../lib/supabase';
@@ -6,6 +6,20 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 import { useAuth } from './AuthContext';
 import { handleSupabaseError, OperationType } from '../lib/supabaseUtils';
 import { syncGeneralLedger, syncCashDisbursementsJournal } from '../lib/glPosting';
+
+export interface ServerAccountBalance {
+  account_id: string;
+  account_name: string;
+  account_type: string;
+  normal_side: 'debit' | 'credit';
+  opening_balance: number;
+  debit: number;
+  credit: number;
+  balance: number;
+  period_debit: number;
+  period_credit: number;
+  period_balance: number;
+}
 
 interface AccountingContextType {
   clients: Record<string, Client>;
@@ -25,6 +39,7 @@ interface AccountingContextType {
   isSyncing: boolean;
   syncError: string | null;
   syncData: () => Promise<void>;
+  fetchServerAccountBalances: (startDate: string, endDate: string) => Promise<ServerAccountBalance[]>;
 
   setDarkMode: (value: boolean) => void;
   setSidebarCollapsed: (value: boolean) => void;
@@ -171,10 +186,10 @@ const PAGE_SECTIONS: Record<string, ClientSection[]> = {
   'cash-disbursement': ['cdj', 'coa', 'purchases', 'journalVoucher', 'ap'],
   'purchase-journal': ['pj', 'coa'],
   journal: ['gj', 'coa'],
-  ledger: ['coa', 'crj', 'cdj', 'pj', 'gj', 'journalVoucher'],
-  pl: ['coa', 'crj', 'cdj', 'pj', 'gj', 'journalVoucher'],
-  balancesheet: ['coa', 'crj', 'cdj', 'pj', 'gj', 'journalVoucher'],
-  cashflow: ['coa', 'crj', 'cdj', 'pj', 'gj', 'journalVoucher'],
+  ledger: ['coa'],
+  pl: ['coa'],
+  balancesheet: ['coa'],
+  cashflow: ['coa'],
   assetlapsing: ['assets'],
   'sales-journal': ['sales', 'crj', 'coa'],
   files: ['files'],
@@ -182,9 +197,9 @@ const PAGE_SECTIONS: Record<string, ClientSection[]> = {
   'bir-forms': ['purchases', 'sales', 'expenses', 'ap', 'compliance'],
   'compliance-tracker': ['purchases', 'sales', 'compliance'],
   'ap-workspace': ['ap', 'coa', 'tinLibrary'],
-  reports: ['coa', 'crj', 'cdj', 'pj', 'gj', 'journalVoucher', 'reports'],
-  books: ['coa', 'crj', 'cdj', 'pj', 'gj', 'journalVoucher'],
-  trialbalance: ['coa', 'crj', 'cdj', 'pj', 'gj', 'journalVoucher'],
+  reports: ['coa', 'reports'],
+  books: ['coa'],
+  trialbalance: ['coa'],
   taxnotes: ['compliance'],
 };
 
@@ -510,10 +525,10 @@ export function AccountingProvider({
     const path = location.pathname.replace(/^\/+/, '');
     return path === '' ? null : decodeURIComponent(path);
   })();
+  const [currentDat, setCurrentDat] = useState<DatSelection | null>(null);
   const historyPeriod = activePage === 'history'
     ? (currentDat?.formatted || new Date().toLocaleString('en-US', { month: 'long' }) + ' ' + new Date().getFullYear())
     : undefined;
-  const [currentDat, setCurrentDat] = useState<DatSelection | null>(null);
 
   // Transaction-entry screens work on the currently selected DAT period.
   // Do not download a client's entire lifetime of purchases/sales merely to
@@ -1174,6 +1189,29 @@ export function AccountingProvider({
   // throws "Rendered more/fewer hooks than during the previous render"
   // (React error #310), which crashes the entire app since this provider
   // wraps everything.
+  const fetchServerAccountBalances = useCallback(async (startDate: string, endDate: string): Promise<ServerAccountBalance[]> => {
+    if (!currentClientId) return [];
+    const { data, error } = await supabase.rpc('get_account_balances', {
+      p_client_id: currentClientId,
+      p_start_date: startDate,
+      p_end_date: endDate,
+    });
+    if (error) throw error;
+    return (data || []).map((row: any) => ({
+      account_id: String(row.account_id),
+      account_name: String(row.account_name || ''),
+      account_type: String(row.account_type || ''),
+      normal_side: row.normal_side === 'credit' ? 'credit' : 'debit',
+      opening_balance: Number(row.opening_balance || 0),
+      debit: Number(row.debit || 0),
+      credit: Number(row.credit || 0),
+      balance: Number(row.balance || 0),
+      period_debit: Number(row.period_debit || 0),
+      period_credit: Number(row.period_credit || 0),
+      period_balance: Number(row.period_balance || 0),
+    }));
+  }, [currentClientId]);
+
   const rawCurrentClient = currentClientId ? clients[currentClientId] : null;
   const currentClient = useMemo(
     () => (rawCurrentClient ? syncGeneralLedger(syncCashDisbursementsJournal(rawCurrentClient)) : null),
@@ -1265,6 +1303,7 @@ export function AccountingProvider({
         isSyncing,
         syncError,
         syncData,
+        fetchServerAccountBalances,
         setDarkMode,
         setSidebarCollapsed,
         navigateToPage,
