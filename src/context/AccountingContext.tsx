@@ -150,43 +150,49 @@ const chunk = <T,>(items: T[], size = 200): T[][] => {
 };
 
 const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> => {
+  // IMPORTANT: this is the explicit full-client loader. It is intentionally
+  // no longer called for every client during application startup. The
+  // provider first loads only client metadata, then calls this function for
+  // the currently selected client. Keeping the existing mapper here avoids
+  // changing the accounting model while eliminating the largest startup
+  // egress multiplier (all clients x all normalized tables).
   const [purchases, sales, expenses, coaColumns, coaAccounts, journalColumns, journalEntries,
     journalVouchers, journalVoucherLines, purchaseOrders, purchaseOrderItems, receivingReports,
     receivingReportItems, payableInvoices, payableInvoiceItems, inventoryColumns, inventoryItems,
     inventoryMovements, folders, files, tinEntries, taxDeadlines, bankAccounts, supplierAdvances,
     withholdingTaxEntries, debitCreditMemos, checkVouchers, miscellaneousPayments,
     assetLapsingSchedule, billingInvoices, snapshots] = await Promise.all([
-      supabase.from('purchases').select('*').eq('client_id', clientId),
-      supabase.from('sales').select('*').eq('client_id', clientId),
-      supabase.from('expenses').select('*').eq('client_id', clientId),
-      supabase.from('coa_columns').select('*').eq('client_id', clientId),
-      supabase.from('coa_accounts').select('*').eq('client_id', clientId),
-      supabase.from('journal_columns').select('*').eq('client_id', clientId),
-      supabase.from('journal_entries').select('*').eq('client_id', clientId),
-      supabase.from('journal_vouchers').select('*').eq('client_id', clientId),
-      supabase.from('journal_voucher_lines').select('*').eq('client_id', clientId),
-      supabase.from('purchase_orders').select('*').eq('client_id', clientId),
-      supabase.from('purchase_order_items').select('*').eq('client_id', clientId),
-      supabase.from('receiving_reports').select('*').eq('client_id', clientId),
-      supabase.from('receiving_report_items').select('*').eq('client_id', clientId),
-      supabase.from('payable_invoices').select('*').eq('client_id', clientId),
-      supabase.from('payable_invoice_items').select('*').eq('client_id', clientId),
-      supabase.from('inventory_columns').select('*').eq('client_id', clientId),
-      supabase.from('inventory_items').select('*').eq('client_id', clientId),
-      supabase.from('inventory_movements').select('*').eq('client_id', clientId),
-      supabase.from('app_folders').select('*').eq('client_id', clientId),
-      supabase.from('app_files').select('*').eq('client_id', clientId),
-      supabase.from('tin_entries').select('*').eq('client_id', clientId),
-      supabase.from('tax_deadlines').select('*').eq('client_id', clientId),
-      supabase.from('bank_accounts').select('*').eq('client_id', clientId),
-      supabase.from('supplier_advances').select('*').eq('client_id', clientId),
-      supabase.from('withholding_tax_entries').select('*').eq('client_id', clientId),
-      supabase.from('debit_credit_memos').select('*').eq('client_id', clientId),
-      supabase.from('check_vouchers').select('*').eq('client_id', clientId),
-      supabase.from('miscellaneous_payments').select('*').eq('client_id', clientId),
-      supabase.from('asset_lapsing_schedule').select('*').eq('client_id', clientId),
-      supabase.from('billing_invoices').select('*').eq('client_id', clientId),
-      supabase.from('financial_report_snapshots').select('*').eq('client_id', clientId),
+      supabase.from('purchases').select('id,dat_month_year,date,payment_method,check_number,bank_name,invoice_no,supplier_name,supplier_address,supplier_tin,amount,vat_type,exempt_amount,zero_rated_amount,expense_type,account_title,transaction_details,input_tax,attachment_name,attachment_type,attachment_original_type,attachment_size,attachment_original_size,attachment_compression,attachment_storage_path,withholding_option,atc_code,wht_rate,wht_amount').eq('client_id', clientId),
+      supabase.from('sales').select('id,dat_month_year,date,ref,payment_type,buyer_tin,buyer_name,buyer_address,vat_type,amount,net_of_vat,output_tax,income_type,description').eq('client_id', clientId),
+      supabase.from('expenses').select('id,date,amount,category,description').eq('client_id', clientId),
+      supabase.from('coa_columns').select('id,name,is_system').eq('client_id', clientId),
+      supabase.from('coa_accounts').select('id,name,type,normal_side,parent_id,hidden,opening_balance,custom_values').eq('client_id', clientId),
+      supabase.from('journal_columns').select('id,journal_type,name,type,category,is_system').eq('client_id', clientId),
+      supabase.from('journal_entries').select('id,journal_type,values,auto,auto_source').eq('client_id', clientId),
+      supabase.from('journal_vouchers').select('id,date,reference,memo').eq('client_id', clientId),
+      supabase.from('journal_voucher_lines').select('id,journal_voucher_id,account_id,account_name,debit,credit').eq('client_id', clientId),
+      supabase.from('purchase_orders').select('id,date,supplier_id,supplier_name,total_amount,status').eq('client_id', clientId),
+      supabase.from('purchase_order_items').select('id,purchase_order_id,item_code,description,qty,unit_price').eq('client_id', clientId),
+      supabase.from('receiving_reports').select('id,date,po_id,supplier_name,total_amount,received_by').eq('client_id', clientId),
+      supabase.from('receiving_report_items').select('id,receiving_report_id,item_code,description,qty_ordered,qty_received,unit_price').eq('client_id', clientId),
+      supabase.from('payable_invoices').select('id,invoice_number,date,due_date,po_id,rr_id,supplier_id,supplier_name,subtotal,vat_amount,is_vatable,withholding_tax_id,wht_amount,total_amount,status,discrepancy_details,applied_prepayments').eq('client_id', clientId),
+      supabase.from('payable_invoice_items').select('id,payable_invoice_id,item_code,description,qty,unit_price,amount').eq('client_id', clientId),
+      supabase.from('inventory_columns').select('id,label').eq('client_id', clientId),
+      supabase.from('inventory_items').select('id,code,name,sku,description,category,unit_of_measure,cost_price,selling_price,stock_level,reorder_point,location,custom_fields').eq('client_id', clientId),
+      supabase.from('inventory_movements').select('id,item_id,item_name,item_code,date,type,qty,unit_cost,total_value,reference,notes').eq('client_id', clientId),
+      supabase.from('app_folders').select('id,name,is_default,type').eq('client_id', clientId),
+      supabase.from('app_files').select('id,name,type,size,uploaded_at,folder_id,storage_path,description').eq('client_id', clientId),
+      supabase.from('tin_entries').select('id,party_type,tin,name,address').eq('client_id', clientId),
+      supabase.from('tax_deadlines').select('id,form_type,title,period,due_date,status,tax_status,amount_due,date_filed,date_paid,reference_no,confirmation_no,notes').eq('client_id', clientId),
+      supabase.from('bank_accounts').select('id,bank_name,account_number,balance').eq('client_id', clientId),
+      supabase.from('supplier_advances').select('id,supplier_id,supplier_name,date,amount,is_liquidated,notes').eq('client_id', clientId),
+      supabase.from('withholding_tax_entries').select('id,atc_code,description,tax_rate,category').eq('client_id', clientId),
+      supabase.from('debit_credit_memos').select('id,type,invoice_id,invoice_number,supplier_name,date,amount,reason').eq('client_id', clientId),
+      supabase.from('check_vouchers').select('id,date,payee_name,invoice_id,invoice_number,payment_type,misc_details,amount,checked_by,approved_by,bank_account_id,bank_name,check_number,status,reversed_reason,reversed_at').eq('client_id', clientId),
+      supabase.from('miscellaneous_payments').select('id,date,payee_name,amount,bank_account_id,bank_name,check_number,expense_category,description').eq('client_id', clientId),
+      supabase.from('asset_lapsing_schedule').select('id,date_purchased,invoice_no,description,cost,useful_life_years,salvage_value').eq('client_id', clientId),
+      supabase.from('billing_invoices').select('id,date,due_date,invoice_no,customer_tin,customer_name,customer_address,vat_type,amount,net_of_vat,output_tax,description,status,payment_type,date_paid,is_recurring,recurrence_frequency,next_billing_date,parent_invoice_id').eq('client_id', clientId),
+      supabase.from('financial_report_snapshots').select('id,report_type,data,updated_at').eq('client_id', clientId),
     ]);
 
   const responses = [purchases, sales, expenses, coaColumns, coaAccounts, journalColumns, journalEntries,
@@ -197,17 +203,15 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
     assetLapsingSchedule, billingInvoices, snapshots];
   const firstError = responses.find((r: any) => r.error)?.error;
   if (firstError) throw firstError;
-  const rows = responses.map((r: any) => r.data || []);
+  const rows = responses.map((r:any) => r.data || []);
   const [pRows,sRows,eRows,ccRows,caRows,jcRows,jeRows,jvRows,jvlRows,poRows,poiRows,rrRows,rriRows,piRows,piiRows,icRows,iiRows,imRows,fRows,fileRows,tinRows,tdRows,baRows,saRows,whtRows,dcmRows,cvRows,mpRows,alsRows,biRows,snapshotRows] = rows;
 
-  const poItemsBy = new Map<string, any[]>();
-  poiRows.forEach((r:any) => { const a=poItemsBy.get(r.purchase_order_id)||[]; a.push({ itemCode:r.item_code||'', description:r.description||'', qty:Number(r.qty||0), unitPrice:Number(r.unit_price||0) }); poItemsBy.set(r.purchase_order_id,a); });
-  const rrItemsBy = new Map<string, any[]>();
-  rriRows.forEach((r:any) => { const a=rrItemsBy.get(r.receiving_report_id)||[]; a.push({ itemCode:r.item_code||'', description:r.description||'', qtyOrdered:Number(r.qty_ordered||0), qtyReceived:Number(r.qty_received||0), unitPrice:Number(r.unit_price||0) }); rrItemsBy.set(r.receiving_report_id,a); });
-  const piItemsBy = new Map<string, any[]>();
-  piiRows.forEach((r:any) => { const a=piItemsBy.get(r.payable_invoice_id)||[]; a.push({ itemCode:r.item_code||'', description:r.description||'', qty:Number(r.qty||0), unitPrice:Number(r.unit_price||0) }); piItemsBy.set(r.payable_invoice_id,a); });
-  const linesByVoucher = new Map<string, any[]>();
-  jvlRows.forEach((r:any) => { const a=linesByVoucher.get(r.journal_voucher_id)||[]; a.push({ id:strId(r.id), accountId:r.account_id||'', accountName:r.account_name||'', debit:Number(r.debit||0), credit:Number(r.credit||0) }); linesByVoucher.set(r.journal_voucher_id,a); });
+  const mapItems = (items:any[], key:string, mapper:(r:any)=>any) => { const m=new Map<string,any[]>(); items.forEach(r=>{ const k=String(r[key]); const a=m.get(k)||[]; a.push(mapper(r)); m.set(k,a); }); return m; };
+  const poiBy = mapItems(poiRows,'purchase_order_id',(i:any)=>({id:strId(i.id),itemCode:i.item_code||'',description:i.description||'',qty:Number(i.qty||0),unitPrice:Number(i.unit_price||0)}));
+  const rriBy = mapItems(rriRows,'receiving_report_id',(i:any)=>({id:strId(i.id),itemCode:i.item_code||'',description:i.description||'',qtyOrdered:Number(i.qty_ordered||0),qtyReceived:Number(i.qty_received||0),unitPrice:Number(i.unit_price||0)}));
+  const piiBy = mapItems(piiRows,'payable_invoice_id',(i:any)=>({id:strId(i.id),itemCode:i.item_code||'',description:i.description||'',qty:Number(i.qty||0),unitPrice:Number(i.unit_price||0),amount:Number(i.amount||0)}));
+  const linesByVoucher = new Map<string,any[]>();
+  jvlRows.forEach((r:any) => { const a=linesByVoucher.get(String(r.journal_voucher_id))||[]; a.push({ id:strId(r.id), accountId:r.account_id||'', accountName:r.account_name||'', debit:Number(r.debit||0), credit:Number(r.credit||0) }); linesByVoucher.set(String(r.journal_voucher_id),a); });
 
   const result: Partial<Client> = {
     purchases: pRows.map((r:any) => ({ id:Number(r.id) || r.id, datMonthYear:r.dat_month_year||'', date:rowDate(r.date), paymentMethod:r.payment_method||'', checkNumber:r.check_number, bankName:r.bank_name, invoiceNo:r.invoice_no||'', supplierName:r.supplier_name||'', supplierAddress:r.supplier_address||'', supplierTin:r.supplier_tin||'', amount:Number(r.amount||0), vatType:r.vat_type||'', exemptAmount:Number(r.exempt_amount||0), zeroRatedAmount:Number(r.zero_rated_amount||0), expenseType:r.expense_type||'', accountTitle:r.account_title||'', transactionDetails:r.transaction_details, inputTax:Number(r.input_tax||0), attachment:r.attachment_name ? { name:r.attachment_name, type:r.attachment_type||'', originalType:r.attachment_original_type||r.attachment_type||'', size:Number(r.attachment_size||0), originalSize:Number(r.attachment_original_size||r.attachment_size||0), compression:r.attachment_compression as any, content:'', storagePath:r.attachment_storage_path } : undefined, withholdingOption:r.withholding_option as any, atcCode:r.atc_code, whtRate:r.wht_rate == null ? null : Number(r.wht_rate), whtAmount:r.wht_amount == null ? undefined : Number(r.wht_amount) })),
@@ -223,10 +227,10 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
     cdjEntries: jeRows.filter((r:any)=>r.journal_type==='CDJ').map((r:any)=>({id:strId(r.id),values:r.values||{},auto:!!r.auto,autoSource:r.auto_source})),
     pjEntries: jeRows.filter((r:any)=>r.journal_type==='PJ').map((r:any)=>({id:strId(r.id),values:r.values||{},auto:!!r.auto,autoSource:r.auto_source})),
     gjEntries: jeRows.filter((r:any)=>r.journal_type==='GJ').map((r:any)=>({id:strId(r.id),values:r.values||{},auto:!!r.auto,autoSource:r.auto_source})),
-    journalVouchers: jvRows.map((r:any)=>({id:strId(r.id),date:rowDate(r.date),reference:r.reference||'',memo:r.memo||'',lines:linesByVoucher.get(r.id)||[]})),
-    purchaseOrders: poRows.map((r:any)=>({id:strId(r.id),date:rowDate(r.date),supplierId:r.supplier_id||'',supplierName:r.supplier_name||'',items:poItemsBy.get(r.id)||[],totalAmount:Number(r.total_amount||0),status:r.status})),
-    receivingReports: rrRows.map((r:any)=>({id:strId(r.id),date:rowDate(r.date),poId:r.po_id||'',supplierName:r.supplier_name||'',items:rrItemsBy.get(r.id)||[],totalAmount:Number(r.total_amount||0),receivedBy:r.received_by||''})),
-    payableInvoices: piRows.map((r:any)=>({id:strId(r.id),invoiceNumber:r.invoice_number||'',date:rowDate(r.date),dueDate:rowDate(r.due_date),poId:r.po_id||undefined,rrId:r.rr_id||undefined,supplierId:r.supplier_id||'',supplierName:r.supplier_name||'',items:piItemsBy.get(r.id)||[],subtotal:Number(r.subtotal||0),vatAmount:Number(r.vat_amount||0),isVatable:!!r.is_vatable,withholdingTaxId:r.withholding_tax_id||undefined,whtAmount:r.wht_amount==null?undefined:Number(r.wht_amount),totalAmount:Number(r.total_amount||0),status:r.status,discrepancyDetails:r.discrepancy_details||undefined,appliedPrepayments:r.applied_prepayments==null?undefined:Number(r.applied_prepayments)})),
+    journalVouchers: jvRows.map((r:any)=>({id:strId(r.id),date:rowDate(r.date),reference:r.reference||'',memo:r.memo||'',lines:linesByVoucher.get(String(r.id))||[]})),
+    purchaseOrders: poRows.map((r:any)=>({id:strId(r.id),date:rowDate(r.date),supplierId:r.supplier_id||'',supplierName:r.supplier_name||'',items:poiBy.get(String(r.id))||[],totalAmount:Number(r.total_amount||0),status:r.status})),
+    receivingReports: rrRows.map((r:any)=>({id:strId(r.id),date:rowDate(r.date),poId:r.po_id||'',supplierName:r.supplier_name||'',items:rriBy.get(String(r.id))||[],totalAmount:Number(r.total_amount||0),receivedBy:r.received_by||''})),
+    payableInvoices: piRows.map((r:any)=>({id:strId(r.id),invoiceNumber:r.invoice_number||'',date:rowDate(r.date),dueDate:rowDate(r.due_date),poId:r.po_id||undefined,rrId:r.rr_id||undefined,supplierId:r.supplier_id||'',supplierName:r.supplier_name||'',items:piiBy.get(String(r.id))||[],subtotal:Number(r.subtotal||0),vatAmount:Number(r.vat_amount||0),isVatable:!!r.is_vatable,withholdingTaxId:r.withholding_tax_id||undefined,whtAmount:r.wht_amount==null?undefined:Number(r.wht_amount),totalAmount:Number(r.total_amount||0),status:r.status,discrepancyDetails:r.discrepancy_details||undefined,appliedPrepayments:r.applied_prepayments==null?undefined:Number(r.applied_prepayments)})),
     inventoryColumns: icRows.map((r:any)=>({id:strId(r.id),label:r.label})),
     inventoryItems: iiRows.map((r:any)=>({id:strId(r.id),code:r.code,name:r.name,sku:r.sku||'',description:r.description,category:r.category,unitOfMeasure:r.unit_of_measure,costPrice:Number(r.cost_price||0),sellingPrice:Number(r.selling_price||0),stockLevel:Number(r.stock_level||0),reorderPoint:Number(r.reorder_point||0),location:r.location,customFields:r.custom_fields||{}})),
     inventoryMovements: imRows.map((r:any)=>({id:strId(r.id),itemId:r.item_id||'',itemName:r.item_name||'',itemCode:r.item_code||'',date:rowDate(r.date),type:r.type,qty:Number(r.qty||0),unitCost:Number(r.unit_cost||0),totalValue:Number(r.total_value||0),reference:r.reference||'',notes:r.notes})),
@@ -243,7 +247,6 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
     assetLapsingSchedule: alsRows.map((r:any)=>({id:strId(r.id),datePurchased:rowDate(r.date_purchased),invoiceNo:r.invoice_no||'',description:r.description,cost:Number(r.cost||0),usefulLifeYears:Number(r.useful_life_years||0),salvageValue:Number(r.salvage_value||0)})),
     billingInvoices: biRows.map((r:any)=>({id:strId(r.id),date:rowDate(r.date),dueDate:rowDate(r.due_date),invoiceNo:r.invoice_no,customerTin:r.customer_tin||'',customerName:r.customer_name||'',customerAddress:r.customer_address||'',vatType:r.vat_type||'',amount:Number(r.amount||0),netOfVat:Number(r.net_of_vat||0),outputTax:Number(r.output_tax||0),description:r.description||undefined,status:r.status,paymentType:r.payment_type||undefined,datePaid:rowDate(r.date_paid)||undefined,isRecurring:!!r.is_recurring,recurrenceFrequency:r.recurrence_frequency||undefined,nextBillingDate:rowDate(r.next_billing_date)||undefined,parentInvoiceId:r.parent_invoice_id||undefined})),
   };
-
   snapshotRows.forEach((r:any)=>{
     if (r.report_type==='P&L') (result as any).plData = r.data;
     if (r.report_type==='Balance Sheet') (result as any).bsData = r.data;
@@ -251,6 +254,18 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
   });
   return result;
 };
+
+const clientMetadataColumns = 'id,name,user_id,tin,taxpayer_classification,registered_name,last_name,first_name,middle_name,trade_name,substreet,street,barangay,district,city,zip_code,rdo_code,phone,email,category,has_multiple_business_lines,accounting_type,fiscal_month_end,coa_format';
+
+const rowToClientMetadata = (row:any): Client => ({
+  id: row.id, name: row.name || 'Client', tin: row.tin || '', taxpayerClassification: row.taxpayer_classification || '',
+  registeredName: row.registered_name || row.name || '', lastName: row.last_name || '', firstName: row.first_name || '', middleName: row.middle_name || '',
+  tradeName: row.trade_name || '', substreet: row.substreet || '', street: row.street || '', barangay: row.barangay || '', district: row.district || '',
+  city: row.city || '', zipCode: row.zip_code || '', rdoCode: row.rdo_code || '', phone: row.phone || '', email: row.email || '',
+  category: row.category || 'private', hasMultipleBusinessLines: !!row.has_multiple_business_lines, accountingType: row.accounting_type || 'Calendar',
+  fiscalMonthEnd: row.fiscal_month_end || 12, coaFormat: row.coa_format || 'numeric',
+  tinLibrary: { customers: [], suppliers: [] }, sales: [], purchases: [], expenses: [], folders: [], files: []
+} as Client);
 
 const persistNormalizedClient = async (client: Client, userId: string) => {
   const clientId = client.id;
@@ -444,34 +459,42 @@ export function AccountingProvider({
   const [isReady, setIsReady] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [activeClientDataReady, setActiveClientDataReady] = useState(false);
+  // Tracks which clients have had their normalized accounting data loaded.
+  // Client-list metadata is deliberately kept lightweight; only the active
+  // client is hydrated into the full accounting aggregate.
+  const loadedClientIdsRef = React.useRef<Set<string>>(new Set());
+  const currentClientIdRef = React.useRef<string | null>(null);
+  useEffect(() => { currentClientIdRef.current = currentClientId; }, [currentClientId]);
 
   const syncData = async () => {
     if (!user || !isReady) return;
     setIsSyncing(true);
 
     try {
-      const { data, error } = await supabase.from('clients').select('*').eq('user_id', user.id);
+      // Manual sync refreshes the lightweight client list first. It then
+      // refreshes only the currently selected client instead of downloading
+      // every client's entire accounting history.
+      const { data, error } = await supabase
+        .from('clients')
+        .select(clientMetadataColumns)
+        .eq('user_id', user.id);
       if (error) throw error;
+
       const cloudClients: Record<string, Client> = {};
       for (const row of data || []) {
-        const legacy = (row.data || {}) as Partial<Client>;
-        let normalized: Partial<Client> = {};
-        try { normalized = await loadNormalizedClient(row.id); } catch (e) { console.warn('Normalized client load failed; using legacy payload:', e); }
-        cloudClients[row.id] = {
-          ...(legacy as Client), id: row.id, name: row.name || legacy.name || 'Client',
-          tin: row.tin ?? legacy.tin, taxpayerClassification: row.taxpayer_classification ?? legacy.taxpayerClassification,
-          registeredName: row.registered_name ?? legacy.registeredName, lastName: row.last_name ?? legacy.lastName, firstName: row.first_name ?? legacy.firstName,
-          middleName: row.middle_name ?? legacy.middleName, tradeName: row.trade_name ?? legacy.tradeName, substreet: row.substreet ?? legacy.substreet,
-          street: row.street ?? legacy.street, barangay: row.barangay ?? legacy.barangay, district: row.district ?? legacy.district, city: row.city ?? legacy.city,
-          zipCode: row.zip_code ?? legacy.zipCode, rdoCode: row.rdo_code ?? legacy.rdoCode, phone: row.phone ?? legacy.phone, email: row.email ?? legacy.email,
-          category: row.category ?? legacy.category, hasMultipleBusinessLines: row.has_multiple_business_lines ?? legacy.hasMultipleBusinessLines,
-          accountingType: row.accounting_type ?? legacy.accountingType, fiscalMonthEnd: row.fiscal_month_end ?? legacy.fiscalMonthEnd, coaFormat: row.coa_format ?? legacy.coaFormat,
-          tinLibrary: normalized.tinLibrary ?? legacy.tinLibrary ?? {customers:[], suppliers:[]},
-          sales: normalized.sales ?? legacy.sales ?? [], purchases: normalized.purchases ?? legacy.purchases ?? [], expenses: normalized.expenses ?? legacy.expenses ?? [],
-          ...(normalized as any)
-        } as Client;
+        const existing = clients[row.id];
+        cloudClients[row.id] = existing
+          ? ({ ...existing, ...rowToClientMetadata(row) } as Client)
+          : rowToClientMetadata(row);
       }
       setClients(cloudClients);
+
+      if (currentClientId && cloudClients[currentClientId]) {
+        const normalized = await loadNormalizedClient(currentClientId);
+        loadedClientIdsRef.current.add(currentClientId);
+        setClients(prev => ({ ...prev, [currentClientId]: { ...prev[currentClientId], ...(normalized as any) } as Client }));
+      }
       showToast('Cloud sync complete');
     } catch (e) {
       console.error('Manual sync failed', e);
@@ -544,6 +567,51 @@ export function AccountingProvider({
       setCurrentClientId(restoredId);
     }
   }, [clients, cloudPrefsLoaded, savedActiveClientId, currentClientId]);
+
+  // Hydrate ONLY the selected client. The initial client list contains
+  // metadata only, so switching between clients no longer downloads the
+  // accounting data for every other client. The full aggregate is cached in
+  // React state until that client is switched away.
+  useEffect(() => {
+    let cancelled = false;
+
+    const hydrateActiveClient = async () => {
+      if (!currentClientId || !user || !isReady) {
+        if (!cancelled) setActiveClientDataReady(!currentClientId);
+        return;
+      }
+
+      if (loadedClientIdsRef.current.has(currentClientId)) {
+        if (!cancelled) setActiveClientDataReady(true);
+        return;
+      }
+
+      setActiveClientDataReady(false);
+      setIsSyncing(true);
+      try {
+        const normalized = await loadNormalizedClient(currentClientId);
+        if (cancelled) return;
+        loadedClientIdsRef.current.add(currentClientId);
+        setClients(prev => ({
+          ...prev,
+          [currentClientId]: { ...(prev[currentClientId] || {} as Client), ...(normalized as any) } as Client
+        }));
+      } catch (error) {
+        if (!cancelled) {
+          console.warn('Active client data load failed:', error);
+          setSyncError(error instanceof Error ? error.message : String(error));
+        }
+      } finally {
+        if (!cancelled) {
+          setActiveClientDataReady(true);
+          setIsSyncing(false);
+        }
+      }
+    };
+
+    hydrateActiveClient();
+    return () => { cancelled = true; };
+  }, [currentClientId, user?.id, isReady]);
 
   // Sync the active client/profile selection to the cloud so it follows the
   // user across devices, same as the dark mode / sidebar prefs below.
@@ -646,23 +714,20 @@ export function AccountingProvider({
 
     const initClients = async () => {
       try {
-        const { data, error } = await supabase.from('clients').select('*').eq('user_id', user.id);
+        const { data, error } = await supabase
+          .from('clients')
+          .select(clientMetadataColumns)
+          .eq('user_id', user.id);
         if (isTimedOut) return;
         if (error) throw error;
 
         clearTimeout(timeout);
         const cloudClients: Record<string, Client> = {};
         for (const row of data || []) {
-          const legacy = (row.data || {}) as Partial<Client>;
-          let normalized: Partial<Client> = {};
-          try { normalized = await loadNormalizedClient(row.id); } catch (e) { console.warn('Normalized client load failed; using legacy payload:', e); }
-          cloudClients[row.id] = { ...(legacy as Client), id: row.id, name: row.name || legacy.name || 'Client',
-            tin: row.tin ?? legacy.tin, taxpayerClassification: row.taxpayer_classification ?? legacy.taxpayerClassification, registeredName: row.registered_name ?? legacy.registeredName,
-            lastName: row.last_name ?? legacy.lastName, firstName: row.first_name ?? legacy.firstName, middleName: row.middle_name ?? legacy.middleName, tradeName: row.trade_name ?? legacy.tradeName,
-            substreet: row.substreet ?? legacy.substreet, street: row.street ?? legacy.street, barangay: row.barangay ?? legacy.barangay, district: row.district ?? legacy.district, city: row.city ?? legacy.city,
-            zipCode: row.zip_code ?? legacy.zipCode, rdoCode: row.rdo_code ?? legacy.rdoCode, phone: row.phone ?? legacy.phone, email: row.email ?? legacy.email, category: row.category ?? legacy.category,
-            hasMultipleBusinessLines: row.has_multiple_business_lines ?? legacy.hasMultipleBusinessLines, accountingType: row.accounting_type ?? legacy.accountingType, fiscalMonthEnd: row.fiscal_month_end ?? legacy.fiscalMonthEnd, coaFormat: row.coa_format ?? legacy.coaFormat,
-            tinLibrary: normalized.tinLibrary ?? legacy.tinLibrary ?? {customers:[], suppliers:[]}, sales: normalized.sales ?? legacy.sales ?? [], purchases: normalized.purchases ?? legacy.purchases ?? [], expenses: normalized.expenses ?? legacy.expenses ?? [], ...(normalized as any) } as Client;
+          // Do NOT select clients.data here. That legacy JSONB can contain the
+          // entire accounting aggregate and defeats the purpose of the
+          // normalized schema by transferring it for every client at login.
+          cloudClients[row.id] = rowToClientMetadata(row);
         }
         mergeCloudClients(cloudClients);
         setIsSyncing(false);
@@ -680,7 +745,18 @@ export function AccountingProvider({
                 setClients((prev) => { const next={...prev}; delete next[(payload.old as any).id]; return next; });
               } else {
                 const row = payload.new as any;
-                loadNormalizedClient(row.id).then(normalized => setClients(prev => ({ ...prev, [row.id]: { ...(prev[row.id] || {} as Client), id:row.id, name:row.name, tin:row.tin, taxpayerClassification:row.taxpayer_classification, registeredName:row.registered_name, lastName:row.last_name, firstName:row.first_name, middleName:row.middle_name, tradeName:row.trade_name, substreet:row.substreet, street:row.street, barangay:row.barangay, district:row.district, city:row.city, zipCode:row.zip_code, rdoCode:row.rdo_code, phone:row.phone, email:row.email, category:row.category, hasMultipleBusinessLines:row.has_multiple_business_lines, accountingType:row.accounting_type, fiscalMonthEnd:row.fiscal_month_end, coaFormat:row.coa_format, ...(normalized as any) } as Client }))).catch(e=>console.warn('Realtime normalized reload failed',e));
+                // Realtime client changes normally only require metadata.
+                // Hydrate the full accounting aggregate only when the changed
+                // client is the one currently open.
+                setClients(prev => ({ ...prev, [row.id]: { ...(prev[row.id] || {} as Client), ...rowToClientMetadata(row) } as Client }));
+                if (row.id === currentClientIdRef.current) {
+                  loadNormalizedClient(row.id)
+                    .then(normalized => {
+                      loadedClientIdsRef.current.add(row.id);
+                      setClients(prev => ({ ...prev, [row.id]: { ...(prev[row.id] || {} as Client), ...(normalized as any) } as Client }));
+                    })
+                    .catch(e=>console.warn('Realtime normalized reload failed',e));
+                }
               }
             }
           )
@@ -782,7 +858,18 @@ export function AccountingProvider({
         // the business profile on every refresh.
 
         if (isReady) {
-          persistNormalizedClient(matchingClient, user.id).catch((error) => console.error('Auto-syncing owner client failed:', error));
+          if (loadedClientIdsRef.current.has(ownerId)) {
+            persistNormalizedClient(matchingClient, user.id).catch((error) => console.error('Auto-syncing owner client failed:', error));
+          } else {
+            // Metadata-only update: never let an unloaded lightweight client
+            // object overwrite/delete its normalized accounting rows.
+            supabase.from('clients').upsert({
+              id: ownerId, user_id: user.id, name: matchingClient.name, tin: matchingClient.tin || null,
+              registered_name: matchingClient.registeredName || null, updated_at: new Date().toISOString()
+            }, { onConflict: 'id' }).then(({ error }) => {
+              if (error) console.error('Auto-syncing owner metadata failed:', error);
+            });
+          }
         }
       }
 
@@ -842,6 +929,7 @@ export function AccountingProvider({
       .then(async () => {
         try {
           await persistNormalizedClient(updatedClient, user.id);
+          loadedClientIdsRef.current.add(id);
           showToast('Saved to normalized Supabase tables');
         } catch (error) {
           console.error('Normalized client save failed:', error);
@@ -1033,7 +1121,8 @@ export function AccountingProvider({
   // cloudPrefsLoaded, and - if there are clients to restore - for
   // currentClientId to actually be picked.
   const dataFullyReady =
-    isReady && (!user || cloudPrefsLoaded) && (Object.keys(clients).length === 0 || !!currentClientId);
+    isReady && (!user || cloudPrefsLoaded) &&
+    (Object.keys(clients).length === 0 || (!!currentClientId && activeClientDataReady));
 
   if (!dataFullyReady) {
     return (
