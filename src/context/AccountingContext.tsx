@@ -195,7 +195,7 @@ const getSectionsForPage = (page: string | null): ClientSection[] => {
 
 const uniqueSections = (sections: ClientSection[]) => Array.from(new Set(sections));
 
-const loadNormalizedClient = async (clientId: string, sections: ClientSection[] = ['coa']): Promise<LoadedClientData> => {
+const loadNormalizedClient = async (clientId: string, sections: ClientSection[] = ['coa'], periodKey?: string): Promise<LoadedClientData> => {
   // IMPORTANT: this is the explicit full-client loader. It is intentionally
   // no longer called for every client during application startup. The
   // provider first loads only client metadata, then calls this function for
@@ -203,6 +203,7 @@ const loadNormalizedClient = async (clientId: string, sections: ClientSection[] 
   // changing the accounting model while eliminating the largest startup
   // egress multiplier (all clients x all normalized tables).
   const requestedSections = new Set(uniqueSections(sections));
+  const periodFilter = periodKey && periodKey.trim() ? periodKey.trim() : null;
   const requestedJournalTypes = uniqueSections(sections.filter(s => ['crj','cdj','pj','gj'].includes(s)))
     .map(s => ({ crj: 'CRJ', cdj: 'CDJ', pj: 'PJ', gj: 'GJ' } as Record<string,string>)[s])
     .filter(Boolean);
@@ -214,8 +215,8 @@ const loadNormalizedClient = async (clientId: string, sections: ClientSection[] 
     inventoryMovements, folders, files, tinEntries, taxDeadlines, bankAccounts, supplierAdvances,
     withholdingTaxEntries, debitCreditMemos, checkVouchers, miscellaneousPayments,
     assetLapsingSchedule, billingInvoices, snapshots] = await Promise.all([
-      query(requestedSections.has('purchases'), supabase.from('purchases').select('id,dat_month_year,date,payment_method,check_number,bank_name,invoice_no,supplier_name,supplier_address,supplier_tin,amount,vat_type,exempt_amount,zero_rated_amount,expense_type,account_title,transaction_details,input_tax,attachment_name,attachment_type,attachment_original_type,attachment_size,attachment_original_size,attachment_compression,attachment_storage_path,withholding_option,atc_code,wht_rate,wht_amount').eq('client_id', clientId)),
-      query(requestedSections.has('sales'), supabase.from('sales').select('id,dat_month_year,date,ref,payment_type,buyer_tin,buyer_name,buyer_address,vat_type,amount,net_of_vat,output_tax,income_type,description').eq('client_id', clientId)),
+      query(requestedSections.has('purchases'), (() => { let q:any = supabase.from('purchases').select('id,dat_month_year,date,payment_method,check_number,bank_name,invoice_no,supplier_name,supplier_address,supplier_tin,amount,vat_type,exempt_amount,zero_rated_amount,expense_type,account_title,transaction_details,input_tax,attachment_name,attachment_type,attachment_original_type,attachment_size,attachment_original_size,attachment_compression,attachment_storage_path,withholding_option,atc_code,wht_rate,wht_amount').eq('client_id', clientId); if (periodFilter) q = q.eq('dat_month_year', periodFilter); return q; })()),
+      query(requestedSections.has('sales'), (() => { let q:any = supabase.from('sales').select('id,dat_month_year,date,ref,payment_type,buyer_tin,buyer_name,buyer_address,vat_type,amount,net_of_vat,output_tax,income_type,description').eq('client_id', clientId); if (periodFilter) q = q.eq('dat_month_year', periodFilter); return q; })()),
       query(requestedSections.has('expenses'), supabase.from('expenses').select('id,date,amount,category,description').eq('client_id', clientId)),
       query(requestedSections.has('coa'), supabase.from('coa_columns').select('id,name,is_system').eq('client_id', clientId)),
       query(requestedSections.has('coa'), supabase.from('coa_accounts').select('id,name,type,normal_side,parent_id,hidden,opening_balance,custom_values').eq('client_id', clientId)),
@@ -394,26 +395,14 @@ const persistNormalizedClient = async (client: Client, userId: string, loadedSec
     const { data: existingRows, error: existingError } = await existingQuery;
     if (existingError) throw existingError;
 
-    const currentIds = new Set(normalizedRows.map(r => String(r.id)));
-    const staleIds = (existingRows || [])
-      .map((r:any) => String(r.id))
-      .filter((id:string) => !currentIds.has(id));
-
+    // Upsert only. This is intentionally non-destructive: some screens (for
+    // example History) load only one accounting period. Deleting every DB row
+    // not present in that partial in-memory view would incorrectly delete
+    // transactions from other periods. Explicit delete actions use their own
+    // row-level operations instead.
     for (const part of chunk(normalizedRows)) {
       if (!part.length) continue;
       const { error } = await supabase.from(table).upsert(part, { onConflict: 'id' });
-      if (error) throw error;
-    }
-
-    // Delete only rows removed from the current aggregate.  Never perform a
-    // blanket client-wide delete.
-    for (const part of chunk(staleIds, 100)) {
-      if (!part.length) continue;
-      const { error } = await supabase
-        .from(table)
-        .delete()
-        .eq('client_id', clientId)
-        .in('id', part);
       if (error) throw error;
     }
   };
@@ -521,6 +510,9 @@ export function AccountingProvider({
     const path = location.pathname.replace(/^\/+/, '');
     return path === '' ? null : decodeURIComponent(path);
   })();
+  const historyPeriod = activePage === 'history'
+    ? (currentDat?.formatted || new Date().toLocaleString('en-US', { month: 'long' }) + ' ' + new Date().getFullYear())
+    : undefined;
   const [currentDat, setCurrentDat] = useState<DatSelection | null>(null);
   const [historyTab, setHistoryTab] = useState('expenses');
   const [birFormTab, setBirFormTab] = useState('tracker');
@@ -587,8 +579,8 @@ export function AccountingProvider({
         const loaded = loadedSectionsRef.current.get(currentClientId) || new Set<ClientSection>();
         const missing = sections.filter(section => !loaded.has(section));
         if (missing.length) {
-          const normalized = await loadNormalizedClient(currentClientId, missing);
-          missing.forEach(section => loaded.add(section));
+          const normalized = await loadNormalizedClient(currentClientId, missing, activePage === 'history' ? historyPeriod : undefined);
+          missing.forEach(section => { if (!(activePage === 'history' && (section === 'purchases' || section === 'sales'))) loaded.add(section); });
           loadedSectionsRef.current.set(currentClientId, loaded);
           setClients(prev => ({ ...prev, [currentClientId]: { ...prev[currentClientId], ...(normalized.data as any) } as Client }));
         }
@@ -689,9 +681,9 @@ export function AccountingProvider({
       setActiveClientDataReady(false);
       setIsSyncing(true);
       try {
-        const normalized = await loadNormalizedClient(currentClientId, missing);
+        const normalized = await loadNormalizedClient(currentClientId, missing, activePage === 'history' ? historyPeriod : undefined);
         if (cancelled) return;
-        missing.forEach(section => loaded.add(section));
+        missing.forEach(section => { if (!(activePage === 'history' && (section === 'purchases' || section === 'sales'))) loaded.add(section); });
         loadedSectionsRef.current.set(currentClientId, loaded);
         setClients(prev => ({
           ...prev,
@@ -712,7 +704,7 @@ export function AccountingProvider({
 
     hydrateActiveClient();
     return () => { cancelled = true; };
-  }, [currentClientId, user?.id, isReady, activePage]);
+  }, [currentClientId, user?.id, isReady, activePage, historyPeriod]);
 
   // Sync the active client/profile selection to the cloud so it follows the
   // user across devices, same as the dark mode / sidebar prefs below.
