@@ -510,10 +510,11 @@ export function AccountingProvider({
     const path = location.pathname.replace(/^\/+/, '');
     return path === '' ? null : decodeURIComponent(path);
   })();
+  const [currentDat, setCurrentDat] = useState<DatSelection | null>(null);
+
   const historyPeriod = activePage === 'history'
     ? (currentDat?.formatted || new Date().toLocaleString('en-US', { month: 'long' }) + ' ' + new Date().getFullYear())
     : undefined;
-  const [currentDat, setCurrentDat] = useState<DatSelection | null>(null);
 
   // Transaction-entry screens work on the currently selected DAT period.
   // Do not download a client's entire lifetime of purchases/sales merely to
