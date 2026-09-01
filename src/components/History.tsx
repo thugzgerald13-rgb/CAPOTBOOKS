@@ -269,6 +269,15 @@ export function History() {
     }
   }, [currentDat]);
 
+  const targetFormatted = currentDat ? currentDat.formatted : `${MONTHS[selectedMonth - 1]} ${selectedYear}`;
+  const targetMonth = currentDat?.month || selectedMonth;
+  const targetYear = currentDat?.year || selectedYear;
+  const paddedMonth = String(targetMonth).padStart(2, '0');
+  const nextMonthDate = targetMonth === 12
+    ? `${targetYear + 1}-01-01`
+    : `${targetYear}-${String(targetMonth + 1).padStart(2, '0')}-01`;
+  const periodStartDate = `${targetYear}-${paddedMonth}-01`;
+
   const handleLoadPeriod = () => {
     const formatted = `${MONTHS[selectedMonth - 1]} ${selectedYear}`;
     setCurrentDat({
@@ -281,8 +290,6 @@ export function History() {
 
   const activeTab = historyTab as HistoryTab;
   const setActiveTab = (tab: HistoryTab) => setHistoryTab(tab);
-
-  if (!currentClient) return null;
 
   const TabConfig = {
     expenses: { label: 'Expense History', icon: ShoppingCart, color: 'text-amber-600', bg: 'bg-amber-50' },
@@ -314,13 +321,15 @@ export function History() {
             .from('purchases')
             .select('id,dat_month_year,date,payment_method,check_number,bank_name,invoice_no,supplier_name,supplier_address,supplier_tin,amount,vat_type,exempt_amount,zero_rated_amount,expense_type,account_title,transaction_details,input_tax,attachment_name,attachment_type,attachment_original_type,attachment_size,attachment_original_size,attachment_compression,attachment_storage_path,withholding_option,atc_code,wht_rate,wht_amount')
             .eq('client_id', currentClientId)
-            .eq('dat_month_year', targetFormatted)
+            .gte('date', periodStartDate)
+            .lt('date', nextMonthDate)
             .order('date', { ascending: true }),
           supabase
             .from('sales')
             .select('id,dat_month_year,date,ref,payment_type,buyer_tin,buyer_name,buyer_address,vat_type,amount,net_of_vat,output_tax,income_type,description')
             .eq('client_id', currentClientId)
-            .eq('dat_month_year', targetFormatted)
+            .gte('date', periodStartDate)
+            .lt('date', nextMonthDate)
             .order('date', { ascending: true })
         ]);
 
@@ -380,6 +389,7 @@ export function History() {
           desc: r.description || ''
         }));
 
+        console.debug('[CAPOT History] loaded period', { currentClientId, periodStartDate, nextMonthDate, purchases: mappedPurchases.length, sales: mappedSales.length });
         setLocalHistoryPurchases(mappedPurchases);
         setLocalHistorySales(mappedSales);
       } catch (error) {
@@ -394,7 +404,7 @@ export function History() {
 
     loadHistoryPeriod();
     return () => { cancelled = true; };
-  }, [currentClientId, targetFormatted, showToast]);
+  }, [currentClientId, periodStartDate, nextMonthDate, showToast]);
 
 
   const handleDeleteExpense = async (id: number) => {
@@ -418,7 +428,8 @@ export function History() {
     showToast('Income deleted');
   };
 
-  const targetFormatted = currentDat ? currentDat.formatted : `${MONTHS[selectedMonth - 1]} ${selectedYear}`;
+  if (!currentClient) return null;
+
   const purchases = localHistoryPurchases;
   const sales = localHistorySales;
 
