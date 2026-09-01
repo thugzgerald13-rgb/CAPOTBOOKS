@@ -511,7 +511,6 @@ export function AccountingProvider({
     return path === '' ? null : decodeURIComponent(path);
   })();
   const [currentDat, setCurrentDat] = useState<DatSelection | null>(null);
-
   const historyPeriod = activePage === 'history'
     ? (currentDat?.formatted || new Date().toLocaleString('en-US', { month: 'long' }) + ' ' + new Date().getFullYear())
     : undefined;
@@ -585,10 +584,16 @@ export function AccountingProvider({
       if (currentClientId && cloudClients[currentClientId]) {
         const sections = getSectionsForPage(activePage);
         const loaded = loadedSectionsRef.current.get(currentClientId) || new Set<ClientSection>();
+        const deferredTransactionSections = (activePage === 'sales' || activePage === 'purchases/invoiced' || activePage === 'purchases/other-payments')
+          ? new Set<ClientSection>(['purchases', 'sales'])
+          : new Set<ClientSection>();
         const missing = sections.filter(section => !loaded.has(section));
+        const sectionsToFetch = missing.filter(section => !deferredTransactionSections.has(section));
         if (missing.length) {
-          const normalized = await loadNormalizedClient(currentClientId, missing, activePage === 'history' ? historyPeriod : transactionPeriod);
-          missing.forEach(section => { if (!(activePage === 'history' && (section === 'purchases' || section === 'sales'))) loaded.add(section); });
+          const normalized = sectionsToFetch.length
+            ? await loadNormalizedClient(currentClientId, sectionsToFetch, activePage === 'history' ? historyPeriod : transactionPeriod)
+            : { data: {}, sections: [] as ClientSection[] };
+          missing.forEach(section => loaded.add(section));
           loadedSectionsRef.current.set(currentClientId, loaded);
           setClients(prev => ({ ...prev, [currentClientId]: { ...prev[currentClientId], ...(normalized.data as any) } as Client }));
         }
@@ -680,7 +685,15 @@ export function AccountingProvider({
 
       const requestedSections = getSectionsForPage(activePage);
       const loaded = loadedSectionsRef.current.get(currentClientId) || new Set<ClientSection>();
+      // Purchases and Sales entry screens use their own server-side paginated
+      // queries. Do not hydrate an entire DAT period into AccountingContext.
+      // The sections are still marked as loaded so saveClient can persist rows
+      // supplied by the entry screen without forcing a bulk download.
+      const deferredTransactionSections = (activePage === 'sales' || activePage === 'purchases/invoiced' || activePage === 'purchases/other-payments')
+        ? new Set<ClientSection>(['purchases', 'sales'])
+        : new Set<ClientSection>();
       const missing = requestedSections.filter(section => !loaded.has(section));
+      const sectionsToFetch = missing.filter(section => !deferredTransactionSections.has(section));
       if (missing.length === 0) {
         if (!cancelled) setActiveClientDataReady(true);
         return;
@@ -689,9 +702,11 @@ export function AccountingProvider({
       setActiveClientDataReady(false);
       setIsSyncing(true);
       try {
-        const normalized = await loadNormalizedClient(currentClientId, missing, activePage === 'history' ? historyPeriod : transactionPeriod);
+        const normalized = sectionsToFetch.length
+          ? await loadNormalizedClient(currentClientId, sectionsToFetch, activePage === 'history' ? historyPeriod : transactionPeriod)
+          : { data: {}, sections: [] as ClientSection[] };
         if (cancelled) return;
-        missing.forEach(section => { if (!(activePage === 'history' && (section === 'purchases' || section === 'sales'))) loaded.add(section); });
+        missing.forEach(section => loaded.add(section));
         loadedSectionsRef.current.set(currentClientId, loaded);
         setClients(prev => ({
           ...prev,
