@@ -172,7 +172,9 @@ type ClientSection =
 type LoadedClientData = { data: Partial<Client>; sections: ClientSection[] };
 
 const PAGE_SECTIONS: Record<string, ClientSection[]> = {
-  '': ['sales', 'purchases'],
+  // Dashboard loads its metrics and recent activity directly from server-side queries.
+  // Do not hydrate transaction history into AccountingContext just to render cards.
+  '': [],
   sales: ['sales', 'crj', 'coa', 'tinLibrary'],
   billing: ['billing', 'sales', 'crj', 'coa'],
   'journal-voucher': ['journalVoucher', 'coa'],
