@@ -149,50 +149,102 @@ const chunk = <T,>(items: T[], size = 200): T[][] => {
   return out;
 };
 
-const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> => {
+type ClientSection =
+  | 'purchases' | 'sales' | 'expenses' | 'coa' | 'crj' | 'cdj' | 'pj' | 'gj'
+  | 'journalVoucher' | 'ap' | 'inventory' | 'files' | 'tinLibrary' | 'compliance'
+  | 'assets' | 'billing' | 'reports';
+
+type LoadedClientData = { data: Partial<Client>; sections: ClientSection[] };
+
+const PAGE_SECTIONS: Record<string, ClientSection[]> = {
+  '': ['sales', 'purchases'],
+  sales: ['sales', 'crj', 'coa', 'tinLibrary'],
+  billing: ['billing', 'sales', 'crj', 'coa'],
+  'journal-voucher': ['journalVoucher', 'coa'],
+  'purchases/invoiced': ['purchases', 'coa', 'tinLibrary'],
+  'purchases/other-payments': ['purchases', 'coa', 'tinLibrary'],
+  'purchases/ap': ['ap', 'coa', 'tinLibrary'],
+  tinlibrary: ['tinLibrary'],
+  history: ['purchases', 'sales', 'tinLibrary'],
+  coa: ['coa'],
+  'cash-receipt': ['crj', 'coa'],
+  'cash-disbursement': ['cdj', 'coa', 'purchases', 'journalVoucher', 'ap'],
+  'purchase-journal': ['pj', 'coa'],
+  journal: ['gj', 'coa'],
+  ledger: ['coa', 'crj', 'cdj', 'pj', 'gj', 'journalVoucher'],
+  pl: ['coa', 'crj', 'cdj', 'pj', 'gj', 'journalVoucher'],
+  balancesheet: ['coa', 'crj', 'cdj', 'pj', 'gj', 'journalVoucher'],
+  cashflow: ['coa', 'crj', 'cdj', 'pj', 'gj', 'journalVoucher'],
+  assetlapsing: ['assets'],
+  'sales-journal': ['sales', 'crj', 'coa'],
+  files: ['files'],
+  inventory: ['inventory'],
+  'bir-forms': ['purchases', 'sales', 'expenses', 'ap', 'compliance'],
+  'compliance-tracker': ['purchases', 'sales', 'compliance'],
+  'ap-workspace': ['ap', 'coa', 'tinLibrary'],
+  reports: ['coa', 'crj', 'cdj', 'pj', 'gj', 'journalVoucher', 'reports'],
+  books: ['coa', 'crj', 'cdj', 'pj', 'gj', 'journalVoucher'],
+  trialbalance: ['coa', 'crj', 'cdj', 'pj', 'gj', 'journalVoucher'],
+  taxnotes: ['compliance'],
+};
+
+const getSectionsForPage = (page: string | null): ClientSection[] => {
+  const key = (page || '').replace(/^\/+/, '');
+  return PAGE_SECTIONS[key] || ['coa'];
+};
+
+const uniqueSections = (sections: ClientSection[]) => Array.from(new Set(sections));
+
+const loadNormalizedClient = async (clientId: string, sections: ClientSection[] = ['coa']): Promise<LoadedClientData> => {
   // IMPORTANT: this is the explicit full-client loader. It is intentionally
   // no longer called for every client during application startup. The
   // provider first loads only client metadata, then calls this function for
   // the currently selected client. Keeping the existing mapper here avoids
   // changing the accounting model while eliminating the largest startup
   // egress multiplier (all clients x all normalized tables).
+  const requestedSections = new Set(uniqueSections(sections));
+  const requestedJournalTypes = uniqueSections(sections.filter(s => ['crj','cdj','pj','gj'].includes(s)))
+    .map(s => ({ crj: 'CRJ', cdj: 'CDJ', pj: 'PJ', gj: 'GJ' } as Record<string,string>)[s])
+    .filter(Boolean);
+  const query = <T,>(enabled: boolean, request: T) => enabled ? request : Promise.resolve({ data: [], error: null } as any);
+
   const [purchases, sales, expenses, coaColumns, coaAccounts, journalColumns, journalEntries,
     journalVouchers, journalVoucherLines, purchaseOrders, purchaseOrderItems, receivingReports,
     receivingReportItems, payableInvoices, payableInvoiceItems, inventoryColumns, inventoryItems,
     inventoryMovements, folders, files, tinEntries, taxDeadlines, bankAccounts, supplierAdvances,
     withholdingTaxEntries, debitCreditMemos, checkVouchers, miscellaneousPayments,
     assetLapsingSchedule, billingInvoices, snapshots] = await Promise.all([
-      supabase.from('purchases').select('id,dat_month_year,date,payment_method,check_number,bank_name,invoice_no,supplier_name,supplier_address,supplier_tin,amount,vat_type,exempt_amount,zero_rated_amount,expense_type,account_title,transaction_details,input_tax,attachment_name,attachment_type,attachment_original_type,attachment_size,attachment_original_size,attachment_compression,attachment_storage_path,withholding_option,atc_code,wht_rate,wht_amount').eq('client_id', clientId),
-      supabase.from('sales').select('id,dat_month_year,date,ref,payment_type,buyer_tin,buyer_name,buyer_address,vat_type,amount,net_of_vat,output_tax,income_type,description').eq('client_id', clientId),
-      supabase.from('expenses').select('id,date,amount,category,description').eq('client_id', clientId),
-      supabase.from('coa_columns').select('id,name,is_system').eq('client_id', clientId),
-      supabase.from('coa_accounts').select('id,name,type,normal_side,parent_id,hidden,opening_balance,custom_values').eq('client_id', clientId),
-      supabase.from('journal_columns').select('id,journal_type,name,type,category,is_system').eq('client_id', clientId),
-      supabase.from('journal_entries').select('id,journal_type,values,auto,auto_source').eq('client_id', clientId),
-      supabase.from('journal_vouchers').select('id,date,reference,memo').eq('client_id', clientId),
-      supabase.from('journal_voucher_lines').select('id,journal_voucher_id,account_id,account_name,debit,credit').eq('client_id', clientId),
-      supabase.from('purchase_orders').select('id,date,supplier_id,supplier_name,total_amount,status').eq('client_id', clientId),
-      supabase.from('purchase_order_items').select('id,purchase_order_id,item_code,description,qty,unit_price').eq('client_id', clientId),
-      supabase.from('receiving_reports').select('id,date,po_id,supplier_name,total_amount,received_by').eq('client_id', clientId),
-      supabase.from('receiving_report_items').select('id,receiving_report_id,item_code,description,qty_ordered,qty_received,unit_price').eq('client_id', clientId),
-      supabase.from('payable_invoices').select('id,invoice_number,date,due_date,po_id,rr_id,supplier_id,supplier_name,subtotal,vat_amount,is_vatable,withholding_tax_id,wht_amount,total_amount,status,discrepancy_details,applied_prepayments').eq('client_id', clientId),
-      supabase.from('payable_invoice_items').select('id,payable_invoice_id,item_code,description,qty,unit_price,amount').eq('client_id', clientId),
-      supabase.from('inventory_columns').select('id,label').eq('client_id', clientId),
-      supabase.from('inventory_items').select('id,code,name,sku,description,category,unit_of_measure,cost_price,selling_price,stock_level,reorder_point,location,custom_fields').eq('client_id', clientId),
-      supabase.from('inventory_movements').select('id,item_id,item_name,item_code,date,type,qty,unit_cost,total_value,reference,notes').eq('client_id', clientId),
-      supabase.from('app_folders').select('id,name,is_default,type').eq('client_id', clientId),
-      supabase.from('app_files').select('id,name,type,size,uploaded_at,folder_id,storage_path,description').eq('client_id', clientId),
-      supabase.from('tin_entries').select('id,party_type,tin,name,address').eq('client_id', clientId),
-      supabase.from('tax_deadlines').select('id,form_type,title,period,due_date,status,tax_status,amount_due,date_filed,date_paid,reference_no,confirmation_no,notes').eq('client_id', clientId),
-      supabase.from('bank_accounts').select('id,bank_name,account_number,balance').eq('client_id', clientId),
-      supabase.from('supplier_advances').select('id,supplier_id,supplier_name,date,amount,is_liquidated,notes').eq('client_id', clientId),
-      supabase.from('withholding_tax_entries').select('id,atc_code,description,tax_rate,category').eq('client_id', clientId),
-      supabase.from('debit_credit_memos').select('id,type,invoice_id,invoice_number,supplier_name,date,amount,reason').eq('client_id', clientId),
-      supabase.from('check_vouchers').select('id,date,payee_name,invoice_id,invoice_number,payment_type,misc_details,amount,checked_by,approved_by,bank_account_id,bank_name,check_number,status,reversed_reason,reversed_at').eq('client_id', clientId),
-      supabase.from('miscellaneous_payments').select('id,date,payee_name,amount,bank_account_id,bank_name,check_number,expense_category,description').eq('client_id', clientId),
-      supabase.from('asset_lapsing_schedule').select('id,date_purchased,invoice_no,description,cost,useful_life_years,salvage_value').eq('client_id', clientId),
-      supabase.from('billing_invoices').select('id,date,due_date,invoice_no,customer_tin,customer_name,customer_address,vat_type,amount,net_of_vat,output_tax,description,status,payment_type,date_paid,is_recurring,recurrence_frequency,next_billing_date,parent_invoice_id').eq('client_id', clientId),
-      supabase.from('financial_report_snapshots').select('id,report_type,data,updated_at').eq('client_id', clientId),
+      query(requestedSections.has('purchases'), supabase.from('purchases').select('id,dat_month_year,date,payment_method,check_number,bank_name,invoice_no,supplier_name,supplier_address,supplier_tin,amount,vat_type,exempt_amount,zero_rated_amount,expense_type,account_title,transaction_details,input_tax,attachment_name,attachment_type,attachment_original_type,attachment_size,attachment_original_size,attachment_compression,attachment_storage_path,withholding_option,atc_code,wht_rate,wht_amount').eq('client_id', clientId)),
+      query(requestedSections.has('sales'), supabase.from('sales').select('id,dat_month_year,date,ref,payment_type,buyer_tin,buyer_name,buyer_address,vat_type,amount,net_of_vat,output_tax,income_type,description').eq('client_id', clientId)),
+      query(requestedSections.has('expenses'), supabase.from('expenses').select('id,date,amount,category,description').eq('client_id', clientId)),
+      query(requestedSections.has('coa'), supabase.from('coa_columns').select('id,name,is_system').eq('client_id', clientId)),
+      query(requestedSections.has('coa'), supabase.from('coa_accounts').select('id,name,type,normal_side,parent_id,hidden,opening_balance,custom_values').eq('client_id', clientId)),
+      query(requestedJournalTypes.length > 0, supabase.from('journal_columns').select('id,journal_type,name,type,category,is_system').eq('client_id', clientId).in('journal_type', requestedJournalTypes)),
+      query(requestedJournalTypes.length > 0, supabase.from('journal_entries').select('id,journal_type,values,auto,auto_source').eq('client_id', clientId).in('journal_type', requestedJournalTypes)),
+      query(requestedSections.has('journalVoucher'), supabase.from('journal_vouchers').select('id,date,reference,memo').eq('client_id', clientId)),
+      query(requestedSections.has('journalVoucher'), supabase.from('journal_voucher_lines').select('id,journal_voucher_id,account_id,account_name,debit,credit').eq('client_id', clientId)),
+      query(requestedSections.has('ap'), supabase.from('purchase_orders').select('id,date,supplier_id,supplier_name,total_amount,status').eq('client_id', clientId)),
+      query(requestedSections.has('ap'), supabase.from('purchase_order_items').select('id,purchase_order_id,item_code,description,qty,unit_price').eq('client_id', clientId)),
+      query(requestedSections.has('ap'), supabase.from('receiving_reports').select('id,date,po_id,supplier_name,total_amount,received_by').eq('client_id', clientId)),
+      query(requestedSections.has('ap'), supabase.from('receiving_report_items').select('id,receiving_report_id,item_code,description,qty_ordered,qty_received,unit_price').eq('client_id', clientId)),
+      query(requestedSections.has('ap'), supabase.from('payable_invoices').select('id,invoice_number,date,due_date,po_id,rr_id,supplier_id,supplier_name,subtotal,vat_amount,is_vatable,withholding_tax_id,wht_amount,total_amount,status,discrepancy_details,applied_prepayments').eq('client_id', clientId)),
+      query(requestedSections.has('ap'), supabase.from('payable_invoice_items').select('id,payable_invoice_id,item_code,description,qty,unit_price,amount').eq('client_id', clientId)),
+      query(requestedSections.has('inventory'), supabase.from('inventory_columns').select('id,label').eq('client_id', clientId)),
+      query(requestedSections.has('inventory'), supabase.from('inventory_items').select('id,code,name,sku,description,category,unit_of_measure,cost_price,selling_price,stock_level,reorder_point,location,custom_fields').eq('client_id', clientId)),
+      query(requestedSections.has('inventory'), supabase.from('inventory_movements').select('id,item_id,item_name,item_code,date,type,qty,unit_cost,total_value,reference,notes').eq('client_id', clientId)),
+      query(requestedSections.has('files'), supabase.from('app_folders').select('id,name,is_default,type').eq('client_id', clientId)),
+      query(requestedSections.has('files'), supabase.from('app_files').select('id,name,type,size,uploaded_at,folder_id,storage_path,description').eq('client_id', clientId)),
+      query(requestedSections.has('tinLibrary'), supabase.from('tin_entries').select('id,party_type,tin,name,address').eq('client_id', clientId)),
+      query(requestedSections.has('compliance'), supabase.from('tax_deadlines').select('id,form_type,title,period,due_date,status,tax_status,amount_due,date_filed,date_paid,reference_no,confirmation_no,notes').eq('client_id', clientId)),
+      query(requestedSections.has('ap'), supabase.from('bank_accounts').select('id,bank_name,account_number,balance').eq('client_id', clientId)),
+      query(requestedSections.has('ap'), supabase.from('supplier_advances').select('id,supplier_id,supplier_name,date,amount,is_liquidated,notes').eq('client_id', clientId)),
+      query(requestedSections.has('compliance'), supabase.from('withholding_tax_entries').select('id,atc_code,description,tax_rate,category').eq('client_id', clientId)),
+      query(requestedSections.has('ap'), supabase.from('debit_credit_memos').select('id,type,invoice_id,invoice_number,supplier_name,date,amount,reason').eq('client_id', clientId)),
+      query(requestedSections.has('ap'), supabase.from('check_vouchers').select('id,date,payee_name,invoice_id,invoice_number,payment_type,misc_details,amount,checked_by,approved_by,bank_account_id,bank_name,check_number,status,reversed_reason,reversed_at').eq('client_id', clientId)),
+      query(requestedSections.has('ap'), supabase.from('miscellaneous_payments').select('id,date,payee_name,amount,bank_account_id,bank_name,check_number,expense_category,description').eq('client_id', clientId)),
+      query(requestedSections.has('assets'), supabase.from('asset_lapsing_schedule').select('id,date_purchased,invoice_no,description,cost,useful_life_years,salvage_value').eq('client_id', clientId)),
+      query(requestedSections.has('billing'), supabase.from('billing_invoices').select('id,date,due_date,invoice_no,customer_tin,customer_name,customer_address,vat_type,amount,net_of_vat,output_tax,description,status,payment_type,date_paid,is_recurring,recurrence_frequency,next_billing_date,parent_invoice_id').eq('client_id', clientId)),
+      query(requestedSections.has('reports'), supabase.from('financial_report_snapshots').select('id,report_type,data,updated_at').eq('client_id', clientId)),
     ]);
 
   const responses = [purchases, sales, expenses, coaColumns, coaAccounts, journalColumns, journalEntries,
@@ -252,7 +304,20 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
     if (r.report_type==='Balance Sheet') (result as any).bsData = r.data;
     if (r.report_type==='Cash Flow') (result as any).cfData = r.data;
   });
-  return result;
+  const fieldSections: Record<string, ClientSection> = {
+    purchases:'purchases', sales:'sales', expenses:'expenses', coaColumns:'coa', accounts:'coa',
+    crjColumns:'crj', crjEntries:'crj', cdjColumns:'cdj', cdjEntries:'cdj', pjColumns:'pj', pjEntries:'pj',
+    gjColumns:'gj', gjEntries:'gj', journalVouchers:'journalVoucher', purchaseOrders:'ap', receivingReports:'ap',
+    payableInvoices:'ap', inventoryColumns:'inventory', inventoryItems:'inventory', inventoryMovements:'inventory',
+    folders:'files', files:'files', tinLibrary:'tinLibrary', taxDeadlines:'compliance', bankAccounts:'ap',
+    supplierAdvances:'ap', withholdingTaxEntries:'compliance', debitCreditMemos:'ap', checkVouchers:'ap',
+    miscellaneousPayments:'ap', assetLapsingSchedule:'assets', billingInvoices:'billing', plData:'reports', bsData:'reports', cfData:'reports'
+  };
+  Object.keys(result).forEach(key => {
+    const section = fieldSections[key];
+    if (section && !requestedSections.has(section)) delete (result as any)[key];
+  });
+  return { data: result, sections: uniqueSections(sections) };
 };
 
 const clientMetadataColumns = 'id,name,user_id,tin,taxpayer_classification,registered_name,last_name,first_name,middle_name,trade_name,substreet,street,barangay,district,city,zip_code,rdo_code,phone,email,category,has_multiple_business_lines,accounting_type,fiscal_month_end,coa_format';
@@ -267,7 +332,7 @@ const rowToClientMetadata = (row:any): Client => ({
   tinLibrary: { customers: [], suppliers: [] }, sales: [], purchases: [], expenses: [], folders: [], files: []
 } as Client);
 
-const persistNormalizedClient = async (client: Client, userId: string) => {
+const persistNormalizedClient = async (client: Client, userId: string, loadedSections: ClientSection[] = []) => {
   const clientId = client.id;
   const parent = {
     id: clientId, user_id: userId, name: client.name,
@@ -291,7 +356,31 @@ const persistNormalizedClient = async (client: Client, userId: string) => {
   // That caused unnecessary writes, changed child-row identities, and made concurrent
   // edits unsafe.  We now upsert the current rows and remove only rows that no longer
   // exist in the client aggregate.
+  const persistSectionSet = new Set(uniqueSections(loadedSections));
+  const tableSection = (table: string, scope?: Record<string, any>): ClientSection | null => {
+    if (table === 'purchases') return 'purchases';
+    if (table === 'sales') return 'sales';
+    if (table === 'expenses') return 'expenses';
+    if (table === 'coa_columns' || table === 'coa_accounts') return 'coa';
+    if (table === 'journal_columns' || table === 'journal_entries') {
+      const jt = scope?.journal_type;
+      return jt === 'CRJ' ? 'crj' : jt === 'CDJ' ? 'cdj' : jt === 'PJ' ? 'pj' : jt === 'GJ' ? 'gj' : null;
+    }
+    if (table === 'journal_vouchers' || table === 'journal_voucher_lines') return 'journalVoucher';
+    if (['purchase_orders','purchase_order_items','receiving_reports','receiving_report_items','payable_invoices','payable_invoice_items','bank_accounts','supplier_advances','debit_credit_memos','check_vouchers','miscellaneous_payments'].includes(table)) return 'ap';
+    if (['inventory_columns','inventory_items','inventory_movements'].includes(table)) return 'inventory';
+    if (['app_folders','app_files'].includes(table)) return 'files';
+    if (table === 'tin_entries') return 'tinLibrary';
+    if (['tax_deadlines','withholding_tax_entries'].includes(table)) return 'compliance';
+    if (table === 'asset_lapsing_schedule') return 'assets';
+    if (table === 'billing_invoices') return 'billing';
+    if (table === 'financial_report_snapshots') return 'reports';
+    return null;
+  };
+
   const syncMany = async (table:string, rows:any[], scope?: Record<string, any>) => {
+    const section = tableSection(table, scope);
+    if (!section || !persistSectionSet.has(section)) return;
     const normalizedRows = rows.map(r => ({ ...r, client_id: clientId }));
     let existingQuery = supabase
       .from(table)
@@ -463,9 +552,12 @@ export function AccountingProvider({
   // Tracks which clients have had their normalized accounting data loaded.
   // Client-list metadata is deliberately kept lightweight; only the active
   // client is hydrated into the full accounting aggregate.
-  const loadedClientIdsRef = React.useRef<Set<string>>(new Set());
+  const loadedSectionsRef = React.useRef<Map<string, Set<ClientSection>>>(new Map());
   const currentClientIdRef = React.useRef<string | null>(null);
+  const activePageRef = React.useRef<string | null>(activePage);
   useEffect(() => { currentClientIdRef.current = currentClientId; }, [currentClientId]);
+  useEffect(() => { activePageRef.current = activePage; }, [activePage]);
+  useEffect(() => { loadedSectionsRef.current.clear(); }, [user?.id]);
 
   const syncData = async () => {
     if (!user || !isReady) return;
@@ -491,9 +583,15 @@ export function AccountingProvider({
       setClients(cloudClients);
 
       if (currentClientId && cloudClients[currentClientId]) {
-        const normalized = await loadNormalizedClient(currentClientId);
-        loadedClientIdsRef.current.add(currentClientId);
-        setClients(prev => ({ ...prev, [currentClientId]: { ...prev[currentClientId], ...(normalized as any) } as Client }));
+        const sections = getSectionsForPage(activePage);
+        const loaded = loadedSectionsRef.current.get(currentClientId) || new Set<ClientSection>();
+        const missing = sections.filter(section => !loaded.has(section));
+        if (missing.length) {
+          const normalized = await loadNormalizedClient(currentClientId, missing);
+          missing.forEach(section => loaded.add(section));
+          loadedSectionsRef.current.set(currentClientId, loaded);
+          setClients(prev => ({ ...prev, [currentClientId]: { ...prev[currentClientId], ...(normalized.data as any) } as Client }));
+        }
       }
       showToast('Cloud sync complete');
     } catch (e) {
@@ -568,10 +666,9 @@ export function AccountingProvider({
     }
   }, [clients, cloudPrefsLoaded, savedActiveClientId, currentClientId]);
 
-  // Hydrate ONLY the selected client. The initial client list contains
-  // metadata only, so switching between clients no longer downloads the
-  // accounting data for every other client. The full aggregate is cached in
-  // React state until that client is switched away.
+  // Hydrate only the sections needed by the currently visible page. Each
+  // section is cached per client, so navigating between pages does not
+  // re-download sections that have already been loaded for that client.
   useEffect(() => {
     let cancelled = false;
 
@@ -581,7 +678,10 @@ export function AccountingProvider({
         return;
       }
 
-      if (loadedClientIdsRef.current.has(currentClientId)) {
+      const requestedSections = getSectionsForPage(activePage);
+      const loaded = loadedSectionsRef.current.get(currentClientId) || new Set<ClientSection>();
+      const missing = requestedSections.filter(section => !loaded.has(section));
+      if (missing.length === 0) {
         if (!cancelled) setActiveClientDataReady(true);
         return;
       }
@@ -589,12 +689,13 @@ export function AccountingProvider({
       setActiveClientDataReady(false);
       setIsSyncing(true);
       try {
-        const normalized = await loadNormalizedClient(currentClientId);
+        const normalized = await loadNormalizedClient(currentClientId, missing);
         if (cancelled) return;
-        loadedClientIdsRef.current.add(currentClientId);
+        missing.forEach(section => loaded.add(section));
+        loadedSectionsRef.current.set(currentClientId, loaded);
         setClients(prev => ({
           ...prev,
-          [currentClientId]: { ...(prev[currentClientId] || {} as Client), ...(normalized as any) } as Client
+          [currentClientId]: { ...(prev[currentClientId] || {} as Client), ...(normalized.data as any) } as Client
         }));
       } catch (error) {
         if (!cancelled) {
@@ -611,7 +712,7 @@ export function AccountingProvider({
 
     hydrateActiveClient();
     return () => { cancelled = true; };
-  }, [currentClientId, user?.id, isReady]);
+  }, [currentClientId, user?.id, isReady, activePage]);
 
   // Sync the active client/profile selection to the cloud so it follows the
   // user across devices, same as the dark mode / sidebar prefs below.
@@ -750,10 +851,13 @@ export function AccountingProvider({
                 // client is the one currently open.
                 setClients(prev => ({ ...prev, [row.id]: { ...(prev[row.id] || {} as Client), ...rowToClientMetadata(row) } as Client }));
                 if (row.id === currentClientIdRef.current) {
-                  loadNormalizedClient(row.id)
+                  const sections = getSectionsForPage(activePageRef.current);
+                  loadNormalizedClient(row.id, sections)
                     .then(normalized => {
-                      loadedClientIdsRef.current.add(row.id);
-                      setClients(prev => ({ ...prev, [row.id]: { ...(prev[row.id] || {} as Client), ...(normalized as any) } as Client }));
+                      const loaded = loadedSectionsRef.current.get(row.id) || new Set<ClientSection>();
+                      sections.forEach(section => loaded.add(section));
+                      loadedSectionsRef.current.set(row.id, loaded);
+                      setClients(prev => ({ ...prev, [row.id]: { ...(prev[row.id] || {} as Client), ...(normalized.data as any) } as Client }));
                     })
                     .catch(e=>console.warn('Realtime normalized reload failed',e));
                 }
@@ -858,8 +962,8 @@ export function AccountingProvider({
         // the business profile on every refresh.
 
         if (isReady) {
-          if (loadedClientIdsRef.current.has(ownerId)) {
-            persistNormalizedClient(matchingClient, user.id).catch((error) => console.error('Auto-syncing owner client failed:', error));
+          if (loadedSectionsRef.current.has(ownerId)) {
+            persistNormalizedClient(matchingClient, user.id, Array.from(loadedSectionsRef.current.get(ownerId) || [])).catch((error) => console.error('Auto-syncing owner client failed:', error));
           } else {
             // Metadata-only update: never let an unloaded lightweight client
             // object overwrite/delete its normalized accounting rows.
@@ -928,8 +1032,7 @@ export function AccountingProvider({
       .catch(() => undefined)
       .then(async () => {
         try {
-          await persistNormalizedClient(updatedClient, user.id);
-          loadedClientIdsRef.current.add(id);
+          await persistNormalizedClient(updatedClient, user.id, Array.from(loadedSectionsRef.current.get(id) || []));
           showToast('Saved to normalized Supabase tables');
         } catch (error) {
           console.error('Normalized client save failed:', error);
@@ -972,7 +1075,7 @@ export function AccountingProvider({
 
     if (user) {
       try {
-        await persistNormalizedClient(newClient, user.id);
+        await persistNormalizedClient(newClient, user.id, []);
         showToast('Client added');
       } catch (error) {
         await handleSupabaseError(error, OperationType.CREATE, `clients/${newId}`);
@@ -1025,7 +1128,7 @@ export function AccountingProvider({
         const existing = clients[ownerId];
         const matchingClient = buildMatchingClient(profileData, existing, ownerId);
 
-        await persistNormalizedClient(matchingClient, user.id);
+        await persistNormalizedClient(matchingClient, user.id, Array.from(loadedSectionsRef.current.get(ownerId) || []));
 
         setClients((prev) => ({
           ...prev,
