@@ -172,9 +172,7 @@ type ClientSection =
 type LoadedClientData = { data: Partial<Client>; sections: ClientSection[] };
 
 const PAGE_SECTIONS: Record<string, ClientSection[]> = {
-  // Dashboard loads its metrics and recent activity directly from server-side queries.
-  // Do not hydrate transaction history into AccountingContext just to render cards.
-  '': [],
+  '': ['sales', 'purchases'],
   sales: ['sales', 'crj', 'coa', 'tinLibrary'],
   billing: ['billing', 'sales', 'crj', 'coa'],
   'journal-voucher': ['journalVoucher', 'coa'],
@@ -400,17 +398,11 @@ const persistNormalizedClient = async (client: Client, userId: string, loadedSec
     const section = tableSection(table, scope);
     if (!section || !persistSectionSet.has(section)) return;
     const normalizedRows = rows.map(r => ({ ...r, client_id: clientId }));
-    let existingQuery = supabase
-      .from(table)
-      .select('id')
-      .eq('client_id', clientId);
-    if (scope) {
-      Object.entries(scope).forEach(([key, value]) => {
-        existingQuery = existingQuery.eq(key, value);
-      });
-    }
-    const { data: existingRows, error: existingError } = await existingQuery;
-    if (existingError) throw existingError;
+    // Upsert only. Do not first SELECT every existing row just to discover
+    // which IDs exist. That read was unnecessary egress on every save and
+    // became increasingly expensive as a client's history grew. Explicit
+    // delete actions already remove individual rows, so synchronization can
+    // safely remain additive/upsert-only here.
 
     // Upsert only. This is intentionally non-destructive: some screens (for
     // example History) load only one accounting period. Deleting every DB row
@@ -866,17 +858,14 @@ export function AccountingProvider({
                 // Hydrate the full accounting aggregate only when the changed
                 // client is the one currently open.
                 setClients(prev => ({ ...prev, [row.id]: { ...(prev[row.id] || {} as Client), ...rowToClientMetadata(row) } as Client }));
-                if (row.id === currentClientIdRef.current) {
-                  const sections = getSectionsForPage(activePageRef.current);
-                  loadNormalizedClient(row.id, sections)
-                    .then(normalized => {
-                      const loaded = loadedSectionsRef.current.get(row.id) || new Set<ClientSection>();
-                      sections.forEach(section => loaded.add(section));
-                      loadedSectionsRef.current.set(row.id, loaded);
-                      setClients(prev => ({ ...prev, [row.id]: { ...(prev[row.id] || {} as Client), ...(normalized.data as any) } as Client }));
-                    })
-                    .catch(e=>console.warn('Realtime normalized reload failed',e));
-                }
+                // Realtime is intentionally metadata-only. Historical accounting
+                // tables can contain thousands of rows; rehydrating the active
+                // page whenever the parent `clients` row changes defeats the
+                // lazy-loading architecture and causes avoidable egress. The
+                // local save path already updates the active client immediately.
+                // Other-device accounting changes are picked up when the user
+                // refreshes/reopens the relevant page or performs an explicit
+                // sync.
               }
             }
           )
