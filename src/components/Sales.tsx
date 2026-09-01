@@ -5,14 +5,50 @@ import { formatTIN, MONTHS, getMonthName } from '../lib/utils';
 import { Receipt, Plus } from 'lucide-react';
 import { DEFAULT_CRJ_COLUMNS } from './CashReceiptsJournal';
 import { JournalEntry } from '../types';
+import { supabase } from '../lib/supabase';
 
 const CASH_RECEIPT_PAYMENT_TYPES = ['Cash', 'Check', 'E-Payment', 'Bank Transfer'];
 const SALES_JOURNAL_PAYMENT_TYPES = ['Credit Card', 'On Account'];
 
 export function Sales() {
   const { currentClient, currentClientId, currentDat, setCurrentDat, saveClient, showToast } = useAccounting();
+  const PAGE_SIZE = 50;
+  const [salesPage, setSalesPage] = useState(0);
+  const [salesTotal, setSalesTotal] = useState(0);
+  const [salesRows, setSalesRows] = useState<any[]>([]);
+  const [salesLoading, setSalesLoading] = useState(false);
+  const [salesError, setSalesError] = useState<string | null>(null);
+  const [salesRefresh, setSalesRefresh] = useState(0);
 
   
+  // Server-side paginated sales history. The entry form remains lightweight
+  // while the list below retrieves only 50 rows at a time.
+  useEffect(() => {
+    if (!currentClientId || !currentDat?.formatted) { setSalesRows([]); setSalesTotal(0); return; }
+    let cancelled = false;
+    const loadSales = async () => {
+      setSalesLoading(true); setSalesError(null);
+      const from = salesPage * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+      const { data, count, error } = await supabase
+        .from('sales')
+        .select('id,dat_month_year,date,ref,payment_type,buyer_tin,buyer_name,buyer_address,vat_type,amount,net_of_vat,output_tax,income_type,description', { count: 'exact' })
+        .eq('client_id', currentClientId)
+        .eq('dat_month_year', currentDat.formatted)
+        .order('date', { ascending: false })
+        .order('created_at', { ascending: false })
+        .range(from, to);
+      if (cancelled) return;
+      if (error) { setSalesError(error.message); setSalesRows([]); }
+      else { setSalesRows((data || []).map((r:any) => ({ id:Number(r.id)||r.id, datMonthYear:r.dat_month_year||'', date:r.date ? String(r.date).slice(0,10) : '', ref:r.ref||'', paymentType:r.payment_type||'', buyerTin:r.buyer_tin||'', buyerName:r.buyer_name||'', buyerAddress:r.buyer_address||'', vatType:r.vat_type||'', amount:Number(r.amount||0), netOfVat:Number(r.net_of_vat||0), outputTax:Number(r.output_tax||0), incomeType:r.income_type||'', desc:r.description||'' }))); setSalesTotal(count || 0); }
+      setSalesLoading(false);
+    };
+    loadSales();
+    return () => { cancelled = true; };
+  }, [currentClientId, currentDat?.formatted, salesPage, salesRefresh]);
+
+  useEffect(() => { setSalesPage(0); }, [currentClientId, currentDat?.formatted]);
+
   // Form State
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [paymentType, setPaymentType] = useState('Cash');
@@ -129,7 +165,7 @@ export function Sales() {
 
     const updatedClient = {
       ...currentClient,
-      sales: [...currentClient.sales, newSale],
+      sales: [...salesRows, newSale],
       // Sales Journal (Credit Card / On Account) is derived by filtering `sales` on paymentType,
       // so nothing else needs to change there. Cash Receipts Journal is a separate free-form
       // ledger, so we append a matching row to it here when payment was cash-like.
@@ -139,6 +175,7 @@ export function Sales() {
     };
 
     saveClient(currentClientId, updatedClient);
+    setSalesRefresh(v => v + 1);
 
     if (CASH_RECEIPT_PAYMENT_TYPES.includes(paymentType)) {
       showToast('Income entry added and posted to Cash Receipts Journal');
@@ -255,6 +292,18 @@ export function Sales() {
             <Plus className="w-5 h-5" /> Add Income Entry
           </button>
         </div>
+      </div>
+
+      <div className="mt-6 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+          <div><h3 className="font-bold text-slate-800 dark:text-slate-100">Income entries for {currentDat?.formatted || 'selected period'}</h3><p className="text-xs text-slate-500 dark:text-slate-400">Server-side pagination · 50 records per request · {salesTotal.toLocaleString()} total</p></div>
+          <div className="flex items-center gap-2">
+            <button type="button" disabled={salesLoading || salesPage === 0} onClick={() => setSalesPage(p => Math.max(0,p-1))} className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-sm font-bold disabled:opacity-40">Previous</button>
+            <span className="text-xs font-bold text-slate-500 min-w-[90px] text-center">Page {salesPage+1} of {Math.max(1,Math.ceil(salesTotal/PAGE_SIZE))}</span>
+            <button type="button" disabled={salesLoading || (salesPage+1)*PAGE_SIZE >= salesTotal} onClick={() => setSalesPage(p => p+1)} className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-sm font-bold disabled:opacity-40">Next</button>
+          </div>
+        </div>
+        {salesLoading ? <div className="py-6 text-center text-sm text-slate-500">Loading income entries…</div> : salesError ? <div className="py-6 text-center text-sm text-red-500">{salesError}</div> : salesRows.length === 0 ? <div className="py-6 text-center text-sm text-slate-500">No income entries found for this DAT period.</div> : <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b border-slate-200 dark:border-slate-700 text-left text-xs uppercase text-slate-500"><th className="py-2 pr-3">Date</th><th className="py-2 pr-3">Invoice / Ref</th><th className="py-2 pr-3">Customer</th><th className="py-2 text-right">Amount</th></tr></thead><tbody>{salesRows.map((r:any)=><tr key={String(r.id)} className="border-b border-slate-100 dark:border-slate-800"><td className="py-2 pr-3 whitespace-nowrap">{r.date}</td><td className="py-2 pr-3">{r.ref || '—'}</td><td className="py-2 pr-3">{r.buyerName}</td><td className="py-2 text-right font-semibold">₱{r.amount.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td></tr>)}</tbody></table></div>}
       </div>
       </div>
     </div>

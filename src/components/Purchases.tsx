@@ -7,6 +7,7 @@ import { formatTIN, generateCSV, MONTHS, getMonthName } from '../lib/utils';
 import { ShoppingCart, Plus, Trash2, X, Paperclip, Upload, FileText, Image as ImageIcon } from 'lucide-react';
 import { DEFAULT_ACCOUNTS, getNormalSide, resequenceAccounts } from './ChartOfAccounts';
 import { ATC_SCHEDULE } from '../lib/atcSchedule';
+import { supabase } from '../lib/supabase';
 
 
 type PurchaseAttachment = {
@@ -124,6 +125,13 @@ export function Purchases() {
   const isOtherPayments = location.pathname === '/purchases/other-payments';
   const isAP = location.pathname === '/purchases/ap';
   const { currentClient, currentClientId, currentDat, saveClient, showToast, setCurrentDat } = useAccounting();
+  const PAGE_SIZE = 50;
+  const [transactionPage, setTransactionPage] = useState(0);
+  const [transactionTotal, setTransactionTotal] = useState(0);
+  const [transactionRows, setTransactionRows] = useState<any[]>([]);
+  const [transactionLoading, setTransactionLoading] = useState(false);
+  const [transactionError, setTransactionError] = useState<string | null>(null);
+  const [transactionRefresh, setTransactionRefresh] = useState(0);
   
   // Single record state (similar to original but react-friendly)
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -238,25 +246,63 @@ export function Purchases() {
   useEffect(() => {
     if (currentClient && viewIndex === null) {
       const periodPurchases = currentClient.purchases || [];
-      const count = currentDat ? periodPurchases.filter(p => p.datMonthYear === currentDat.formatted).length : 0;
+      const count = isAP ? periodPurchases.length : transactionTotal;
       setSequenceNumber(count + 1);
     }
-  }, [currentClient?.purchases.length, currentDat?.formatted, viewIndex]);
+  }, [currentClient?.purchases.length, currentDat?.formatted, viewIndex, transactionTotal, isAP]);
 
   const [autoLoadMsg, setAutoLoadMsg] = useState('');
 
-  const periodPurchases = (() => {
-    if (!currentClient) return [];
-    const all = currentClient.purchases || [];
-    if (currentDat) {
-      return all.filter(p => p.datMonthYear === currentDat.formatted);
-    } else {
-      if (!date) return [];
-      const [y, m] = date.split('-');
-      const expected = `${MONTHS[parseInt(m) - 1]} ${y}`;
-      return all.filter(p => p.datMonthYear === expected);
+  // Purchases are loaded directly from Supabase in pages of 50 rows. This
+  // prevents a client with thousands of transactions from transferring an
+  // entire DAT period merely to display the entry screen.
+  useEffect(() => {
+    if (isAP || !currentClientId || !currentDat?.formatted) {
+      if (!isAP) setTransactionRows([]);
+      setTransactionTotal(0);
+      return;
     }
-  })();
+    let cancelled = false;
+    const loadPage = async () => {
+      setTransactionLoading(true);
+      setTransactionError(null);
+      const from = transactionPage * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+      const { data, count, error } = await supabase
+        .from('purchases')
+        .select('id,dat_month_year,date,payment_method,check_number,bank_name,invoice_no,supplier_name,supplier_address,supplier_tin,amount,vat_type,exempt_amount,zero_rated_amount,expense_type,account_title,transaction_details,input_tax,attachment_name,attachment_type,attachment_original_type,attachment_size,attachment_original_size,attachment_compression,attachment_storage_path,withholding_option,atc_code,wht_rate,wht_amount', { count: 'exact' })
+        .eq('client_id', currentClientId)
+        .eq('dat_month_year', currentDat.formatted)
+        .order('date', { ascending: false })
+        .order('created_at', { ascending: false })
+        .range(from, to);
+      if (cancelled) return;
+      if (error) {
+        setTransactionError(error.message);
+        setTransactionRows([]);
+      } else {
+        const rows = (data || []).map((r:any) => ({
+          id: Number(r.id) || r.id, datMonthYear: r.dat_month_year || '', date: r.date ? String(r.date).slice(0,10) : '',
+          paymentMethod: r.payment_method || '', checkNumber: r.check_number || '', bankName: r.bank_name || '', invoiceNo: r.invoice_no || '',
+          supplierName: r.supplier_name || '', supplierAddress: r.supplier_address || '', supplierTin: r.supplier_tin || '', amount: Number(r.amount || 0),
+          vatType: r.vat_type || '', exemptAmount: Number(r.exempt_amount || 0), zeroRatedAmount: Number(r.zero_rated_amount || 0),
+          expenseType: r.expense_type || '', accountTitle: r.account_title || '', transactionDetails: r.transaction_details || '', inputTax: Number(r.input_tax || 0),
+          attachment: r.attachment_name ? { name:r.attachment_name, type:r.attachment_type || '', originalType:r.attachment_original_type || r.attachment_type || '', size:Number(r.attachment_size || 0), originalSize:Number(r.attachment_original_size || r.attachment_size || 0), compression:r.attachment_compression, compressedSize:Number(r.attachment_size || 0), encoding:'raw', data:'', storagePath:r.attachment_storage_path } : undefined,
+          withholdingOption: r.withholding_option || 'w/o', atcCode: r.atc_code || '', whtRate: r.wht_rate == null ? null : Number(r.wht_rate), whtAmount: r.wht_amount == null ? 0 : Number(r.wht_amount)
+        }));
+        setTransactionRows(rows);
+        setTransactionTotal(count || 0);
+      }
+      setTransactionLoading(false);
+    };
+    loadPage();
+    return () => { cancelled = true; };
+  }, [currentClientId, currentDat?.formatted, transactionPage, isAP, transactionRefresh]);
+
+  useEffect(() => { setTransactionPage(0); setViewIndex(null); }, [currentClientId, currentDat?.formatted, isAP]);
+
+  const periodPurchases = isAP ? (currentClient?.purchases || []) : transactionRows;
+
 
   const loadPurchase = (index: number, purchaseList = periodPurchases) => {
     if (index < 0 || index >= purchaseList.length) return;
@@ -298,10 +344,9 @@ export function Purchases() {
     const editPurchaseId = (location.state as { editPurchaseId?: number } | null)?.editPurchaseId;
     if (editPurchaseId == null || !currentClient) return;
 
-    const allPurchases = currentClient.purchases || [];
-    const index = allPurchases.findIndex(p => p.id === editPurchaseId);
+    const index = periodPurchases.findIndex(p => p.id === editPurchaseId);
     if (index >= 0) {
-      loadPurchase(index, allPurchases);
+      loadPurchase(index, periodPurchases);
       navigate(location.pathname, { replace: true, state: null });
     }
   }, [location.state, location.pathname, currentClient, periodPurchases, navigate]);
@@ -480,8 +525,8 @@ export function Purchases() {
       showToast(viewIndex !== null ? 'AP invoice updated' : 'AP invoice added');
     } else {
     const purchaseData = {
-      id: viewIndex !== null ? currentClient.purchases[viewIndex].id : Date.now(),
-      sequenceNumber: viewIndex !== null ? (currentClient.purchases[viewIndex].sequenceNumber || sequenceNumber) : sequenceNumber,
+      id: viewIndex !== null ? periodPurchases[viewIndex].id : Date.now(),
+      sequenceNumber: viewIndex !== null ? (periodPurchases[viewIndex].sequenceNumber || sequenceNumber) : sequenceNumber,
       datMonthYear: currentDat ? currentDat.formatted : `${MONTHS[parseInt(m) - 1]} ${y}`,
       date: formattedDate,
       paymentMethod,
@@ -514,9 +559,9 @@ export function Purchases() {
 
     let updatedPurchases;
     if (viewIndex !== null) {
-      updatedPurchases = currentClient.purchases.map(p => p.id === purchaseData.id ? purchaseData : p);
+      updatedPurchases = periodPurchases.map(p => p.id === purchaseData.id ? purchaseData : p);
     } else {
-      updatedPurchases = [...currentClient.purchases, purchaseData];
+      updatedPurchases = [...periodPurchases, purchaseData];
     }
 
     const updatedClient = {
@@ -524,6 +569,7 @@ export function Purchases() {
       purchases: updatedPurchases
     };
     saveClient(currentClientId, updatedClient);
+    if (!isAP) setTransactionRefresh(v => v + 1);
     showToast(viewIndex !== null ? 'Entry updated' : 'Expense entry added');
 
     }
@@ -566,9 +612,11 @@ export function Purchases() {
     if (!currentClient || !currentClientId) return;
     const updatedClient = {
       ...currentClient,
-      purchases: currentClient.purchases.filter(p => p.id !== id)
+      purchases: periodPurchases.filter(p => p.id !== id)
     };
     saveClient(currentClientId, updatedClient);
+    setTransactionRefresh(v => v + 1);
+    setViewIndex(null);
     showToast('Expense deleted');
   };
 
@@ -876,6 +924,30 @@ export function Purchases() {
            </div>
         </div>
       </div>
+
+      {!isAP && (
+        <div className="mt-6 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4 shadow-sm">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+            <div>
+              <h3 className="font-bold text-slate-800 dark:text-slate-100">Transactions for {currentDat?.formatted || 'selected period'}</h3>
+              <p className="text-xs text-slate-500 dark:text-slate-400">Server-side pagination · 50 records per request · {transactionTotal.toLocaleString()} total</p>
+            </div>
+            <div className="flex items-center gap-2">
+              <button type="button" disabled={transactionLoading || transactionPage === 0} onClick={() => { setViewIndex(null); setTransactionPage(p => Math.max(0, p - 1)); }} className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-sm font-bold disabled:opacity-40">Previous</button>
+              <span className="text-xs font-bold text-slate-500 min-w-[90px] text-center">Page {transactionPage + 1} of {Math.max(1, Math.ceil(transactionTotal / PAGE_SIZE))}</span>
+              <button type="button" disabled={transactionLoading || (transactionPage + 1) * PAGE_SIZE >= transactionTotal} onClick={() => { setViewIndex(null); setTransactionPage(p => p + 1); }} className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-sm font-bold disabled:opacity-40">Next</button>
+            </div>
+          </div>
+          {transactionLoading ? <div className="py-6 text-center text-sm text-slate-500">Loading transactions…</div> : transactionError ? <div className="py-6 text-center text-sm text-red-500">{transactionError}</div> : transactionRows.length === 0 ? <div className="py-6 text-center text-sm text-slate-500">No transactions found for this DAT period.</div> : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead><tr className="border-b border-slate-200 dark:border-slate-700 text-left text-xs uppercase text-slate-500"><th className="py-2 pr-3">Date</th><th className="py-2 pr-3">Invoice #</th><th className="py-2 pr-3">Supplier</th><th className="py-2 pr-3 text-right">Amount</th><th className="py-2"></th></tr></thead>
+                <tbody>{transactionRows.map((p:any, i:number) => <tr key={String(p.id)} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50"><td className="py-2 pr-3 whitespace-nowrap">{p.date}</td><td className="py-2 pr-3">{p.invoiceNo || '—'}</td><td className="py-2 pr-3">{p.supplierName}</td><td className="py-2 pr-3 text-right font-semibold">₱{Number(p.amount || 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td><td className="py-2 text-right"><button type="button" onClick={() => loadPurchase(i, transactionRows)} className="text-amber-600 font-bold hover:underline">Open</button></td></tr>)}</tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       </div>
     </div>
