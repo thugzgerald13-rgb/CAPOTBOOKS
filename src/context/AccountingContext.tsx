@@ -180,7 +180,8 @@ const PAGE_SECTIONS: Record<string, ClientSection[]> = {
   'purchases/other-payments': ['purchases', 'coa', 'tinLibrary'],
   'purchases/ap': ['ap', 'coa', 'tinLibrary'],
   tinlibrary: ['tinLibrary'],
-  history: ['purchases', 'sales', 'tinLibrary'],
+  // History queries the selected period directly; do not hydrate transaction history here.
+  history: ['tinLibrary'],
   coa: ['coa'],
   'cash-receipt': ['crj', 'coa'],
   'cash-disbursement': ['cdj', 'coa', 'purchases', 'journalVoucher', 'ap'],
@@ -247,7 +248,8 @@ const loadNormalizedClient = async (clientId: string, sections: ClientSection[] 
       query(requestedSections.has('ap'), supabase.from('payable_invoice_items').select('id,payable_invoice_id,item_code,description,qty,unit_price,amount').eq('client_id', clientId)),
       query(requestedSections.has('inventory'), supabase.from('inventory_columns').select('id,label').eq('client_id', clientId)),
       query(requestedSections.has('inventory'), supabase.from('inventory_items').select('id,code,name,sku,description,category,unit_of_measure,cost_price,selling_price,stock_level,reorder_point,location,custom_fields').eq('client_id', clientId)),
-      query(requestedSections.has('inventory'), supabase.from('inventory_movements').select('id,item_id,item_name,item_code,date,type,qty,unit_cost,total_value,reference,notes').eq('client_id', clientId)),
+      // Inventory movements can grow very large. The Inventory page loads them only when its Movements tab is opened.
+      query(false, Promise.resolve({ data: [], error: null } as any)),
       query(requestedSections.has('files'), supabase.from('app_folders').select('id,name,is_default,type').eq('client_id', clientId)),
       query(requestedSections.has('files'), supabase.from('app_files').select('id,name,type,size,uploaded_at,folder_id,storage_path,description').eq('client_id', clientId)),
       query(requestedSections.has('tinLibrary'), supabase.from('tin_entries').select('id,party_type,tin,name,address').eq('client_id', clientId)),
