@@ -413,11 +413,6 @@ export interface JournalEntry {
 export type CashReceipt = JournalEntry;
 export type CashDisbursement = JournalEntry;
 
-export interface DatSelection {
-  month: number;
-  year: number;
-  formatted: string;
-}
 
 // ============================================================================
 // ACCOUNTS PAYABLE & CASH DISBURSEMENTS MODULES
