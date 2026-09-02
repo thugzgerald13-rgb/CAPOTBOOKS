@@ -11,7 +11,6 @@ import { DEFAULT_GJ_COLUMNS } from './GeneralJournal';
 import { supabase } from '../lib/supabase';
 import { computeAutoPostings } from '../lib/glPosting';
 import { cn } from '../lib/utils';
-import { getRunningBalances } from '../lib/accountingBalances';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
@@ -24,6 +23,12 @@ const dateRange = (month: number, year: number) => {
 
 const rowDate = (v: any) => v ? String(v).slice(0,10) : '';
 const mapJournalEntry = (r:any): JournalEntry => ({ id: String(r.id), values: r.values || {}, auto: !!r.auto, autoSource: r.auto_source });
+
+// GL is a period view. Keep the last successfully loaded period in memory so
+// remounting/navigating back to the same period does not immediately re-read
+// the same journal payload from Supabase. The cache is intentionally small and
+// is replaced whenever a different client/period is loaded.
+let glPeriodCache: { key: string; value: Record<string, GeneralLedgerEntry[]> } | null = null;
 
 export function GeneralLedger() {
   const { currentClient, currentClientId, currentDat, saveClient } = useAccounting();
@@ -57,17 +62,29 @@ export function GeneralLedger() {
     let cancelled = false;
     const loadLedgerPeriod = async () => {
       if (!currentClientId || !currentClient) return;
+      const cacheKey = `${currentClientId}:${year}-${String(month).padStart(2,'0')}`;
+      if (glPeriodCache?.key === cacheKey) {
+        setLoadError(null);
+        setAutoEntries(glPeriodCache.value);
+        setLoading(false);
+        return;
+      }
+
       setLoading(true); setLoadError(null);
       const { start, end } = dateRange(month, year);
       try {
         const journalTypes = ['CRJ','CDJ','PJ','GJ'];
+        // Request only fields consumed by the posting engine. In particular,
+        // journal_entries does not need any duplicate metadata columns here;
+        // the date predicate is applied in Postgres before the JSON payload is
+        // sent to the browser.
         const [columnsRes, entriesRes, vouchersRes] = await Promise.all([
           supabase.from('journal_columns')
-            .select('id,journal_type,name,type,category,is_system')
+            .select('id,journal_type,name,type,category')
             .eq('client_id', currentClientId)
             .in('journal_type', journalTypes),
           supabase.from('journal_entries')
-            .select('id,journal_type,values,auto,auto_source')
+            .select('id,journal_type,values')
             .eq('client_id', currentClientId)
             .in('journal_type', journalTypes)
             .gte('values->>date', start)
@@ -82,6 +99,7 @@ export function GeneralLedger() {
         if (columnsRes.error) throw columnsRes.error;
         if (entriesRes.error) throw entriesRes.error;
         if (vouchersRes.error) throw vouchersRes.error;
+        if (cancelled) return;
 
         const voucherIds = (vouchersRes.data || []).map((v:any) => String(v.id));
         let voucherLines:any[] = [];
@@ -93,22 +111,29 @@ export function GeneralLedger() {
           if (linesRes.error) throw linesRes.error;
           voucherLines = linesRes.data || [];
         }
+        if (cancelled) return;
 
-        const byType = (type:string) => (entriesRes.data || []).filter((r:any) => r.journal_type === type).map(mapJournalEntry);
+        const rows = entriesRes.data || [];
+        const byType = (type:string) => rows.filter((r:any) => r.journal_type === type).map(mapJournalEntry);
         const cols = columnsRes.data || [];
+        const linesByVoucher = new Map<string, any[]>();
+        voucherLines.forEach((l:any) => {
+          const key = String(l.journal_voucher_id);
+          const list = linesByVoucher.get(key) || [];
+          list.push({ id:String(l.id), accountId:l.account_id || '', accountName:l.account_name || '', debit:Number(l.debit||0), credit:Number(l.credit||0) });
+          linesByVoucher.set(key, list);
+        });
         const vouchers = (vouchersRes.data || []).map((v:any) => ({
           id:String(v.id), date:rowDate(v.date), reference:v.reference || '', memo:v.memo || '',
-          lines:voucherLines.filter(l => String(l.journal_voucher_id) === String(v.id)).map(l => ({
-            id:String(l.id), accountId:l.account_id || '', accountName:l.account_name || '', debit:Number(l.debit||0), credit:Number(l.credit||0)
-          }))
+          lines:linesByVoucher.get(String(v.id)) || []
         }));
 
         const filteredClient: Client = {
           ...currentClient,
-          crjColumns: cols.filter((c:any)=>c.journal_type==='CRJ').map((c:any)=>({id:String(c.id),name:c.name,type:c.type,category:c.category,isSystem:!!c.is_system})),
-          cdjColumns: cols.filter((c:any)=>c.journal_type==='CDJ').map((c:any)=>({id:String(c.id),name:c.name,type:c.type,category:c.category,isSystem:!!c.is_system})),
-          pjColumns: cols.filter((c:any)=>c.journal_type==='PJ').map((c:any)=>({id:String(c.id),name:c.name,type:c.type,category:c.category,isSystem:!!c.is_system})),
-          gjColumns: cols.filter((c:any)=>c.journal_type==='GJ').map((c:any)=>({id:String(c.id),name:c.name,type:c.type,category:c.category,isSystem:!!c.is_system})),
+          crjColumns: cols.filter((c:any)=>c.journal_type==='CRJ').map((c:any)=>({id:String(c.id),name:c.name,type:c.type,category:c.category,isSystem:false})),
+          cdjColumns: cols.filter((c:any)=>c.journal_type==='CDJ').map((c:any)=>({id:String(c.id),name:c.name,type:c.type,category:c.category,isSystem:false})),
+          pjColumns: cols.filter((c:any)=>c.journal_type==='PJ').map((c:any)=>({id:String(c.id),name:c.name,type:c.type,category:c.category,isSystem:false})),
+          gjColumns: cols.filter((c:any)=>c.journal_type==='GJ').map((c:any)=>({id:String(c.id),name:c.name,type:c.type,category:c.category,isSystem:false})),
           crjEntries: byType('CRJ'), cdjEntries: byType('CDJ'), pjEntries: byType('PJ'), gjEntries: byType('GJ'),
           journalVouchers: vouchers,
         };
@@ -116,6 +141,7 @@ export function GeneralLedger() {
         const next:Record<string,GeneralLedgerEntry[]> = {};
         postings.forEach(p => { (next[p.accountId] ||= []).push(p.entry); });
         Object.values(next).forEach(arr => arr.sort((a,b) => String(a.dateDr || a.dateCr).localeCompare(String(b.dateDr || b.dateCr))));
+        glPeriodCache = { key: cacheKey, value: next };
         if (!cancelled) setAutoEntries(next);
       } catch (e:any) {
         console.error('General Ledger period load failed', e);
