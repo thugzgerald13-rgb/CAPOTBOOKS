@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ArrowLeftRight, Trash2 } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
@@ -40,10 +40,44 @@ export function CashFlow() {
     cashBeginningPrior: '0.00',
   };
 
-  const cfData = currentClient.cfData || defaultData;
+  const [cfData, setCfData] = useState<CashFlowData>(() => currentClient.cfData || defaultData);
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dirtyRef = useRef(false);
+
+  // Keep the editable report local while the user is typing.  Persist only
+  // after a short idle period instead of issuing a Supabase write on every
+  // keystroke.
+  useEffect(() => {
+    setCfData(currentClient.cfData || defaultData);
+    dirtyRef.current = false;
+  }, [currentClientId]);
+
+  useEffect(() => {
+    if (!dirtyRef.current) return;
+
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+
+    saveTimerRef.current = setTimeout(() => {
+      void saveClient(currentClientId, {
+        ...currentClient,
+        cfData,
+      });
+      dirtyRef.current = false;
+      saveTimerRef.current = null;
+    }, 700);
+
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, [cfData, currentClientId, currentClient, saveClient]);
+
+  useEffect(() => () => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+  }, []);
 
   const updateData = (updates: Partial<CashFlowData>) => {
-    saveClient(currentClientId, { ...currentClient, cfData: { ...cfData, ...updates } });
+    dirtyRef.current = true;
+    setCfData(prev => ({ ...prev, ...updates }));
   };
 
   const parseNum = (val: string) => {
