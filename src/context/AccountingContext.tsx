@@ -35,6 +35,8 @@ interface AccountingContextType {
   setCurrentDat: (dat: DatSelection | null) => void;
 
   saveClient: (id: string, clientData: Client) => Promise<void>;
+  savePurchase: (clientId: string, purchase: any) => Promise<void>;
+  deletePurchase: (clientId: string, purchaseId: string | number) => Promise<void>;
   addClient: (name: string) => Promise<void>;
   deleteClient: (id: string) => Promise<void>;
   saveBusinessProfile: (profile: BusinessProfile) => Promise<void>;
@@ -800,6 +802,50 @@ export function AccountingProvider({
     }
   }, [businessProfile, clients, currentClientId, user, isReady]);
 
+  const mapPurchaseRow = (p: any, clientId: string) => ({
+    id: strId(p.id), client_id: clientId, dat_month_year: p.datMonthYear || null,
+    date: p.date || null, payment_method: p.paymentMethod || '',
+    check_number: p.checkNumber || null, bank_name: p.bankName || null,
+    invoice_no: p.invoiceNo || null, supplier_name: p.supplierName || '',
+    supplier_address: p.supplierAddress || null, supplier_tin: p.supplierTin || null,
+    amount: Number(p.amount || 0), vat_type: p.vatType || null,
+    expense_type: p.expenseType || null, account_title: p.accountTitle || null,
+    transaction_details: p.transactionDetails || null, input_tax: Number(p.inputTax || 0),
+    attachment_name: p.attachment?.name || null, attachment_type: p.attachment?.type || null,
+    attachment_original_type: p.attachment?.originalType || null,
+    attachment_size: p.attachment?.size || null,
+    attachment_original_size: p.attachment?.originalSize || null,
+    attachment_compression: p.attachment?.compression || null,
+    attachment_storage_path: p.attachment?.storagePath || null,
+    withholding_option: p.withholdingOption || null, atc_code: p.atcCode || null,
+    wht_rate: p.whtRate ?? null, wht_amount: p.whtAmount ?? null,
+  });
+
+  const savePurchase = async (clientId: string, purchase: any) => {
+    if (!user) return;
+    const row = mapPurchaseRow(purchase, clientId);
+    const { error } = await supabase.from('purchases').upsert(row, { onConflict: 'id' });
+    if (error) throw error;
+    setClients(prev => {
+      const c = prev[clientId];
+      if (!c) return prev;
+      const list = c.purchases || [];
+      const exists = list.some((p:any) => String(p.id) === String(purchase.id));
+      return { ...prev, [clientId]: { ...c, purchases: exists ? list.map((p:any) => String(p.id) === String(purchase.id) ? purchase : p) : [...list, purchase] } };
+    });
+  };
+
+  const deletePurchase = async (clientId: string, purchaseId: string | number) => {
+    if (!user) return;
+    const { error } = await supabase.from('purchases').delete().eq('client_id', clientId).eq('id', String(purchaseId));
+    if (error) throw error;
+    setClients(prev => {
+      const c = prev[clientId];
+      if (!c) return prev;
+      return { ...prev, [clientId]: { ...c, purchases: (c.purchases || []).filter((p:any) => String(p.id) !== String(purchaseId)) } };
+    });
+  };
+
   const saveClient = async (id: string, clientData: Client) => {
     const updatedClient = { ...clientData, id, userId: user ? user.id : undefined } as Client;
     setClients((prev) => ({ ...prev, [id]: updatedClient }));
@@ -1039,6 +1085,8 @@ export function AccountingProvider({
         setCurrentClientId,
         setCurrentDat,
         saveClient,
+        savePurchase,
+        deletePurchase,
         addClient,
         deleteClient,
         saveBusinessProfile,
