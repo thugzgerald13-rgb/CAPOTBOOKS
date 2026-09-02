@@ -417,18 +417,12 @@ const persistNormalizedClient = async (client: Client, userId: string, loadedSec
     const section = tableSection(table, scope);
     if (!section || !persistSectionSet.has(section)) return;
     const normalizedRows = rows.map(r => ({ ...r, client_id: clientId }));
-    let existingQuery = supabase
-      .from(table)
-      .select('id')
-      .eq('client_id', clientId);
-    if (scope) {
-      Object.entries(scope).forEach(([key, value]) => {
-        existingQuery = existingQuery.eq(key, value);
-      });
-    }
-    const { data: existingRows, error: existingError } = await existingQuery;
-    if (existingError) throw existingError;
-
+    // Upsert only. Do not pre-read every existing primary key here. The old
+    // implementation performed a SELECT of the entire client's row-id set
+    // before every save, which added an avoidable read/egress round trip.
+    // Explicit delete actions remain responsible for deleting removed rows.
+    // Some screens load only one period, so this sync must remain non-destructive.
+    //
     // Upsert only. This is intentionally non-destructive: some screens (for
     // example History) load only one accounting period. Deleting every DB row
     // not present in that partial in-memory view would incorrectly delete
@@ -896,11 +890,31 @@ export function AccountingProvider({
                 setClients((prev) => { const next={...prev}; delete next[(payload.old as any).id]; return next; });
               } else {
                 const row = payload.new as any;
-                // Realtime client changes normally only require metadata.
-                // Hydrate the full accounting aggregate only when the changed
-                // client is the one currently open.
-                setClients(prev => ({ ...prev, [row.id]: { ...(prev[row.id] || {} as Client), ...rowToClientMetadata(row) } as Client }));
-                if (row.id === currentClientIdRef.current) {
+                // Parent `clients` rows are also updated after normalized saves.
+                // Do not re-download the active client's accounting sections for
+                // every parent heartbeat/save; that turns one write into a large
+                // read/egress burst. Only rehydrate when actual client metadata
+                // changed (for example a client name, TIN, or address changed).
+                const nextMetadata = rowToClientMetadata(row);
+                let metadataChanged = false;
+                setClients(prev => {
+                  const existing = prev[row.id];
+                  metadataChanged = !existing || clientMetadataColumns.split(',').some(column => {
+                    const keyMap: Record<string, string> = {
+                      user_id:'userId', taxpayer_classification:'taxpayerClassification', registered_name:'registeredName',
+                      last_name:'lastName', first_name:'firstName', middle_name:'middleName', trade_name:'tradeName',
+                      zip_code:'zipCode', rdo_code:'rdoCode', has_multiple_business_lines:'hasMultipleBusinessLines',
+                      accounting_type:'accountingType', fiscal_month_end:'fiscalMonthEnd', coa_format:'coaFormat'
+                    };
+                    if (column === 'id' || column === 'name') return String((existing as any)?.[column] || '') !== String((nextMetadata as any)?.[column] || '');
+                    const localKey = keyMap[column] || column;
+                    const incoming = (nextMetadata as any)?.[localKey];
+                    const current = (existing as any)?.[localKey];
+                    return String(current ?? '') !== String(incoming ?? '');
+                  });
+                  return { ...prev, [row.id]: { ...(existing || {} as Client), ...nextMetadata } as Client };
+                });
+                if (metadataChanged && row.id === currentClientIdRef.current) {
                   const sections = getSectionsForPage(activePageRef.current);
                   loadNormalizedClient(row.id, sections)
                     .then(normalized => {
