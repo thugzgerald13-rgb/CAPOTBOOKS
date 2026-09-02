@@ -2,25 +2,30 @@ import React, { useEffect, useState } from 'react';
 import { TrendingUp } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
-import { formatAccountAmount } from '../lib/accountingBalances';
+import { formatAccountAmount, getAccountBalances } from '../lib/accountingBalances';
 
 export function ProfitAndLoss() {
-  const { currentClient, currentClientId, saveClient, fetchServerAccountBalances } = useAccounting();
-  const [balances, setBalances] = useState<any[]>([]);
-  const [reportError, setReportError] = useState<string | null>(null);
+  const { currentClient, currentClientId, saveClient } = useAccounting();
   const year = new Date().getFullYear();
 
-  useEffect(() => {
-    let cancelled = false;
-    if (!currentClientId) { setBalances([]); return; }
-    setReportError(null);
-    fetchServerAccountBalances(`${year}-01-01`, `${year}-12-31`)
-      .then(rows => { if (!cancelled) setBalances(rows); })
-      .catch(err => { if (!cancelled) setReportError(err?.message || 'Unable to load report balances.'); });
-    return () => { cancelled = true; };
-  }, [currentClientId, year, fetchServerAccountBalances]);
-
   if (!currentClient || !currentClientId) return null;
+
+  // Build the report directly from the live General Ledger.  The previous
+  // implementation depended on the optional Supabase get_account_balances
+  // RPC, which can return no rows when that database function is not deployed
+  // or is out of sync with the current normalized schema.  The current client
+  // is already passed through syncGeneralLedger by AccountingContext, so this
+  // calculation includes the same posted transactions without a second data
+  // source.
+  const localBalances = getAccountBalances(currentClient, year);
+  const balances = localBalances.map(x => ({
+    account_id: String(x.account.id),
+    account_name: x.account.name,
+    account_type: String(x.account.type || ''),
+    period_debit: Number(x.currentYearDebit || 0),
+    period_credit: Number(x.currentYearCredit || 0),
+  }));
+
   const revenue = balances.filter(x => (x.account_type || '').toLowerCase() === 'revenue');
   const costs = balances.filter(x => ['cost', 'costs'].includes((x.account_type || '').toLowerCase()));
   const expenses = balances.filter(x => ['expense', 'expenses'].includes((x.account_type || '').toLowerCase()));
@@ -66,8 +71,6 @@ export function ProfitAndLoss() {
             </div>
           </div>
 
-          {reportError && <div className="mb-4 p-3 rounded-lg bg-red-50 text-red-700 text-sm">{reportError}</div>}
-          {!reportError && balances.length === 0 && <div className="mb-4 text-center text-sm text-slate-400">Loading server-calculated balances…</div>}
           <div className="max-w-3xl mx-auto space-y-6">
             <section>
               <div className="uppercase mb-2 font-bold">REVENUE</div>
