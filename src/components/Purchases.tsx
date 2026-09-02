@@ -973,7 +973,7 @@ export function Purchases() {
             <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b border-slate-200 dark:border-slate-700 text-left text-xs uppercase text-slate-500"><th className="py-2 pr-3">Date</th><th className="py-2 pr-3">Invoice #</th><th className="py-2 pr-3">Supplier</th><th className="py-2 pr-3">Status</th><th className="py-2 pr-3 text-right">Amount</th><th className="py-2"></th></tr></thead><tbody>{apInvoices.map((inv:any, i:number) => <tr key={String(inv.id)} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50"><td className="py-2 pr-3 whitespace-nowrap">{inv.date || '—'}</td><td className="py-2 pr-3">{inv.invoiceNumber || '—'}</td><td className="py-2 pr-3">{inv.supplierName || '—'}</td><td className="py-2 pr-3">{inv.status || 'Unmatched'}</td><td className="py-2 pr-3 text-right font-semibold">₱{Number(inv.totalAmount || 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td><td className="py-2 text-right"><button type="button" onClick={() => loadAPInvoice(i)} className="text-amber-600 font-bold hover:underline">Open</button></td></tr>)}</tbody></table></div>
           )}
         </div>
-      )}>
+      )}
     </div>
   );
 }
