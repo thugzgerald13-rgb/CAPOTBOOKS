@@ -550,126 +550,107 @@ function postPurchases(client: Client, accounts: CoaAccount[]): Posting[] {
 // again here would double-post the same cash-out to the ledger.
 // ---------------------------------------------------------------------------
 
-function cashPurchasesToCdjEntries(client: Client): JournalEntry[] {
-  return (client.purchases || [])
-    .filter(p => p.paymentMethod === 'Cash' || p.paymentMethod === 'Check')
-    .map(p => {
-      // "Other Payments" stores its actual payment amount in exemptAmount
-      // (amount is intentionally 0 there). Use that field so those cash
-      // payments are not silently omitted from the CDJ.
-      const isOtherPayment = p.vatType === 'non-vat' && (Number(p.amount) || 0) === 0
-        && (Number(p.exemptAmount) || 0) > 0;
-      // Keep the CDJ Cash on Hand/Bank amount exactly aligned with the
-      // Expense History GROSS calculation. Expense History defines GROSS as:
-      // amount + input tax + exempt amount + zero-rated amount.
-      // This is intentionally the same source calculation used by History.tsx
-      // so a purchase cannot show one gross amount in Expense History and a
-      // different amount in the CDJ.
-      const amount = Number(p.amount) || 0;
-      const tax = Number(p.inputTax) || 0;
-      const exempt = Number(p.exemptAmount) || 0;
-      const zeroRated = Number(p.zeroRatedAmount) || 0;
-      const gross = amount + tax + exempt + zeroRated;
-      // CDJ added COA columns and Sundries represent the purchase cost
-      // excluding Input Tax: Net of VAT + Exempt + 0-Rated.
-      const purchaseDebit = amount + exempt + zeroRated;
-      if (gross <= 0) return null;
+/**
+ * The CDJ is populated from the BOOKS OF ORIGINAL ENTRY, not from the
+ * initial transaction-entry modules. In this application the General Journal
+ * is the original-entry book that can contain a cash disbursement: a debit to
+ * the expense/asset/payable account paired with a credit to Cash.
+ *
+ * Do not pull Purchases, Sales, AP/check-voucher, or miscellaneous-payment
+ * records directly into the CDJ. Those are source documents/workflows, not
+ * the CDJ's accounting source, and doing so duplicates transactions.
+ */
+function generalJournalCashDisbursementsToCdjEntries(client: Client, accounts: CoaAccount[]): JournalEntry[] {
+  const columns = client.gjColumns || DEFAULT_GJ_COLUMNS;
+  const cashAccount = findAccountByLabel('Cash', accounts)
+    || findAccountByLabel('Cash on Hand', accounts)
+    || accounts.find(a => normalize(a.name).includes('cash'));
 
-      const entry: JournalEntry = {
-        id: `cdj-auto:purchase:${p.id}`,
-        auto: true,
-        autoSource: 'Purchases',
-        values: {
-          date: p.date,
-          payee: p.supplierName,
-          account_title: p.accountTitle || p.expenseType || 'Expense',
-          amount: purchaseDebit > 0 ? two(purchaseDebit) : '',
-          // Must be identical to Expense History's GROSS function.
-          cash: two(gross),
-          input_tax: tax > 0 ? two(tax) : '',
-        },
-      };
-      return entry;
-    })
-    .filter((e): e is JournalEntry => e !== null);
-}
-
-function cashJournalVouchersToCdjEntries(client: Client, accounts: CoaAccount[]): JournalEntry[] {
-  const cashAccount = findAccountByLabel('Cash', accounts);
   if (!cashAccount) return [];
 
+  const dateCol = columns.find(c => c.id === 'date')?.id || 'date';
+  const particularsCol = columns.find(c => c.id === 'particulars')?.id || 'particulars';
+  const refCol = columns.find(c => c.id === 'ref_no')?.id || 'ref_no';
+  const debitCol = columns.find(c => c.id === 'debit')?.id || 'debit';
+  const creditCol = columns.find(c => c.id === 'credit')?.id || 'credit';
+
   const entries: JournalEntry[] = [];
-  (client.journalVouchers || []).forEach(v => {
-    const creditLines = v.lines.filter(l => l.credit > 0);
-    if (creditLines.length === 0) return;
 
-    // Only treat this voucher as a cash disbursement when every credit line
-    // on it is the Cash account. Mixed-credit vouchers are left for manual
-    // CDJ entry rather than guessing which portion was paid in cash.
-    const isCashOnlyCredit = creditLines.every(l => l.accountId === cashAccount.id);
-    if (!isCashOnlyCredit) return;
+  (client.gjEntries || []).forEach(entry => {
+    const v = entry.values || {};
+    const date = String(v[dateCol] || '');
+    const particulars = String(v[particularsCol] || '').trim();
+    const ref = String(v[refCol] || '');
+    const debit = parseFloat(String(v[debitCol] ?? '').replace(/,/g, ''));
+    const credit = parseFloat(String(v[creditCol] ?? '').replace(/,/g, ''));
 
-    v.lines.filter(l => l.debit > 0).forEach(l => {
+    // A General Journal row is a cash disbursement only when the row credits
+    // Cash. The corresponding debit/account title is represented in the CDJ
+    // as the account being debited.
+    if (!Number.isFinite(credit) || credit <= 0) return;
+
+    const creditedAccount = findAccountByLabel(particulars, accounts);
+    if (!creditedAccount || creditedAccount.id !== cashAccount.id) return;
+
+    // If the GJ uses one row for the cash credit and separate debit rows,
+    // recover the debit side from the other rows sharing the same date/ref.
+    const matchingDebitRows = (client.gjEntries || []).filter(other => {
+      if (other.id === entry.id) return false;
+      const ov = other.values || {};
+      const otherDate = String(ov[dateCol] || '');
+      const otherRef = String(ov[refCol] || '');
+      const otherDebit = parseFloat(String(ov[debitCol] ?? '').replace(/,/g, ''));
+      return otherDate === date
+        && otherRef === ref
+        && Number.isFinite(otherDebit)
+        && otherDebit > 0;
+    });
+
+    if (matchingDebitRows.length > 0) {
+      matchingDebitRows.forEach(other => {
+        const ov = other.values || {};
+        const otherDebit = parseFloat(String(ov[debitCol] ?? '').replace(/,/g, ''));
+        const title = String(ov[particularsCol] || '').trim();
+        if (!title || !Number.isFinite(otherDebit) || otherDebit <= 0) return;
+
+        entries.push({
+          id: `cdj-auto:gj:${entry.id}:${other.id}`,
+          auto: true,
+          autoSource: 'General Journal',
+          values: {
+            date,
+            payee: title,
+            folio_f: ref,
+            account_title: title,
+            amount: two(otherDebit),
+            cash: two(Math.min(otherDebit, credit)),
+          },
+        });
+      });
+      return;
+    }
+
+    // Also support a balanced single-row/custom-column GJ entry where the
+    // account title and debit amount are stored on the same row as the cash
+    // credit information.
+    if (Number.isFinite(debit) && debit > 0 && particulars) {
       entries.push({
-        id: `cdj-auto:jv:${v.id}:${l.id}`,
+        id: `cdj-auto:gj:${entry.id}`,
         auto: true,
-        autoSource: 'Journal Voucher',
+        autoSource: 'General Journal',
         values: {
-          date: v.date,
-          payee: v.memo || v.reference,
-          account_title: l.accountName,
-          amount: two(l.debit),
-          cash: two(l.debit),
+          date,
+          payee: particulars,
+          folio_f: ref,
+          account_title: particulars,
+          amount: two(debit),
+          cash: two(Math.min(debit, credit)),
         },
       });
-    });
+    }
   });
+
   return entries;
-}
-
-function cashCheckVouchersToCdjEntries(client: Client): JournalEntry[] {
-  return (client.checkVouchers || [])
-    .filter(v => v.status !== 'Reversed' && Number(v.amount) > 0)
-    .map(v => ({
-      id: `cdj-auto:check-voucher:${v.id}`,
-      auto: true,
-      autoSource: 'Check Voucher',
-      values: {
-        date: v.date,
-        payee: v.payeeName,
-        account_title: v.paymentType === 'Miscellaneous'
-          ? (v.miscDetails || 'Miscellaneous Expense')
-          : v.paymentType === 'Advance'
-            ? 'Supplier Advances'
-            : 'Accounts Payable',
-        amount: two(Number(v.amount) || 0),
-        cash: two(Number(v.amount) || 0),
-      },
-    }));
-}
-
-function cashMiscellaneousPaymentsToCdjEntries(client: Client): JournalEntry[] {
-  const vouchers = client.checkVouchers || [];
-  return (client.miscellaneousPayments || [])
-    .filter(m => Number(m.amount) > 0)
-    .filter(m => !vouchers.some(v =>
-      v.status !== 'Reversed'
-      && v.date === m.date
-      && v.checkNumber === m.checkNumber
-      && Math.abs(Number(v.amount) - Number(m.amount)) < 0.01
-    ))
-    .map(m => ({
-      id: `cdj-auto:misc-payment:${m.id}`,
-      auto: true,
-      autoSource: 'Miscellaneous Payment',
-      values: {
-        date: m.date,
-        payee: m.payeeName,
-        account_title: m.expenseCategory || 'Expense',
-        amount: two(Number(m.amount) || 0),
-        cash: two(Number(m.amount) || 0),
-      },
-    }));
 }
 
 /**
@@ -683,16 +664,14 @@ function cashMiscellaneousPaymentsToCdjEntries(client: Client): JournalEntry[] {
  */
 export function syncCashDisbursementsJournal(client: Client): Client {
   const accounts = getCoaAccounts(client);
-  const autoEntries = [
-    ...cashPurchasesToCdjEntries(client),
-    ...cashJournalVouchersToCdjEntries(client, accounts),
-    ...cashCheckVouchersToCdjEntries(client),
-    ...cashMiscellaneousPaymentsToCdjEntries(client),
-  ];
+  // CDJ is populated from the books of original entry. Only General Journal
+  // cash-credit entries are eligible here; initial transaction modules and
+  // AP/check workflows must not be copied directly into the CDJ.
+  const autoEntries = generalJournalCashDisbursementsToCdjEntries(client, accounts);
   const manualEntries = (client.cdjEntries || []).filter(e => !e.auto);
 
   if (autoEntries.length === 0 && manualEntries.length === (client.cdjEntries || []).length) {
-    return client; // nothing auto-generated, nothing to strip — avoid needless churn
+    return client;
   }
 
   return { ...client, cdjEntries: [...autoEntries, ...manualEntries] };
@@ -735,7 +714,9 @@ export function computeAutoPostings(client: Client): Posting[] {
     }
   );
 
-  // Cash Disbursements Journal: post EVERY CDJ row, including auto-generated rows.
+  // Cash Disbursements Journal: post every CDJ row. Auto rows originate from
+  // the books of original entry (General Journal) and are already normalized
+  // into CDJ before this posting pass.
   // CDJ's current schema uses cash_on_hand_bank, sundry_account_title,
   // sundry_amount, and cdj_coa_<accountId>. Older rows may still contain
   // cash/account_title/amount, so both schemas are supported.
