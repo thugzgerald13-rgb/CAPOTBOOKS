@@ -261,7 +261,15 @@ const loadNormalizedClient = async (clientId: string, sections: ClientSection[] 
         }
         return q;
       })()),
-      query(requestedSections.has('journalVoucher'), supabase.from('journal_vouchers').select('id,date,reference,memo').eq('client_id', clientId)),
+      query(requestedSections.has('journalVoucher'), (() => {
+        let q:any = supabase.from('journal_vouchers')
+          .select('id,date,reference,memo')
+          .eq('client_id', clientId);
+        if (journalStart && journalEnd) {
+          q = q.gte('date', journalStart).lte('date', journalEnd);
+        }
+        return q;
+      })()),
       // JournalVoucher.tsx only needs voucher headers for its current UI.
       // Do not hydrate every voucher line globally; lines can be loaded on demand
       // when a detailed voucher view requires them.
