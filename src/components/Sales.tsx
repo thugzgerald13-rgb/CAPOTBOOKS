@@ -11,7 +11,7 @@ const CASH_RECEIPT_PAYMENT_TYPES = ['Cash', 'Check', 'E-Payment', 'Bank Transfer
 const SALES_JOURNAL_PAYMENT_TYPES = ['Credit Card', 'On Account'];
 
 export function Sales() {
-  const { currentClient, currentClientId, saveClient, showToast } = useAccounting();
+  const { currentClient, currentClientId, saveSale, showToast } = useAccounting();
   const PAGE_SIZE = 50;
   const [salesPage, setSalesPage] = useState(0);
   const [salesTotal, setSalesTotal] = useState(0);
@@ -125,19 +125,40 @@ export function Sales() {
       desc
     };
 
-    const updatedClient = {
-      ...currentClient,
-      sales: [...salesRows, newSale],
-      // Sales Journal (Credit Card / On Account) is derived by filtering `sales` on paymentType,
-      // so nothing else needs to change there. Cash Receipts Journal is a separate free-form
-      // ledger, so we append a matching row to it here when payment was cash-like.
-      ...(CASH_RECEIPT_PAYMENT_TYPES.includes(paymentType)
-        ? { crjEntries: [...(currentClient.crjEntries || []), buildCashReceiptEntry()] }
-        : {})
-    };
+    const persistSale = async () => {
+      try {
+        await saveSale(String(newSale.id), newSale);
 
-    saveClient(currentClientId, updatedClient);
-    setSalesRefresh(v => v + 1);
+        // Cash-like sales are posted directly to the normalized CRJ journal table.
+        // Credit Card / On Account sales remain available to the Sales Journal view
+        // through the normalized sales table and its payment_type filter.
+        if (CASH_RECEIPT_PAYMENT_TYPES.includes(paymentType)) {
+          const crjEntry = buildCashReceiptEntry();
+          const { error } = await supabase.from('journal_entries').upsert({
+            id: crjEntry.id,
+            client_id: currentClientId,
+            journal_type: 'CRJ',
+            values: crjEntry.values,
+            auto: true,
+            auto_source: 'sales',
+          }, { onConflict: 'id' });
+          if (error) throw error;
+        }
+
+        setSalesRefresh(v => v + 1);
+        if (CASH_RECEIPT_PAYMENT_TYPES.includes(paymentType)) {
+          showToast('Income entry added and posted to Cash Receipts Journal');
+        } else if (SALES_JOURNAL_PAYMENT_TYPES.includes(paymentType)) {
+          showToast('Income entry added and posted to Sales Journal');
+        } else {
+          showToast('Income entry added');
+        }
+      } catch (error) {
+        console.error('Saving sale failed:', error);
+        showToast('Unable to save income entry');
+      }
+    };
+    void persistSale();
 
     if (CASH_RECEIPT_PAYMENT_TYPES.includes(paymentType)) {
       showToast('Income entry added and posted to Cash Receipts Journal');
