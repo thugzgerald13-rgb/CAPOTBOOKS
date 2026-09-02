@@ -226,6 +226,14 @@ const loadNormalizedClient = async (clientId: string, sections: ClientSection[] 
   // egress multiplier (all clients x all normalized tables).
   const requestedSections = new Set(uniqueSections(sections));
   const periodFilter = periodKey && periodKey.trim() ? periodKey.trim() : null;
+  const journalPeriodMatch = periodFilter?.match(/^([A-Za-z]+)\s+(\d{4})$/);
+  const journalMonth = journalPeriodMatch ? new Date(`${journalPeriodMatch[1]} 1, ${journalPeriodMatch[2]}`) : null;
+  const journalStart = journalMonth && !Number.isNaN(journalMonth.getTime())
+    ? `${journalMonth.getFullYear()}-${String(journalMonth.getMonth() + 1).padStart(2, '0')}-01`
+    : null;
+  const journalEnd = journalMonth && !Number.isNaN(journalMonth.getTime())
+    ? new Date(journalMonth.getFullYear(), journalMonth.getMonth() + 1, 0).toISOString().slice(0, 10)
+    : null;
   const requestedJournalTypes = uniqueSections(sections.filter(s => ['crj','cdj','pj','gj'].includes(s)))
     .map(s => ({ crj: 'CRJ', cdj: 'CDJ', pj: 'PJ', gj: 'GJ' } as Record<string,string>)[s])
     .filter(Boolean);
@@ -243,7 +251,16 @@ const loadNormalizedClient = async (clientId: string, sections: ClientSection[] 
       query(requestedSections.has('coa'), supabase.from('coa_columns').select('id,name,is_system').eq('client_id', clientId)),
       query(requestedSections.has('coa'), supabase.from('coa_accounts').select('id,name,type,normal_side,parent_id,hidden,opening_balance,custom_values').eq('client_id', clientId)),
       query(requestedJournalTypes.length > 0, supabase.from('journal_columns').select('id,journal_type,name,type,category,is_system').eq('client_id', clientId).in('journal_type', requestedJournalTypes)),
-      query(requestedJournalTypes.length > 0, supabase.from('journal_entries').select('id,journal_type,values,auto,auto_source').eq('client_id', clientId).in('journal_type', requestedJournalTypes)),
+      query(requestedJournalTypes.length > 0, (() => {
+        let q:any = supabase.from('journal_entries')
+          .select('id,journal_type,values,auto,auto_source')
+          .eq('client_id', clientId)
+          .in('journal_type', requestedJournalTypes);
+        if (journalStart && journalEnd) {
+          q = q.gte('values->>date', journalStart).lte('values->>date', journalEnd);
+        }
+        return q;
+      })()),
       query(requestedSections.has('journalVoucher'), supabase.from('journal_vouchers').select('id,date,reference,memo').eq('client_id', clientId)),
       query(requestedSections.has('journalVoucher'), supabase.from('journal_voucher_lines').select('id,journal_voucher_id,account_id,account_name,debit,credit').eq('client_id', clientId)),
       query(requestedSections.has('apMatching'), supabase.from('purchase_orders').select('id,date,supplier_id,supplier_name,total_amount,status').eq('client_id', clientId)),
@@ -553,9 +570,15 @@ export function AccountingProvider({
   // Transaction-entry screens work on the currently selected DAT period.
   // Do not download a client's entire lifetime of purchases/sales merely to
   // render the current month entry form. History has its own period below.
-  const transactionPeriod = (activePage === 'sales' || activePage === 'purchases/invoiced' || activePage === 'purchases/other-payments')
-    ? (currentDat?.formatted || undefined)
-    : undefined;
+  const transactionPeriod = (
+    activePage === 'sales' ||
+    activePage === 'purchases/invoiced' ||
+    activePage === 'purchases/other-payments' ||
+    activePage === 'cash-receipt' ||
+    activePage === 'cash-disbursement' ||
+    activePage === 'purchase-journal' ||
+    activePage === 'journal'
+  ) ? (currentDat?.formatted || undefined) : undefined;
   const [historyTab, setHistoryTab] = useState('expenses');
   const [birFormTab, setBirFormTab] = useState('tracker');
   const [toastMsg, setToastMsg] = useState<string | null>(null);
