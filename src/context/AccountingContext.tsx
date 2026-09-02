@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Client, BusinessProfile, DatSelection } from '../types';
 import { supabase } from '../lib/supabase';
@@ -189,14 +189,13 @@ const PAGE_SECTIONS: Record<string, ClientSection[]> = {
   ledger: ['coa'],
   pl: ['coa'],
   balancesheet: ['coa'],
-  // Cash Flow is a financial report snapshot; load only the small reports section, not transaction history.
-  cashflow: ['reports'],
+  cashflow: ['coa'],
   assetlapsing: ['assets'],
   'sales-journal': ['sales', 'crj', 'coa'],
   files: ['files'],
   inventory: ['inventory'],
   'bir-forms': ['purchases', 'sales', 'expenses', 'ap', 'compliance'],
-  'compliance-tracker': ['purchases', 'sales', 'compliance'],
+  'compliance-tracker': ['compliance'],
   'ap-workspace': ['ap', 'coa', 'tinLibrary'],
   reports: ['coa', 'reports'],
   books: ['coa'],
@@ -1038,15 +1037,6 @@ export function AccountingProvider({
   const saveQueuesRef = React.useRef<Record<string, Promise<void>>>({});
 
   const saveClient = async (id: string, clientData: Client) => {
-    // Any accounting save can change report balances. Invalidate only this
-    // client's cached RPC results; other clients remain warm.
-    for (const key of accountBalanceCacheRef.current.keys()) {
-      if (key.startsWith(`${id}|`)) accountBalanceCacheRef.current.delete(key);
-    }
-    for (const key of accountBalanceInFlightRef.current.keys()) {
-      if (key.startsWith(`${id}|`)) accountBalanceInFlightRef.current.delete(key);
-    }
-
     const updatedClient = { ...clientData, id, userId: user ? user.id : undefined } as Client;
     setClients((prev) => ({ ...prev, [id]: updatedClient }));
     if (!user) return;
@@ -1199,57 +1189,27 @@ export function AccountingProvider({
   // throws "Rendered more/fewer hooks than during the previous render"
   // (React error #310), which crashes the entire app since this provider
   // wraps everything.
-  // Report RPC cache: P&L, Balance Sheet, Trial Balance and Dashboard can
-  // request the same account-balance period during one navigation session.
-  // Reuse the server result instead of repeatedly transferring the same rows.
-  // Saves invalidate this cache so reports never intentionally keep a value
-  // stale after an in-app accounting change.
-  const accountBalanceCacheRef = useRef<Map<string, ServerAccountBalance[]>>(new Map());
-  const accountBalanceInFlightRef = useRef<Map<string, Promise<ServerAccountBalance[]>>>(new Map());
-
   const fetchServerAccountBalances = useCallback(async (startDate: string, endDate: string): Promise<ServerAccountBalance[]> => {
     if (!currentClientId) return [];
-
-    const cacheKey = `${currentClientId}|${startDate}|${endDate}`;
-    const cached = accountBalanceCacheRef.current.get(cacheKey);
-    if (cached) return cached;
-
-    const inFlight = accountBalanceInFlightRef.current.get(cacheKey);
-    if (inFlight) return inFlight;
-
-    const request = (async () => {
-      const { data, error } = await supabase.rpc('get_account_balances', {
-        p_client_id: currentClientId,
-        p_start_date: startDate,
-        p_end_date: endDate,
-      });
-      if (error) throw error;
-
-      const rows = (data || []).map((row: any) => ({
-        account_id: String(row.account_id),
-        account_name: String(row.account_name || ''),
-        account_type: String(row.account_type || ''),
-        normal_side: row.normal_side === 'credit' ? 'credit' : 'debit',
-        opening_balance: Number(row.opening_balance || 0),
-        debit: Number(row.debit || 0),
-        credit: Number(row.credit || 0),
-        balance: Number(row.balance || 0),
-        period_debit: Number(row.period_debit || 0),
-        period_credit: Number(row.period_credit || 0),
-        period_balance: Number(row.period_balance || 0),
-      }));
-
-      accountBalanceCacheRef.current.set(cacheKey, rows);
-      return rows;
-    })();
-
-    accountBalanceInFlightRef.current.set(cacheKey, request);
-
-    try {
-      return await request;
-    } finally {
-      accountBalanceInFlightRef.current.delete(cacheKey);
-    }
+    const { data, error } = await supabase.rpc('get_account_balances', {
+      p_client_id: currentClientId,
+      p_start_date: startDate,
+      p_end_date: endDate,
+    });
+    if (error) throw error;
+    return (data || []).map((row: any) => ({
+      account_id: String(row.account_id),
+      account_name: String(row.account_name || ''),
+      account_type: String(row.account_type || ''),
+      normal_side: row.normal_side === 'credit' ? 'credit' : 'debit',
+      opening_balance: Number(row.opening_balance || 0),
+      debit: Number(row.debit || 0),
+      credit: Number(row.credit || 0),
+      balance: Number(row.balance || 0),
+      period_debit: Number(row.period_debit || 0),
+      period_credit: Number(row.period_credit || 0),
+      period_balance: Number(row.period_balance || 0),
+    }));
   }, [currentClientId]);
 
   const rawCurrentClient = currentClientId ? clients[currentClientId] : null;
