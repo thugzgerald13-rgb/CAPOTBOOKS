@@ -866,6 +866,39 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------------
+-- Realtime: normalized tables
+-- ---------------------------------------------------------------------------
+-- Supabase Realtime must be enabled for child-table changes to reach the app.
+-- The DO block is idempotent and safe to run after tables already exist.
+do $$
+declare
+  tbl text;
+begin
+  foreach tbl in array array[
+    'clients','purchases','sales','expenses','coa_columns','coa_accounts','journal_columns',
+    'journal_entries','journal_vouchers','journal_voucher_lines','purchase_orders',
+    'purchase_order_items','receiving_reports','receiving_report_items','payable_invoices',
+    'payable_invoice_items','inventory_columns','inventory_items','inventory_movements',
+    'app_folders','app_files','tin_entries','tax_deadlines','bank_accounts','supplier_advances',
+    'withholding_tax_entries','debit_credit_memos','check_vouchers','miscellaneous_payments',
+    'asset_lapsing_schedule','billing_invoices','financial_report_snapshots'
+  ] loop
+    if not exists (
+      select 1
+      from pg_publication_tables
+      where pubname = 'supabase_realtime'
+        and schemaname = 'public'
+        and tablename = tbl
+    ) then
+      execute format('alter publication supabase_realtime add table public.%I', tbl);
+    end if;
+  end loop;
+exception
+  when undefined_object then
+    raise notice 'supabase_realtime publication is not available in this database; enable Realtime in Supabase before applying the application realtime subscriptions.';
+end $$;
+
+-- ---------------------------------------------------------------------------
 -- Storage: private client-files bucket
 -- ---------------------------------------------------------------------------
 
