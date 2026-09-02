@@ -849,7 +849,7 @@ export function Purchases() {
 
         <div className="lg:col-span-2 md:col-span-2">
           <div className="flex items-center justify-between">
-            <label className="form-label">Account Title</label>
+            <label className="form-label">Payment for</label>
             {(
               <div className="flex items-center gap-1 mb-1.5">
                 <button type="button" onClick={() => setShowAddPaymentAccount(v => !v)} className="p-1 rounded hover:bg-emerald-100 dark:hover:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 transition-colors" title="Add a new account">
