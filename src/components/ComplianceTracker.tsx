@@ -7,6 +7,7 @@ import {
 import { TaxDeadline, Client } from '../types';
 import { getComplianceStatusInfo } from '../lib/complianceUtils';
 import { generateStandardDeadlines } from './BIRForms';
+import { supabase } from '../lib/supabase';
 
 export function ComplianceTracker() {
   const { currentClient, currentClientId, setCurrentClientId, clients, businessProfile, activePage, navigateToPage, setBirFormTab, saveClient, currentDat, ownerClientId } = useAccounting();
@@ -26,6 +27,12 @@ export function ComplianceTracker() {
 
   const [selectedYear, setSelectedYear] = useState<number>(currentDat ? currentDat.year : new Date().getFullYear());
 
+  // Keep compliance tax-estimate inputs period-scoped instead of hydrating the
+  // entire sales/purchases history into AccountingContext. One year of only the
+  // fields required by the estimator is fetched when the selected client/year changes.
+  const [complianceSales, setComplianceSales] = useState<any[]>([]);
+  const [compliancePurchases, setCompliancePurchases] = useState<any[]>([]);
+
   const [trackerFilter, setTrackerFilter] = useState<'All' | 'Pending' | 'Processing' | 'Filed' | 'Paid' | 'Overdue'>('All');
   const [trackerSearch, setTrackerSearch] = useState<string>('');
 
@@ -44,6 +51,68 @@ export function ComplianceTracker() {
       setCurrentClientId(ownerClientId);
     }
   }, [activePage, currentClientId, setCurrentClientId, ownerClientId]);
+
+  // Load only the selected calendar year's transaction fields needed for tax estimates.
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadComplianceTransactions = async () => {
+      if (!currentClientId) {
+        setComplianceSales([]);
+        setCompliancePurchases([]);
+        return;
+      }
+
+      const startDate = `${selectedYear}-01-01`;
+      const endDate = `${selectedYear}-12-31`;
+
+      const [salesResult, purchasesResult] = await Promise.all([
+        supabase
+          .from('sales')
+          .select('id,date,amount,vat_type,net_of_vat')
+          .eq('client_id', currentClientId)
+          .gte('date', startDate)
+          .lte('date', endDate),
+        supabase
+          .from('purchases')
+          .select('id,date,amount,vat_type,input_tax')
+          .eq('client_id', currentClientId)
+          .gte('date', startDate)
+          .lte('date', endDate),
+      ]);
+
+      if (cancelled) return;
+
+      if (salesResult.error) {
+        console.error('Failed to load compliance sales:', salesResult.error);
+        setComplianceSales([]);
+      } else {
+        setComplianceSales((salesResult.data || []).map((row: any) => ({
+          id: row.id,
+          date: row.date,
+          amount: Number(row.amount || 0),
+          vatType: row.vat_type,
+          netOfVat: row.net_of_vat == null ? undefined : Number(row.net_of_vat),
+        })));
+      }
+
+      if (purchasesResult.error) {
+        console.error('Failed to load compliance purchases:', purchasesResult.error);
+        setCompliancePurchases([]);
+      } else {
+        setCompliancePurchases((purchasesResult.data || []).map((row: any) => ({
+          id: row.id,
+          date: row.date,
+          amount: Number(row.amount || 0),
+          vatType: row.vat_type,
+          inputTax: row.input_tax == null ? undefined : Number(row.input_tax),
+        })));
+      }
+    };
+
+    void loadComplianceTransactions();
+    return () => { cancelled = true; };
+  }, [currentClientId, selectedYear]);
 
   // Automatically initialize BIR compliance deadlines for the selected active client
   useEffect(() => {
@@ -105,25 +174,23 @@ export function ComplianceTracker() {
     };
     const monthNum = monthName ? monthsMap[monthName] || 1 : 1;
 
-    // Filter Sales and Purchases
-    const sales = (currentClient.sales || []).filter(s => {
+    // Filter the already period-scoped transaction arrays in memory.
+    const sales = complianceSales.filter(s => {
       const d = new Date(s.date);
       if (isNaN(d.getTime()) || d.getFullYear() !== selectedYear) return false;
       if (isQuarter) {
         return getQuarterNum(s.date) === quarterNum;
-      } else {
-        return getMonthNum(s.date) === monthNum;
       }
+      return getMonthNum(s.date) === monthNum;
     });
 
-    const purchases = (currentClient.purchases || []).filter(p => {
+    const purchases = compliancePurchases.filter(p => {
       const d = new Date(p.date);
       if (isNaN(d.getTime()) || d.getFullYear() !== selectedYear) return false;
       if (isQuarter) {
         return getQuarterNum(p.date) === quarterNum;
-      } else {
-        return getMonthNum(p.date) === monthNum;
       }
+      return getMonthNum(p.date) === monthNum;
     });
 
     const salesTotal = sales.reduce((sum, s) => sum + s.amount, 0);
@@ -236,7 +303,7 @@ export function ComplianceTracker() {
       taxesRemitted,
       estimatedPending
     };
-  }, [computedDeadlines, selectedYear, currentClient]);
+  }, [computedDeadlines, selectedYear, complianceSales, compliancePurchases]);
 
   // Status Change handler
   const handleUpdateDeadlineStatus = (deadlineId: string, updates: Partial<TaxDeadline>) => {
