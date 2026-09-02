@@ -262,7 +262,10 @@ const loadNormalizedClient = async (clientId: string, sections: ClientSection[] 
         return q;
       })()),
       query(requestedSections.has('journalVoucher'), supabase.from('journal_vouchers').select('id,date,reference,memo').eq('client_id', clientId)),
-      query(requestedSections.has('journalVoucher'), supabase.from('journal_voucher_lines').select('id,journal_voucher_id,account_id,account_name,debit,credit').eq('client_id', clientId)),
+      // JournalVoucher.tsx only needs voucher headers for its current UI.
+      // Do not hydrate every voucher line globally; lines can be loaded on demand
+      // when a detailed voucher view requires them.
+      Promise.resolve({ data: [], error: null } as any),
       query(requestedSections.has('apMatching'), supabase.from('purchase_orders').select('id,date,supplier_id,supplier_name,total_amount,status').eq('client_id', clientId)),
       query(requestedSections.has('apMatching'), supabase.from('purchase_order_items').select('id,purchase_order_id,item_code,description,qty,unit_price').eq('client_id', clientId)),
       query(requestedSections.has('apMatching'), supabase.from('receiving_reports').select('id,date,po_id,supplier_name,total_amount,received_by').eq('client_id', clientId)),
