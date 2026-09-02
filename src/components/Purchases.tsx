@@ -471,16 +471,10 @@ export function Purchases() {
       attachment
     };
 
-    let updatedPurchases;
-    if (viewIndex !== null) {
-      updatedPurchases = currentClient.purchases.map(p => p.id === purchaseData.id ? purchaseData : p);
-    } else {
-      updatedPurchases = [...currentClient.purchases, purchaseData];
-    }
-
-    // Persist this purchase directly to the normalized purchases table.
-    // Do not route a single transaction through aggregate saveClient().
-    await savePurchase(currentClientId, purchaseData);
+    // Persist the purchase directly to the normalized `purchases` table.
+    // Do not rebuild the whole Client aggregate from the currently loaded page/list;
+    // that can overwrite transactions that are not present in the browser.
+    await savePurchase(String(purchaseData.id), purchaseData);
 
     showToast(viewIndex !== null ? 'Entry updated' : 'Expense entry added');
 
@@ -521,10 +515,10 @@ export function Purchases() {
   const handleDelete = async (id: number) => {
     if (!currentClient || !currentClientId) return;
     try {
-      await deletePurchase(currentClientId, id);
+      await deletePurchase(String(id));
       showToast('Expense deleted');
     } catch (error) {
-      console.error('Purchase deletion failed:', error);
+      console.error('Purchase delete failed:', error);
       showToast('Unable to delete expense');
     }
   };
