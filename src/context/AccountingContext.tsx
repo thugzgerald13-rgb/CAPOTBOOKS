@@ -185,7 +185,8 @@ const PAGE_SECTIONS: Record<string, ClientSection[]> = {
   history: ['tinLibrary'],
   coa: ['coa'],
   'cash-receipt': ['crj', 'coa'],
-  'cash-disbursement': ['cdj', 'coa', 'purchases', 'journalVoucher', 'ap'],
+  // CDJ reads only its own journal entries and COA; avoid hydrating purchases/AP/JV history.
+  'cash-disbursement': ['cdj', 'coa'],
   'purchase-journal': ['pj', 'coa'],
   journal: ['gj', 'coa'],
   ledger: ['coa'],
