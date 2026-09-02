@@ -254,7 +254,9 @@ const loadNormalizedClient = async (clientId: string, sections: ClientSection[] 
       query((requestedSections.has('apMatching') || requestedSections.has('apMemos')), supabase.from('payable_invoice_items').select('id,payable_invoice_id,item_code,description,qty,unit_price,amount').eq('client_id', clientId)),
       query(requestedSections.has('inventory'), supabase.from('inventory_columns').select('id,label').eq('client_id', clientId)),
       query(requestedSections.has('inventory'), supabase.from('inventory_items').select('id,code,name,sku,description,category,unit_of_measure,cost_price,selling_price,stock_level,reorder_point,location,custom_fields').eq('client_id', clientId)),
-      query(requestedSections.has('inventory'), supabase.from('inventory_movements').select('id,item_id,item_name,item_code,date,type,qty,unit_cost,total_value,reference,notes').eq('client_id', clientId)),
+      // Inventory.tsx loads movements on demand with its own period/query logic.
+      // Do not duplicate that potentially large movement history in the global Context.
+      Promise.resolve({ data: [], error: null } as any),
       query(requestedSections.has('files'), supabase.from('app_folders').select('id,name,is_default,type').eq('client_id', clientId)),
       query(requestedSections.has('files'), supabase.from('app_files').select('id,name,type,size,uploaded_at,folder_id,storage_path,description').eq('client_id', clientId)),
       query(requestedSections.has('tinLibrary'), supabase.from('tin_entries').select('id,party_type,tin,name,address').eq('client_id', clientId)),
