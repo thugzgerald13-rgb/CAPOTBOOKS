@@ -51,6 +51,9 @@ interface AccountingContextType {
   setCurrentDat: (dat: DatSelection | null) => void;
 
   saveClient: (id: string, clientData: Client) => Promise<void>;
+  saveSale: (clientId: string, sale: any) => Promise<void>;
+  savePurchase: (clientId: string, purchase: any) => Promise<void>;
+  deletePurchase: (clientId: string, purchaseId: string | number) => Promise<void>;
   addClient: (name: string) => Promise<void>;
   deleteClient: (id: string) => Promise<void>;
   saveBusinessProfile: (profile: BusinessProfile) => Promise<void>;
@@ -176,11 +179,11 @@ const PAGE_SECTIONS: Record<string, ClientSection[]> = {
   // Dashboard loads its recent transactions directly with a small, explicit query.
   // Do not hydrate lifetime Sales/Purchases on the default landing page.
   '': ['coa'],
-  sales: ['sales', 'crj', 'coa', 'tinLibrary'],
+  sales: ['crj', 'coa', 'tinLibrary'],
   billing: ['billing', 'sales', 'crj', 'coa'],
   'journal-voucher': ['journalVoucher', 'coa'],
-  'purchases/invoiced': ['purchases', 'coa', 'tinLibrary'],
-  'purchases/other-payments': ['purchases', 'coa', 'tinLibrary'],
+  'purchases/invoiced': ['coa', 'tinLibrary'],
+  'purchases/other-payments': ['coa', 'tinLibrary'],
   'purchases/ap': ['coa', 'tinLibrary'],
   tinlibrary: ['tinLibrary'],
   // History queries purchases/sales directly by selected period; don't duplicate those rows in context.
@@ -923,52 +926,30 @@ export function AccountingProvider({
         setSyncError(null);
 
         // Subscribe to realtime changes so multiple devices stay in sync (replaces onSnapshot)
+        // Avoid UPDATE subscriptions on the parent `clients` table. Every
+        // normalized save updates that row, and an UPDATE realtime payload can
+        // include the legacy `data` JSONB even though normal reads deliberately
+        // exclude it. That turns a small row-level change into unnecessary
+        // realtime egress. INSERT/DELETE are rare and still keep the client list
+        // synchronized across devices; metadata edits are refreshed explicitly
+        // when the client list is next loaded.
         clientsChannel = supabase
           .channel(`clients-${user.id}`)
           .on(
             'postgres_changes',
-            { event: '*', schema: 'public', table: 'clients', filter: `user_id=eq.${user.id}` },
+            { event: 'INSERT', schema: 'public', table: 'clients', filter: `user_id=eq.${user.id}` },
             (payload) => {
-              if (payload.eventType === 'DELETE') {
-                setClients((prev) => { const next={...prev}; delete next[(payload.old as any).id]; return next; });
-              } else {
-                const row = payload.new as any;
-                // Parent `clients` rows are also updated after normalized saves.
-                // Do not re-download the active client's accounting sections for
-                // every parent heartbeat/save; that turns one write into a large
-                // read/egress burst. Only rehydrate when actual client metadata
-                // changed (for example a client name, TIN, or address changed).
-                const nextMetadata = rowToClientMetadata(row);
-                let metadataChanged = false;
-                setClients(prev => {
-                  const existing = prev[row.id];
-                  metadataChanged = !existing || clientMetadataColumns.split(',').some(column => {
-                    const keyMap: Record<string, string> = {
-                      user_id:'userId', taxpayer_classification:'taxpayerClassification', registered_name:'registeredName',
-                      last_name:'lastName', first_name:'firstName', middle_name:'middleName', trade_name:'tradeName',
-                      zip_code:'zipCode', rdo_code:'rdoCode', has_multiple_business_lines:'hasMultipleBusinessLines',
-                      accounting_type:'accountingType', fiscal_month_end:'fiscalMonthEnd', coa_format:'coaFormat'
-                    };
-                    if (column === 'id' || column === 'name') return String((existing as any)?.[column] || '') !== String((nextMetadata as any)?.[column] || '');
-                    const localKey = keyMap[column] || column;
-                    const incoming = (nextMetadata as any)?.[localKey];
-                    const current = (existing as any)?.[localKey];
-                    return String(current ?? '') !== String(incoming ?? '');
-                  });
-                  return { ...prev, [row.id]: { ...(existing || {} as Client), ...nextMetadata } as Client };
-                });
-                if (metadataChanged && row.id === currentClientIdRef.current) {
-                  const sections = getSectionsForPage(activePageRef.current);
-                  loadNormalizedClient(row.id, sections)
-                    .then(normalized => {
-                      const loaded = loadedSectionsRef.current.get(row.id) || new Set<ClientSection>();
-                      sections.forEach(section => loaded.add(section));
-                      loadedSectionsRef.current.set(row.id, loaded);
-                      setClients(prev => ({ ...prev, [row.id]: { ...(prev[row.id] || {} as Client), ...(normalized.data as any) } as Client }));
-                    })
-                    .catch(e=>console.warn('Realtime normalized reload failed',e));
-                }
-              }
+              const row = payload.new as any;
+              setClients(prev => ({ ...prev, [row.id]: rowToClientMetadata(row) }));
+            }
+          )
+          .on(
+            'postgres_changes',
+            { event: 'DELETE', schema: 'public', table: 'clients', filter: `user_id=eq.${user.id}` },
+            (payload) => {
+              const id = (payload.old as any).id;
+              if (!id) return;
+              setClients(prev => { const next={...prev}; delete next[id]; return next; });
             }
           )
           .subscribe();
@@ -1128,6 +1109,49 @@ export function AccountingProvider({
   // saves in quick succession; overlapping normalized saves can otherwise race
   // their stale-row cleanup and make recently-added journal columns disappear.
   const saveQueuesRef = React.useRef<Record<string, Promise<void>>>({});
+
+  const saveSale = async (clientId: string, sale: any) => {
+    if (!user) return;
+    const row = {
+      id: String(sale.id), client_id: clientId, dat_month_year: sale.datMonthYear || null,
+      date: sale.date, ref: sale.ref || null, payment_type: sale.paymentType || null,
+      buyer_tin: sale.buyerTin || null, buyer_name: sale.buyerName || null,
+      buyer_address: sale.buyerAddress || null, vat_type: sale.vatType || null,
+      amount: Number(sale.amount || 0), net_of_vat: Number(sale.netOfVat || 0),
+      output_tax: Number(sale.outputTax || 0), income_type: sale.incomeType || null,
+      description: sale.desc || null
+    };
+    const { error } = await supabase.from('sales').upsert(row, { onConflict: 'id' });
+    if (error) throw error;
+  };
+
+  const savePurchase = async (clientId: string, purchase: any) => {
+    if (!user) return;
+    const row = {
+      id: String(purchase.id), client_id: clientId, dat_month_year: purchase.datMonthYear || null,
+      date: purchase.date, payment_method: purchase.paymentMethod || '', check_number: purchase.checkNumber || null,
+      bank_name: purchase.bankName || null, invoice_no: purchase.invoiceNo || null,
+      supplier_name: purchase.supplierName || '', supplier_address: purchase.supplierAddress || null,
+      supplier_tin: purchase.supplierTin || null, amount: Number(purchase.amount || 0),
+      vat_type: purchase.vatType || null, exempt_amount: Number(purchase.exemptAmount || 0),
+      zero_rated_amount: Number(purchase.zeroRatedAmount || 0), expense_type: purchase.expenseType || null,
+      account_title: purchase.accountTitle || null, transaction_details: purchase.transactionDetails || null,
+      input_tax: Number(purchase.inputTax || 0), attachment_name: purchase.attachment?.name || null,
+      attachment_type: purchase.attachment?.type || null, attachment_original_type: purchase.attachment?.originalType || null,
+      attachment_size: purchase.attachment?.size || null, attachment_original_size: purchase.attachment?.originalSize || null,
+      attachment_compression: purchase.attachment?.compression || null, attachment_storage_path: purchase.attachment?.storagePath || null,
+      withholding_option: purchase.withholdingOption || null, atc_code: purchase.atcCode || null,
+      wht_rate: purchase.whtRate ?? null, wht_amount: purchase.whtAmount ?? null
+    };
+    const { error } = await supabase.from('purchases').upsert(row, { onConflict: 'id' });
+    if (error) throw error;
+  };
+
+  const deletePurchase = async (clientId: string, purchaseId: string | number) => {
+    if (!user) return;
+    const { error } = await supabase.from('purchases').delete().eq('client_id', clientId).eq('id', String(purchaseId));
+    if (error) throw error;
+  };
 
   const saveClient = async (id: string, clientData: Client) => {
     // Accounting saves can change report balances. Invalidate only this
@@ -1441,6 +1465,9 @@ export function AccountingProvider({
         setCurrentClientId,
         setCurrentDat,
         saveClient,
+        saveSale,
+        savePurchase,
+        deletePurchase,
         addClient,
         deleteClient,
         saveBusinessProfile,
