@@ -123,7 +123,7 @@ export function Purchases() {
   const navigate = useNavigate();
   const isOtherPayments = location.pathname === '/purchases/other-payments';
   const isAP = location.pathname === '/purchases/ap';
-  const { currentClient, currentClientId, currentDat, saveClient, showToast, setCurrentDat } = useAccounting();
+  const { currentClient, currentClientId, currentDat, saveClient, savePurchase, deletePurchase, showToast, setCurrentDat } = useAccounting();
   
   // Single record state (similar to original but react-friendly)
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -478,13 +478,9 @@ export function Purchases() {
       updatedPurchases = [...currentClient.purchases, purchaseData];
     }
 
-    const updatedClient = {
-      ...currentClient,
-      purchases: updatedPurchases
-    };
-
-    // ✅ FIX: Explicitly save both purchases and the TIN library so supplier entries persist
-    await saveClient(currentClientId, updatedClient, ['purchases', 'tinLibrary']);
+    // Persist this purchase directly to the normalized purchases table.
+    // Do not route a single transaction through aggregate saveClient().
+    await savePurchase(currentClientId, purchaseData);
 
     showToast(viewIndex !== null ? 'Entry updated' : 'Expense entry added');
 
@@ -522,14 +518,15 @@ export function Purchases() {
     }, 0);
   };
 
-  const handleDelete = (id: number) => {
+  const handleDelete = async (id: number) => {
     if (!currentClient || !currentClientId) return;
-    const updatedClient = {
-      ...currentClient,
-      purchases: currentClient.purchases.filter(p => p.id !== id)
-    };
-    saveClient(currentClientId, updatedClient);
-    showToast('Expense deleted');
+    try {
+      await deletePurchase(currentClientId, id);
+      showToast('Expense deleted');
+    } catch (error) {
+      console.error('Purchase deletion failed:', error);
+      showToast('Unable to delete expense');
+    }
   };
 
   return (
