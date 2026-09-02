@@ -181,7 +181,8 @@ const PAGE_SECTIONS: Record<string, ClientSection[]> = {
   'purchases/other-payments': ['purchases', 'coa', 'tinLibrary'],
   'purchases/ap': ['coa', 'tinLibrary'],
   tinlibrary: ['tinLibrary'],
-  history: ['purchases', 'sales', 'tinLibrary'],
+  // History queries purchases/sales directly by selected period; don't duplicate those rows in context.
+  history: ['tinLibrary'],
   coa: ['coa'],
   'cash-receipt': ['crj', 'coa'],
   'cash-disbursement': ['cdj', 'coa', 'purchases', 'journalVoucher', 'ap'],
