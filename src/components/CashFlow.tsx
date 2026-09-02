@@ -1,296 +1,124 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { ArrowLeftRight, Trash2 } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Activity, Loader2 } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
-import { CashFlowData, CashFlowLine } from '../types';
-import { cn } from '../lib/utils';
+import { formatAccountAmount } from '../lib/accountingBalances';
+import { supabase } from '../lib/supabase';
 
-type Section = 'operatingActivities' | 'investingActivities' | 'financingActivities';
+interface CashFlowRow {
+  section: string;
+  line_type: string;
+  account_id: string | null;
+  account_name: string;
+  amount: number;
+  sort_order: number;
+}
+
+const SECTION_ORDER = ['Operating Activities', 'Investing Activities', 'Financing Activities'];
 
 export function CashFlow() {
-  const { currentClient, currentClientId, saveClient, activeDevice } = useAccounting();
+  const { currentClient, currentClientId, saveClient } = useAccounting();
+  const year = new Date().getFullYear();
+  const [rows, setRows] = useState<CashFlowRow[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!currentClientId) { setRows([]); return; }
+    setLoading(true);
+    setReportError(null);
+
+    supabase.rpc('get_server_cash_flow', {
+      p_client_id: currentClientId,
+      p_start_date: `${year}-01-01`,
+      p_end_date: `${year + 1}-01-01`,
+    })
+      .then(({ data, error }) => {
+        if (error) throw error;
+        if (!cancelled) setRows((data || []).map((r: any) => ({
+          section: String(r.section || ''),
+          line_type: String(r.line_type || ''),
+          account_id: r.account_id == null ? null : String(r.account_id),
+          account_name: String(r.account_name || ''),
+          amount: Number(r.amount || 0),
+          sort_order: Number(r.sort_order || 0),
+        })));
+      })
+      .catch(err => { if (!cancelled) setReportError(err?.message || 'Unable to load Cash Flow from PostgreSQL.'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+
+    return () => { cancelled = true; };
+  }, [currentClientId, currentClient, year]);
 
   if (!currentClient || !currentClientId) return null;
 
-  const line = (particulars: string): CashFlowLine => ({ id: crypto.randomUUID(), particulars, amount: '0.00', priorAmount: '0.00' });
-
-  const defaultData: CashFlowData = {
+  const data = currentClient.cfData || {
     companyName: currentClient.tradeName || currentClient.name || '',
-    reportName: 'STATEMENTS OF CASH FLOWS',
-    period: 'For the year ended December 31, 2026',
-    comparativeNote: '(With comparative figures for 2025)',
-    operatingActivities: [
-      line('Net income for the period'),
-      line('Depreciation'),
-      line('Adjustments'),
-      line('Decrease (increase) in trade and other receivables'),
-      line('Decrease (increase) in inventories'),
-      line('Decrease (increase) in other current assets'),
-      line('Increase (decrease) in trade and other payables'),
-      line('Increase (decrease) in other current liabilities'),
-    ],
-    investingActivities: [
-      line('Addition to property and equipment'),
-    ],
-    financingActivities: [
-      line('Additional capital'),
-      line('Drawings'),
-    ],
-    cashBeginning: '0.00',
-    cashBeginningPrior: '0.00',
+    address: [currentClient.street, currentClient.barangay, currentClient.city, currentClient.zipCode].filter(Boolean).join(', ') || '',
+    reportName: 'STATEMENT OF CASH FLOWS',
   };
 
-  const [cfData, setCfData] = useState<CashFlowData>(() => currentClient.cfData || defaultData);
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const dirtyRef = useRef(false);
+  const update = (field: 'companyName' | 'address' | 'reportName', value: string) =>
+    saveClient(currentClientId, { ...currentClient, cfData: { ...data, [field]: value } });
 
-  // Keep the editable report local while the user is typing.  Persist only
-  // after a short idle period instead of issuing a Supabase write on every
-  // keystroke.
-  useEffect(() => {
-    setCfData(currentClient.cfData || defaultData);
-    dirtyRef.current = false;
-  }, [currentClientId]);
+  const grouped = useMemo(() => Object.fromEntries(
+    SECTION_ORDER.map(section => [section, rows.filter(r => r.section === section)])
+  ) as Record<string, CashFlowRow[]>, [rows]);
 
-  useEffect(() => {
-    if (!dirtyRef.current) return;
-
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-
-    saveTimerRef.current = setTimeout(() => {
-      void saveClient(currentClientId, {
-        ...currentClient,
-        cfData,
-      });
-      dirtyRef.current = false;
-      saveTimerRef.current = null;
-    }, 700);
-
-    return () => {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    };
-  }, [cfData, currentClientId, currentClient, saveClient]);
-
-  useEffect(() => () => {
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-  }, []);
-
-  const updateData = (updates: Partial<CashFlowData>) => {
-    dirtyRef.current = true;
-    setCfData(prev => ({ ...prev, ...updates }));
-  };
-
-  const parseNum = (val: string) => {
-    const raw = val.replace(/,/g, '').replace(/[()P]/g, '').trim();
-    if (val.includes('(')) return -Math.abs(parseFloat(raw) || 0);
-    return parseFloat(raw) || 0;
-  };
-
-  const formatNum = (num: number, currency = false) => {
-    if (isNaN(num)) return '';
-    const isNegative = num < 0;
-    const absRaw = Math.abs(num).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const formatted = isNegative ? `(${absRaw})` : absRaw;
-    return currency ? `P ${formatted}` : formatted;
-  };
-
-  const sectionTotal = (section: Section, prior = false) =>
-    cfData[section].reduce((acc, l) => acc + parseNum(prior ? l.priorAmount : l.amount), 0);
-
-  const netOperating = sectionTotal('operatingActivities');
-  const netOperatingPrior = sectionTotal('operatingActivities', true);
-  const netInvesting = sectionTotal('investingActivities');
-  const netInvestingPrior = sectionTotal('investingActivities', true);
-  const netFinancing = sectionTotal('financingActivities');
-  const netFinancingPrior = sectionTotal('financingActivities', true);
-
-  const netIncreaseDecrease = netOperating + netInvesting + netFinancing;
-  const netIncreaseDecreasePrior = netOperatingPrior + netInvestingPrior + netFinancingPrior;
-
-  const cashBeginning = parseNum(cfData.cashBeginning);
-  const cashBeginningPrior = parseNum(cfData.cashBeginningPrior);
-  const cashEnding = cashBeginning + netIncreaseDecrease;
-  const cashEndingPrior = cashBeginningPrior + netIncreaseDecreasePrior;
-
-  const handleUpdateLine = (section: Section, id: string, field: keyof CashFlowLine, value: string) => {
-    updateData({ [section]: cfData[section].map(l => l.id === id ? { ...l, [field]: value } : l) } as Partial<CashFlowData>);
-  };
-
-  const handleAddLine = (section: Section) => {
-    updateData({ [section]: [...cfData[section], line('')] } as Partial<CashFlowData>);
-  };
-
-  const handleDeleteLine = (section: Section, id: string) => {
-    updateData({ [section]: cfData[section].filter(l => l.id !== id) } as Partial<CashFlowData>);
-  };
-
-  const handleAmountBlur = (section: Section, id: string, field: 'amount' | 'priorAmount', e: React.FocusEvent<HTMLInputElement>) => {
-    handleUpdateLine(section, id, field, formatNum(parseNum(e.target.value)));
-  };
-
-  const renderSection = (section: Section, label: string) => (
-    <div>
-      <div className="uppercase mb-2 font-bold text-xs text-slate-500">{label}</div>
-      <div className="overflow-x-auto">
-        <table className="w-full">
-          <tbody>
-            {cfData[section].map(l => (
-              <tr key={l.id} className="group">
-                <td className="pl-6 py-1">
-                  <input
-                    type="text"
-                    value={l.particulars}
-                    onChange={e => handleUpdateLine(section, l.id, 'particulars', e.target.value)}
-                    className="w-full bg-transparent border border-transparent hover:border-slate-200 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 px-2 py-1 outline-none text-sm"
-                    placeholder="Line item"
-                  />
-                </td>
-                <td className="w-28 py-1">
-                  <input
-                    type="text"
-                    value={l.amount}
-                    onChange={e => handleUpdateLine(section, l.id, 'amount', e.target.value)}
-                    onBlur={e => handleAmountBlur(section, l.id, 'amount', e)}
-                    className="w-full bg-transparent border border-transparent hover:border-slate-200 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 px-2 py-1 outline-none text-right font-mono text-sm"
-                  />
-                </td>
-                <td className="w-28 py-1 relative">
-                  <input
-                    type="text"
-                    value={l.priorAmount}
-                    onChange={e => handleUpdateLine(section, l.id, 'priorAmount', e.target.value)}
-                    onBlur={e => handleAmountBlur(section, l.id, 'priorAmount', e)}
-                    className="w-full bg-transparent border border-transparent hover:border-slate-200 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 px-2 py-1 outline-none text-right font-mono text-sm text-slate-500"
-                  />
-                  {cfData[section].length > 1 && (
-                    <button
-                      onClick={() => handleDeleteLine(section, l.id)}
-                      className={cn(
-                        "absolute top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-500 transition-all",
-                        activeDevice === 'mobile'
-                          ? "opacity-100 right-1 bg-white/90 dark:bg-slate-900/90 p-1 rounded-full border border-slate-200 dark:border-slate-800 shadow"
-                          : "opacity-0 -right-8 group-hover:opacity-100"
-                      )}
-                    ><Trash2 className="w-3.5 h-3.5" /></button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      <button onClick={() => handleAddLine(section)} className="text-xs text-cyan-600 font-bold ml-6 mt-1 opacity-50 hover:opacity-100">+ Add Row</button>
-    </div>
-  );
-
-  const netRow = (label: string, net: number, netPrior: number) => (
-    <div className="flex justify-between items-center py-2 border-t border-slate-800">
-      <div className="uppercase pl-6 text-sm">{label}</div>
-      <div className="flex">
-        <div className="w-28 text-right font-mono px-2 text-sm font-bold">{formatNum(net, true)}</div>
-        <div className="w-28 text-right font-mono px-2 text-sm text-slate-500">{formatNum(netPrior, true)}</div>
-      </div>
-    </div>
-  );
+  const sectionTotal = (section: string) => (grouped[section] || []).reduce((n, r) => n + r.amount, 0);
+  const operating = sectionTotal('Operating Activities');
+  const investing = sectionTotal('Investing Activities');
+  const financing = sectionTotal('Financing Activities');
+  const netChange = operating + investing + financing;
 
   return (
     <div className="w-full flex flex-col">
-      <PageHeader title="Cash Flow" icon={<ArrowLeftRight className="text-blue-500" />} centered />
+      <PageHeader title="Cash Flow" icon={<Activity className="text-cyan-500" />} centered />
       <div className="p-4 md:p-6 flex-1">
-      <div className="p-8 text-sm">
-
-        {/* HEADER SECTION */}
-        <div className="text-center mb-6">
-          <input
-            type="text"
-            value={cfData.companyName}
-            onChange={(e) => updateData({ companyName: e.target.value })}
-            className="text-xl font-bold text-center uppercase tracking-wide bg-transparent border-b border-transparent hover:border-slate-300 focus:border-cyan-500 focus:outline-none block w-full max-w-md mx-auto"
-            placeholder="COMPANY NAME"
-          />
-          <div className="mt-6">
-            <input
-              type="text"
-              value={cfData.reportName}
-              onChange={(e) => updateData({ reportName: e.target.value })}
-              className="text-lg font-medium text-center uppercase bg-transparent border-b border-transparent hover:border-slate-300 focus:border-cyan-500 focus:outline-none block w-full max-w-md mx-auto"
-            />
-            <input
-              type="text"
-              value={cfData.period}
-              onChange={(e) => updateData({ period: e.target.value })}
-              className="text-center font-medium bg-transparent border-b border-transparent hover:border-slate-300 focus:border-cyan-500 focus:outline-none block w-full max-w-md mx-auto mt-1"
-            />
-            <input
-              type="text"
-              value={cfData.comparativeNote}
-              onChange={(e) => updateData({ comparativeNote: e.target.value })}
-              className="text-center text-xs text-slate-500 bg-transparent border-b border-transparent hover:border-slate-300 focus:border-cyan-500 focus:outline-none block w-full max-w-md mx-auto mt-1"
-            />
-          </div>
-        </div>
-
-        <div className="max-w-3xl mx-auto space-y-6">
-          <div className="flex justify-end gap-0 text-[10px] font-bold text-slate-400 uppercase pr-2">
-            <span className="w-28 text-right px-2">Current Year</span>
-            <span className="w-28 text-right px-2">Prior Year</span>
-          </div>
-
-          <div className="uppercase font-bold text-sm">Cash Flows From Operating Activities:</div>
-          {renderSection('operatingActivities', 'Net income and adjustments')}
-          {netRow('Net cash provided (used) from operating activities', netOperating, netOperatingPrior)}
-
-          <div className="h-2"></div>
-          <div className="uppercase font-bold text-sm">Cash Flows From Investing Activities:</div>
-          {renderSection('investingActivities', 'Investing activities')}
-          {netRow('Net cash provided (used) from investing activities', netInvesting, netInvestingPrior)}
-
-          <div className="h-2"></div>
-          <div className="uppercase font-bold text-sm">Cash Flows From Financing Activities:</div>
-          {renderSection('financingActivities', 'Financing activities')}
-          {netRow('Net cash provided (used) from financing activities', netFinancing, netFinancingPrior)}
-
-          <div className="flex justify-between items-center py-2 border-t-4 border-double border-slate-800 mt-4">
-            <div className="uppercase font-bold">Net Increase (Decrease) in Cash</div>
-            <div className="flex">
-              <div className="w-28 text-right font-mono px-2 font-bold">{formatNum(netIncreaseDecrease, true)}</div>
-              <div className="w-28 text-right font-mono px-2 text-slate-500">{formatNum(netIncreaseDecreasePrior, true)}</div>
+        <div className="p-8 text-sm">
+          <div className="text-center mb-8">
+            <input value={data.companyName} onChange={e => update('companyName', e.target.value)}
+              className="text-xl font-bold text-center uppercase tracking-wide bg-transparent border-b border-transparent hover:border-slate-300 focus:border-cyan-500 focus:outline-none block w-full max-w-md mx-auto" />
+            <input value={data.address} onChange={e => update('address', e.target.value)}
+              className="text-center bg-transparent border-b border-transparent hover:border-slate-300 focus:border-cyan-500 focus:outline-none block w-full max-w-md mx-auto mt-1" />
+            <div className="mt-6">
+              <input value={data.reportName} onChange={e => update('reportName', e.target.value)}
+                className="text-lg font-medium text-center uppercase bg-transparent border-b border-transparent hover:border-slate-300 focus:border-cyan-500 focus:outline-none block w-full max-w-md mx-auto" />
+              <div className="text-center font-medium mt-1">For the year ended December 31, {year}</div>
+              <div className="text-center text-xs text-slate-500 mt-1">Indirect method · calculated in PostgreSQL</div>
             </div>
           </div>
 
-          <div className="flex justify-between items-center py-1">
-            <div className="uppercase">Cash, Beginning of Period</div>
-            <div className="flex">
-              <div className="w-28 py-1">
-                <input
-                  type="text"
-                  value={cfData.cashBeginning}
-                  onChange={e => updateData({ cashBeginning: e.target.value })}
-                  onBlur={e => updateData({ cashBeginning: formatNum(parseNum(e.target.value)) })}
-                  className="w-full bg-transparent border border-transparent hover:border-slate-200 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 px-2 py-1 outline-none text-right font-mono text-sm"
-                />
-              </div>
-              <div className="w-28 py-1">
-                <input
-                  type="text"
-                  value={cfData.cashBeginningPrior}
-                  onChange={e => updateData({ cashBeginningPrior: e.target.value })}
-                  onBlur={e => updateData({ cashBeginningPrior: formatNum(parseNum(e.target.value)) })}
-                  className="w-full bg-transparent border border-transparent hover:border-slate-200 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 px-2 py-1 outline-none text-right font-mono text-sm text-slate-500"
-                />
-              </div>
-            </div>
-          </div>
+          {loading && <div className="flex items-center justify-center gap-2 text-sm text-slate-500 py-8"><Loader2 className="w-4 h-4 animate-spin" /> Loading Cash Flow from PostgreSQL…</div>}
+          {reportError && <div className="text-sm text-red-600 bg-red-50 dark:bg-red-950/30 rounded-lg p-3 mb-6">{reportError}</div>}
 
-          <div className="flex justify-between items-center py-2 border-t-4 border-double border-slate-800">
-            <div className="uppercase font-bold">Cash, End of Period</div>
-            <div className="flex">
-              <div className="w-28 text-right font-mono px-2 font-bold">{formatNum(cashEnding, true)}</div>
-              <div className="w-28 text-right font-mono px-2 text-slate-500">{formatNum(cashEndingPrior, true)}</div>
+          <div className="max-w-3xl mx-auto space-y-6">
+            {SECTION_ORDER.map(section => {
+              const items = grouped[section] || [];
+              const total = sectionTotal(section);
+              return (
+                <section key={section}>
+                  <div className="uppercase mb-2 font-bold">{section}</div>
+                  <table className="w-full"><tbody>
+                    {items.length ? items.map((r, i) => (
+                      <tr key={`${r.account_id || r.line_type}-${i}`}>
+                        <td className="pl-6 py-1.5">{r.account_id ? `${r.account_id} — ` : ''}{r.account_name}</td>
+                        <td className="w-40 py-1.5 text-right font-mono pr-2">{formatAccountAmount(r.amount)}</td>
+                      </tr>
+                    )) : <tr><td colSpan={2} className="pl-6 py-2 text-slate-400">No activity.</td></tr>}
+                    <tr className="font-bold border-t"><td className="pl-6 py-2">NET CASH FROM {section.toUpperCase()}</td><td className="text-right font-mono pr-2">{formatAccountAmount(total)}</td></tr>
+                  </tbody></table>
+                </section>
+              );
+            })}
+
+            <div className="flex justify-between items-center py-3 border-t-2 border-slate-800 font-bold text-base">
+              <div className="uppercase">NET CHANGE IN CASH</div>
+              <div className="w-40 text-right font-mono pr-2">{formatAccountAmount(netChange)}</div>
             </div>
           </div>
         </div>
-      </div>
       </div>
     </div>
   );
