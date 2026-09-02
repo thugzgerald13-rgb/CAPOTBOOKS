@@ -2,15 +2,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { LineChart, Trash2, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
-import { CoaAccount, GeneralLedgerAccount, GeneralLedgerEntry, Client, JournalEntry } from '../types';
+import { GeneralLedgerAccount, GeneralLedgerEntry } from '../types';
 import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide } from './ChartOfAccounts';
-import { DEFAULT_CRJ_COLUMNS } from './CashReceiptsJournal';
-import { DEFAULT_CDJ_COLUMNS } from './CashDisbursementsJournal';
-import { DEFAULT_PJ_COLUMNS } from './PurchasesJournal';
-import { DEFAULT_GJ_COLUMNS } from './GeneralJournal';
 import { supabase } from '../lib/supabase';
-import { computeAutoPostings } from '../lib/glPosting';
-import { cn } from '../lib/utils';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
@@ -21,26 +15,19 @@ const dateRange = (month: number, year: number) => {
   return { start, end };
 };
 
-const rowDate = (v: any) => v ? String(v).slice(0,10) : '';
-const mapJournalEntry = (r:any): JournalEntry => ({ id: String(r.id), values: r.values || {}, auto: !!r.auto, autoSource: r.auto_source });
-
-// GL is a period view. Keep the last successfully loaded period in memory so
-// remounting/navigating back to the same period does not immediately re-read
-// the same journal payload from Supabase. The cache is intentionally small and
-// is replaced whenever a different client/period is loaded.
-let glPeriodCache: { key: string; value: Record<string, GeneralLedgerEntry[]> } | null = null;
+const formatAmount = (n: number) => Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export function GeneralLedger() {
   const { currentClient, currentClientId, saveClient } = useAccounting();
   const [typeFilter, setTypeFilter] = useState('All');
-  const [accountFilter, setAccountFilter] = useState('All');
+  const [accountFilter, setAccountFilter] = useState('');
   const [month, setMonth] = useState(new Date().getMonth()+1);
   const [year, setYear] = useState(new Date().getFullYear());
-  const [autoEntries, setAutoEntries] = useState<Record<string, GeneralLedgerEntry[]>>({});
+  const [ledgerEntries, setLedgerEntries] = useState<GeneralLedgerEntry[]>([]);
+  const [beginningBalance, setBeginningBalance] = useState(0);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [expandedAccounts, setExpandedAccounts] = useState<Record<string, boolean>>({});
-
 
   const coaAccounts = useMemo(() => {
     if (!currentClient) return [];
@@ -55,120 +42,111 @@ export function GeneralLedger() {
     return Array.from({length: 11}, (_,i) => now + 2 - i);
   }, []);
 
+  // The GL deliberately defaults to one account. This is the important lazy
+  // loading boundary: PostgreSQL aggregates only the selected account/period;
+  // the browser never downloads the other accounts' transaction rows.
+  useEffect(() => {
+    if (!accountFilter && coaAccounts.length) setAccountFilter(coaAccounts[0].id);
+    if (accountFilter && !coaAccounts.some(a => a.id === accountFilter)) {
+      setAccountFilter(coaAccounts[0]?.id || '');
+    }
+  }, [coaAccounts, accountFilter]);
+
   useEffect(() => {
     let cancelled = false;
-    const loadLedgerPeriod = async () => {
-      if (!currentClientId || !currentClient) return;
-      const cacheKey = `${currentClientId}:${year}-${String(month).padStart(2,'0')}`;
-      if (glPeriodCache?.key === cacheKey) {
-        setLoadError(null);
-        setAutoEntries(glPeriodCache.value);
-        setLoading(false);
+    const loadLedger = async () => {
+      if (!currentClientId || !accountFilter) {
+        setLedgerEntries([]);
+        setBeginningBalance(0);
         return;
       }
 
-      setLoading(true); setLoadError(null);
+      setLoading(true);
+      setLoadError(null);
       const { start, end } = dateRange(month, year);
+
       try {
-        const journalTypes = ['CRJ','CDJ','PJ','GJ'];
-        // Request only fields consumed by the posting engine. In particular,
-        // journal_entries does not need any duplicate metadata columns here;
-        // the date predicate is applied in Postgres before the JSON payload is
-        // sent to the browser.
-        const [columnsRes, entriesRes, vouchersRes] = await Promise.all([
-          supabase.from('journal_columns')
-            .select('id,journal_type,name,type,category')
-            .eq('client_id', currentClientId)
-            .in('journal_type', journalTypes),
-          supabase.from('journal_entries')
-            .select('id,journal_type,values')
-            .eq('client_id', currentClientId)
-            .in('journal_type', journalTypes)
-            .gte('values->>date', start)
-            .lt('values->>date', end),
-          supabase.from('journal_vouchers')
-            .select('id,date,reference,memo')
-            .eq('client_id', currentClientId)
-            .gte('date', start)
-            .lt('date', end)
-            .order('date', { ascending: true })
+        const [entriesRes, balancesRes] = await Promise.all([
+          supabase.rpc('get_server_general_ledger_entries', {
+            p_client_id: currentClientId,
+            p_account_id: accountFilter,
+            p_start_date: start,
+            p_end_date: end,
+          }),
+          supabase.rpc('get_server_account_balances', {
+            p_client_id: currentClientId,
+            p_start_date: start,
+            p_end_date: end,
+          }),
         ]);
-        if (columnsRes.error) throw columnsRes.error;
+
         if (entriesRes.error) throw entriesRes.error;
-        if (vouchersRes.error) throw vouchersRes.error;
+        if (balancesRes.error) throw balancesRes.error;
         if (cancelled) return;
 
-        const voucherIds = (vouchersRes.data || []).map((v:any) => String(v.id));
-        let voucherLines:any[] = [];
-        if (voucherIds.length) {
-          const linesRes = await supabase.from('journal_voucher_lines')
-            .select('id,journal_voucher_id,account_id,account_name,debit,credit')
-            .eq('client_id', currentClientId)
-            .in('journal_voucher_id', voucherIds);
-          if (linesRes.error) throw linesRes.error;
-          voucherLines = linesRes.data || [];
-        }
-        if (cancelled) return;
-
+        const balanceRow = (balancesRes.data || []).find((r:any) => String(r.account_id) === String(accountFilter));
         const rows = entriesRes.data || [];
-        const byType = (type:string) => rows.filter((r:any) => r.journal_type === type).map(mapJournalEntry);
-        const cols = columnsRes.data || [];
-        const linesByVoucher = new Map<string, any[]>();
-        voucherLines.forEach((l:any) => {
-          const key = String(l.journal_voucher_id);
-          const list = linesByVoucher.get(key) || [];
-          list.push({ id:String(l.id), accountId:l.account_id || '', accountName:l.account_name || '', debit:Number(l.debit||0), credit:Number(l.credit||0) });
-          linesByVoucher.set(key, list);
-        });
-        const vouchers = (vouchersRes.data || []).map((v:any) => ({
-          id:String(v.id), date:rowDate(v.date), reference:v.reference || '', memo:v.memo || '',
-          lines:linesByVoucher.get(String(v.id)) || []
+        const prior = rows.length ? Number(rows[0].beginning_balance || 0) :
+          balanceRow ? Number(balanceRow.balance || 0) - Number(balanceRow.period_balance || 0) : 0;
+
+        const mapped: GeneralLedgerEntry[] = rows.map((r:any) => ({
+          id: String(r.entry_id),
+          dateDr: Number(r.debit || 0) > 0 ? String(r.entry_date || '') : '',
+          particularsDr: Number(r.debit || 0) > 0 ? String(r.particulars || '') : '',
+          refDr: Number(r.debit || 0) > 0 ? String(r.pr || '') : '',
+          debit: Number(r.debit || 0) > 0 ? formatAmount(Number(r.debit || 0)) : '',
+          dateCr: Number(r.credit || 0) > 0 ? String(r.entry_date || '') : '',
+          particularsCr: Number(r.credit || 0) > 0 ? String(r.particulars || '') : '',
+          refCr: Number(r.credit || 0) > 0 ? String(r.pr || '') : '',
+          credit: Number(r.credit || 0) > 0 ? formatAmount(Number(r.credit || 0)) : '',
+          auto: true,
+          autoSource: String(r.source || ''),
         }));
 
-        const filteredClient: Client = {
-          ...currentClient,
-          crjColumns: cols.filter((c:any)=>c.journal_type==='CRJ').map((c:any)=>({id:String(c.id),name:c.name,type:c.type,category:c.category,isSystem:false})),
-          cdjColumns: cols.filter((c:any)=>c.journal_type==='CDJ').map((c:any)=>({id:String(c.id),name:c.name,type:c.type,category:c.category,isSystem:false})),
-          pjColumns: cols.filter((c:any)=>c.journal_type==='PJ').map((c:any)=>({id:String(c.id),name:c.name,type:c.type,category:c.category,isSystem:false})),
-          gjColumns: cols.filter((c:any)=>c.journal_type==='GJ').map((c:any)=>({id:String(c.id),name:c.name,type:c.type,category:c.category,isSystem:false})),
-          crjEntries: byType('CRJ'), cdjEntries: byType('CDJ'), pjEntries: byType('PJ'), gjEntries: byType('GJ'),
-          journalVouchers: vouchers,
-        };
-        const postings = computeAutoPostings(filteredClient);
-        const next:Record<string,GeneralLedgerEntry[]> = {};
-        postings.forEach(p => { (next[p.accountId] ||= []).push(p.entry); });
-        Object.values(next).forEach(arr => arr.sort((a,b) => String(a.dateDr || a.dateCr).localeCompare(String(b.dateDr || b.dateCr))));
-        glPeriodCache = { key: cacheKey, value: next };
-        if (!cancelled) setAutoEntries(next);
+        setBeginningBalance(prior);
+        setLedgerEntries(mapped);
       } catch (e:any) {
-        console.error('General Ledger period load failed', e);
-        if (!cancelled) { setAutoEntries({}); setLoadError(e?.message || 'Unable to load General Ledger data.'); }
+        console.error('General Ledger server load failed', e);
+        if (!cancelled) {
+          setLedgerEntries([]);
+          setBeginningBalance(0);
+          setLoadError(e?.message || 'Unable to load General Ledger data from the server.');
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
     };
-    loadLedgerPeriod();
+
+    loadLedger();
     return () => { cancelled = true; };
-  }, [currentClientId, month, year]);
+  }, [currentClientId, currentClient, accountFilter, month, year]);
 
   if (!currentClient || !currentClientId) return null;
 
+  const selectedCoa = coaAccounts.find(a => a.id === accountFilter);
   const storedAccounts = currentClient.glAccounts || [];
-  const accounts: GeneralLedgerAccount[] = coaAccounts.map(coaAcct => {
-    const existing = storedAccounts.find(g => g.accountId === coaAcct.id);
-    const manualEntries = (existing?.entries || []).filter(e => !e.auto);
-    return {
-      id: coaAcct.id, accountTitle: coaAcct.name, accountId: coaAcct.id, accountType: coaAcct.type,
-      entries: [...(autoEntries[coaAcct.id] || []), ...manualEntries],
-      openingBalance: coaAcct.openingBalance, normalSide: coaAcct.normalSide || getNormalSide(coaAcct.type || '')
-    };
-  });
+  const storedSelected = storedAccounts.find(g => g.accountId === accountFilter);
+  const manualEntries = (storedSelected?.entries || []).filter(e => !e.auto);
+  const selectedAccount: GeneralLedgerAccount | null = selectedCoa ? {
+    id: selectedCoa.id,
+    accountTitle: selectedCoa.name,
+    accountId: selectedCoa.id,
+    accountType: selectedCoa.type,
+    entries: [...ledgerEntries, ...manualEntries.filter(e => {
+      const d = e.dateDr || e.dateCr || '';
+      const { start, end } = dateRange(month, year);
+      return d >= start && d < end;
+    })],
+    openingBalance: selectedCoa.openingBalance,
+    normalSide: selectedCoa.normalSide || getNormalSide(selectedCoa.type || '')
+  } : null;
 
   const availableTypes = Array.from(new Set(coaAccounts.map(a=>a.type).filter(Boolean))).sort((a,b)=>String(a).localeCompare(String(b)));
-  const filteredAccounts = accounts.filter(a =>
-    (typeFilter === 'All' || (a.accountType||'').toLowerCase() === typeFilter.toLowerCase()) &&
-    (accountFilter === 'All' || a.accountId === accountFilter)
-  );
+
+  const filteredAccounts = selectedAccount &&
+    (typeFilter === 'All' || (selectedAccount.accountType||'').toLowerCase() === typeFilter.toLowerCase())
+    ? [selectedAccount]
+    : [];
 
   const mutateEntries = (accountId:string, mutate:(entries:GeneralLedgerEntry[])=>GeneralLedgerEntry[]) => {
     const existing = storedAccounts.find(g=>g.accountId===accountId);
@@ -202,22 +180,22 @@ export function GeneralLedger() {
             <div>
               <label className="block text-xs font-semibold text-slate-500 mb-1">Account</label>
               <select value={accountFilter} onChange={e=>setAccountFilter(e.target.value)} className="form-input text-sm py-2 min-w-[220px]">
-                <option value="All">All Accounts</option>{coaAccounts.map(a=><option key={a.id} value={a.id}>{a.id} — {a.name}</option>)}
+                <option value="">Select Account</option>{coaAccounts.map(a=><option key={a.id} value={a.id}>{a.id} — {a.name}</option>)}
               </select>
             </div>
             {availableTypes.length>1 && <div><label className="block text-xs font-semibold text-slate-500 mb-1">Type</label><select value={typeFilter} onChange={e=>setTypeFilter(e.target.value)} className="form-input text-sm py-2"><option value="All">All Types</option>{availableTypes.map(t=><option key={t} value={t}>{t}</option>)}</select></div>}
-            {loading && <div className="flex items-center gap-2 text-sm text-slate-500 mt-5"><Loader2 className="w-4 h-4 animate-spin"/>Loading period…</div>}
+            {loading && <div className="flex items-center gap-2 text-sm text-slate-500 mt-5"><Loader2 className="w-4 h-4 animate-spin"/>Loading selected account…</div>}
           </div>
-          <p className="text-sm text-slate-500 dark:text-slate-400">Only General Ledger source entries for <b>{MONTHS[month-1]} {year}</b> are retrieved. Select an account to focus the ledger on one account.</p>
+          <p className="text-sm text-slate-500 dark:text-slate-400">Only the selected account's General Ledger entries for <b>{MONTHS[month-1]} {year}</b> are retrieved from PostgreSQL.</p>
           {loadError && <div className="text-sm text-red-600 bg-red-50 dark:bg-red-950/30 rounded-lg p-3">{loadError}</div>}
         </div>
 
         <div className="space-y-6">
           {filteredAccounts.map(account=>{
             const isExpanded=expandedAccounts[account.id]??true;
-            const opening=Number(account.openingBalance)||0; const openingDebit=account.normalSide!=='credit';
-            let totalDr=openingDebit?opening:0,totalCr=openingDebit?0:opening;
-            account.entries.forEach(e=>{const d=parseFloat(String(e.debit||'').replace(/,/g,''));const c=parseFloat(String(e.credit||'').replace(/,/g,''));if(Number.isFinite(d))totalDr+=d;if(Number.isFinite(c))totalCr+=c;});
+            const opening = accountFilter === account.accountId ? beginningBalance : 0;
+            const totalDr = (opening > 0 ? opening : 0) + account.entries.reduce((n,e)=>n + (parseFloat(String(e.debit||'').replace(/,/g,'')) || 0),0);
+            const totalCr = (opening < 0 ? Math.abs(opening) : 0) + account.entries.reduce((n,e)=>n + (parseFloat(String(e.credit||'').replace(/,/g,'')) || 0),0);
             const balance=totalDr-totalCr;
             return <div key={account.id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
               <div className="bg-slate-100 dark:bg-slate-800 px-4 py-3 flex justify-between items-center cursor-pointer border-b border-slate-200 dark:border-slate-700" onClick={()=>toggleAccount(account.id)}>

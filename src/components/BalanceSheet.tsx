@@ -3,9 +3,10 @@ import { Landmark } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { formatAccountAmount } from '../lib/accountingBalances';
+import { supabase } from '../lib/supabase';
 
 export function BalanceSheet() {
-  const { currentClient, currentClientId, saveClient, fetchServerAccountBalances } = useAccounting();
+  const { currentClient, currentClientId, saveClient } = useAccounting();
   const [balances, setBalances] = useState<any[]>([]);
   const [reportError, setReportError] = useState<string | null>(null);
   const year = new Date().getFullYear();
@@ -14,11 +15,23 @@ export function BalanceSheet() {
     let cancelled = false;
     if (!currentClientId) { setBalances([]); return; }
     setReportError(null);
-    fetchServerAccountBalances(`${year}-01-01`, `${year}-12-31`)
-      .then(rows => { if (!cancelled) setBalances(rows); })
+    supabase.rpc('get_server_account_balances', {
+      p_client_id: currentClientId,
+      p_start_date: `${year}-01-01`,
+      p_end_date: `${year + 1}-01-01`,
+    })
+      .then(({ data, error }) => {
+        if (error) throw error;
+        if (!cancelled) setBalances((data || []).map((row:any) => ({
+          account_id: String(row.account_id), account_name: String(row.account_name || ''),
+          account_type: String(row.account_type || ''), balance: Number(row.balance || 0),
+          period_debit: Number(row.period_debit || 0), period_credit: Number(row.period_credit || 0),
+          period_balance: Number(row.period_balance || 0),
+        })));
+      })
       .catch(err => { if (!cancelled) setReportError(err?.message || 'Unable to load report balances.'); });
     return () => { cancelled = true; };
-  }, [currentClientId, year, fetchServerAccountBalances]);
+  }, [currentClientId, currentClient, year]);
 
   if (!currentClient || !currentClientId) return null;
   const assets = balances.filter(x => ['asset', 'assets'].includes((x.account_type || '').toLowerCase()));

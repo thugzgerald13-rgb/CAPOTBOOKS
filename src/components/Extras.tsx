@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { Users, TrendingUp, Key, Lightbulb, BookOpen, BookText, LineChart, Scale, Plus, Building2, Save, X, RotateCcw, Library, FileText, Receipt, ShoppingCart, Banknote, Wallet, CreditCard, Trash2, Pencil } from 'lucide-react';
 import { Client, BusinessProfile } from '../types';
 import { RDO_CODES } from '../lib/utils';
+import { supabase } from '../lib/supabase';
 import { formatAccountAmount } from '../lib/accountingBalances';
 
 export function Extras() {
@@ -21,7 +22,6 @@ export function Extras() {
     businessProfile,
     saveBusinessProfile,
     ownerClientId,
-    fetchServerAccountBalances
   } = useAccounting();
   const { userRole } = useAuth();
   const [editingClient, setEditingClient] = useState<Client | null>(null);
@@ -34,11 +34,23 @@ export function Extras() {
     let cancelled = false;
     if (activePage !== 'trialbalance' || !currentClientId) return;
     setTrialBalanceError(null);
-    fetchServerAccountBalances(`${trialBalanceYear}-01-01`, `${trialBalanceYear}-12-31`)
-      .then(rows => { if (!cancelled) setTrialBalances(rows); })
+    supabase.rpc('get_server_account_balances', {
+      p_client_id: currentClientId,
+      p_start_date: `${trialBalanceYear}-01-01`,
+      p_end_date: `${trialBalanceYear + 1}-01-01`,
+    })
+      .then(({ data, error }) => {
+        if (error) throw error;
+        if (!cancelled) setTrialBalances((data || []).map((row:any) => ({
+          account_id: String(row.account_id), account_name: String(row.account_name || ''),
+          account_type: String(row.account_type || ''), balance: Number(row.balance || 0),
+          period_debit: Number(row.period_debit || 0), period_credit: Number(row.period_credit || 0),
+          period_balance: Number(row.period_balance || 0),
+        })));
+      })
       .catch(err => { if (!cancelled) setTrialBalanceError(err?.message || 'Unable to load trial balance.'); });
     return () => { cancelled = true; };
-  }, [activePage, currentClientId, trialBalanceYear, fetchServerAccountBalances]);
+  }, [activePage, currentClientId, currentClient, trialBalanceYear]);
   // Once a profile is saved, its fields lock (gray out/disabled) until the
   // Edit button is pressed again.
   const [isClientLocked, setIsClientLocked] = useState(false);
