@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { Client, BusinessProfile, DatSelection } from '../types';
+import { Client, BusinessProfile } from '../types';
 import { supabase } from '../lib/supabase';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { useAuth } from './AuthContext';
@@ -32,7 +32,6 @@ interface AccountingContextType {
   isDarkMode: boolean;
   isSidebarCollapsed: boolean;
   activePage: string | null;
-  currentDat: DatSelection | null;
   historyTab: string;
   birFormTab: string;
   toastMsg: string | null;
@@ -48,7 +47,6 @@ interface AccountingContextType {
   setHistoryTab: (tab: string) => void;
   setBirFormTab: (tab: string) => void;
   setCurrentClientId: (id: string) => void;
-  setCurrentDat: (dat: DatSelection | null) => void;
 
   saveClient: (id: string, clientData: Client) => Promise<void>;
   addClient: (name: string) => Promise<void>;
@@ -219,7 +217,7 @@ const getSectionsForPage = (page: string | null): ClientSection[] => {
 
 const uniqueSections = (sections: ClientSection[]) => Array.from(new Set(sections));
 
-const loadNormalizedClient = async (clientId: string, sections: ClientSection[] = ['coa'], periodKey?: string): Promise<LoadedClientData> => {
+const loadNormalizedClient = async (clientId: string, sections: ClientSection[] = ['coa']): Promise<LoadedClientData> => {
   // IMPORTANT: this is the explicit full-client loader. It is intentionally
   // no longer called for every client during application startup. The
   // provider first loads only client metadata, then calls this function for
@@ -227,15 +225,6 @@ const loadNormalizedClient = async (clientId: string, sections: ClientSection[] 
   // changing the accounting model while eliminating the largest startup
   // egress multiplier (all clients x all normalized tables).
   const requestedSections = new Set(uniqueSections(sections));
-  const periodFilter = periodKey && periodKey.trim() ? periodKey.trim() : null;
-  const journalPeriodMatch = periodFilter?.match(/^([A-Za-z]+)\s+(\d{4})$/);
-  const journalMonth = journalPeriodMatch ? new Date(`${journalPeriodMatch[1]} 1, ${journalPeriodMatch[2]}`) : null;
-  const journalStart = journalMonth && !Number.isNaN(journalMonth.getTime())
-    ? `${journalMonth.getFullYear()}-${String(journalMonth.getMonth() + 1).padStart(2, '0')}-01`
-    : null;
-  const journalEnd = journalMonth && !Number.isNaN(journalMonth.getTime())
-    ? new Date(journalMonth.getFullYear(), journalMonth.getMonth() + 1, 0).toISOString().slice(0, 10)
-    : null;
   const requestedJournalTypes = uniqueSections(sections.filter(s => ['crj','cdj','pj','gj'].includes(s)))
     .map(s => ({ crj: 'CRJ', cdj: 'CDJ', pj: 'PJ', gj: 'GJ' } as Record<string,string>)[s])
     .filter(Boolean);
@@ -247,8 +236,8 @@ const loadNormalizedClient = async (clientId: string, sections: ClientSection[] 
     inventoryMovements, folders, files, tinEntries, taxDeadlines, bankAccounts, supplierAdvances,
     withholdingTaxEntries, debitCreditMemos, checkVouchers, miscellaneousPayments,
     assetLapsingSchedule, billingInvoices, snapshots] = await Promise.all([
-      query(requestedSections.has('purchases'), (() => { let q:any = supabase.from('purchases').select('id,dat_month_year,date,payment_method,check_number,bank_name,invoice_no,supplier_name,supplier_address,supplier_tin,amount,vat_type,exempt_amount,zero_rated_amount,expense_type,account_title,transaction_details,input_tax,attachment_name,attachment_type,attachment_original_type,attachment_size,attachment_original_size,attachment_compression,attachment_storage_path,withholding_option,atc_code,wht_rate,wht_amount').eq('client_id', clientId); if (periodFilter) q = q.eq('dat_month_year', periodFilter); return q; })()),
-      query(requestedSections.has('sales'), (() => { let q:any = supabase.from('sales').select('id,dat_month_year,date,ref,payment_type,buyer_tin,buyer_name,buyer_address,vat_type,amount,net_of_vat,output_tax,income_type,description').eq('client_id', clientId); if (periodFilter) q = q.eq('dat_month_year', periodFilter); return q; })()),
+      query(requestedSections.has('purchases'), supabase.from('purchases').select('id,dat_month_year,date,payment_method,check_number,bank_name,invoice_no,supplier_name,supplier_address,supplier_tin,amount,vat_type,exempt_amount,zero_rated_amount,expense_type,account_title,transaction_details,input_tax,attachment_name,attachment_type,attachment_original_type,attachment_size,attachment_original_size,attachment_compression,attachment_storage_path,withholding_option,atc_code,wht_rate,wht_amount').eq('client_id', clientId)),
+      query(requestedSections.has('sales'), supabase.from('sales').select('id,dat_month_year,date,ref,payment_type,buyer_tin,buyer_name,buyer_address,vat_type,amount,net_of_vat,output_tax,income_type,description').eq('client_id', clientId)),
       query(requestedSections.has('expenses'), supabase.from('expenses').select('id,date,amount,category,description').eq('client_id', clientId).order('date', { ascending: false }).limit(1000)),
       query(requestedSections.has('coa'), supabase.from('coa_columns').select('id,name,is_system').eq('client_id', clientId)),
       query(requestedSections.has('coa'), supabase.from('coa_accounts').select('id,name,type,normal_side,parent_id,hidden,opening_balance,custom_values').eq('client_id', clientId)),
@@ -258,18 +247,12 @@ const loadNormalizedClient = async (clientId: string, sections: ClientSection[] 
           .select('id,journal_type,values,auto,auto_source')
           .eq('client_id', clientId)
           .in('journal_type', requestedJournalTypes);
-        if (journalStart && journalEnd) {
-          q = q.gte('values->>date', journalStart).lte('values->>date', journalEnd);
-        }
         return q;
       })()),
       query(requestedSections.has('journalVoucher'), (() => {
         let q:any = supabase.from('journal_vouchers')
           .select('id,date,reference,memo')
           .eq('client_id', clientId);
-        if (journalStart && journalEnd) {
-          q = q.gte('date', journalStart).lte('date', journalEnd);
-        }
         return q;
       })()),
       // JournalVoucher.tsx only needs voucher headers for its current UI.
@@ -575,23 +558,9 @@ export function AccountingProvider({
     const path = location.pathname.replace(/^\/+/, '');
     return path === '' ? null : decodeURIComponent(path);
   })();
-  const [currentDat, setCurrentDat] = useState<DatSelection | null>(null);
-  const historyPeriod = activePage === 'history'
-    ? (currentDat?.formatted || new Date().toLocaleString('en-US', { month: 'long' }) + ' ' + new Date().getFullYear())
-    : undefined;
-
-  // Transaction-entry screens work on the currently selected DAT period.
-  // Do not download a client's entire lifetime of purchases/sales merely to
-  // render the current month entry form. History has its own period below.
-  const transactionPeriod = (
-    activePage === 'sales' ||
-    activePage === 'purchases/invoiced' ||
-    activePage === 'purchases/other-payments' ||
-    activePage === 'cash-receipt' ||
-    activePage === 'cash-disbursement' ||
-    activePage === 'purchase-journal' ||
-    activePage === 'journal'
-  ) ? (currentDat?.formatted || undefined) : undefined;
+  // Transaction and history data are no longer tied to a DAT selection.
+  // Pages query Supabase using their own date ranges when a report/filter
+  // requires one, while entry screens remain free of DAT state.
   const [historyTab, setHistoryTab] = useState('expenses');
   const [birFormTab, setBirFormTab] = useState('tracker');
   const [toastMsg, setToastMsg] = useState<string | null>(null);
@@ -674,7 +643,7 @@ export function AccountingProvider({
         const loaded = loadedSectionsRef.current.get(currentClientId) || new Set<ClientSection>();
         const missing = sections.filter(section => !loaded.has(section));
         if (missing.length) {
-          const normalized = await loadNormalizedClient(currentClientId, missing, activePage === 'history' ? historyPeriod : transactionPeriod);
+          const normalized = await loadNormalizedClient(currentClientId, missing);
           missing.forEach(section => { if (!(activePage === 'history' && (section === 'purchases' || section === 'sales'))) loaded.add(section); });
           loadedSectionsRef.current.set(currentClientId, loaded);
           setClients(prev => ({ ...prev, [currentClientId]: { ...prev[currentClientId], ...(normalized.data as any) } as Client }));
@@ -776,7 +745,7 @@ export function AccountingProvider({
       setActiveClientDataReady(false);
       setIsSyncing(true);
       try {
-        const normalized = await loadNormalizedClient(currentClientId, missing, activePage === 'history' ? historyPeriod : transactionPeriod);
+        const normalized = await loadNormalizedClient(currentClientId, missing);
         if (cancelled) return;
         missing.forEach(section => { if (!(activePage === 'history' && (section === 'purchases' || section === 'sales'))) loaded.add(section); });
         loadedSectionsRef.current.set(currentClientId, loaded);
@@ -799,7 +768,7 @@ export function AccountingProvider({
 
     hydrateActiveClient();
     return () => { cancelled = true; };
-  }, [currentClientId, user?.id, isReady, activePage, historyPeriod, transactionPeriod, currentDat?.formatted]);
+  }, [currentClientId, user?.id, isReady, activePage]);
 
   // Sync the active client/profile selection to the cloud so it follows the
   // user across devices, same as the dark mode / sidebar prefs below.
@@ -1424,7 +1393,6 @@ export function AccountingProvider({
         isDarkMode,
         isSidebarCollapsed,
         activePage,
-        currentDat,
         historyTab,
         birFormTab,
         toastMsg,
@@ -1439,7 +1407,6 @@ export function AccountingProvider({
         setHistoryTab,
         setBirFormTab,
         setCurrentClientId,
-        setCurrentDat,
         saveClient,
         addClient,
         deleteClient,
