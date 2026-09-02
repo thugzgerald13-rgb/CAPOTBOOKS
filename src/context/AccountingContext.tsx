@@ -39,6 +39,10 @@ interface AccountingContextType {
   deleteSale: (id: string) => Promise<void>;
   savePurchase: (id: string, purchase: any) => Promise<void>;
   deletePurchase: (id: string) => Promise<void>;
+  saveJournalColumn: (journalType: string, column: any) => Promise<void>;
+  deleteJournalColumn: (journalType: string, id: string) => Promise<void>;
+  saveJournalEntry: (journalType: string, entry: any) => Promise<void>;
+  deleteJournalEntry: (journalType: string, id: string) => Promise<void>;
   addClient: (name: string) => Promise<void>;
   deleteClient: (id: string) => Promise<void>;
   saveBusinessProfile: (profile: BusinessProfile) => Promise<void>;
@@ -908,6 +912,58 @@ export function AccountingProvider({
     }) : prev);
   };
 
+  const saveJournalColumn = async (journalType: string, column: any) => {
+    if (!currentClientId || !user) return;
+    const row = {
+      id: strId(column.id),
+      client_id: currentClientId,
+      journal_type: journalType,
+      name: column.name || '',
+      type: column.type || 'text',
+      category: column.category || 'None',
+      is_system: !!column.isSystem,
+    };
+    const { error } = await supabase.from('journal_columns').upsert(row, { onConflict: 'id' });
+    if (error) throw error;
+  };
+
+  const deleteJournalColumn = async (journalType: string, id: string) => {
+    if (!currentClientId || !user) return;
+    const { error } = await supabase.from('journal_columns').delete()
+      .eq('client_id', currentClientId).eq('journal_type', journalType).eq('id', strId(id));
+    if (error) throw error;
+  };
+
+  const saveJournalEntry = async (journalType: string, entry: any) => {
+    if (!currentClientId || !user) return;
+    const values = entry.values || {};
+    const totalDebit = Object.entries(values).reduce((sum: number, [key, value]: [string, any]) => {
+      const n = Number(String(value ?? '').replace(/,/g, ''));
+      return Number.isFinite(n) && n > 0 ? sum + n : sum;
+    }, 0);
+    const row = {
+      id: strId(entry.id),
+      client_id: currentClientId,
+      journal_type: journalType,
+      values,
+      auto: !!entry.auto,
+      auto_source: entry.autoSource || null,
+      entry_date: values.date || null,
+      description: values.description || values.desc || null,
+      total_debit: Number(entry.totalDebit ?? totalDebit) || 0,
+      total_credit: Number(entry.totalCredit ?? 0) || 0,
+    };
+    const { error } = await supabase.from('journal_entries').upsert(row, { onConflict: 'id' });
+    if (error) throw error;
+  };
+
+  const deleteJournalEntry = async (journalType: string, id: string) => {
+    if (!currentClientId || !user) return;
+    const { error } = await supabase.from('journal_entries').delete()
+      .eq('client_id', currentClientId).eq('journal_type', journalType).eq('id', strId(id));
+    if (error) throw error;
+  };
+
   const saveClient = async (id: string, clientData: Client) => {
     const updatedClient = { ...clientData, id, userId: user ? user.id : undefined } as Client;
     setClients((prev) => ({ ...prev, [id]: updatedClient }));
@@ -1150,6 +1206,10 @@ export function AccountingProvider({
         saveSale,
         deleteSale,
         savePurchase,
+        saveJournalColumn,
+        deleteJournalColumn,
+        saveJournalEntry,
+        deleteJournalEntry,
         deletePurchase,
         addClient,
         deleteClient,
