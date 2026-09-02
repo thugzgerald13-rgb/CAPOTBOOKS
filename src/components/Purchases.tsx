@@ -132,6 +132,13 @@ export function Purchases() {
   const [transactionLoading, setTransactionLoading] = useState(false);
   const [transactionError, setTransactionError] = useState<string | null>(null);
   const [transactionRefresh, setTransactionRefresh] = useState(0);
+  // AP is fetched independently so the context never hydrates the client's full AP history.
+  const [apPage, setApPage] = useState(0);
+  const [apTotal, setApTotal] = useState(0);
+  const [apInvoices, setApInvoices] = useState<any[]>([]);
+  const [apLoading, setApLoading] = useState(false);
+  const [apError, setApError] = useState<string | null>(null);
+  const [apRefresh, setApRefresh] = useState(0);
   
   // Single record state (similar to original but react-friendly)
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -246,12 +253,54 @@ export function Purchases() {
   useEffect(() => {
     if (currentClient && viewIndex === null) {
       const periodPurchases = currentClient.purchases || [];
-      const count = isAP ? periodPurchases.length : transactionTotal;
+      const count = isAP ? apTotal : transactionTotal;
       setSequenceNumber(count + 1);
     }
-  }, [currentClient?.purchases.length, currentDat?.formatted, viewIndex, transactionTotal, isAP]);
+  }, [currentClient?.purchases.length, currentDat?.formatted, viewIndex, transactionTotal, isAP, apTotal]);
 
   const [autoLoadMsg, setAutoLoadMsg] = useState('');
+
+  // AP invoice headers are paginated directly from Supabase. Opening an invoice
+  // fetches its line items on demand, keeping list egress small.
+  useEffect(() => {
+    if (!isAP || !currentClientId) {
+      setApInvoices([]);
+      setApTotal(0);
+      return;
+    }
+    let cancelled = false;
+    const loadAPPage = async () => {
+      setApLoading(true);
+      setApError(null);
+      const from = apPage * PAGE_SIZE;
+      const to = from + PAGE_SIZE - 1;
+      const { data, count, error } = await supabase
+        .from('payable_invoices')
+        .select('id,invoice_number,date,due_date,supplier_id,supplier_name,subtotal,vat_amount,is_vatable,withholding_tax_id,wht_amount,total_amount,status,discrepancy_details,applied_prepayments', { count: 'exact' })
+        .eq('client_id', currentClientId)
+        .order('date', { ascending: false })
+        .range(from, to);
+      if (cancelled) return;
+      if (error) {
+        setApError(error.message);
+        setApInvoices([]);
+      } else {
+        setApInvoices((data || []).map((r:any) => ({
+          id: String(r.id), invoiceNumber: r.invoice_number || '', date: r.date ? String(r.date).slice(0,10) : '',
+          dueDate: r.due_date ? String(r.due_date).slice(0,10) : '', supplierId: r.supplier_id || '',
+          supplierName: r.supplier_name || '', items: [], subtotal: Number(r.subtotal || 0),
+          vatAmount: Number(r.vat_amount || 0), isVatable: !!r.is_vatable,
+          withholdingTaxId: r.withholding_tax_id || undefined, whtAmount: r.wht_amount == null ? 0 : Number(r.wht_amount),
+          totalAmount: Number(r.total_amount || 0), status: r.status || 'Unmatched',
+          discrepancyDetails: r.discrepancy_details || undefined, appliedPrepayments: r.applied_prepayments == null ? undefined : Number(r.applied_prepayments)
+        })));
+        setApTotal(count || 0);
+      }
+      setApLoading(false);
+    };
+    loadAPPage();
+    return () => { cancelled = true; };
+  }, [currentClientId, isAP, apPage, apRefresh]);
 
   // Purchases are loaded directly from Supabase in pages of 50 rows. This
   // prevents a client with thousands of transactions from transferring an
@@ -299,10 +348,9 @@ export function Purchases() {
     return () => { cancelled = true; };
   }, [currentClientId, currentDat?.formatted, transactionPage, isAP, transactionRefresh]);
 
-  useEffect(() => { setTransactionPage(0); setViewIndex(null); }, [currentClientId, currentDat?.formatted, isAP]);
+  useEffect(() => { setTransactionPage(0); setApPage(0); setViewIndex(null); }, [currentClientId, currentDat?.formatted, isAP]);
 
   const periodPurchases = isAP ? [] : transactionRows;
-  const apInvoices = currentClient?.payableInvoices || [];
 
 
   const loadPurchase = (index: number, purchaseList = periodPurchases) => {
@@ -341,40 +389,39 @@ export function Purchases() {
     }
   };
 
-  const loadAPInvoice = (index: number, invoiceList = apInvoices) => {
-    if (index < 0 || index >= invoiceList.length) return;
+  const loadAPInvoice = async (index: number, invoiceList = apInvoices) => {
+    if (index < 0 || index >= invoiceList.length || !currentClientId) return;
     const inv: any = invoiceList[index];
     if (!inv) return;
+    let items = inv.items || [];
+    if (!items.length) {
+      const { data } = await supabase
+        .from('payable_invoice_items')
+        .select('id,item_code,description,qty,unit_price,amount')
+        .eq('client_id', currentClientId)
+        .eq('payable_invoice_id', String(inv.id));
+      items = (data || []).map((i:any) => ({ id:String(i.id), itemCode:i.item_code || '', description:i.description || '', qty:Number(i.qty || 0), unitPrice:Number(i.unit_price || 0), amount:Number(i.amount || 0) }));
+      setApInvoices(prev => prev.map((row, i) => i === index ? { ...row, items } : row));
+    }
     const rawDate = String(inv.date || '');
     const dateParts = rawDate.split('/');
     setDate(rawDate.match(/^\d{4}-\d{2}-\d{2}$/) ? rawDate : (dateParts.length === 3 ? `${dateParts[2]}-${dateParts[0].padStart(2, '0')}-${dateParts[1].padStart(2, '0')}` : rawDate));
-    setPaymentMethod('Cash');
-    setBankName('');
-    setCheckNumber('');
+    setPaymentMethod('Cash'); setBankName(''); setCheckNumber('');
     setInvoiceNo(inv.invoiceNumber || '');
     setSupplierTin(String(inv.supplierId || '').replace(/^SUP-/, ''));
-    setSupplierName(inv.supplierName || '');
-    setSupplierAddress(inv.supplierAddress || '');
+    setSupplierName(inv.supplierName || ''); setSupplierAddress(inv.supplierAddress || '');
     const storedVatType = inv.isVatable ? 'vat' : 'non-vat';
     setVatType(storedVatType);
-    const item = Array.isArray(inv.items) && inv.items.length ? inv.items[0] : null;
-    setAccountTitle(item?.itemCode || '');
-    setTransactionDetails(item?.description || '');
-    const apSubtotal = Number(inv.subtotal || 0);
-    const apVat = Number(inv.vatAmount || 0);
-    const apGross = apSubtotal + apVat;
+    const item = items.length ? items[0] : null;
+    setAccountTitle(item?.itemCode || ''); setTransactionDetails(item?.description || '');
+    const apSubtotal = Number(inv.subtotal || 0), apVat = Number(inv.vatAmount || 0), apGross = apSubtotal + apVat;
     setAmount(apGross > 0 ? apGross.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '');
-    setNetAmount(Number(inv.subtotal || 0));
-    setInputTax(Number(inv.vatAmount || 0));
-    setExemptAmount(storedVatType === 'non-vat' ? Number(inv.subtotal || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '');
-    setZeroRatedAmount('');
-    setWithholdingOption(Number(inv.whtAmount || 0) > 0 ? 'with' : 'w/o');
-    setAtcCode(inv.withholdingTaxId || '');
-    setWhtAmount(Number(inv.whtAmount || 0));
-    setExpenseType('Capital Goods');
-    setAttachment(null);
-    setSequenceNumber(index + 1);
-    setViewIndex(index);
+    setNetAmount(apSubtotal); setInputTax(apVat);
+    setExemptAmount(storedVatType === 'non-vat' ? apSubtotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '');
+    setZeroRatedAmount(''); setWithholdingOption(Number(inv.whtAmount || 0) > 0 ? 'with' : 'w/o');
+    setAtcCode(inv.withholdingTaxId || ''); setWhtAmount(Number(inv.whtAmount || 0));
+    setExpenseType('Capital Goods'); setAttachment(null);
+    setSequenceNumber(apPage * PAGE_SIZE + index + 1); setViewIndex(index);
   };
 
   useEffect(() => {
@@ -405,7 +452,7 @@ export function Purchases() {
     setTransactionDetails('');
     setAttachment(null);
     setAccountTitle('');
-    const count = isAP ? apInvoices.length : periodPurchases.length;
+    const count = isAP ? apTotal : periodPurchases.length;
     setSequenceNumber(count + 1);
   };
 
@@ -525,44 +572,22 @@ export function Purchases() {
     const formattedDate = `${m}/${d}/${y}`;
 
     if (isAP) {
-      const payableInvoices = currentClient.payableInvoices || [];
-      const apId = viewIndex !== null
-        ? String((payableInvoices[viewIndex] as any)?.id || `AP-${Date.now()}`)
-        : `AP-${new Date().getFullYear()}-${String(payableInvoices.length + 1).padStart(4, '0')}`;
+      const existingAP = viewIndex !== null ? apInvoices[viewIndex] : undefined;
+      const apId = existingAP?.id || `AP-${new Date().getFullYear()}-${Date.now()}`;
       const apNet = vatType === 'vat' || vatType === 'vat-nonvat' ? netAmount : 0;
       const apVat = vatType === 'vat' || vatType === 'vat-nonvat' ? inputTax : 0;
       const apExempt = vatType === 'non-vat' || vatType === 'vat-nonvat' ? (parseFloat(String(exemptAmount).replace(/,/g, '')) || 0) : 0;
       const apZeroRated = vatType === 'zero-rated' ? (parseFloat(String(zeroRatedAmount).replace(/,/g, '')) || 0) : 0;
       const apSubtotal = apNet + apExempt + apZeroRated;
-      const apTotal = Math.max(0, apSubtotal + apVat - whtAmount);
-      const existingAP = viewIndex !== null ? payableInvoices[viewIndex] : undefined;
-      const newPayableInvoice = {
-        ...(existingAP || {}),
-        id: apId,
-        invoiceNumber: invoiceNo.trim(),
-        date: formattedDate,
-        dueDate: existingAP?.dueDate || formattedDate,
-        supplierId: supplierTin.replace(/\D/g, '') || `SUP-${Date.now()}`,
-        supplierName: supplierName.trim(),
-        items: [{
-          itemCode: accountTitle.trim() || 'AP',
-          description: transactionDetails.trim() || accountTitle.trim() || 'Accounts Payable Purchase',
-          qty: 1,
-          unitPrice: apSubtotal,
-        }],
-        subtotal: apSubtotal,
-        vatAmount: apVat,
-        isVatable: vatType === 'vat' || vatType === 'vat-nonvat',
-        withholdingTaxId: withholdingOption === 'with' ? atcCode || undefined : undefined,
-        whtAmount: withholdingOption === 'with' ? whtAmount : 0,
-        totalAmount: apTotal,
-        status: existingAP?.status || 'Unmatched',
-      };
-      const updatedPayableInvoices = viewIndex !== null
-        ? payableInvoices.map((inv, i) => i === viewIndex ? newPayableInvoice : inv)
-        : [...payableInvoices, newPayableInvoice];
-      saveClient(currentClientId, { ...currentClient, payableInvoices: updatedPayableInvoices });
+      const apTotalAmount = Math.max(0, apSubtotal + apVat - whtAmount);
+      const invoiceRow = { id:String(apId), client_id:currentClientId, invoice_number:invoiceNo.trim(), date:formattedDate, due_date:existingAP?.dueDate || formattedDate, supplier_id:supplierTin.replace(/\D/g, '') || `SUP-${Date.now()}`, supplier_name:supplierName.trim(), subtotal:apSubtotal, vat_amount:apVat, is_vatable:vatType === 'vat' || vatType === 'vat-nonvat', withholding_tax_id:withholdingOption === 'with' ? atcCode || null : null, wht_amount:withholdingOption === 'with' ? whtAmount : 0, total_amount:apTotalAmount, status:existingAP?.status || 'Unmatched' };
+      const { error: invoiceError } = await supabase.from('payable_invoices').upsert(invoiceRow, { onConflict:'id' });
+      if (invoiceError) { alert(invoiceError.message); return; }
+      const itemRow = { id:`${apId}:item:0`, client_id:currentClientId, payable_invoice_id:String(apId), item_code:accountTitle.trim() || 'AP', description:transactionDetails.trim() || accountTitle.trim() || 'Accounts Payable Purchase', qty:1, unit_price:apSubtotal, amount:apSubtotal };
+      const { error:itemError } = await supabase.from('payable_invoice_items').upsert(itemRow, { onConflict:'id' });
+      if (itemError) { alert(itemError.message); return; }
       showToast(viewIndex !== null ? 'AP invoice updated' : 'AP invoice added');
+      setApRefresh(v => v + 1);
     } else {
     const purchaseData = {
       id: viewIndex !== null ? periodPurchases[viewIndex].id : Date.now(),
@@ -660,14 +685,14 @@ export function Purchases() {
     showToast('Expense deleted');
   };
 
-  const handleDeleteAP = (id: string) => {
-    if (!currentClient || !currentClientId) return;
-    const updatedClient = {
-      ...currentClient,
-      payableInvoices: (currentClient.payableInvoices || []).filter(i => String(i.id) !== id),
-    };
-    saveClient(currentClientId, updatedClient);
+  const handleDeleteAP = async (id: string) => {
+    if (!currentClientId) return;
+    const { error:itemError } = await supabase.from('payable_invoice_items').delete().eq('client_id', currentClientId).eq('payable_invoice_id', id);
+    if (itemError) { alert(itemError.message); return; }
+    const { error } = await supabase.from('payable_invoices').delete().eq('client_id', currentClientId).eq('id', id);
+    if (error) { alert(error.message); return; }
     showToast('AP invoice deleted');
+    setApRefresh(v => v + 1);
   };
 
   return (
@@ -944,8 +969,7 @@ export function Purchases() {
                  onClick={() => {
                    if (confirm('Are you sure you want to delete this entry?')) {
                      if (isAP) {
-                       const apInvoices = currentClient?.payableInvoices || [];
-                       const apId = viewIndex !== null ? String(apInvoices[viewIndex]?.id || '') : '';
+                                            const apId = viewIndex !== null ? String(apInvoices[viewIndex]?.id || '') : '';
                        if (apId) handleDeleteAP(apId);
                      } else {
                        handleDelete(periodPurchases[viewIndex].id);
@@ -969,15 +993,15 @@ export function Purchases() {
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
           <div>
             <h3 className="font-bold text-slate-800 dark:text-slate-100">{isAP ? 'Accounts Payable Invoices' : `Transactions for ${currentDat?.formatted || 'selected period'}`}</h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400">{isAP ? `${apInvoices.length.toLocaleString()} invoice${apInvoices.length === 1 ? '' : 's'} recorded` : `Server-side pagination · 50 records per request · ${transactionTotal.toLocaleString()} total`}</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400">{isAP ? `Server-side pagination · 50 records per request · ${apTotal.toLocaleString()} total` : `Server-side pagination · 50 records per request · ${transactionTotal.toLocaleString()} total`}</p>
           </div>
-          {!isAP && <div className="flex items-center gap-2">
-            <button type="button" disabled={transactionLoading || transactionPage === 0} onClick={() => { setViewIndex(null); setTransactionPage(p => Math.max(0, p - 1)); }} className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-sm font-bold disabled:opacity-40">Previous</button>
-            <span className="text-xs font-bold text-slate-500 min-w-[90px] text-center">Page {transactionPage + 1} of {Math.max(1, Math.ceil(transactionTotal / PAGE_SIZE))}</span>
-            <button type="button" disabled={transactionLoading || (transactionPage + 1) * PAGE_SIZE >= transactionTotal} onClick={() => { setViewIndex(null); setTransactionPage(p => p + 1); }} className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-sm font-bold disabled:opacity-40">Next</button>
-          </div>}
+          <div className="flex items-center gap-2">
+            <button type="button" disabled={(isAP ? apLoading : transactionLoading) || (isAP ? apPage === 0 : transactionPage === 0)} onClick={() => { setViewIndex(null); if (isAP) setApPage(p => Math.max(0, p - 1)); else setTransactionPage(p => Math.max(0, p - 1)); }} className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-sm font-bold disabled:opacity-40">Previous</button>
+            <span className="text-xs font-bold text-slate-500 min-w-[90px] text-center">Page {(isAP ? apPage : transactionPage) + 1} of {Math.max(1, Math.ceil((isAP ? apTotal : transactionTotal) / PAGE_SIZE))}</span>
+            <button type="button" disabled={(isAP ? apLoading : transactionLoading) || ((isAP ? apPage : transactionPage) + 1) * PAGE_SIZE >= (isAP ? apTotal : transactionTotal)} onClick={() => { setViewIndex(null); if (isAP) setApPage(p => p + 1); else setTransactionPage(p => p + 1); }} className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-sm font-bold disabled:opacity-40">Next</button>
+          </div>
         </div>
-        {isAP ? (apInvoices.length === 0 ? <div className="py-6 text-center text-sm text-slate-500">No accounts payable invoices recorded.</div> : (
+        {isAP ? (apLoading ? <div className="py-6 text-center text-sm text-slate-500">Loading accounts payable…</div> : apError ? <div className="py-6 text-center text-sm text-red-500">{apError}</div> : apInvoices.length === 0 ? <div className="py-6 text-center text-sm text-slate-500">No accounts payable invoices recorded.</div> : (
           <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b border-slate-200 dark:border-slate-700 text-left text-xs uppercase text-slate-500"><th className="py-2 pr-3">Date</th><th className="py-2 pr-3">Invoice #</th><th className="py-2 pr-3">Supplier</th><th className="py-2 pr-3">Status</th><th className="py-2 pr-3 text-right">Amount</th><th className="py-2"></th></tr></thead><tbody>{apInvoices.map((inv:any, i:number) => <tr key={String(inv.id)} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50"><td className="py-2 pr-3 whitespace-nowrap">{inv.date || '—'}</td><td className="py-2 pr-3">{inv.invoiceNumber || '—'}</td><td className="py-2 pr-3">{inv.supplierName || '—'}</td><td className="py-2 pr-3">{inv.status || 'Unmatched'}</td><td className="py-2 pr-3 text-right font-semibold">₱{Number(inv.totalAmount || 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td><td className="py-2 text-right"><button type="button" onClick={() => loadAPInvoice(i)} className="text-amber-600 font-bold hover:underline">Open</button></td></tr>)}</tbody></table></div>
         )) : (transactionLoading ? <div className="py-6 text-center text-sm text-slate-500">Loading transactions…</div> : transactionError ? <div className="py-6 text-center text-sm text-red-500">{transactionError}</div> : transactionRows.length === 0 ? <div className="py-6 text-center text-sm text-slate-500">No transactions found for this DAT period.</div> : (
           <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b border-slate-200 dark:border-slate-700 text-left text-xs uppercase text-slate-500"><th className="py-2 pr-3">Date</th><th className="py-2 pr-3">Invoice #</th><th className="py-2 pr-3">Supplier</th><th className="py-2 pr-3 text-right">Amount</th><th className="py-2"></th></tr></thead><tbody>{transactionRows.map((p:any, i:number) => <tr key={String(p.id)} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50"><td className="py-2 pr-3 whitespace-nowrap">{p.date}</td><td className="py-2 pr-3">{p.invoiceNo || '—'}</td><td className="py-2 pr-3">{p.supplierName}</td><td className="py-2 pr-3 text-right font-semibold">₱{Number(p.amount || 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td><td className="py-2 text-right"><button type="button" onClick={() => loadPurchase(i, transactionRows)} className="text-amber-600 font-bold hover:underline">Open</button></td></tr>)}</tbody></table></div>
