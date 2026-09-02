@@ -124,7 +124,7 @@ export function Purchases() {
   const navigate = useNavigate();
   const isOtherPayments = location.pathname === '/purchases/other-payments';
   const isAP = location.pathname === '/purchases/ap';
-  const { currentClient, currentClientId, currentDat, saveClient, showToast, setCurrentDat } = useAccounting();
+  const { currentClient, currentClientId, currentDat, saveClient, savePurchase, deletePurchase, showToast, setCurrentDat } = useAccounting();
   const PAGE_SIZE = 50;
   const [transactionPage, setTransactionPage] = useState(0);
   const [transactionTotal, setTransactionTotal] = useState(0);
@@ -629,13 +629,18 @@ export function Purchases() {
       updatedPurchases = [...periodPurchases, purchaseData];
     }
 
-    const updatedClient = {
-      ...currentClient,
-      purchases: updatedPurchases
-    };
-    saveClient(currentClientId, updatedClient);
-    if (!isAP) setTransactionRefresh(v => v + 1);
-    showToast(viewIndex !== null ? 'Entry updated' : 'Expense entry added');
+    try {
+      // Persist only the affected normalized purchase row. The page owns its
+      // server-side pagination, so saving the whole Client aggregate would
+      // unnecessarily re-upsert the visible period and generate excess egress.
+      await savePurchase(currentClientId, purchaseData);
+      if (!isAP) setTransactionRefresh(v => v + 1);
+      showToast(viewIndex !== null ? 'Entry updated' : 'Expense entry added');
+    } catch (error) {
+      console.error('Saving purchase failed:', error);
+      showToast(error instanceof Error ? error.message : 'Failed to save expense entry');
+      return;
+    }
 
     }
 
@@ -673,16 +678,17 @@ export function Purchases() {
     }, 0);
   };
 
-  const handleDelete = (id: number) => {
+  const handleDelete = async (id: number) => {
     if (!currentClient || !currentClientId) return;
-    const updatedClient = {
-      ...currentClient,
-      purchases: periodPurchases.filter(p => p.id !== id)
-    };
-    saveClient(currentClientId, updatedClient);
-    setTransactionRefresh(v => v + 1);
-    setViewIndex(null);
-    showToast('Expense deleted');
+    try {
+      await deletePurchase(currentClientId, id);
+      setTransactionRefresh(v => v + 1);
+      setViewIndex(null);
+      showToast('Expense deleted');
+    } catch (error) {
+      console.error('Deleting purchase failed:', error);
+      showToast(error instanceof Error ? error.message : 'Failed to delete expense');
+    }
   };
 
   const handleDeleteAP = async (id: string) => {
