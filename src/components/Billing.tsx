@@ -5,6 +5,7 @@ import { formatTIN } from '../lib/utils';
 import { CreditCard, Plus, Trash2, RefreshCw, CheckCircle2 } from 'lucide-react';
 import { DEFAULT_CRJ_COLUMNS } from './CashReceiptsJournal';
 import { BillingInvoice, JournalEntry } from '../types';
+import { supabase } from '../lib/supabase';
 
 const CASH_RECEIPT_PAYMENT_TYPES = ['Cash', 'Check', 'E-Payment', 'Bank Transfer'];
 
@@ -17,7 +18,7 @@ function addInterval(dateStr: string, frequency: 'Monthly' | 'Quarterly' | 'Annu
 }
 
 export function Billing() {
-  const { currentClient, currentClientId, saveClient, showToast } = useAccounting();
+  const { currentClient, currentClientId, saveBillingInvoice, deleteBillingInvoice, saveSale, showToast } = useAccounting();
 
   const today = new Date().toISOString().split('T')[0];
 
@@ -85,10 +86,7 @@ export function Billing() {
       ...(isRecurring ? { recurrenceFrequency, nextBillingDate: addInterval(date, recurrenceFrequency) } : {})
     };
 
-    saveClient(currentClientId, {
-      ...currentClient,
-      billingInvoices: [...invoices, newInvoice]
-    });
+    saveBillingInvoice(newInvoice.id, newInvoice).catch((e) => { console.error(e); showToast('Failed to create invoice'); });
 
     showToast(isRecurring ? 'Recurring invoice created' : 'Invoice created');
 
@@ -124,13 +122,7 @@ export function Billing() {
       nextBillingDate: addInterval(template.nextBillingDate, template.recurrenceFrequency)
     };
 
-    saveClient(currentClientId, {
-      ...currentClient,
-      billingInvoices: [
-        ...invoices.map(inv => inv.id === template.id ? updatedTemplate : inv),
-        generated
-      ]
-    });
+    Promise.all([saveBillingInvoice(updatedTemplate.id, updatedTemplate), saveBillingInvoice(generated.id, generated)]).catch((e) => { console.error(e); showToast('Failed to generate invoice'); });
     showToast(`Generated invoice for ${generated.date}`);
   };
 
@@ -175,25 +167,32 @@ export function Billing() {
       desc: inv.description ? `Billing: ${inv.description}` : `Billing invoice ${inv.invoiceNo}`
     };
 
-    const updatedClient = {
-      ...currentClient,
-      billingInvoices: invoices.map(i => i.id === inv.id ? updatedInvoice : i),
-      sales: [...currentClient.sales, newSale],
-      ...(CASH_RECEIPT_PAYMENT_TYPES.includes(payPaymentType)
-        ? { crjEntries: [...(currentClient.crjEntries || []), buildCashReceiptEntry(inv, payPaymentType)] }
-        : {})
-    };
-
-    saveClient(currentClientId, updatedClient);
+    Promise.all([
+      saveBillingInvoice(updatedInvoice.id, updatedInvoice),
+      saveSale(String(newSale.id), newSale),
+      ...(CASH_RECEIPT_PAYMENT_TYPES.includes(payPaymentType) ? [
+        supabase.from('journal_entries').upsert({
+          id: buildCashReceiptEntry(inv, payPaymentType).id,
+          client_id: currentClientId,
+          journal_type: 'CRJ',
+          values: buildCashReceiptEntry(inv, payPaymentType).values,
+          auto: true,
+          auto_source: 'billing'
+        }, { onConflict: 'id' })
+      ] : [])
+    ]).then(() => {
+      showToast('Invoice marked as paid and recorded as income');
+      setPayingId(null);
+    }).catch((e) => {
+      console.error(e);
+      showToast('Failed to record payment');
+    });
     showToast('Invoice marked as paid and recorded as income');
     setPayingId(null);
   };
 
   const handleDelete = (id: string) => {
-    saveClient(currentClientId, {
-      ...currentClient,
-      billingInvoices: invoices.filter(i => i.id !== id)
-    });
+    deleteBillingInvoice(id).catch((e) => { console.error(e); showToast('Failed to delete invoice'); });
   };
 
   const statusBadge = (status: 'Outstanding' | 'Overdue' | 'Paid') => {

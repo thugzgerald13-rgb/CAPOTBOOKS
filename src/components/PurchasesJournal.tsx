@@ -20,7 +20,7 @@ export const DEFAULT_PJ_COLUMNS: JournalColumn[] = [
 ];
 
 export function PurchasesJournal() {
-  const { currentClient, currentClientId, saveClient } = useAccounting();
+  const { currentClient, currentClientId, saveJournalColumns, saveJournalEntries, deleteJournalColumn, deleteJournalEntry } = useAccounting();
   
   const [isEditingHeaders, setIsEditingHeaders] = useState(false);
   const [newColName, setNewColName] = useState('');
@@ -47,11 +47,11 @@ export function PurchasesJournal() {
   const entries = currentClient.pjEntries || [];
 
   const handleSaveColumns = (newCols: JournalColumn[]) => {
-    saveClient(currentClientId, { ...currentClient, pjColumns: newCols });
+    void saveJournalColumns('PJ', newCols).catch(console.error);
   };
 
   const handleSaveEntries = (newEntries: JournalEntry[]) => {
-    saveClient(currentClientId, { ...currentClient, pjEntries: newEntries });
+    void saveJournalEntries('PJ', newEntries).catch(console.error);
   };
 
   const addColumn = () => {
@@ -69,7 +69,7 @@ export function PurchasesJournal() {
 
   const removeColumn = (id: string) => {
     if (confirm("Are you sure you want to remove this column? Data in this column for existing entries may be lost.")) {
-      handleSaveColumns(columns.filter(c => c.id !== id));
+      void deleteJournalColumn('PJ', id).catch(console.error);
     }
   };
 
@@ -92,7 +92,7 @@ export function PurchasesJournal() {
   };
 
   const deleteEntry = (id: string) => {
-    handleSaveEntries(entries.filter(e => e.id !== id));
+    void deleteJournalEntry('PJ', id).catch(console.error);
   };
 
   // The Exempt / 0-Rated column combines legacy Exempt and 0-Rated values.

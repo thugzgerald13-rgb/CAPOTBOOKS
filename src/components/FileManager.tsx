@@ -21,7 +21,7 @@ export interface StagedFile {
 }
 
 export function FileManager() {
-  const { currentClient, saveClient, showToast } = useAccounting();
+  const { currentClient, saveFolder, deleteFolder, saveFile, deleteFile, showToast } = useAccounting();
   const [selectedFolderId, setSelectedFolderId] = useState<string>('folder_revenue');
   const [newFolderName, setNewFolderName] = useState('');
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
@@ -54,12 +54,7 @@ export function FileManager() {
       type: 'custom'
     };
 
-    const updatedClient = {
-      ...currentClient,
-      folders: [...folders, newFolder]
-    };
-
-    await saveClient(currentClient.id, updatedClient);
+    await saveFolder(newFolder);
     setNewFolderName('');
     setSelectedFolderId(newFolder.id);
     showToast(`Created folder "${newFolder.name}"`);
@@ -78,19 +73,9 @@ export function FileManager() {
   const handleSaveRename = async (folderId: string) => {
     if (!editingFolderName.trim()) return;
 
-    const updatedFolders = folders.map(f => {
-      if (f.id === folderId) {
-        return { ...f, name: editingFolderName.trim() };
-      }
-      return f;
-    });
-
-    const updatedClient = {
-      ...currentClient,
-      folders: updatedFolders
-    };
-
-    await saveClient(currentClient.id, updatedClient);
+    const folder = folders.find(f => f.id === folderId);
+    if (!folder) return;
+    await saveFolder({ ...folder, name: editingFolderName.trim() });
     setEditingFolderId(null);
     setEditingFolderName('');
     showToast('Folder renamed successfully');
@@ -102,19 +87,17 @@ export function FileManager() {
       return;
     }
 
-    // Filter out the deleted folder
-    const updatedFolders = folders.filter(f => f.id !== folder.id);
-    
-    // Also delete any files within that folder
-    const updatedFiles = files.filter(f => f.folderId !== folder.id);
-
-    const updatedClient = {
-      ...currentClient,
-      folders: updatedFolders,
-      files: updatedFiles
-    };
-
-    await saveClient(currentClient.id, updatedClient);
+    // Delete normalized folder metadata. app_files.folder_id uses ON DELETE SET NULL;
+    // remove the associated files explicitly below so the UI semantics stay unchanged.
+    const filesInFolder = files.filter(f => f.folderId === folder.id);
+    for (const file of filesInFolder) {
+      if (file.storagePath) {
+        const { error } = await supabase.storage.from('client-files').remove([file.storagePath]);
+        if (error) console.warn('Storage file deletion failed:', error);
+      }
+      await deleteFile(file.id);
+    }
+    await deleteFolder(folder.id);
     
     // Fall back to a default folder if the deleted folder was active
     if (selectedFolderId === folder.id) {
@@ -227,13 +210,9 @@ export function FileManager() {
       });
     }
 
-    const currentFiles = currentClient.files || [];
-    const updatedClient = {
-      ...currentClient,
-      files: [...currentFiles, ...newFiles]
-    };
-
-    await saveClient(currentClient.id, updatedClient);
+    for (const file of newFiles) {
+      await saveFile(file);
+    }
     setStagedFiles([]);
     showToast(`Successfully uploaded ${newFiles.length} file(s)`);
   };
@@ -294,9 +273,7 @@ export function FileManager() {
       const { error } = await supabase.storage.from('client-files').remove([fileToDelete.storagePath]);
       if (error) console.warn('Storage file deletion failed:', error);
     }
-    const updatedFiles = files.filter(f => f.id !== fileId);
-    const updatedClient = { ...currentClient, files: updatedFiles };
-    await saveClient(currentClient.id, updatedClient);
+    await deleteFile(fileId);
     showToast('File removed successfully');
   };
 

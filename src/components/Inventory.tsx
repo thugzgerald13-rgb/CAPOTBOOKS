@@ -7,11 +7,11 @@ import {
   TrendingUp, ClipboardList, PackageCheck, PackageX,
   RefreshCw, Layers, MapPin, Tag, X
 } from 'lucide-react';
-import { InventoryItem, InventoryMovement, InventoryColumn, Client } from '../types';
+import { InventoryItem, InventoryMovement, InventoryColumn } from '../types';
 import { supabase } from '../lib/supabase';
 
 export function Inventory() {
-  const { currentClient, saveClient, activePage, navigateToPage } = useAccounting();
+  const { currentClient, saveInventoryItem, deleteInventoryItem, saveInventoryMovement, saveInventoryColumn, deleteInventoryColumn, activePage, navigateToPage } = useAccounting();
 
   // Tab state
   const [activeTab, setActiveTab] = useState<'registry' | 'movements' | 'alerts'>('registry');
@@ -93,17 +93,6 @@ export function Inventory() {
     loadMovements();
     return () => { cancelled = true; };
   }, [currentClient?.id, activeTab]);
-
-  // Make sure client's data matches
-  const syncWithCloud = async (newItems: InventoryItem[], newMovements: InventoryMovement[]) => {
-    if (!currentClient) return;
-    const updated: Client = {
-      ...currentClient,
-      inventoryItems: newItems,
-      inventoryMovements: newMovements
-    };
-    await saveClient(currentClient.id, updated);
-  };
 
   // Helper selectors
   const itemSummary = useMemo(() => {
@@ -222,15 +211,15 @@ export function Inventory() {
       updatedList = [...inventoryItems, newItem];
     }
 
-    await syncWithCloud(updatedList, inventoryMovements);
+    const savedItem = updatedList.find(item => editingItem ? item.id === editingItem.id : item.id === updatedList[updatedList.length - 1]?.id);
+    if (savedItem) await saveInventoryItem(savedItem);
     setIsFormOpen(false);
     setEditingItem(null);
   };
 
   const handleDeleteItem = async (itemId: string) => {
-    const updated = inventoryItems.filter(item => item.id !== itemId);
-    const updatedMovs = inventoryMovements.filter(mov => mov.itemId !== itemId);
-    await syncWithCloud(updated, updatedMovs);
+    await deleteInventoryItem(itemId);
+    setLoadedMovements(prev => prev.filter(mov => mov.itemId !== itemId));
   };
 
   // Custom Column Handlers (user-defined extra fields on the registry table)
@@ -241,28 +230,20 @@ export function Inventory() {
     const label = window.prompt('New column name (e.g. Supplier, Warranty Period):');
     if (!label || !label.trim()) return;
     const id = 'col_' + Date.now();
-    const updatedColumns = [...customColumns, { id, label: label.trim() }];
-    await saveClient(currentClient.id, { ...currentClient, inventoryColumns: updatedColumns });
+    await saveInventoryColumn({ id, label: label.trim() });
   };
 
   const handleDeleteColumn = async (columnId: string, columnLabel: string) => {
     if (!currentClient) return;
     if (!confirm(`Delete column "${columnLabel}"? This removes its data from every item.`)) return;
-    const updatedColumns = customColumns.filter(c => c.id !== columnId);
-    const updatedItems = inventoryItems.map(item => {
-      if (!item.customFields || !(columnId in item.customFields)) return item;
-      const { [columnId]: _removed, ...rest } = item.customFields;
-      return { ...item, customFields: rest };
-    });
-    await saveClient(currentClient.id, { ...currentClient, inventoryColumns: updatedColumns, inventoryItems: updatedItems });
+    await deleteInventoryColumn(columnId);
   };
 
   const handleCustomFieldChange = async (itemId: string, columnId: string, value: string) => {
     if (!currentClient) return;
-    const updatedItems = inventoryItems.map(item =>
-      item.id === itemId ? { ...item, customFields: { ...(item.customFields || {}), [columnId]: value } } : item
-    );
-    await saveClient(currentClient.id, { ...currentClient, inventoryItems: updatedItems });
+    const item = inventoryItems.find(item => item.id === itemId);
+    if (!item) return;
+    await saveInventoryItem({ ...item, customFields: { ...(item.customFields || {}), [columnId]: value } });
   };
 
   // Stock Adjustment Handlers
@@ -315,20 +296,10 @@ export function Inventory() {
       notes: adjNotes.trim()
     };
 
-    const updatedItems = inventoryItems.map(item => {
-      if (item.id === adjItemId) {
-        return {
-          ...item,
-          stockLevel: item.stockLevel + netQty
-        };
-      }
-      return item;
-    });
-
-    const updatedMovs = [newMov, ...inventoryMovements];
-    setLoadedMovements(updatedMovs);
-
-    await syncWithCloud(updatedItems, updatedMovs);
+    const updatedItem = { ...targetItem, stockLevel: targetItem.stockLevel + netQty };
+    await saveInventoryItem(updatedItem);
+    await saveInventoryMovement(newMov);
+    setLoadedMovements(prev => [newMov, ...prev.filter(m => m.id !== newMov.id)]);
     setIsAdjFormOpen(false);
   };
 

@@ -21,7 +21,7 @@ export const DEFAULT_SJ_COLUMNS: JournalColumn[] = [
 ];
 
 export function SalesJournal() {
-  const { currentClient, currentClientId, saveClient } = useAccounting();
+  const { currentClient, currentClientId, saveJournalColumns, saveJournalEntries, deleteJournalEntry } = useAccounting();
 
   const [isEditingHeaders, setIsEditingHeaders] = useState(false);
   const [newColName, setNewColName] = useState('');
@@ -129,12 +129,20 @@ export function SalesJournal() {
 
   const entries = [...autoEntries, ...manualEntries.filter((entry: any) => !entry.auto)];
 
-  const handleSaveColumns = (newCols: JournalColumn[]) => {
-    saveClient(currentClientId, { ...currentClient, sjColumns: newCols });
+  const handleSaveColumns = async (newCols: JournalColumn[]) => {
+    try {
+      await saveJournalColumns(currentClientId, 'SJ', newCols);
+    } catch (error) {
+      console.error('Failed to save Sales Journal columns:', error);
+    }
   };
 
-  const handleSaveEntries = (newEntries: JournalEntry[]) => {
-    saveClient(currentClientId, { ...currentClient, sjEntries: newEntries });
+  const handleSaveEntries = async (newEntries: JournalEntry[]) => {
+    try {
+      await saveJournalEntries(currentClientId, 'SJ', newEntries);
+    } catch (error) {
+      console.error('Failed to save Sales Journal entries:', error);
+    }
   };
 
   const addColumn = () => {
@@ -177,10 +185,12 @@ export function SalesJournal() {
     handleSaveEntries(updated);
   };
 
-  const deleteEntry = (id: string) => {
-    handleSaveEntries(
-      manualEntries.filter((entry: any) => !entry.auto && entry.id !== id)
-    );
+  const deleteEntry = async (id: string) => {
+    try {
+      await deleteJournalEntry(currentClientId, 'SJ', id);
+    } catch (error) {
+      console.error('Failed to delete Sales Journal entry:', error);
+    }
   };
 
   const getEntryValue = (entry: JournalEntry, colId: string) => {

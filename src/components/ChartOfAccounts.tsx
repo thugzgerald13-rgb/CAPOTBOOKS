@@ -128,7 +128,7 @@ export function resequenceAccounts(
 }
 
 export function ChartOfAccounts() {
-  const { currentClient, currentClientId, saveClient, showToast } = useAccounting();
+  const { currentClient, currentClientId, saveCoaAccounts, saveCoaColumns, showToast } = useAccounting();
   const [isAdding, setIsAdding] = useState(false);
   const [typeFilter, setTypeFilter] = useState('All');
   const [showHidden, setShowHidden] = useState(false);
@@ -218,10 +218,7 @@ export function ChartOfAccounts() {
       ...coaColumns,
       { id: slug, name: newColumnName.trim(), isSystem: false }
     ];
-    saveClient(currentClientId!, {
-      ...currentClient!,
-      coaColumns: updated
-    });
+    saveCoaColumns(updated);
     setNewColumnName('');
     showToast(`Added column "${newColumnName.trim()}"`);
   };
@@ -237,10 +234,7 @@ export function ChartOfAccounts() {
 
     if (confirm(`Are you sure you want to delete the column "${colToDelete.name}"? This column will be hidden and removed from all accounts.`)) {
       const updated = coaColumns.filter(c => c.id !== id);
-      saveClient(currentClientId!, {
-        ...currentClient!,
-        coaColumns: updated
-      });
+      saveCoaColumns(updated);
       showToast(`Deleted column "${colToDelete.name}"`);
     }
   };
@@ -253,10 +247,7 @@ export function ChartOfAccounts() {
     const updated = coaColumns.map(c => 
       c.id === id ? { ...c, name: editingColumnName.trim() } : c
     );
-    saveClient(currentClientId!, {
-      ...currentClient!,
-      coaColumns: updated
-    });
+    saveCoaColumns(updated);
     setEditingColumnId(null);
     setEditingColumnName('');
     showToast("Column renamed successfully");
@@ -337,11 +328,7 @@ export function ChartOfAccounts() {
   const handleSaveAccounts = (updatedAccounts: CoaAccount[], coaFormat?: 'numeric' | 'alphanumeric') => {
     const format = coaFormat || currentClient.coaFormat || 'numeric';
     const resequenced = resequenceAccounts(updatedAccounts, format);
-    saveClient(currentClientId, { 
-      ...currentClient, 
-      accounts: resequenced,
-      coaFormat: format
-    });
+    saveCoaAccounts(resequenced, format);
   };
 
   const handleToggleHidden = (id: string) => {

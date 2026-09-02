@@ -16,7 +16,7 @@ interface DraftLine {
 const newDraftLine = (): DraftLine => ({ id: crypto.randomUUID(), accountId: '', accountName: '', debit: '', credit: '' });
 
 export function JournalVoucher() {
-  const { currentClient, currentClientId, saveClient, showToast } = useAccounting();
+  const { currentClient, currentClientId, saveJournalVoucher, deleteJournalVoucher, showToast } = useAccounting();
 
   const today = new Date().toISOString().split('T')[0];
 
@@ -61,7 +61,7 @@ export function JournalVoucher() {
     });
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!date || !reference.trim()) {
       alert('Date and Reference are required.');
       return;
@@ -92,23 +92,22 @@ export function JournalVoucher() {
       lines: finalLines
     };
 
-    saveClient(currentClientId, {
-      ...currentClient,
-      journalVouchers: [...vouchers, newVoucher],
-      gjEntries: [...(currentClient.gjEntries || []), ...buildGjEntries(newVoucher)]
-    });
-
-    showToast('Journal voucher saved and posted to General Journal');
+    try {
+      await saveJournalVoucher(currentClientId, newVoucher, buildGjEntries(newVoucher));
+    } catch {
+      return;
+    }
     setReference('');
     setMemo('');
     setLines([newDraftLine(), newDraftLine()]);
   };
 
-  const handleDelete = (id: string) => {
-    saveClient(currentClientId, {
-      ...currentClient,
-      journalVouchers: vouchers.filter(v => v.id !== id)
-    });
+  const handleDelete = async (id: string) => {
+    try {
+      await deleteJournalVoucher(currentClientId, id);
+    } catch {
+      return;
+    }
   };
 
   return (

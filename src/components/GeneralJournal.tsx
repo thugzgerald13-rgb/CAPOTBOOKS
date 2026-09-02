@@ -14,7 +14,7 @@ export const DEFAULT_GJ_COLUMNS: JournalColumn[] = [
 ];
 
 export function GeneralJournal() {
-  const { currentClient, currentClientId, saveClient, activeDevice } = useAccounting();
+  const { currentClient, currentClientId, saveJournalColumns, saveJournalEntry, deleteJournalEntry, activeDevice } = useAccounting();
   
   const [isEditingHeaders, setIsEditingHeaders] = useState(false);
   const [newColName, setNewColName] = useState('');
@@ -37,12 +37,17 @@ export function GeneralJournal() {
   ];
   const entries = currentClient.gjEntries || [];
 
-  const handleSaveColumns = (newCols: JournalColumn[]) => {
-    saveClient(currentClientId, { ...currentClient, gjColumns: newCols });
+  const handleSaveColumns = async (newCols: JournalColumn[]) => {
+    await saveJournalColumns(currentClientId, 'GJ', newCols);
   };
 
-  const handleSaveEntries = (newEntries: JournalEntry[]) => {
-    saveClient(currentClientId, { ...currentClient, gjEntries: newEntries });
+  const handleSaveEntries = async (newEntries: JournalEntry[]) => {
+    const previousIds = new Set(entries.map(e => e.id));
+    const nextIds = new Set(newEntries.map(e => e.id));
+    for (const entry of newEntries) await saveJournalEntry(currentClientId, 'GJ', entry);
+    for (const id of previousIds) {
+      if (!nextIds.has(id)) await deleteJournalEntry(currentClientId, 'GJ', id);
+    }
   };
 
   const addColumn = () => {

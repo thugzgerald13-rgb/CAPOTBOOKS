@@ -6,7 +6,7 @@ import { Building2, Search, Trash2, Plus, Users, Factory, Upload } from 'lucide-
 import { cn } from '../lib/utils';
 
 export function TinLibrary() {
-  const { currentClient, currentClientId, saveClient, showToast } = useAccounting();
+  const { currentClient, currentClientId, saveTinEntry, deleteTinEntry, showToast } = useAccounting();
   const [activeTab, setActiveTab] = useState<'customers' | 'suppliers'>('customers');
   
   // Forms
@@ -29,7 +29,7 @@ export function TinLibrary() {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       const text = event.target?.result as string;
       const allLines = text.split(/\r?\n/).filter(line => line.trim() !== '');
       if (allLines.length === 0) return;
@@ -168,14 +168,16 @@ export function TinLibrary() {
       }
 
       if (uniqueRecords.length > 0 && currentClient && currentClientId) {
-        const updatedLib = { ...lib };
-        if (activeTab === 'customers') {
-          updatedLib.customers = [...updatedLib.customers, ...uniqueRecords];
-        } else {
-          updatedLib.suppliers = [...updatedLib.suppliers, ...uniqueRecords];
+        try {
+          const partyType = activeTab === 'customers' ? 'customer' : 'supplier';
+          for (const record of uniqueRecords) {
+            await saveTinEntry(record, partyType);
+          }
+          showToast(`Uploaded ${uniqueRecords.length} new records`);
+        } catch (error) {
+          console.error('TIN library upload failed:', error);
+          showToast('Unable to save uploaded TIN records');
         }
-        saveClient(currentClientId, { ...currentClient, tinLibrary: updatedLib });
-        showToast(`Uploaded ${uniqueRecords.length} new records`);
       } else if (newRecords.length === 0) {
         alert('No valid records found in the file. Ensure TIN and Company Name are visible.');
       } else {
@@ -189,7 +191,7 @@ export function TinLibrary() {
     reader.readAsText(file);
   };
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     if (!currentClient || !currentClientId) return;
     if (!tin || !name) {
       alert('TIN and Name are required');
@@ -201,31 +203,28 @@ export function TinLibrary() {
     }
 
     const newRecord = { id: `tin_${activeTab === 'customers' ? 'customer' : 'supplier'}_${tin.replace(/\D/g, '')}`, tin, name, address };
-    const updatedLib = { ...lib };
-    
-    if (activeTab === 'customers') {
-      updatedLib.customers = [...updatedLib.customers, newRecord];
-    } else {
-      updatedLib.suppliers = [...updatedLib.suppliers, newRecord];
+    try {
+      await saveTinEntry(newRecord, activeTab === 'customers' ? 'customer' : 'supplier');
+      showToast(`Added to ${activeTab} library`);
+    } catch (error) {
+      console.error('TIN library save failed:', error);
+      showToast('Unable to save TIN record');
+      return;
     }
-
-    saveClient(currentClientId, { ...currentClient, tinLibrary: updatedLib });
-    showToast(`Added to ${activeTab} library`);
     setTin('');
     setName('');
     setAddress('');
   };
 
-  const handleDelete = (id: number) => {
-     if (!currentClient || !currentClientId) return;
-     const updatedLib = { ...lib };
-     if (activeTab === 'customers') {
-       updatedLib.customers = updatedLib.customers.filter(c => c.id !== id);
-     } else {
-       updatedLib.suppliers = updatedLib.suppliers.filter(s => s.id !== id);
+  const handleDelete = async (id: number | string) => {
+     if (!currentClientId) return;
+     try {
+       await deleteTinEntry(String(id), activeTab === 'customers' ? 'customer' : 'supplier');
+       showToast('Record deleted');
+     } catch (error) {
+       console.error('TIN library delete failed:', error);
+       showToast('Unable to delete TIN record');
      }
-     saveClient(currentClientId, { ...currentClient, tinLibrary: updatedLib });
-     showToast('Record deleted');
   };
 
   return (
