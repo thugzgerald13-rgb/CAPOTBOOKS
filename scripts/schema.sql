@@ -258,6 +258,17 @@ create table if not exists public.journal_entries (
   updated_at timestamptz not null default now()
 );
 
+-- Upgrade existing journal_entries tables created by earlier CAPOT versions.
+-- CREATE TABLE IF NOT EXISTS does not add columns to an existing table.
+alter table public.journal_entries add column if not exists journal_type text;
+alter table public.journal_entries add column if not exists "values" jsonb not null default '{}'::jsonb;
+alter table public.journal_entries add column if not exists auto boolean not null default false;
+alter table public.journal_entries add column if not exists auto_source text;
+alter table public.journal_entries add column if not exists entry_date date;
+alter table public.journal_entries add column if not exists description text;
+alter table public.journal_entries add column if not exists total_debit numeric(18,2);
+alter table public.journal_entries add column if not exists total_credit numeric(18,2);
+
 create index if not exists idx_journal_entries_client_type
   on public.journal_entries(client_id, journal_type);
 create index if not exists idx_journal_entries_date
