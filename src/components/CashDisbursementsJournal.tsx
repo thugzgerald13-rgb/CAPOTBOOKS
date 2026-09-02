@@ -213,15 +213,17 @@ function getCdjDisplayValue(entry: JournalEntry, column: JournalColumn, columns:
 }
 
 export function CashDisbursementsJournal() {
-  const { currentClient, currentClientId, saveClient, activeDevice } = useAccounting();
+  const { currentClient, currentClientId, saveClient, saveJournalColumn, deleteJournalColumn, saveJournalEntry, deleteJournalEntry, activeDevice } = useAccounting();
   
   const [isEditingHeaders, setIsEditingHeaders] = useState(false);
   const [selectedAccountId, setSelectedAccountId] = useState('');
+  const [localColumns, setLocalColumns] = useState<JournalColumn[] | null>(null);
+  const [localEntries, setLocalEntries] = useState<JournalEntry[] | null>(null);
 
   const accounts = getClientAccounts(currentClient);
   const rawColumns = currentClient.cdjColumns;
-  const columns = normalizeCdjColumns(rawColumns, accounts);
-  const entries = currentClient.cdjEntries || [];
+  const columns = localColumns || normalizeCdjColumns(rawColumns, accounts);
+  const entries = localEntries || currentClient.cdjEntries || [];
 
   // IMPORTANT: CDJ is a derived journal. Do not continuously write back to
   // the client whenever currentClient/entries/accounts change. That created a
@@ -314,12 +316,38 @@ export function CashDisbursementsJournal() {
 
   if (!currentClient || !currentClientId) return null;
 
-  const handleSaveColumns = (newCols: JournalColumn[]) => {
-    saveClient(currentClientId, { ...currentClient, cdjColumns: newCols });
+  const handleSaveColumns = async (newCols: JournalColumn[]) => {
+    const previous = columns;
+    try {
+      const previousIds = new Set(previous.map(c => c.id));
+      const nextIds = new Set(newCols.map(c => c.id));
+      await Promise.all(newCols.filter(c => !previousIds.has(c.id) || JSON.stringify(c) !== JSON.stringify(previous.find(p => p.id === c.id))).map(c => saveJournalColumn('CDJ', c)));
+      await Promise.all(previous.filter(c => !nextIds.has(c.id)).map(c => deleteJournalColumn('CDJ', c.id)));
+      setLocalColumns(newCols);
+    } catch (error) {
+      console.error('CDJ column save failed:', error);
+      throw error;
+    }
   };
 
-  const handleSaveEntries = (newEntries: JournalEntry[]) => {
-    saveClient(currentClientId, { ...currentClient, cdjEntries: newEntries });
+  const handleSaveEntries = async (newEntries: JournalEntry[]) => {
+    const previous = entries;
+    try {
+      const previousIds = new Set(previous.map(e => String(e.id)));
+      const nextIds = new Set(newEntries.map(e => String(e.id)));
+      await Promise.all(newEntries.filter(e => !previousIds.has(String(e.id)) || JSON.stringify(e) !== JSON.stringify(previous.find(p => String(p.id) === String(e.id)))).map(e => saveJournalEntry('CDJ', e)));
+      await Promise.all(previous.filter(e => !nextIds.has(String(e.id)) && !e.auto).map(e => deleteJournalEntry('CDJ', String(e.id))));
+      setLocalEntries(newEntries);
+    } catch (error) {
+      console.error('CDJ entry save failed:', error);
+      throw error;
+    }
+  };
+
+  const setClientsForJournal = (nextColumns: JournalColumn[], nextEntries: JournalEntry[]) => {
+    // Keep the in-memory view current without persisting the entire client.
+    // The normalized rows above are the source of truth.
+    // This helper intentionally uses the existing context only for display.
   };
 
   const addColumn = () => {
