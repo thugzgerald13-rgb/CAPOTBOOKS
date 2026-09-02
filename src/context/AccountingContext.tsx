@@ -195,7 +195,8 @@ const PAGE_SECTIONS: Record<string, ClientSection[]> = {
   // Cash Flow uses the small financial report snapshot; it does not need full transaction history.
   cashflow: ['reports'],
   assetlapsing: ['assets'],
-  'sales-journal': ['sales', 'crj', 'coa'],
+  // Sales Journal queries its qualifying Sales rows directly; only journal/COA configuration is hydrated.
+  'sales-journal': ['crj', 'coa'],
   files: ['files'],
   inventory: ['inventory'],
   // BIR Forms query required transaction periods directly; only compliance metadata is hydrated here.
