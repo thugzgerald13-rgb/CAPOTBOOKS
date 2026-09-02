@@ -142,12 +142,12 @@ export function Dashboard() {
       // Dashboard metrics are server-side. The dashboard never downloads the
       // client's transaction history into React just to calculate summary cards.
       const [monthlyResult, endingResult, purchasesResult, salesResult] = await Promise.all([
-        supabase.rpc('get_account_balances', {
+        supabase.rpc('get_server_account_balances', {
           p_client_id: currentClientId,
           p_start_date: start,
           p_end_date: end,
         }),
-        supabase.rpc('get_account_balances', {
+        supabase.rpc('get_server_account_balances', {
           p_client_id: currentClientId,
           p_start_date: '1900-01-01',
           p_end_date: end,
