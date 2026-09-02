@@ -19,7 +19,7 @@ export const DEFAULT_CRJ_COLUMNS: JournalColumn[] = [
 ];
 
 export function CashReceiptsJournal() {
-  const { currentClient, currentClientId, saveClient, activeDevice } = useAccounting();
+  const { currentClient, currentClientId, saveJournalColumns, saveJournalEntry, deleteJournalEntry, activeDevice } = useAccounting();
   
   const [isEditingHeaders, setIsEditingHeaders] = useState(false);
   const [newColName, setNewColName] = useState('');
@@ -41,11 +41,19 @@ export function CashReceiptsJournal() {
   const entries = currentClient.crjEntries || [];
 
   const handleSaveColumns = (newCols: JournalColumn[]) => {
-    saveClient(currentClientId, { ...currentClient, crjColumns: newCols });
+    void saveJournalColumns(currentClientId, 'CRJ', newCols);
   };
 
   const handleSaveEntries = (newEntries: CashReceipt[]) => {
-    saveClient(currentClientId, { ...currentClient, crjEntries: newEntries });
+    const previous = new Map(entries.map(e => [String(e.id), e]));
+    const next = new Map(newEntries.map(e => [String(e.id), e]));
+    for (const e of newEntries) {
+      const old = previous.get(String(e.id));
+      if (!old || JSON.stringify(old) !== JSON.stringify(e)) void saveJournalEntry(currentClientId, 'CRJ', e);
+    }
+    for (const e of entries) {
+      if (!next.has(String(e.id))) void deleteJournalEntry(currentClientId, 'CRJ', String(e.id));
+    }
   };
 
   const addColumn = () => {
