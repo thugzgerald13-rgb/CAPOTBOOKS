@@ -37,6 +37,8 @@ interface AccountingContextType {
   saveClient: (id: string, clientData: Client) => Promise<void>;
   saveSale: (id: string, sale: any) => Promise<void>;
   deleteSale: (id: string) => Promise<void>;
+  savePurchase: (id: string, purchase: any) => Promise<void>;
+  deletePurchase: (id: string) => Promise<void>;
   addClient: (name: string) => Promise<void>;
   deleteClient: (id: string) => Promise<void>;
   saveBusinessProfile: (profile: BusinessProfile) => Promise<void>;
@@ -839,6 +841,73 @@ export function AccountingProvider({
     }) : prev);
   };
 
+  const savePurchase = async (id: string, purchase: any) => {
+    if (!currentClientId || !user) return;
+    const row = {
+      id: strId(id),
+      client_id: currentClientId,
+      dat_month_year: purchase.datMonthYear || null,
+      date: purchase.date || null,
+      payment_method: purchase.paymentMethod || null,
+      check_number: purchase.checkNumber || null,
+      bank_name: purchase.bankName || null,
+      invoice_no: purchase.invoiceNo || null,
+      supplier_name: purchase.supplierName || null,
+      supplier_address: purchase.supplierAddress || null,
+      supplier_tin: purchase.supplierTin || null,
+      amount: Number(purchase.amount || 0),
+      vat_type: purchase.vatType || null,
+      expense_type: purchase.expenseType || null,
+      account_title: purchase.accountTitle || null,
+      transaction_details: purchase.transactionDetails || null,
+      input_tax: Number(purchase.inputTax || 0),
+      attachment_name: purchase.attachment?.name || null,
+      attachment_type: purchase.attachment?.type || null,
+      attachment_original_type: purchase.attachment?.type || null,
+      attachment_size: purchase.attachment?.compressedSize ?? purchase.attachment?.size ?? null,
+      attachment_original_size: purchase.attachment?.size ?? null,
+      attachment_compression: purchase.attachment?.encoding || null,
+      attachment_storage_path: purchase.attachment?.storagePath || null,
+      withholding_option: purchase.withholdingOption || null,
+      atc_code: purchase.atcCode || null,
+      wht_rate: purchase.whtRate == null ? null : Number(purchase.whtRate),
+      wht_amount: purchase.whtAmount == null ? null : Number(purchase.whtAmount),
+    };
+    const { error } = await supabase.from('purchases').upsert(row, { onConflict: 'id' });
+    if (error) throw error;
+
+    if (purchase.supplierTin && purchase.supplierName) {
+      const tinRow = {
+        id: strId(purchase.supplierTin),
+        client_id: currentClientId,
+        tin: purchase.supplierTin,
+        name: purchase.supplierName,
+        address: purchase.supplierAddress || null,
+        party_type: 'supplier',
+      };
+      const { error: tinError } = await supabase.from('tin_entries').upsert(tinRow, { onConflict: 'id' });
+      if (tinError) console.warn('Supplier TIN library update failed:', tinError);
+    }
+
+    setClients(prev => prev[currentClientId] ? ({
+      ...prev,
+      [currentClientId]: {
+        ...prev[currentClientId],
+        purchases: [...(prev[currentClientId].purchases || []).filter((x:any) => String(x.id) !== String(id)), purchase]
+      }
+    }) : prev);
+  };
+
+  const deletePurchase = async (id: string) => {
+    if (!currentClientId || !user) return;
+    const { error } = await supabase.from('purchases').delete().eq('client_id', currentClientId).eq('id', strId(id));
+    if (error) throw error;
+    setClients(prev => prev[currentClientId] ? ({
+      ...prev,
+      [currentClientId]: { ...prev[currentClientId], purchases: (prev[currentClientId].purchases || []).filter((x:any) => String(x.id) !== String(id)) }
+    }) : prev);
+  };
+
   const saveClient = async (id: string, clientData: Client) => {
     const updatedClient = { ...clientData, id, userId: user ? user.id : undefined } as Client;
     setClients((prev) => ({ ...prev, [id]: updatedClient }));
@@ -1080,6 +1149,8 @@ export function AccountingProvider({
         saveClient,
         saveSale,
         deleteSale,
+        savePurchase,
+        deletePurchase,
         addClient,
         deleteClient,
         saveBusinessProfile,
