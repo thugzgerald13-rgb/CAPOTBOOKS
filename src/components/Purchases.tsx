@@ -535,7 +535,7 @@ export function Purchases() {
     }
   }, [date, currentDat]);
 
-  const handleAddPurchase = () => {
+  const handleAddPurchase = async () => {
     if (!currentClient || !currentClientId) return;
 
     // Validate the values currently shown in the form. In edit mode, fields
