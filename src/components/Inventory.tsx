@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { 
