@@ -33,7 +33,6 @@ const FileManager = lazy(() => import('./components/FileManager').then(m => ({ d
 const Inventory = lazy(() => import('./components/Inventory').then(m => ({ default: m.Inventory })));
 const BIRForms = lazy(() => import('./components/BIRForms').then(m => ({ default: m.BIRForms })));
 const ComplianceTracker = lazy(() => import('./components/ComplianceTracker').then(m => ({ default: m.ComplianceTracker })));
-const AccountsPayable = lazy(() => import('./components/AccountsPayable'));
 const AccountSettings = lazy(() => import('./components/AccountSettings').then(m => ({ default: m.AccountSettings })));
 
 function AppLayout() {
@@ -133,7 +132,7 @@ function AppLayout() {
             <Route path="/inventory" element={<Inventory />} />
             <Route path="/bir-forms" element={<BIRForms />} />
             <Route path="/compliance-tracker" element={<ComplianceTracker />} />
-            <Route path="/ap-workspace" element={<AccountsPayable />} />
+            <Route path="/ap-workspace" element={<Navigate to="/purchases/ap" replace />} />
           </Routes>
           </Suspense>
         </div>
