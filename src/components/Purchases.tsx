@@ -124,7 +124,7 @@ export function Purchases() {
   const navigate = useNavigate();
   const isOtherPayments = location.pathname === '/purchases/other-payments';
   const isAP = location.pathname === '/purchases/ap';
-  const { currentClient, currentClientId, currentDat, saveClient, savePurchase, deletePurchase, showToast, setCurrentDat } = useAccounting();
+  const { currentClient, currentClientId, currentDat, saveClient, showToast, setCurrentDat } = useAccounting();
   const PAGE_SIZE = 50;
   const [transactionPage, setTransactionPage] = useState(0);
   const [transactionTotal, setTransactionTotal] = useState(0);
@@ -276,7 +276,7 @@ export function Purchases() {
       const to = from + PAGE_SIZE - 1;
       const { data, count, error } = await supabase
         .from('payable_invoices')
-        .select('id,invoice_number,date,due_date,supplier_id,supplier_name,subtotal,vat_amount,is_vatable,withholding_tax_id,wht_amount,total_amount,status,discrepancy_details,applied_prepayments', { count: 'exact' })
+        .select('id,invoice_number,date,due_date,supplier_id,supplier_name,subtotal,vat_amount,is_vatable,withholding_tax_id,wht_amount,total_amount,status,discrepancy_details,applied_prepayments', { count: 'planned' })
         .eq('client_id', currentClientId)
         .order('date', { ascending: false })
         .range(from, to);
@@ -319,7 +319,7 @@ export function Purchases() {
       const to = from + PAGE_SIZE - 1;
       const { data, count, error } = await supabase
         .from('purchases')
-        .select('id,dat_month_year,date,payment_method,check_number,bank_name,invoice_no,supplier_name,supplier_address,supplier_tin,amount,vat_type,exempt_amount,zero_rated_amount,expense_type,account_title,transaction_details,input_tax,attachment_name,attachment_type,attachment_original_type,attachment_size,attachment_original_size,attachment_compression,attachment_storage_path,withholding_option,atc_code,wht_rate,wht_amount', { count: 'exact' })
+        .select('id,dat_month_year,date,payment_method,check_number,bank_name,invoice_no,supplier_name,supplier_address,supplier_tin,amount,vat_type,exempt_amount,zero_rated_amount,expense_type,account_title,transaction_details,input_tax,attachment_name,attachment_type,attachment_original_type,attachment_size,attachment_original_size,attachment_compression,attachment_storage_path,withholding_option,atc_code,wht_rate,wht_amount', { count: 'planned' })
         .eq('client_id', currentClientId)
         .eq('dat_month_year', currentDat.formatted)
         .order('date', { ascending: false })
@@ -629,18 +629,13 @@ export function Purchases() {
       updatedPurchases = [...periodPurchases, purchaseData];
     }
 
-    try {
-      // Persist only the affected normalized purchase row. The page owns its
-      // server-side pagination, so saving the whole Client aggregate would
-      // unnecessarily re-upsert the visible period and generate excess egress.
-      await savePurchase(currentClientId, purchaseData);
-      if (!isAP) setTransactionRefresh(v => v + 1);
-      showToast(viewIndex !== null ? 'Entry updated' : 'Expense entry added');
-    } catch (error) {
-      console.error('Saving purchase failed:', error);
-      showToast(error instanceof Error ? error.message : 'Failed to save expense entry');
-      return;
-    }
+    const updatedClient = {
+      ...currentClient,
+      purchases: updatedPurchases
+    };
+    saveClient(currentClientId, updatedClient);
+    if (!isAP) setTransactionRefresh(v => v + 1);
+    showToast(viewIndex !== null ? 'Entry updated' : 'Expense entry added');
 
     }
 
@@ -678,17 +673,16 @@ export function Purchases() {
     }, 0);
   };
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = (id: number) => {
     if (!currentClient || !currentClientId) return;
-    try {
-      await deletePurchase(currentClientId, id);
-      setTransactionRefresh(v => v + 1);
-      setViewIndex(null);
-      showToast('Expense deleted');
-    } catch (error) {
-      console.error('Deleting purchase failed:', error);
-      showToast(error instanceof Error ? error.message : 'Failed to delete expense');
-    }
+    const updatedClient = {
+      ...currentClient,
+      purchases: periodPurchases.filter(p => p.id !== id)
+    };
+    saveClient(currentClientId, updatedClient);
+    setTransactionRefresh(v => v + 1);
+    setViewIndex(null);
+    showToast('Expense deleted');
   };
 
   const handleDeleteAP = async (id: string) => {

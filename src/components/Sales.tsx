@@ -11,7 +11,7 @@ const CASH_RECEIPT_PAYMENT_TYPES = ['Cash', 'Check', 'E-Payment', 'Bank Transfer
 const SALES_JOURNAL_PAYMENT_TYPES = ['Credit Card', 'On Account'];
 
 export function Sales() {
-  const { currentClient, currentClientId, currentDat, setCurrentDat, saveSale, showToast } = useAccounting();
+  const { currentClient, currentClientId, currentDat, setCurrentDat, saveClient, showToast } = useAccounting();
   const PAGE_SIZE = 50;
   const [salesPage, setSalesPage] = useState(0);
   const [salesTotal, setSalesTotal] = useState(0);
@@ -32,7 +32,7 @@ export function Sales() {
       const to = from + PAGE_SIZE - 1;
       const { data, count, error } = await supabase
         .from('sales')
-        .select('id,dat_month_year,date,ref,payment_type,buyer_tin,buyer_name,buyer_address,vat_type,amount,net_of_vat,output_tax,income_type,description', { count: 'exact' })
+        .select('id,dat_month_year,date,ref,payment_type,buyer_tin,buyer_name,buyer_address,vat_type,amount,net_of_vat,output_tax,income_type,description', { count: 'planned' })
         .eq('client_id', currentClientId)
         .eq('dat_month_year', currentDat.formatted)
         .order('date', { ascending: false })
@@ -131,7 +131,7 @@ export function Sales() {
     return { id: crypto.randomUUID(), values };
   };
 
-  const handleAddSale = async () => {
+  const handleAddSale = () => {
     if (!currentClient || !currentClientId || !currentDat) return;
     if (!date || !amount) {
       alert('Enter date and amount');
@@ -163,27 +163,19 @@ export function Sales() {
       desc
     };
 
-    try {
-        // Persist only the new normalized Sales row. The Sales page is paginated,
-        // so sending the entire client aggregate here would re-save/re-transfer
-        // every loaded transaction and create unnecessary Realtime activity.
-        await saveSale(currentClientId, newSale);
-        setSalesRefresh(v => v + 1);
+    const updatedClient = {
+      ...currentClient,
+      sales: [...salesRows, newSale],
+      // Sales Journal (Credit Card / On Account) is derived by filtering `sales` on paymentType,
+      // so nothing else needs to change there. Cash Receipts Journal is a separate free-form
+      // ledger, so we append a matching row to it here when payment was cash-like.
+      ...(CASH_RECEIPT_PAYMENT_TYPES.includes(paymentType)
+        ? { crjEntries: [...(currentClient.crjEntries || []), buildCashReceiptEntry()] }
+        : {})
+    };
 
-        if (CASH_RECEIPT_PAYMENT_TYPES.includes(paymentType)) {
-          // Keep the existing CRJ posting behavior without hydrating Sales.
-          const crjEntry = buildCashReceiptEntry();
-          const { error } = await supabase.from('journal_entries').upsert({
-            id: String(crjEntry.id), client_id: currentClientId, journal_type: 'CRJ',
-            values: crjEntry.values, auto: !!crjEntry.auto, auto_source: crjEntry.autoSource || null
-          }, { onConflict: 'id' });
-          if (error) throw error;
-        }
-    } catch (error) {
-      console.error('Saving income entry failed:', error);
-      showToast(error instanceof Error ? error.message : 'Failed to save income entry');
-      return;
-    }
+    saveClient(currentClientId, updatedClient);
+    setSalesRefresh(v => v + 1);
 
     if (CASH_RECEIPT_PAYMENT_TYPES.includes(paymentType)) {
       showToast('Income entry added and posted to Cash Receipts Journal');

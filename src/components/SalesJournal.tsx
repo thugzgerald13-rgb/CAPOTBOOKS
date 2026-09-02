@@ -21,7 +21,7 @@ export const DEFAULT_SJ_COLUMNS: JournalColumn[] = [
 ];
 
 export function SalesJournal() {
-  const { currentClient, currentClientId, saveClient } = useAccounting();
+  const { currentClient, currentClientId, currentDat, saveClient } = useAccounting();
 
   const [isEditingHeaders, setIsEditingHeaders] = useState(false);
   const [newColName, setNewColName] = useState('');
@@ -37,12 +37,22 @@ export function SalesJournal() {
         return;
       }
 
-      const { data, error } = await supabase
+      const monthMatch = currentDat?.formatted?.match(/^([A-Za-z]+) (\d{4})$/);
+      const periodDate = monthMatch ? new Date(`${monthMatch[1]} 1, ${monthMatch[2]}`) : null;
+      const startDate = periodDate && !Number.isNaN(periodDate.getTime())
+        ? `${periodDate.getFullYear()}-${String(periodDate.getMonth() + 1).padStart(2, '0')}-01`
+        : null;
+      const endDate = periodDate && !Number.isNaN(periodDate.getTime())
+        ? new Date(periodDate.getFullYear(), periodDate.getMonth() + 1, 1).toISOString().slice(0, 10)
+        : null;
+
+      let query: any = supabase
         .from('sales')
         .select('id,date,ref,buyer_tin,buyer_name,buyer_address,amount,vat_type,net_of_vat,output_tax,income_type,payment_type')
         .eq('client_id', currentClientId)
-        .in('payment_type', ['Credit Card', 'On Account'])
-        .order('date', { ascending: true });
+        .in('payment_type', ['Credit Card', 'On Account']);
+      if (startDate && endDate) query = query.gte('date', startDate).lt('date', endDate);
+      const { data, error } = await query.order('date', { ascending: true });
 
       if (cancelled) return;
 
@@ -60,7 +70,7 @@ export function SalesJournal() {
     return () => {
       cancelled = true;
     };
-  }, [currentClientId]);
+  }, [currentClientId, currentDat?.formatted]);
 
   if (!currentClient || !currentClientId) return null;
 
