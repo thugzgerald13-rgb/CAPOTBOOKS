@@ -402,7 +402,7 @@ export function Purchases() {
     }
   }, [date, currentDat]);
 
-  const handleAddPurchase = () => {
+  const handleAddPurchase = async () => {
     if (!currentClient || !currentClientId) return;
 
     // Validate the values currently shown in the form. In edit mode, fields
@@ -481,7 +481,10 @@ export function Purchases() {
       ...currentClient,
       purchases: updatedPurchases
     };
-    saveClient(currentClientId, updatedClient);
+
+    // ✅ FIX: Explicitly save both purchases and the TIN library so supplier entries persist
+    await saveClient(currentClientId, updatedClient, ['purchases', 'tinLibrary']);
+
     showToast(viewIndex !== null ? 'Entry updated' : 'Expense entry added');
 
     // Reset the complete entry form after Add Entry / Update Entry.
