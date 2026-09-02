@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Receipt, Plus, Trash2, Settings, X, Check } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { JournalColumn, JournalEntry } from '../types';
 import { cn } from '../lib/utils';
+import { supabase } from '../lib/supabase';
 
 export const DEFAULT_SJ_COLUMNS: JournalColumn[] = [
   { id: 'date', name: 'Date', type: 'text', category: 'None', isSystem: true },
@@ -25,6 +26,41 @@ export function SalesJournal() {
   const [isEditingHeaders, setIsEditingHeaders] = useState(false);
   const [newColName, setNewColName] = useState('');
   const [newColCategory, setNewColCategory] = useState<'Dr' | 'Cr'>('Dr');
+  const [journalSales, setJournalSales] = useState<any[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadJournalSales = async () => {
+      if (!currentClientId) {
+        setJournalSales([]);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('sales')
+        .select('id,date,ref,buyer_tin,buyer_name,buyer_address,amount,vat_type,net_of_vat,output_tax,income_type,payment_type')
+        .eq('client_id', currentClientId)
+        .in('payment_type', ['Credit Card', 'On Account'])
+        .order('date', { ascending: true });
+
+      if (cancelled) return;
+
+      if (error) {
+        console.error('Failed to load Sales Journal source sales:', error);
+        setJournalSales([]);
+        return;
+      }
+
+      setJournalSales(data || []);
+    };
+
+    loadJournalSales();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentClientId]);
 
   if (!currentClient || !currentClientId) return null;
 
@@ -44,9 +80,22 @@ export function SalesJournal() {
   ];
 
   // Credit Card and On Account transactions belong in the Subsidiary Sales Journal.
-  const sourceSales = (currentClient.sales || []).filter(
-    (sale: any) => sale.paymentType === 'Credit Card' || sale.paymentType === 'On Account'
-  );
+  // These rows are queried directly from the normalized sales table so the page
+  // does not hydrate the client's entire Sales history.
+  const sourceSales = journalSales.map((sale: any) => ({
+    id: sale.id,
+    date: sale.date || '',
+    ref: sale.ref || '',
+    buyerTin: sale.buyer_tin || '',
+    buyerName: sale.buyer_name || '',
+    buyerAddress: sale.buyer_address || '',
+    amount: sale.amount,
+    vatType: sale.vat_type,
+    netOfVat: sale.net_of_vat,
+    outputTax: sale.output_tax,
+    incomeType: sale.income_type,
+    paymentType: sale.payment_type,
+  }));
 
   // Existing manually-entered SJ rows are preserved. Automatically derive rows from sales
   // so the journal remains populated from the Income/Purchases workflow.
