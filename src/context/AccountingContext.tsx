@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Client, BusinessProfile, DatSelection } from '../types';
 import { supabase } from '../lib/supabase';
@@ -40,6 +40,7 @@ interface AccountingContextType {
   syncError: string | null;
   syncData: () => Promise<void>;
   fetchServerAccountBalances: (startDate: string, endDate: string) => Promise<ServerAccountBalance[]>;
+  loadClientSections: (clientId: string, sections: ClientSection[]) => Promise<void>;
 
   setDarkMode: (value: boolean) => void;
   setSidebarCollapsed: (value: boolean) => void;
@@ -166,7 +167,7 @@ const chunk = <T,>(items: T[], size = 200): T[][] => {
 
 type ClientSection =
   | 'purchases' | 'sales' | 'expenses' | 'coa' | 'crj' | 'cdj' | 'pj' | 'gj'
-  | 'journalVoucher' | 'ap' | 'inventory' | 'files' | 'tinLibrary' | 'compliance'
+  | 'journalVoucher' | 'ap' | 'apDashboard' | 'apMatching' | 'apDisbursements' | 'apWithholding' | 'apMemos' | 'inventory' | 'files' | 'tinLibrary' | 'compliance'
   | 'assets' | 'billing' | 'reports';
 
 type LoadedClientData = { data: Partial<Client>; sections: ClientSection[] };
@@ -178,9 +179,10 @@ const PAGE_SECTIONS: Record<string, ClientSection[]> = {
   'journal-voucher': ['journalVoucher', 'coa'],
   'purchases/invoiced': ['purchases', 'coa', 'tinLibrary'],
   'purchases/other-payments': ['purchases', 'coa', 'tinLibrary'],
-  'purchases/ap': ['ap', 'coa', 'tinLibrary'],
+  'purchases/ap': ['coa', 'tinLibrary'],
   tinlibrary: ['tinLibrary'],
-  history: ['purchases', 'sales', 'tinLibrary'],
+  // History queries purchases/sales directly by selected period; don't duplicate those rows in context.
+  history: ['tinLibrary'],
   coa: ['coa'],
   'cash-receipt': ['crj', 'coa'],
   'cash-disbursement': ['cdj', 'coa', 'purchases', 'journalVoucher', 'ap'],
@@ -189,14 +191,17 @@ const PAGE_SECTIONS: Record<string, ClientSection[]> = {
   ledger: ['coa'],
   pl: ['coa'],
   balancesheet: ['coa'],
-  cashflow: ['coa'],
+  // Cash Flow uses the small financial report snapshot; it does not need full transaction history.
+  cashflow: ['reports'],
   assetlapsing: ['assets'],
   'sales-journal': ['sales', 'crj', 'coa'],
   files: ['files'],
   inventory: ['inventory'],
-  'bir-forms': ['purchases', 'sales', 'expenses', 'ap', 'compliance'],
+  // BIR Forms query required transaction periods directly; only compliance metadata is hydrated here.
+  'bir-forms': ['compliance'],
+  // Compliance Tracker queries its selected tax period directly from normalized transactions.
   'compliance-tracker': ['compliance'],
-  'ap-workspace': ['ap', 'coa', 'tinLibrary'],
+  'ap-workspace': ['coa', 'tinLibrary'],
   reports: ['coa', 'reports'],
   books: ['coa'],
   trialbalance: ['coa'],
@@ -239,12 +244,12 @@ const loadNormalizedClient = async (clientId: string, sections: ClientSection[] 
       query(requestedJournalTypes.length > 0, supabase.from('journal_entries').select('id,journal_type,values,auto,auto_source').eq('client_id', clientId).in('journal_type', requestedJournalTypes)),
       query(requestedSections.has('journalVoucher'), supabase.from('journal_vouchers').select('id,date,reference,memo').eq('client_id', clientId)),
       query(requestedSections.has('journalVoucher'), supabase.from('journal_voucher_lines').select('id,journal_voucher_id,account_id,account_name,debit,credit').eq('client_id', clientId)),
-      query(requestedSections.has('ap'), supabase.from('purchase_orders').select('id,date,supplier_id,supplier_name,total_amount,status').eq('client_id', clientId)),
-      query(requestedSections.has('ap'), supabase.from('purchase_order_items').select('id,purchase_order_id,item_code,description,qty,unit_price').eq('client_id', clientId)),
-      query(requestedSections.has('ap'), supabase.from('receiving_reports').select('id,date,po_id,supplier_name,total_amount,received_by').eq('client_id', clientId)),
-      query(requestedSections.has('ap'), supabase.from('receiving_report_items').select('id,receiving_report_id,item_code,description,qty_ordered,qty_received,unit_price').eq('client_id', clientId)),
-      query(requestedSections.has('ap'), supabase.from('payable_invoices').select('id,invoice_number,date,due_date,po_id,rr_id,supplier_id,supplier_name,subtotal,vat_amount,is_vatable,withholding_tax_id,wht_amount,total_amount,status,discrepancy_details,applied_prepayments').eq('client_id', clientId)),
-      query(requestedSections.has('ap'), supabase.from('payable_invoice_items').select('id,payable_invoice_id,item_code,description,qty,unit_price,amount').eq('client_id', clientId)),
+      query(requestedSections.has('apMatching'), supabase.from('purchase_orders').select('id,date,supplier_id,supplier_name,total_amount,status').eq('client_id', clientId)),
+      query(requestedSections.has('apMatching'), supabase.from('purchase_order_items').select('id,purchase_order_id,item_code,description,qty,unit_price').eq('client_id', clientId)),
+      query(requestedSections.has('apMatching'), supabase.from('receiving_reports').select('id,date,po_id,supplier_name,total_amount,received_by').eq('client_id', clientId)),
+      query(requestedSections.has('apMatching'), supabase.from('receiving_report_items').select('id,receiving_report_id,item_code,description,qty_ordered,qty_received,unit_price').eq('client_id', clientId)),
+      query((requestedSections.has('apDashboard') || requestedSections.has('apMatching') || requestedSections.has('apDisbursements') || requestedSections.has('apWithholding') || requestedSections.has('apMemos')), supabase.from('payable_invoices').select('id,invoice_number,date,due_date,po_id,rr_id,supplier_id,supplier_name,subtotal,vat_amount,is_vatable,withholding_tax_id,wht_amount,total_amount,status,discrepancy_details,applied_prepayments').eq('client_id', clientId)),
+      query((requestedSections.has('apMatching') || requestedSections.has('apMemos')), supabase.from('payable_invoice_items').select('id,payable_invoice_id,item_code,description,qty,unit_price,amount').eq('client_id', clientId)),
       query(requestedSections.has('inventory'), supabase.from('inventory_columns').select('id,label').eq('client_id', clientId)),
       query(requestedSections.has('inventory'), supabase.from('inventory_items').select('id,code,name,sku,description,category,unit_of_measure,cost_price,selling_price,stock_level,reorder_point,location,custom_fields').eq('client_id', clientId)),
       query(requestedSections.has('inventory'), supabase.from('inventory_movements').select('id,item_id,item_name,item_code,date,type,qty,unit_cost,total_value,reference,notes').eq('client_id', clientId)),
@@ -252,12 +257,12 @@ const loadNormalizedClient = async (clientId: string, sections: ClientSection[] 
       query(requestedSections.has('files'), supabase.from('app_files').select('id,name,type,size,uploaded_at,folder_id,storage_path,description').eq('client_id', clientId)),
       query(requestedSections.has('tinLibrary'), supabase.from('tin_entries').select('id,party_type,tin,name,address').eq('client_id', clientId)),
       query(requestedSections.has('compliance'), supabase.from('tax_deadlines').select('id,form_type,title,period,due_date,status,tax_status,amount_due,date_filed,date_paid,reference_no,confirmation_no,notes').eq('client_id', clientId)),
-      query(requestedSections.has('ap'), supabase.from('bank_accounts').select('id,bank_name,account_number,balance').eq('client_id', clientId)),
-      query(requestedSections.has('ap'), supabase.from('supplier_advances').select('id,supplier_id,supplier_name,date,amount,is_liquidated,notes').eq('client_id', clientId)),
-      query(requestedSections.has('compliance'), supabase.from('withholding_tax_entries').select('id,atc_code,description,tax_rate,category').eq('client_id', clientId)),
-      query(requestedSections.has('ap'), supabase.from('debit_credit_memos').select('id,type,invoice_id,invoice_number,supplier_name,date,amount,reason').eq('client_id', clientId)),
-      query(requestedSections.has('ap'), supabase.from('check_vouchers').select('id,date,payee_name,invoice_id,invoice_number,payment_type,misc_details,amount,checked_by,approved_by,bank_account_id,bank_name,check_number,status,reversed_reason,reversed_at').eq('client_id', clientId)),
-      query(requestedSections.has('ap'), supabase.from('miscellaneous_payments').select('id,date,payee_name,amount,bank_account_id,bank_name,check_number,expense_category,description').eq('client_id', clientId)),
+      query((requestedSections.has('apDashboard') || requestedSections.has('apDisbursements')), supabase.from('bank_accounts').select('id,bank_name,account_number,balance').eq('client_id', clientId)),
+      query(requestedSections.has('apDisbursements'), supabase.from('supplier_advances').select('id,supplier_id,supplier_name,date,amount,is_liquidated,notes').eq('client_id', clientId)),
+      query((requestedSections.has('apMatching') || requestedSections.has('apWithholding') || requestedSections.has('compliance')), supabase.from('withholding_tax_entries').select('id,atc_code,description,tax_rate,category').eq('client_id', clientId)),
+      query(requestedSections.has('apMemos'), supabase.from('debit_credit_memos').select('id,type,invoice_id,invoice_number,supplier_name,date,amount,reason').eq('client_id', clientId)),
+      query(requestedSections.has('apDisbursements'), supabase.from('check_vouchers').select('id,date,payee_name,invoice_id,invoice_number,payment_type,misc_details,amount,checked_by,approved_by,bank_account_id,bank_name,check_number,status,reversed_reason,reversed_at').eq('client_id', clientId)),
+      query(requestedSections.has('apDisbursements'), supabase.from('miscellaneous_payments').select('id,date,payee_name,amount,bank_account_id,bank_name,check_number,expense_category,description').eq('client_id', clientId)),
       query(requestedSections.has('assets'), supabase.from('asset_lapsing_schedule').select('id,date_purchased,invoice_no,description,cost,useful_life_years,salvage_value').eq('client_id', clientId)),
       query(requestedSections.has('billing'), supabase.from('billing_invoices').select('id,date,due_date,invoice_no,customer_tin,customer_name,customer_address,vat_type,amount,net_of_vat,output_tax,description,status,payment_type,date_paid,is_recurring,recurrence_frequency,next_billing_date,parent_invoice_id').eq('client_id', clientId)),
       query(requestedSections.has('reports'), supabase.from('financial_report_snapshots').select('id,report_type,data,updated_at').eq('client_id', clientId)),
@@ -323,15 +328,32 @@ const loadNormalizedClient = async (clientId: string, sections: ClientSection[] 
   const fieldSections: Record<string, ClientSection> = {
     purchases:'purchases', sales:'sales', expenses:'expenses', coaColumns:'coa', accounts:'coa',
     crjColumns:'crj', crjEntries:'crj', cdjColumns:'cdj', cdjEntries:'cdj', pjColumns:'pj', pjEntries:'pj',
-    gjColumns:'gj', gjEntries:'gj', journalVouchers:'journalVoucher', purchaseOrders:'ap', receivingReports:'ap',
-    payableInvoices:'ap', inventoryColumns:'inventory', inventoryItems:'inventory', inventoryMovements:'inventory',
+    gjColumns:'gj', gjEntries:'gj', journalVouchers:'journalVoucher', purchaseOrders:'apMatching', receivingReports:'apMatching',
+    payableInvoices:'apDashboard', inventoryColumns:'inventory', inventoryItems:'inventory', inventoryMovements:'inventory',
     folders:'files', files:'files', tinLibrary:'tinLibrary', taxDeadlines:'compliance', bankAccounts:'ap',
     supplierAdvances:'ap', withholdingTaxEntries:'compliance', debitCreditMemos:'ap', checkVouchers:'ap',
     miscellaneousPayments:'ap', assetLapsingSchedule:'assets', billingInvoices:'billing', plData:'reports', bsData:'reports', cfData:'reports'
   };
+  const sectionLoaded = (section: ClientSection) => {
+    if (requestedSections.has(section)) return true;
+    // Some AP data is intentionally shared by multiple desks. Keep a field
+    // only when the desk that owns/needs it was requested.
+    if (section === 'apDashboard') return requestedSections.has('apDashboard') || requestedSections.has('apMatching') || requestedSections.has('apDisbursements') || requestedSections.has('apWithholding') || requestedSections.has('apMemos');
+    if (section === 'apMatching') return requestedSections.has('apMatching');
+    if (section === 'apDisbursements') return requestedSections.has('apDisbursements');
+    if (section === 'apMemos') return requestedSections.has('apMemos');
+    return false;
+  };
   Object.keys(result).forEach(key => {
-    const section = fieldSections[key];
-    if (section && !requestedSections.has(section)) delete (result as any)[key];
+    let section = fieldSections[key];
+    if (key === 'payableInvoices') section = 'apDashboard';
+    if (key === 'bankAccounts') section = 'apDashboard';
+    if (key === 'purchaseOrders' || key === 'receivingReports') section = 'apMatching';
+    if (key === 'debitCreditMemos') section = 'apMemos';
+    if (key === 'checkVouchers' || key === 'miscellaneousPayments' || key === 'supplierAdvances') section = 'apDisbursements';
+    if (key === 'withholdingTaxEntries') section = requestedSections.has('apMatching') || requestedSections.has('apWithholding') ? 'apWithholding' : 'compliance';
+    if (key === 'payableInvoiceItems' || key === 'purchaseOrderItems' || key === 'receivingReportItems') section = 'apMatching';
+    if (section && !sectionLoaded(section)) delete (result as any)[key];
   });
   return { data: result, sections: uniqueSections(sections) };
 };
@@ -398,18 +420,12 @@ const persistNormalizedClient = async (client: Client, userId: string, loadedSec
     const section = tableSection(table, scope);
     if (!section || !persistSectionSet.has(section)) return;
     const normalizedRows = rows.map(r => ({ ...r, client_id: clientId }));
-    let existingQuery = supabase
-      .from(table)
-      .select('id')
-      .eq('client_id', clientId);
-    if (scope) {
-      Object.entries(scope).forEach(([key, value]) => {
-        existingQuery = existingQuery.eq(key, value);
-      });
-    }
-    const { data: existingRows, error: existingError } = await existingQuery;
-    if (existingError) throw existingError;
-
+    // Upsert only. Do not pre-read every existing primary key here. The old
+    // implementation performed a SELECT of the entire client's row-id set
+    // before every save, which added an avoidable read/egress round trip.
+    // Explicit delete actions remain responsible for deleting removed rows.
+    // Some screens load only one period, so this sync must remain non-destructive.
+    //
     // Upsert only. This is intentionally non-destructive: some screens (for
     // example History) load only one accounting period. Deleting every DB row
     // not present in that partial in-memory view would incorrectly delete
@@ -572,6 +588,23 @@ export function AccountingProvider({
   useEffect(() => { currentClientIdRef.current = currentClientId; }, [currentClientId]);
   useEffect(() => { activePageRef.current = activePage; }, [activePage]);
   useEffect(() => { loadedSectionsRef.current.clear(); }, [user?.id]);
+
+  const loadClientSections = useCallback(async (clientId: string, sections: ClientSection[]) => {
+    if (!clientId || !sections.length) return;
+    const requested = uniqueSections(sections);
+    const loaded = loadedSectionsRef.current.get(clientId) || new Set<ClientSection>();
+    const missing = requested.filter(section => !loaded.has(section));
+    if (!missing.length) return;
+    setIsSyncing(true);
+    try {
+      const normalized = await loadNormalizedClient(clientId, missing);
+      missing.forEach(section => loaded.add(section));
+      loadedSectionsRef.current.set(clientId, loaded);
+      setClients(prev => ({ ...prev, [clientId]: { ...(prev[clientId] || {} as Client), ...(normalized.data as any) } as Client }));
+    } finally {
+      setIsSyncing(false);
+    }
+  }, []);
 
   const syncData = async () => {
     if (!user || !isReady) return;
@@ -860,11 +893,31 @@ export function AccountingProvider({
                 setClients((prev) => { const next={...prev}; delete next[(payload.old as any).id]; return next; });
               } else {
                 const row = payload.new as any;
-                // Realtime client changes normally only require metadata.
-                // Hydrate the full accounting aggregate only when the changed
-                // client is the one currently open.
-                setClients(prev => ({ ...prev, [row.id]: { ...(prev[row.id] || {} as Client), ...rowToClientMetadata(row) } as Client }));
-                if (row.id === currentClientIdRef.current) {
+                // Parent `clients` rows are also updated after normalized saves.
+                // Do not re-download the active client's accounting sections for
+                // every parent heartbeat/save; that turns one write into a large
+                // read/egress burst. Only rehydrate when actual client metadata
+                // changed (for example a client name, TIN, or address changed).
+                const nextMetadata = rowToClientMetadata(row);
+                let metadataChanged = false;
+                setClients(prev => {
+                  const existing = prev[row.id];
+                  metadataChanged = !existing || clientMetadataColumns.split(',').some(column => {
+                    const keyMap: Record<string, string> = {
+                      user_id:'userId', taxpayer_classification:'taxpayerClassification', registered_name:'registeredName',
+                      last_name:'lastName', first_name:'firstName', middle_name:'middleName', trade_name:'tradeName',
+                      zip_code:'zipCode', rdo_code:'rdoCode', has_multiple_business_lines:'hasMultipleBusinessLines',
+                      accounting_type:'accountingType', fiscal_month_end:'fiscalMonthEnd', coa_format:'coaFormat'
+                    };
+                    if (column === 'id' || column === 'name') return String((existing as any)?.[column] || '') !== String((nextMetadata as any)?.[column] || '');
+                    const localKey = keyMap[column] || column;
+                    const incoming = (nextMetadata as any)?.[localKey];
+                    const current = (existing as any)?.[localKey];
+                    return String(current ?? '') !== String(incoming ?? '');
+                  });
+                  return { ...prev, [row.id]: { ...(existing || {} as Client), ...nextMetadata } as Client };
+                });
+                if (metadataChanged && row.id === currentClientIdRef.current) {
                   const sections = getSectionsForPage(activePageRef.current);
                   loadNormalizedClient(row.id, sections)
                     .then(normalized => {
@@ -1037,6 +1090,14 @@ export function AccountingProvider({
   const saveQueuesRef = React.useRef<Record<string, Promise<void>>>({});
 
   const saveClient = async (id: string, clientData: Client) => {
+    // Accounting saves can change report balances. Invalidate only this
+    // client's cached RPC results; keep other clients warm.
+    for (const key of accountBalanceCacheRef.current.keys()) {
+      if (key.startsWith(`${id}|`)) accountBalanceCacheRef.current.delete(key);
+    }
+    for (const key of accountBalanceInFlightRef.current.keys()) {
+      if (key.startsWith(`${id}|`)) accountBalanceInFlightRef.current.delete(key);
+    }
     const updatedClient = { ...clientData, id, userId: user ? user.id : undefined } as Client;
     setClients((prev) => ({ ...prev, [id]: updatedClient }));
     if (!user) return;
@@ -1189,27 +1250,54 @@ export function AccountingProvider({
   // throws "Rendered more/fewer hooks than during the previous render"
   // (React error #310), which crashes the entire app since this provider
   // wraps everything.
+  // Reuse identical account-balance RPC results during one navigation
+  // session and deduplicate simultaneous requests from multiple reports.
+  const accountBalanceCacheRef = useRef<Map<string, ServerAccountBalance[]>>(new Map());
+  const accountBalanceInFlightRef = useRef<Map<string, Promise<ServerAccountBalance[]>>>(new Map());
+
   const fetchServerAccountBalances = useCallback(async (startDate: string, endDate: string): Promise<ServerAccountBalance[]> => {
     if (!currentClientId) return [];
-    const { data, error } = await supabase.rpc('get_account_balances', {
-      p_client_id: currentClientId,
-      p_start_date: startDate,
-      p_end_date: endDate,
-    });
-    if (error) throw error;
-    return (data || []).map((row: any) => ({
-      account_id: String(row.account_id),
-      account_name: String(row.account_name || ''),
-      account_type: String(row.account_type || ''),
-      normal_side: row.normal_side === 'credit' ? 'credit' : 'debit',
-      opening_balance: Number(row.opening_balance || 0),
-      debit: Number(row.debit || 0),
-      credit: Number(row.credit || 0),
-      balance: Number(row.balance || 0),
-      period_debit: Number(row.period_debit || 0),
-      period_credit: Number(row.period_credit || 0),
-      period_balance: Number(row.period_balance || 0),
-    }));
+
+    const cacheKey = `${currentClientId}|${startDate}|${endDate}`;
+    const cached = accountBalanceCacheRef.current.get(cacheKey);
+    if (cached) return cached;
+
+    const inFlight = accountBalanceInFlightRef.current.get(cacheKey);
+    if (inFlight) return inFlight;
+
+    const request = (async () => {
+      const { data, error } = await supabase.rpc('get_account_balances', {
+        p_client_id: currentClientId,
+        p_start_date: startDate,
+        p_end_date: endDate,
+      });
+      if (error) throw error;
+
+      const rows = (data || []).map((row: any) => ({
+        account_id: String(row.account_id),
+        account_name: String(row.account_name || ''),
+        account_type: String(row.account_type || ''),
+        normal_side: row.normal_side === 'credit' ? 'credit' : 'debit',
+        opening_balance: Number(row.opening_balance || 0),
+        debit: Number(row.debit || 0),
+        credit: Number(row.credit || 0),
+        balance: Number(row.balance || 0),
+        period_debit: Number(row.period_debit || 0),
+        period_credit: Number(row.period_credit || 0),
+        period_balance: Number(row.period_balance || 0),
+      }));
+
+      accountBalanceCacheRef.current.set(cacheKey, rows);
+      return rows;
+    })();
+
+    accountBalanceInFlightRef.current.set(cacheKey, request);
+
+    try {
+      return await request;
+    } finally {
+      accountBalanceInFlightRef.current.delete(cacheKey);
+    }
   }, [currentClientId]);
 
   const rawCurrentClient = currentClientId ? clients[currentClientId] : null;
@@ -1304,6 +1392,7 @@ export function AccountingProvider({
         syncError,
         syncData,
         fetchServerAccountBalances,
+        loadClientSections,
         setDarkMode,
         setSidebarCollapsed,
         navigateToPage,
