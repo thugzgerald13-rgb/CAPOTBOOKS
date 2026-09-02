@@ -35,12 +35,13 @@ interface AccountingContextType {
   setCurrentDat: (dat: DatSelection | null) => void;
 
   saveClient: (id: string, clientData: Client) => Promise<void>;
-  saveJournalColumns: (clientId: string, journalType: string, columns: any[]) => Promise<void>;
-  saveJournalEntry: (clientId: string, journalType: string, entry: any) => Promise<void>;
-  deleteJournalEntry: (clientId: string, journalType: string, entryId: string) => Promise<void>;
   addClient: (name: string) => Promise<void>;
   deleteClient: (id: string) => Promise<void>;
   saveBusinessProfile: (profile: BusinessProfile) => Promise<void>;
+  saveFolder: (folder: any) => Promise<void>;
+  deleteFolder: (folderId: string) => Promise<void>;
+  saveFile: (file: any) => Promise<void>;
+  deleteFile: (fileId: string) => Promise<void>;
   showToast: (msg: string) => void;
 
   // Device adaptations support
@@ -803,60 +804,6 @@ export function AccountingProvider({
     }
   }, [businessProfile, clients, currentClientId, user, isReady]);
 
-  const saveJournalColumns = async (clientId: string, journalType: string, columns: any[]) => {
-    if (!user) return;
-    try {
-      const normalized = (columns || []).map((c: any) => ({
-        id: strId(c.id), client_id: clientId, journal_type: journalType,
-        name: c.name || '', type: c.type || 'text', category: c.category || 'None', is_system: !!c.isSystem
-      }));
-      const { data: existing, error: existingError } = await supabase
-        .from('journal_columns').select('id').eq('client_id', clientId).eq('journal_type', journalType);
-      if (existingError) throw existingError;
-      const currentIds = new Set(normalized.map((c: any) => String(c.id)));
-      const stale = (existing || []).map((r: any) => String(r.id)).filter((id: string) => !currentIds.has(id));
-      if (normalized.length) {
-        const { error } = await supabase.from('journal_columns').upsert(normalized, { onConflict: 'id' });
-        if (error) throw error;
-      }
-      if (stale.length) {
-        const { error } = await supabase.from('journal_columns').delete().eq('client_id', clientId).eq('journal_type', journalType).in('id', stale);
-        if (error) throw error;
-      }
-      setClients(prev => { const c = prev[clientId]; if (!c) return prev; return { ...prev, [clientId]: { ...c, [journalType === 'CRJ' ? 'crjColumns' : journalType === 'CDJ' ? 'cdjColumns' : journalType === 'PJ' ? 'pjColumns' : 'gjColumns']: columns } as Client }; });
-    } catch (error) {
-      console.error(`Failed to save ${journalType} columns:`, error);
-      await handleSupabaseError(error, OperationType.UPDATE, `journal-columns/${clientId}/${journalType}`);
-    }
-  };
-
-  const saveJournalEntry = async (clientId: string, journalType: string, entry: any) => {
-    if (!user) return;
-    try {
-      const row = { id: strId(entry.id), client_id: clientId, journal_type: journalType, values: entry.values || {}, auto: !!entry.auto, auto_source: entry.autoSource || null };
-      const { error } = await supabase.from('journal_entries').upsert(row, { onConflict: 'id' });
-      if (error) throw error;
-      const key = journalType === 'CRJ' ? 'crjEntries' : journalType === 'CDJ' ? 'cdjEntries' : journalType === 'PJ' ? 'pjEntries' : 'gjEntries';
-      setClients(prev => { const c = prev[clientId]; if (!c) return prev; const rows = ((c as any)[key] || []).filter((e: any) => String(e.id) !== String(entry.id)); return { ...prev, [clientId]: { ...c, [key]: [...rows, entry] } as Client }; });
-    } catch (error) {
-      console.error(`Failed to save ${journalType} entry:`, error);
-      await handleSupabaseError(error, OperationType.UPDATE, `journal-entry/${clientId}/${journalType}/${entry.id}`);
-    }
-  };
-
-  const deleteJournalEntry = async (clientId: string, journalType: string, entryId: string) => {
-    if (!user) return;
-    try {
-      const { error } = await supabase.from('journal_entries').delete().eq('client_id', clientId).eq('journal_type', journalType).eq('id', entryId);
-      if (error) throw error;
-      const key = journalType === 'CRJ' ? 'crjEntries' : journalType === 'CDJ' ? 'cdjEntries' : journalType === 'PJ' ? 'pjEntries' : 'gjEntries';
-      setClients(prev => { const c = prev[clientId]; if (!c) return prev; return { ...prev, [clientId]: { ...c, [key]: ((c as any)[key] || []).filter((e: any) => String(e.id) !== String(entryId)) } as Client }; });
-    } catch (error) {
-      console.error(`Failed to delete ${journalType} entry:`, error);
-      await handleSupabaseError(error, OperationType.DELETE, `journal-entry/${clientId}/${journalType}/${entryId}`);
-    }
-  };
-
   const saveClient = async (id: string, clientData: Client) => {
     const updatedClient = { ...clientData, id, userId: user ? user.id : undefined } as Client;
     setClients((prev) => ({ ...prev, [id]: updatedClient }));
@@ -868,6 +815,44 @@ export function AccountingProvider({
       console.error('Normalized client save failed:', error);
       await handleSupabaseError(error, OperationType.UPDATE, `normalized-client/${id}`);
     }
+  };
+
+  const saveFolder = async (folder: any) => {
+    if (!user || !currentClientId) return;
+    const row = {
+      id: String(folder.id), client_id: currentClientId, name: folder.name || '',
+      is_default: !!folder.isDefault, type: folder.type || 'custom'
+    };
+    const { error } = await supabase.from('app_folders').upsert(row, { onConflict: 'id' });
+    if (error) throw error;
+    setClients(prev => ({ ...prev, [currentClientId]: { ...prev[currentClientId], folders: [...(prev[currentClientId]?.folders || []).filter((f:any)=>String(f.id)!==String(folder.id)), folder] } as Client }));
+  };
+
+  const deleteFolder = async (folderId: string) => {
+    if (!user || !currentClientId) return;
+    const { error } = await supabase.from('app_folders').delete().eq('client_id', currentClientId).eq('id', String(folderId));
+    if (error) throw error;
+    setClients(prev => ({ ...prev, [currentClientId]: { ...prev[currentClientId], folders: (prev[currentClientId]?.folders || []).filter((f:any)=>String(f.id)!==String(folderId)), files: (prev[currentClientId]?.files || []).filter((f:any)=>String(f.folderId)!==String(folderId)) } as Client }));
+  };
+
+  const saveFile = async (file: any) => {
+    if (!user || !currentClientId) return;
+    const row = {
+      id: String(file.id), client_id: currentClientId, name: file.name || '',
+      type: file.type || 'application/octet-stream', size: Number(file.size || 0),
+      uploaded_at: file.uploadedAt || new Date().toISOString(), folder_id: file.folderId || null,
+      storage_path: file.storagePath || null, description: file.description || null
+    };
+    const { error } = await supabase.from('app_files').upsert(row, { onConflict: 'id' });
+    if (error) throw error;
+    setClients(prev => ({ ...prev, [currentClientId]: { ...prev[currentClientId], files: [...(prev[currentClientId]?.files || []).filter((f:any)=>String(f.id)!==String(file.id)), file] } as Client }));
+  };
+
+  const deleteFile = async (fileId: string) => {
+    if (!user || !currentClientId) return;
+    const { error } = await supabase.from('app_files').delete().eq('client_id', currentClientId).eq('id', String(fileId));
+    if (error) throw error;
+    setClients(prev => ({ ...prev, [currentClientId]: { ...prev[currentClientId], files: (prev[currentClientId]?.files || []).filter((f:any)=>String(f.id)!==String(fileId)) } as Client }));
   };
 
   const addClient = async (name: string) => {
@@ -1096,12 +1081,13 @@ export function AccountingProvider({
         setCurrentClientId,
         setCurrentDat,
         saveClient,
-        saveJournalColumns,
-        saveJournalEntry,
-        deleteJournalEntry,
         addClient,
         deleteClient,
         saveBusinessProfile,
+      saveFolder,
+      deleteFolder,
+      saveFile,
+      deleteFile,
         showToast,
         activeDevice,
       }}
