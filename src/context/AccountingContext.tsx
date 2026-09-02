@@ -35,14 +35,9 @@ interface AccountingContextType {
   setCurrentDat: (dat: DatSelection | null) => void;
 
   saveClient: (id: string, clientData: Client) => Promise<void>;
-  saveSale: (id: string, sale: any) => Promise<void>;
-  deleteSale: (id: string) => Promise<void>;
-  savePurchase: (id: string, purchase: any) => Promise<void>;
-  deletePurchase: (id: string) => Promise<void>;
-  saveJournalColumn: (journalType: string, column: any) => Promise<void>;
-  deleteJournalColumn: (journalType: string, id: string) => Promise<void>;
-  saveJournalEntry: (journalType: string, entry: any) => Promise<void>;
-  deleteJournalEntry: (journalType: string, id: string) => Promise<void>;
+  saveJournalColumns: (clientId: string, journalType: string, columns: any[]) => Promise<void>;
+  saveJournalEntry: (clientId: string, journalType: string, entry: any) => Promise<void>;
+  deleteJournalEntry: (clientId: string, journalType: string, entryId: string) => Promise<void>;
   addClient: (name: string) => Promise<void>;
   deleteClient: (id: string) => Promise<void>;
   saveBusinessProfile: (profile: BusinessProfile) => Promise<void>;
@@ -808,160 +803,58 @@ export function AccountingProvider({
     }
   }, [businessProfile, clients, currentClientId, user, isReady]);
 
-  const saveSale = async (id: string, sale: any) => {
-    if (!currentClientId || !user) return;
-    const row = {
-      id: strId(id),
-      client_id: currentClientId,
-      dat_month_year: sale.datMonthYear || null,
-      date: sale.date || null,
-      ref: sale.ref || null,
-      payment_type: sale.paymentType || null,
-      buyer_tin: sale.buyerTin || null,
-      buyer_name: sale.buyerName || null,
-      buyer_address: sale.buyerAddress || null,
-      vat_type: sale.vatType || null,
-      amount: Number(sale.amount || 0),
-      net_of_vat: Number(sale.netOfVat || 0),
-      output_tax: Number(sale.outputTax || 0),
-      income_type: sale.incomeType || null,
-      description: sale.desc || null,
-    };
-    const { error } = await supabase.from('sales').upsert(row, { onConflict: 'id' });
-    if (error) throw error;
-    setClients(prev => prev[currentClientId] ? ({
-      ...prev,
-      [currentClientId]: { ...prev[currentClientId], sales: [...(prev[currentClientId].sales || []).filter((x:any) => String(x.id) !== String(id)), sale] }
-    }) : prev);
-  };
-
-  const deleteSale = async (id: string) => {
-    if (!currentClientId || !user) return;
-    const { error } = await supabase.from('sales').delete().eq('client_id', currentClientId).eq('id', strId(id));
-    if (error) throw error;
-    setClients(prev => prev[currentClientId] ? ({
-      ...prev,
-      [currentClientId]: { ...prev[currentClientId], sales: (prev[currentClientId].sales || []).filter((x:any) => String(x.id) !== String(id)) }
-    }) : prev);
-  };
-
-  const savePurchase = async (id: string, purchase: any) => {
-    if (!currentClientId || !user) return;
-    const row = {
-      id: strId(id),
-      client_id: currentClientId,
-      dat_month_year: purchase.datMonthYear || null,
-      date: purchase.date || null,
-      payment_method: purchase.paymentMethod || null,
-      check_number: purchase.checkNumber || null,
-      bank_name: purchase.bankName || null,
-      invoice_no: purchase.invoiceNo || null,
-      supplier_name: purchase.supplierName || null,
-      supplier_address: purchase.supplierAddress || null,
-      supplier_tin: purchase.supplierTin || null,
-      amount: Number(purchase.amount || 0),
-      vat_type: purchase.vatType || null,
-      expense_type: purchase.expenseType || null,
-      account_title: purchase.accountTitle || null,
-      transaction_details: purchase.transactionDetails || null,
-      input_tax: Number(purchase.inputTax || 0),
-      attachment_name: purchase.attachment?.name || null,
-      attachment_type: purchase.attachment?.type || null,
-      attachment_original_type: purchase.attachment?.type || null,
-      attachment_size: purchase.attachment?.compressedSize ?? purchase.attachment?.size ?? null,
-      attachment_original_size: purchase.attachment?.size ?? null,
-      attachment_compression: purchase.attachment?.encoding || null,
-      attachment_storage_path: purchase.attachment?.storagePath || null,
-      withholding_option: purchase.withholdingOption || null,
-      atc_code: purchase.atcCode || null,
-      wht_rate: purchase.whtRate == null ? null : Number(purchase.whtRate),
-      wht_amount: purchase.whtAmount == null ? null : Number(purchase.whtAmount),
-    };
-    const { error } = await supabase.from('purchases').upsert(row, { onConflict: 'id' });
-    if (error) throw error;
-
-    if (purchase.supplierTin && purchase.supplierName) {
-      const tinRow = {
-        id: strId(purchase.supplierTin),
-        client_id: currentClientId,
-        tin: purchase.supplierTin,
-        name: purchase.supplierName,
-        address: purchase.supplierAddress || null,
-        party_type: 'supplier',
-      };
-      const { error: tinError } = await supabase.from('tin_entries').upsert(tinRow, { onConflict: 'id' });
-      if (tinError) console.warn('Supplier TIN library update failed:', tinError);
-    }
-
-    setClients(prev => prev[currentClientId] ? ({
-      ...prev,
-      [currentClientId]: {
-        ...prev[currentClientId],
-        purchases: [...(prev[currentClientId].purchases || []).filter((x:any) => String(x.id) !== String(id)), purchase]
+  const saveJournalColumns = async (clientId: string, journalType: string, columns: any[]) => {
+    if (!user) return;
+    try {
+      const normalized = (columns || []).map((c: any) => ({
+        id: strId(c.id), client_id: clientId, journal_type: journalType,
+        name: c.name || '', type: c.type || 'text', category: c.category || 'None', is_system: !!c.isSystem
+      }));
+      const { data: existing, error: existingError } = await supabase
+        .from('journal_columns').select('id').eq('client_id', clientId).eq('journal_type', journalType);
+      if (existingError) throw existingError;
+      const currentIds = new Set(normalized.map((c: any) => String(c.id)));
+      const stale = (existing || []).map((r: any) => String(r.id)).filter((id: string) => !currentIds.has(id));
+      if (normalized.length) {
+        const { error } = await supabase.from('journal_columns').upsert(normalized, { onConflict: 'id' });
+        if (error) throw error;
       }
-    }) : prev);
+      if (stale.length) {
+        const { error } = await supabase.from('journal_columns').delete().eq('client_id', clientId).eq('journal_type', journalType).in('id', stale);
+        if (error) throw error;
+      }
+      setClients(prev => { const c = prev[clientId]; if (!c) return prev; return { ...prev, [clientId]: { ...c, [journalType === 'CRJ' ? 'crjColumns' : journalType === 'CDJ' ? 'cdjColumns' : journalType === 'PJ' ? 'pjColumns' : 'gjColumns']: columns } as Client }; });
+    } catch (error) {
+      console.error(`Failed to save ${journalType} columns:`, error);
+      await handleSupabaseError(error, OperationType.UPDATE, `journal-columns/${clientId}/${journalType}`);
+    }
   };
 
-  const deletePurchase = async (id: string) => {
-    if (!currentClientId || !user) return;
-    const { error } = await supabase.from('purchases').delete().eq('client_id', currentClientId).eq('id', strId(id));
-    if (error) throw error;
-    setClients(prev => prev[currentClientId] ? ({
-      ...prev,
-      [currentClientId]: { ...prev[currentClientId], purchases: (prev[currentClientId].purchases || []).filter((x:any) => String(x.id) !== String(id)) }
-    }) : prev);
+  const saveJournalEntry = async (clientId: string, journalType: string, entry: any) => {
+    if (!user) return;
+    try {
+      const row = { id: strId(entry.id), client_id: clientId, journal_type: journalType, values: entry.values || {}, auto: !!entry.auto, auto_source: entry.autoSource || null };
+      const { error } = await supabase.from('journal_entries').upsert(row, { onConflict: 'id' });
+      if (error) throw error;
+      const key = journalType === 'CRJ' ? 'crjEntries' : journalType === 'CDJ' ? 'cdjEntries' : journalType === 'PJ' ? 'pjEntries' : 'gjEntries';
+      setClients(prev => { const c = prev[clientId]; if (!c) return prev; const rows = ((c as any)[key] || []).filter((e: any) => String(e.id) !== String(entry.id)); return { ...prev, [clientId]: { ...c, [key]: [...rows, entry] } as Client }; });
+    } catch (error) {
+      console.error(`Failed to save ${journalType} entry:`, error);
+      await handleSupabaseError(error, OperationType.UPDATE, `journal-entry/${clientId}/${journalType}/${entry.id}`);
+    }
   };
 
-  const saveJournalColumn = async (journalType: string, column: any) => {
-    if (!currentClientId || !user) return;
-    const row = {
-      id: strId(column.id),
-      client_id: currentClientId,
-      journal_type: journalType,
-      name: column.name || '',
-      type: column.type || 'text',
-      category: column.category || 'None',
-      is_system: !!column.isSystem,
-    };
-    const { error } = await supabase.from('journal_columns').upsert(row, { onConflict: 'id' });
-    if (error) throw error;
-  };
-
-  const deleteJournalColumn = async (journalType: string, id: string) => {
-    if (!currentClientId || !user) return;
-    const { error } = await supabase.from('journal_columns').delete()
-      .eq('client_id', currentClientId).eq('journal_type', journalType).eq('id', strId(id));
-    if (error) throw error;
-  };
-
-  const saveJournalEntry = async (journalType: string, entry: any) => {
-    if (!currentClientId || !user) return;
-    const values = entry.values || {};
-    const totalDebit = Object.entries(values).reduce((sum: number, [key, value]: [string, any]) => {
-      const n = Number(String(value ?? '').replace(/,/g, ''));
-      return Number.isFinite(n) && n > 0 ? sum + n : sum;
-    }, 0);
-    const row = {
-      id: strId(entry.id),
-      client_id: currentClientId,
-      journal_type: journalType,
-      values,
-      auto: !!entry.auto,
-      auto_source: entry.autoSource || null,
-      entry_date: values.date || null,
-      description: values.description || values.desc || null,
-      total_debit: Number(entry.totalDebit ?? totalDebit) || 0,
-      total_credit: Number(entry.totalCredit ?? 0) || 0,
-    };
-    const { error } = await supabase.from('journal_entries').upsert(row, { onConflict: 'id' });
-    if (error) throw error;
-  };
-
-  const deleteJournalEntry = async (journalType: string, id: string) => {
-    if (!currentClientId || !user) return;
-    const { error } = await supabase.from('journal_entries').delete()
-      .eq('client_id', currentClientId).eq('journal_type', journalType).eq('id', strId(id));
-    if (error) throw error;
+  const deleteJournalEntry = async (clientId: string, journalType: string, entryId: string) => {
+    if (!user) return;
+    try {
+      const { error } = await supabase.from('journal_entries').delete().eq('client_id', clientId).eq('journal_type', journalType).eq('id', entryId);
+      if (error) throw error;
+      const key = journalType === 'CRJ' ? 'crjEntries' : journalType === 'CDJ' ? 'cdjEntries' : journalType === 'PJ' ? 'pjEntries' : 'gjEntries';
+      setClients(prev => { const c = prev[clientId]; if (!c) return prev; return { ...prev, [clientId]: { ...c, [key]: ((c as any)[key] || []).filter((e: any) => String(e.id) !== String(entryId)) } as Client }; });
+    } catch (error) {
+      console.error(`Failed to delete ${journalType} entry:`, error);
+      await handleSupabaseError(error, OperationType.DELETE, `journal-entry/${clientId}/${journalType}/${entryId}`);
+    }
   };
 
   const saveClient = async (id: string, clientData: Client) => {
@@ -1203,14 +1096,9 @@ export function AccountingProvider({
         setCurrentClientId,
         setCurrentDat,
         saveClient,
-        saveSale,
-        deleteSale,
-        savePurchase,
-        saveJournalColumn,
-        deleteJournalColumn,
+        saveJournalColumns,
         saveJournalEntry,
         deleteJournalEntry,
-        deletePurchase,
         addClient,
         deleteClient,
         saveBusinessProfile,
