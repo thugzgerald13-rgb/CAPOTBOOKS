@@ -35,6 +35,8 @@ interface AccountingContextType {
   setCurrentDat: (dat: DatSelection | null) => void;
 
   saveClient: (id: string, clientData: Client) => Promise<void>;
+  savePurchase: (id: string, purchase: any) => Promise<void>;
+  deletePurchase: (id: string) => Promise<void>;
   addClient: (name: string) => Promise<void>;
   deleteClient: (id: string) => Promise<void>;
   saveBusinessProfile: (profile: BusinessProfile) => Promise<void>;
@@ -120,10 +122,9 @@ const buildMatchingClient = (profileData: BusinessProfile, existing: Client | un
  * Normalized persistence bridge.
  *
  * The UI still works with the existing Client aggregate so components do not
- * all need to be rewritten at once. Supabase, however, stores transactional
- * entities in their own tables. `clients.data` is retained only as a small
- * legacy compatibility payload for fields that do not yet have a normalized
- * table (for example the derived/manual GL view).
+ * all need to be rewritten at once. Supabase stores transactional entities in
+ * their own tables, while this bridge hydrates the existing Client aggregate
+ * expected by the UI. No runtime persistence depends on `clients.data`.
  */
 const normalizedClientKeys = new Set([
   'sales', 'purchases', 'expenses', 'accounts', 'coaColumns',
@@ -135,18 +136,10 @@ const normalizedClientKeys = new Set([
   'assetLapsingSchedule', 'billingInvoices', 'tinLibrary', 'plData', 'bsData', 'cfData'
 ]);
 
-const withoutNormalizedKeys = (client: Client) => {
-  const legacy: Record<string, any> = {};
-  Object.entries(client as any).forEach(([key, value]) => {
-    if (!normalizedClientKeys.has(key) && key !== 'id' && key !== 'name' && key !== 'userId') {
-      legacy[key] = value;
-    }
-  });
-  return legacy;
-};
 
 const rowDate = (value: any) => value ? String(value).slice(0, 10) : '';
 const strId = (value: any) => String(value);
+const base64ToUint8Array = (value: string) => { const binary = atob(value); const bytes = new Uint8Array(binary.length); for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i); return bytes; };
 const chunk = <T,>(items: T[], size = 200): T[][] => {
   const out: T[][] = [];
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
@@ -267,7 +260,7 @@ const persistNormalizedClient = async (client: Client, userId: string) => {
     zip_code:client.zipCode||null,rdo_code:client.rdoCode||null,phone:client.phone||null,email:client.email||null,
     category:client.category||'private',has_multiple_business_lines:!!client.hasMultipleBusinessLines,
     accounting_type:client.accountingType||'Calendar',fiscal_month_end:client.fiscalMonthEnd||12,
-    coa_format:client.coaFormat||'numeric',data:withoutNormalizedKeys(client),updated_at:new Date().toISOString()
+    coa_format:client.coaFormat||'numeric',updated_at:new Date().toISOString()
   };
   const { error: parentError } = await supabase.from('clients').upsert(parent,{onConflict:'id'});
   if (parentError) throw parentError;
@@ -432,20 +425,17 @@ export function AccountingProvider({
       if (error) throw error;
       const cloudClients: Record<string, Client> = {};
       for (const row of data || []) {
-        const legacy = (row.data || {}) as Partial<Client>;
-        let normalized: Partial<Client> = {};
-        try { normalized = await loadNormalizedClient(row.id); } catch (e) { console.warn('Normalized client load failed; using legacy payload:', e); }
+        const normalized = await loadNormalizedClient(row.id);
         cloudClients[row.id] = {
-          ...(legacy as Client), id: row.id, name: row.name || legacy.name || 'Client',
-          tin: row.tin ?? legacy.tin, taxpayerClassification: row.taxpayer_classification ?? legacy.taxpayerClassification,
-          registeredName: row.registered_name ?? legacy.registeredName, lastName: row.last_name ?? legacy.lastName, firstName: row.first_name ?? legacy.firstName,
-          middleName: row.middle_name ?? legacy.middleName, tradeName: row.trade_name ?? legacy.tradeName, substreet: row.substreet ?? legacy.substreet,
-          street: row.street ?? legacy.street, barangay: row.barangay ?? legacy.barangay, district: row.district ?? legacy.district, city: row.city ?? legacy.city,
-          zipCode: row.zip_code ?? legacy.zipCode, rdoCode: row.rdo_code ?? legacy.rdoCode, phone: row.phone ?? legacy.phone, email: row.email ?? legacy.email,
-          category: row.category ?? legacy.category, hasMultipleBusinessLines: row.has_multiple_business_lines ?? legacy.hasMultipleBusinessLines,
-          accountingType: row.accounting_type ?? legacy.accountingType, fiscalMonthEnd: row.fiscal_month_end ?? legacy.fiscalMonthEnd, coaFormat: row.coa_format ?? legacy.coaFormat,
-          tinLibrary: normalized.tinLibrary ?? legacy.tinLibrary ?? {customers:[], suppliers:[]},
-          sales: normalized.sales ?? legacy.sales ?? [], purchases: normalized.purchases ?? legacy.purchases ?? [], expenses: normalized.expenses ?? legacy.expenses ?? [],
+          id: row.id, name: row.name || 'Client',
+          tin: row.tin, taxpayerClassification: row.taxpayer_classification, registeredName: row.registered_name,
+          lastName: row.last_name, firstName: row.first_name, middleName: row.middle_name, tradeName: row.trade_name,
+          substreet: row.substreet, street: row.street, barangay: row.barangay, district: row.district, city: row.city,
+          zipCode: row.zip_code, rdoCode: row.rdo_code, phone: row.phone, email: row.email, category: row.category,
+          hasMultipleBusinessLines: row.has_multiple_business_lines, accountingType: row.accounting_type,
+          fiscalMonthEnd: row.fiscal_month_end, coaFormat: row.coa_format,
+          tinLibrary: normalized.tinLibrary ?? {customers:[], suppliers:[]},
+          sales: normalized.sales ?? [], purchases: normalized.purchases ?? [], expenses: normalized.expenses ?? [],
           ...(normalized as any)
         } as Client;
       }
@@ -631,38 +621,71 @@ export function AccountingProvider({
         clearTimeout(timeout);
         const cloudClients: Record<string, Client> = {};
         for (const row of data || []) {
-          const legacy = (row.data || {}) as Partial<Client>;
-          let normalized: Partial<Client> = {};
-          try { normalized = await loadNormalizedClient(row.id); } catch (e) { console.warn('Normalized client load failed; using legacy payload:', e); }
-          cloudClients[row.id] = { ...(legacy as Client), id: row.id, name: row.name || legacy.name || 'Client',
-            tin: row.tin ?? legacy.tin, taxpayerClassification: row.taxpayer_classification ?? legacy.taxpayerClassification, registeredName: row.registered_name ?? legacy.registeredName,
-            lastName: row.last_name ?? legacy.lastName, firstName: row.first_name ?? legacy.firstName, middleName: row.middle_name ?? legacy.middleName, tradeName: row.trade_name ?? legacy.tradeName,
-            substreet: row.substreet ?? legacy.substreet, street: row.street ?? legacy.street, barangay: row.barangay ?? legacy.barangay, district: row.district ?? legacy.district, city: row.city ?? legacy.city,
-            zipCode: row.zip_code ?? legacy.zipCode, rdoCode: row.rdo_code ?? legacy.rdoCode, phone: row.phone ?? legacy.phone, email: row.email ?? legacy.email, category: row.category ?? legacy.category,
-            hasMultipleBusinessLines: row.has_multiple_business_lines ?? legacy.hasMultipleBusinessLines, accountingType: row.accounting_type ?? legacy.accountingType, fiscalMonthEnd: row.fiscal_month_end ?? legacy.fiscalMonthEnd, coaFormat: row.coa_format ?? legacy.coaFormat,
-            tinLibrary: normalized.tinLibrary ?? legacy.tinLibrary ?? {customers:[], suppliers:[]}, sales: normalized.sales ?? legacy.sales ?? [], purchases: normalized.purchases ?? legacy.purchases ?? [], expenses: normalized.expenses ?? legacy.expenses ?? [], ...(normalized as any) } as Client;
+          const normalized = await loadNormalizedClient(row.id);
+          cloudClients[row.id] = { id: row.id, name: row.name || 'Client',
+            tin: row.tin, taxpayerClassification: row.taxpayer_classification, registeredName: row.registered_name,
+            lastName: row.last_name, firstName: row.first_name, middleName: row.middle_name, tradeName: row.trade_name,
+            substreet: row.substreet, street: row.street, barangay: row.barangay, district: row.district, city: row.city,
+            zipCode: row.zip_code, rdoCode: row.rdo_code, phone: row.phone, email: row.email, category: row.category,
+            hasMultipleBusinessLines: row.has_multiple_business_lines, accountingType: row.accounting_type,
+            fiscalMonthEnd: row.fiscal_month_end, coaFormat: row.coa_format,
+            tinLibrary: normalized.tinLibrary ?? {customers:[], suppliers:[]}, sales: normalized.sales ?? [], purchases: normalized.purchases ?? [], expenses: normalized.expenses ?? [], ...(normalized as any) } as Client;
         }
         mergeCloudClients(cloudClients);
         setIsSyncing(false);
         setIsReady(true);
         setSyncError(null);
 
-        // Subscribe to realtime changes so multiple devices stay in sync (replaces onSnapshot)
-        clientsChannel = supabase
-          .channel(`clients-${user.id}`)
-          .on(
-            'postgres_changes',
-            { event: '*', schema: 'public', table: 'clients', filter: `user_id=eq.${user.id}` },
-            (payload) => {
-              if (payload.eventType === 'DELETE') {
-                setClients((prev) => { const next={...prev}; delete next[(payload.old as any).id]; return next; });
-              } else {
-                const row = payload.new as any;
-                loadNormalizedClient(row.id).then(normalized => setClients(prev => ({ ...prev, [row.id]: { ...(prev[row.id] || {} as Client), id:row.id, name:row.name, tin:row.tin, taxpayerClassification:row.taxpayer_classification, registeredName:row.registered_name, lastName:row.last_name, firstName:row.first_name, middleName:row.middle_name, tradeName:row.trade_name, substreet:row.substreet, street:row.street, barangay:row.barangay, district:row.district, city:row.city, zipCode:row.zip_code, rdoCode:row.rdo_code, phone:row.phone, email:row.email, category:row.category, hasMultipleBusinessLines:row.has_multiple_business_lines, accountingType:row.accounting_type, fiscalMonthEnd:row.fiscal_month_end, coaFormat:row.coa_format, ...(normalized as any) } as Client }))).catch(e=>console.warn('Realtime normalized reload failed',e));
-              }
-            }
-          )
-          .subscribe();
+        // Subscribe to the tenancy root and every normalized child table. A child
+        // transaction changing does not update `clients`, so listening only to the
+        // root would leave another device stale.
+        const normalizedRealtimeTables = [
+          'purchases','sales','expenses','coa_columns','coa_accounts','journal_columns',
+          'journal_entries','journal_vouchers','journal_voucher_lines','purchase_orders',
+          'purchase_order_items','receiving_reports','receiving_report_items','payable_invoices',
+          'payable_invoice_items','inventory_columns','inventory_items','inventory_movements',
+          'app_folders','app_files','tin_entries','tax_deadlines','bank_accounts','supplier_advances',
+          'withholding_tax_entries','debit_credit_memos','check_vouchers','miscellaneous_payments',
+          'asset_lapsing_schedule','billing_invoices','financial_report_snapshots'
+        ];
+        let reloadTimer: ReturnType<typeof setTimeout> | null = null;
+        const scheduleClientReload = (clientId: string) => {
+          if (reloadTimer) clearTimeout(reloadTimer);
+          reloadTimer = setTimeout(async () => {
+            try {
+              const { data: row, error: rowError } = await supabase.from('clients').select('*').eq('id', clientId).eq('user_id', user.id).maybeSingle();
+              if (rowError) throw rowError;
+              if (!row) return;
+              const normalized = await loadNormalizedClient(clientId);
+              const hydrated = { id: row.id, name: row.name || 'Client',
+                tin: row.tin, taxpayerClassification: row.taxpayer_classification, registeredName: row.registered_name,
+                lastName: row.last_name, firstName: row.first_name, middleName: row.middle_name, tradeName: row.trade_name,
+                substreet: row.substreet, street: row.street, barangay: row.barangay, district: row.district, city: row.city,
+                zipCode: row.zip_code, rdoCode: row.rdo_code, phone: row.phone, email: row.email, category: row.category,
+                hasMultipleBusinessLines: row.has_multiple_business_lines, accountingType: row.accounting_type,
+                fiscalMonthEnd: row.fiscal_month_end, coaFormat: row.coa_format,
+                tinLibrary: normalized.tinLibrary ?? {customers:[], suppliers:[]}, sales: normalized.sales ?? [], purchases: normalized.purchases ?? [], expenses: normalized.expenses ?? [],
+                ...(normalized as any) } as Client;
+              setClients(prev => ({ ...prev, [clientId]: hydrated }));
+            } catch (e) { console.warn('Realtime normalized reload failed', e); }
+          }, 150);
+        };
+
+        clientsChannel = supabase.channel(`normalized-${user.id}`)
+          .on('postgres_changes', { event: '*', schema: 'public', table: 'clients', filter: `user_id=eq.${user.id}` }, (payload) => {
+            const clientId = String((payload.eventType === 'DELETE' ? payload.old : payload.new)?.id || '');
+            if (!clientId) return;
+            if (payload.eventType === 'DELETE') {
+              setClients(prev => { const next = { ...prev }; delete next[clientId]; return next; });
+            } else scheduleClientReload(clientId);
+          });
+        for (const table of normalizedRealtimeTables) {
+          clientsChannel = clientsChannel.on('postgres_changes', { event: '*', schema: 'public', table,  }, (payload) => {
+            const clientId = String((payload.eventType === 'DELETE' ? payload.old : payload.new)?.client_id || '');
+            if (clientId) scheduleClientReload(clientId);
+          });
+        }
+        clientsChannel.subscribe();
       } catch (error) {
         clearTimeout(timeout);
         if (isTimedOut) return;
@@ -815,6 +838,74 @@ export function AccountingProvider({
       console.error('Normalized client save failed:', error);
       await handleSupabaseError(error, OperationType.UPDATE, `normalized-client/${id}`);
     }
+  };
+
+  const uploadPurchaseAttachment = async (clientId: string, purchaseId: string, attachment: any) => {
+    if (!attachment?.data) return attachment?.storagePath || null;
+    const safeName = String(attachment.name || 'attachment').replace(/[^a-zA-Z0-9._-]/g, '_');
+    const storagePath = `${clientId}/purchases/${purchaseId}/${safeName}`;
+    let blob: Blob;
+    const data = String(attachment.data);
+    if (attachment.encoding === 'gzip') {
+      blob = new Blob([base64ToUint8Array(data)], { type: 'application/gzip' });
+    } else {
+      const comma = data.indexOf(',');
+      const encoded = comma >= 0 ? data.slice(comma + 1) : data;
+      blob = new Blob([base64ToUint8Array(encoded)], { type: attachment.type || 'application/octet-stream' });
+    }
+    const { error } = await supabase.storage.from('client-files').upload(storagePath, blob, {
+      contentType: attachment.encoding === 'gzip' ? 'application/gzip' : (attachment.type || 'application/octet-stream'),
+      upsert: true,
+    });
+    if (error) throw error;
+    return storagePath;
+  };
+
+  const savePurchase = async (id: string, purchase: any) => {
+    if (!user || !currentClientId) return;
+    const existingPurchase = (clients[currentClientId]?.purchases || []).find((p:any) => String(p.id) === String(id));
+    const previousStoragePath = existingPurchase?.attachment?.storagePath || null;
+    let storagePath = purchase?.attachment?.storagePath || null;
+    if (purchase?.attachment?.data) {
+      storagePath = await uploadPurchaseAttachment(currentClientId, id, purchase.attachment);
+    }
+    if (previousStoragePath && previousStoragePath !== storagePath) {
+      const { error: cleanupError } = await supabase.storage.from('client-files').remove([previousStoragePath]);
+      if (cleanupError) console.warn('Previous purchase attachment cleanup failed', cleanupError);
+    }
+    const row = {
+      id: String(id), client_id: currentClientId, dat_month_year: purchase.datMonthYear || null,
+      date: (() => { const raw = String(purchase.date || ''); const m = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); return m ? `${m[3]}-${m[1].padStart(2,'0')}-${m[2].padStart(2,'0')}` : (raw || null); })(),
+      payment_method: purchase.paymentMethod || '', check_number: purchase.checkNumber || null,
+      bank_name: purchase.bankName || null, invoice_no: purchase.invoiceNo || null,
+      supplier_name: purchase.supplierName || '', supplier_address: purchase.supplierAddress || null,
+      supplier_tin: purchase.supplierTin || null, amount: Number(purchase.amount || 0),
+      vat_type: purchase.vatType || null, expense_type: purchase.expenseType || null,
+      account_title: purchase.accountTitle || null, transaction_details: purchase.transactionDetails || null,
+      input_tax: Number(purchase.inputTax || 0), attachment_name: purchase.attachment?.name || null,
+      attachment_type: purchase.attachment?.type || null, attachment_original_type: purchase.attachment?.originalType || purchase.attachment?.type || null,
+      attachment_size: purchase.attachment?.size || null, attachment_original_size: purchase.attachment?.originalSize || purchase.attachment?.size || null,
+      attachment_compression: purchase.attachment?.encoding === 'gzip' ? 'gzip' : (purchase.attachment?.compression || null),
+      attachment_storage_path: storagePath, withholding_option: purchase.withholdingOption || null,
+      atc_code: purchase.atcCode || null, wht_rate: purchase.whtRate ?? null, wht_amount: purchase.whtAmount ?? null,
+    };
+    const { error } = await supabase.from('purchases').upsert(row, { onConflict: 'id' });
+    if (error) throw error;
+    const hydrated = { ...purchase, attachment: purchase.attachment ? { ...purchase.attachment, storagePath, data: undefined } : undefined };
+    setClients(prev => ({ ...prev, [currentClientId]: { ...prev[currentClientId], purchases: [...(prev[currentClientId]?.purchases || []).filter((p:any)=>String(p.id)!==String(id)), hydrated] } as Client }));
+  };
+
+  const deletePurchase = async (id: string) => {
+    if (!user || !currentClientId) return;
+    const existing = (clients[currentClientId]?.purchases || []).find((p:any) => String(p.id) === String(id));
+    const path = existing?.attachment?.storagePath;
+    const { error } = await supabase.from('purchases').delete().eq('client_id', currentClientId).eq('id', String(id));
+    if (error) throw error;
+    if (path) {
+      const { error: storageError } = await supabase.storage.from('client-files').remove([path]);
+      if (storageError) console.warn('Purchase attachment cleanup failed', storageError);
+    }
+    setClients(prev => ({ ...prev, [currentClientId]: { ...prev[currentClientId], purchases: (prev[currentClientId]?.purchases || []).filter((p:any)=>String(p.id)!==String(id)) } as Client }));
   };
 
   const saveFolder = async (folder: any) => {
@@ -1081,6 +1172,8 @@ export function AccountingProvider({
         setCurrentClientId,
         setCurrentDat,
         saveClient,
+        savePurchase,
+        deletePurchase,
         addClient,
         deleteClient,
         saveBusinessProfile,
