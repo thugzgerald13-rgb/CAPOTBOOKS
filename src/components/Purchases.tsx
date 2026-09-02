@@ -577,8 +577,8 @@ export function Purchases() {
                   </label>
                </div>
             </div>
-        </div>
              )}
+        </div>
 
         {!isAP && paymentMethod === 'Check' && (
           <>
