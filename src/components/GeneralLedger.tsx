@@ -31,19 +31,16 @@ const mapJournalEntry = (r:any): JournalEntry => ({ id: String(r.id), values: r.
 let glPeriodCache: { key: string; value: Record<string, GeneralLedgerEntry[]> } | null = null;
 
 export function GeneralLedger() {
-  const { currentClient, currentClientId, currentDat, saveClient } = useAccounting();
+  const { currentClient, currentClientId, saveClient } = useAccounting();
   const [typeFilter, setTypeFilter] = useState('All');
   const [accountFilter, setAccountFilter] = useState('All');
-  const [month, setMonth] = useState(currentDat?.month || new Date().getMonth()+1);
-  const [year, setYear] = useState(currentDat?.year || new Date().getFullYear());
+  const [month, setMonth] = useState(new Date().getMonth()+1);
+  const [year, setYear] = useState(new Date().getFullYear());
   const [autoEntries, setAutoEntries] = useState<Record<string, GeneralLedgerEntry[]>>({});
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [expandedAccounts, setExpandedAccounts] = useState<Record<string, boolean>>({});
 
-  useEffect(() => {
-    if (currentDat) { setMonth(currentDat.month); setYear(currentDat.year); }
-  }, [currentDat]);
 
   const coaAccounts = useMemo(() => {
     if (!currentClient) return [];

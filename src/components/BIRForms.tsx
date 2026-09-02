@@ -182,27 +182,18 @@ export function generateStandardDeadlines(year: number): TaxDeadline[] {
 }
 
 export function BIRForms() {
-  const { currentClient, currentClientId, setCurrentClientId, clients, businessProfile, activePage, navigateToPage, birFormTab, currentDat, ownerClientId } = useAccounting();
+  const { currentClient, currentClientId, setCurrentClientId, clients, businessProfile, activePage, navigateToPage, birFormTab, ownerClientId } = useAccounting();
 
   // Active form choice: '2550Q' | '1701Q' | '2551Q' | '1601-C' | '0619-E' | '1601-EQ'
   const [activeFormType, setActiveFormType] = useState<'2550Q' | '1701Q' | '2551Q' | '1601-C' | '0619-E' | '1601-EQ'>('2550Q');
 
-  // Query configurations — default to the app's simulated "as of" date (currentDat) when set,
-  // falling back to the real device date otherwise.
-  const effectiveYear = currentDat ? currentDat.year : new Date().getFullYear();
-  const effectiveMonth = currentDat ? currentDat.month : new Date().getMonth() + 1;
+  // Query configurations use the real device date; DAT no longer controls forms.
+  const effectiveYear = new Date().getFullYear();
+  const effectiveMonth = new Date().getMonth() + 1;
   const [selectedYear, setSelectedYear] = useState<number>(effectiveYear);
   const [selectedQuarter, setSelectedQuarter] = useState<number>(Math.ceil(effectiveMonth / 3));
   const [selectedMonth, setSelectedMonth] = useState<number>(effectiveMonth);
 
-  // Keep the period selectors in sync whenever the simulated DAT date changes
-  useEffect(() => {
-    const yr = currentDat ? currentDat.year : new Date().getFullYear();
-    const mo = currentDat ? currentDat.month : new Date().getMonth() + 1;
-    setSelectedYear(yr);
-    setSelectedMonth(mo);
-    setSelectedQuarter(Math.ceil(mo / 3));
-  }, [currentDat]);
 
   // Manual Overrides / Inputs
   // 1. VAT General Form overrides (2550Q)

@@ -20,7 +20,6 @@ interface SidebarProps {
 export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   const {
     navigateToPage,
-    setCurrentDat,
     setHistoryTab,
     setBirFormTab,
     syncData,
@@ -245,7 +244,6 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   </button>
                   <button
                     onClick={() => {
-                        setCurrentDat(null);
                         navigateToPage('purchases');
                         setIsOpen(false);
                     }}

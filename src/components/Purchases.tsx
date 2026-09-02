@@ -124,7 +124,7 @@ export function Purchases() {
   const navigate = useNavigate();
   const isOtherPayments = location.pathname === '/purchases/other-payments';
   const isAP = location.pathname === '/purchases/ap';
-  const { currentClient, currentClientId, currentDat, saveClient, showToast, setCurrentDat } = useAccounting();
+  const { currentClient, currentClientId, saveClient, showToast } = useAccounting();
   const PAGE_SIZE = 50;
   const [transactionPage, setTransactionPage] = useState(0);
   const [transactionTotal, setTransactionTotal] = useState(0);
@@ -169,16 +169,16 @@ export function Purchases() {
   const coaAccounts = useMemo(() => {
     let accs = (currentClient?.accounts || []).filter(a => !a.hidden);
     if (accs.length === 0) accs = DEFAULT_ACCOUNTS;
-    if (currentDat) {
-      return accs.filter(a => expenseType === 'Capital Goods' ? (a.type.toLowerCase() === 'asset' || a.type.toLowerCase() === 'assets') : (a.type.toLowerCase() === 'expense' || a.type.toLowerCase() === 'expenses'));
+    if (expenseType === 'Capital Goods') {
+      return accs.filter(a => a.type.toLowerCase() === 'asset' || a.type.toLowerCase() === 'assets');
     } else {
-      // Payment for: always limited to Assets, Costs, and Expenses accounts
+      // Payment for / non-capital purchases: limited to expense accounts
       return accs.filter(a => {
         const at = a.type.toLowerCase();
         return at === 'asset' || at === 'assets' || at === 'costs' || at === 'cost' || at === 'expense' || at === 'expenses';
       });
     }
-  }, [currentClient?.accounts, currentDat, expenseType]);
+  }, [currentClient?.accounts, expenseType]);
 
   // Clear the "Payment for" / "Account Title" selection whenever it no
   // longer matches an account in the current category (e.g. switching
@@ -188,7 +188,7 @@ export function Purchases() {
   useEffect(() => {
     setAccountTitle(prev => (coaAccounts.find(a => a.name === prev) ? prev : ''));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expenseType, currentDat, coaAccounts]);
+  }, [expenseType, coaAccounts]);
 
   // Let users customize the "Payment for" account list right from this tab —
   // adding a new Chart of Accounts entry or removing the currently selected
@@ -244,7 +244,6 @@ export function Purchases() {
     showToast(`Account "${name}" added.`);
   };
 
-  const [dateWarning, setDateWarning] = useState<string | null>(null);
   const [sequenceNumber, setSequenceNumber] = useState(1);
 
   const [viewIndex, setViewIndex] = useState<number | null>(null);
@@ -256,7 +255,7 @@ export function Purchases() {
       const count = isAP ? apTotal : transactionTotal;
       setSequenceNumber(count + 1);
     }
-  }, [currentClient?.purchases.length, currentDat?.formatted, viewIndex, transactionTotal, isAP, apTotal]);
+  }, [currentClient?.purchases.length, viewIndex, transactionTotal, isAP, apTotal]);
 
   const [autoLoadMsg, setAutoLoadMsg] = useState('');
 
@@ -302,11 +301,9 @@ export function Purchases() {
     return () => { cancelled = true; };
   }, [currentClientId, isAP, apPage, apRefresh]);
 
-  // Purchases are loaded directly from Supabase in pages of 50 rows. This
-  // prevents a client with thousands of transactions from transferring an
-  // entire DAT period merely to display the entry screen.
+  // Purchases are loaded directly from Supabase in pages of 50 rows.
   useEffect(() => {
-    if (isAP || !currentClientId || !currentDat?.formatted) {
+    if (isAP || !currentClientId) {
       if (!isAP) setTransactionRows([]);
       setTransactionTotal(0);
       return;
@@ -321,7 +318,6 @@ export function Purchases() {
         .from('purchases')
         .select('id,dat_month_year,date,payment_method,check_number,bank_name,invoice_no,supplier_name,supplier_address,supplier_tin,amount,vat_type,exempt_amount,zero_rated_amount,expense_type,account_title,transaction_details,input_tax,attachment_name,attachment_type,attachment_original_type,attachment_size,attachment_original_size,attachment_compression,attachment_storage_path,withholding_option,atc_code,wht_rate,wht_amount', { count: 'planned' })
         .eq('client_id', currentClientId)
-        .eq('dat_month_year', currentDat.formatted)
         .order('date', { ascending: false })
         .order('created_at', { ascending: false })
         .range(from, to);
@@ -346,9 +342,9 @@ export function Purchases() {
     };
     loadPage();
     return () => { cancelled = true; };
-  }, [currentClientId, currentDat?.formatted, transactionPage, isAP, transactionRefresh]);
+  }, [currentClientId, transactionPage, isAP, transactionRefresh]);
 
-  useEffect(() => { setTransactionPage(0); setApPage(0); setViewIndex(null); }, [currentClientId, currentDat?.formatted, isAP]);
+  useEffect(() => { setTransactionPage(0); setApPage(0); setViewIndex(null); }, [currentClientId, isAP]);
 
   const periodPurchases = isAP ? [] : transactionRows;
 
@@ -512,28 +508,6 @@ export function Purchases() {
     }
   }, [supplierTin, currentClient]);
 
-  // Date validation against DAT
-  useEffect(() => {
-    if (!currentDat || !date) {
-      setDateWarning(null);
-      return;
-    }
-    const selectedDate = new Date(date);
-    const y = selectedDate.getFullYear();
-    const m = selectedDate.getMonth() + 1;
-
-    if (y > currentDat.year) {
-      setDateWarning(`⚠️ Transaction year (${y}) cannot be later than DAT year (${currentDat.year})`);
-    } else if (y < currentDat.year) {
-      setDateWarning(`⚠️ Transaction year (${y}) is earlier than DAT year (${currentDat.year}). Please select a date within ${currentDat.formatted}.`);
-    } else if (m > currentDat.month) {
-      setDateWarning(`⚠️ Transaction month cannot be later than DAT month`);
-    } else if (m < currentDat.month) {
-      setDateWarning(`⚠️ Transaction month is earlier than DAT month. Please select a date within ${currentDat.formatted}.`);
-    } else {
-      setDateWarning(null);
-    }
-  }, [date, currentDat]);
 
   const handleAddPurchase = async () => {
     if (!currentClient || !currentClientId) return;
@@ -563,10 +537,6 @@ export function Purchases() {
       return;
     }
 
-    if (dateWarning) {
-      alert('Please fix date warning before saving.');
-      return;
-    }
 
     const [y, m, d] = date.split('-');
     const formattedDate = `${m}/${d}/${y}`;
@@ -592,7 +562,7 @@ export function Purchases() {
     const purchaseData = {
       id: viewIndex !== null ? periodPurchases[viewIndex].id : Date.now(),
       sequenceNumber: viewIndex !== null ? (periodPurchases[viewIndex].sequenceNumber || sequenceNumber) : sequenceNumber,
-      datMonthYear: currentDat ? currentDat.formatted : `${MONTHS[parseInt(m) - 1]} ${y}`,
+      datMonthYear: `${MONTHS[parseInt(m) - 1]} ${y}`,
       date: formattedDate,
       paymentMethod,
       bankName: paymentMethod === 'Check' ? bankName : null,
@@ -697,7 +667,7 @@ export function Purchases() {
 
   return (
     <div className="w-full flex flex-col purchase-page-shell">
-      <PageHeader title={isAP ? "Accounts Payable Data Entry Screen" : (currentDat ? "Expense Data Entry Screen (DAT)" : "Expense Data Entry Screen")} icon={<ShoppingCart className="w-5 h-5 text-amber-500" />} />
+      <PageHeader title={isAP ? "Accounts Payable Data Entry Screen" : "Expense Data Entry Screen"} icon={<ShoppingCart className="w-5 h-5 text-amber-500" />} />
       <div className="p-4 md:p-6 flex-1">
 
       <div className="mb-6 flex flex-wrap gap-2 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 shadow-sm">
@@ -719,11 +689,8 @@ export function Purchases() {
                 type="date" 
                 value={date} 
                 onChange={e => setDate(e.target.value)} 
-                min={currentDat ? `${currentDat.year}-${String(currentDat.month).padStart(2, '0')}-01` : undefined}
-                max={currentDat ? `${currentDat.year}-${String(currentDat.month).padStart(2, '0')}-${String(new Date(currentDat.year, currentDat.month, 0).getDate()).padStart(2, '0')}` : undefined}
                 className="form-input" 
               />
-              {dateWarning && <p className="text-xs text-amber-600 bg-amber-100 p-2 mt-1 rounded-lg">{dateWarning}</p>}
             </div>
             
             {!isAP && (
@@ -880,7 +847,7 @@ export function Purchases() {
           </div>
         )}
 
-        {currentDat && (
+        {(
           <div className="lg:col-span-1">
             <label className="form-label">Expense Class</label>
             <select value={expenseType} onChange={e => setExpenseType(e.target.value)} className="form-input">
@@ -893,8 +860,8 @@ export function Purchases() {
 
         <div className="lg:col-span-2 md:col-span-2">
           <div className="flex items-center justify-between">
-            <label className="form-label">{currentDat ? "Account Title" : "Payment for"}</label>
-            {!currentDat && (
+            <label className="form-label">Account Title</label>
+            {(
               <div className="flex items-center gap-1 mb-1.5">
                 <button type="button" onClick={() => setShowAddPaymentAccount(v => !v)} className="p-1 rounded hover:bg-emerald-100 dark:hover:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 transition-colors" title="Add a new account">
                   <Plus className="w-3.5 h-3.5" />
@@ -992,7 +959,7 @@ export function Purchases() {
       <div className="mt-6 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
           <div>
-            <h3 className="font-bold text-slate-800 dark:text-slate-100">{isAP ? 'Accounts Payable Invoices' : `Transactions for ${currentDat?.formatted || 'selected period'}`}</h3>
+            <h3 className="font-bold text-slate-800 dark:text-slate-100">{isAP ? 'Accounts Payable Invoices' : 'Transactions'}</h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">{isAP ? `Server-side pagination · 50 records per request · ${apTotal.toLocaleString()} total` : `Server-side pagination · 50 records per request · ${transactionTotal.toLocaleString()} total`}</p>
           </div>
           <div className="flex items-center gap-2">
@@ -1003,7 +970,7 @@ export function Purchases() {
         </div>
         {isAP ? (apLoading ? <div className="py-6 text-center text-sm text-slate-500">Loading accounts payable…</div> : apError ? <div className="py-6 text-center text-sm text-red-500">{apError}</div> : apInvoices.length === 0 ? <div className="py-6 text-center text-sm text-slate-500">No accounts payable invoices recorded.</div> : (
           <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b border-slate-200 dark:border-slate-700 text-left text-xs uppercase text-slate-500"><th className="py-2 pr-3">Date</th><th className="py-2 pr-3">Invoice #</th><th className="py-2 pr-3">Supplier</th><th className="py-2 pr-3">Status</th><th className="py-2 pr-3 text-right">Amount</th><th className="py-2"></th></tr></thead><tbody>{apInvoices.map((inv:any, i:number) => <tr key={String(inv.id)} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50"><td className="py-2 pr-3 whitespace-nowrap">{inv.date || '—'}</td><td className="py-2 pr-3">{inv.invoiceNumber || '—'}</td><td className="py-2 pr-3">{inv.supplierName || '—'}</td><td className="py-2 pr-3">{inv.status || 'Unmatched'}</td><td className="py-2 pr-3 text-right font-semibold">₱{Number(inv.totalAmount || 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td><td className="py-2 text-right"><button type="button" onClick={() => loadAPInvoice(i)} className="text-amber-600 font-bold hover:underline">Open</button></td></tr>)}</tbody></table></div>
-        )) : (transactionLoading ? <div className="py-6 text-center text-sm text-slate-500">Loading transactions…</div> : transactionError ? <div className="py-6 text-center text-sm text-red-500">{transactionError}</div> : transactionRows.length === 0 ? <div className="py-6 text-center text-sm text-slate-500">No transactions found for this DAT period.</div> : (
+        )) : (transactionLoading ? <div className="py-6 text-center text-sm text-slate-500">Loading transactions…</div> : transactionError ? <div className="py-6 text-center text-sm text-red-500">{transactionError}</div> : transactionRows.length === 0 ? <div className="py-6 text-center text-sm text-slate-500">No transactions found.</div> : (
           <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b border-slate-200 dark:border-slate-700 text-left text-xs uppercase text-slate-500"><th className="py-2 pr-3">Date</th><th className="py-2 pr-3">Invoice #</th><th className="py-2 pr-3">Supplier</th><th className="py-2 pr-3 text-right">Amount</th><th className="py-2"></th></tr></thead><tbody>{transactionRows.map((p:any, i:number) => <tr key={String(p.id)} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50"><td className="py-2 pr-3 whitespace-nowrap">{p.date}</td><td className="py-2 pr-3">{p.invoiceNo || '—'}</td><td className="py-2 pr-3">{p.supplierName}</td><td className="py-2 pr-3 text-right font-semibold">₱{Number(p.amount || 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td><td className="py-2 text-right"><button type="button" onClick={() => loadPurchase(i, transactionRows)} className="text-amber-600 font-bold hover:underline">Open</button></td></tr>)}</tbody></table></div>
         ))}
       </div>

@@ -10,14 +10,9 @@ import { generateStandardDeadlines } from './BIRForms';
 import { supabase } from '../lib/supabase';
 
 export function ComplianceTracker() {
-  const { currentClient, currentClientId, setCurrentClientId, clients, businessProfile, activePage, navigateToPage, setBirFormTab, saveClient, currentDat, ownerClientId } = useAccounting();
+  const { currentClient, currentClientId, setCurrentClientId, clients, businessProfile, activePage, navigateToPage, setBirFormTab, saveClient, ownerClientId } = useAccounting();
 
-  // Dynamically determine today's simulated date
   const getSimulatedToday = () => {
-    if (currentDat) {
-      const mm = String(currentDat.month).padStart(2, '0');
-      return `${currentDat.year}-${mm}-16`;
-    }
     const today = new Date();
     const yyyy = today.getFullYear();
     const mm = String(today.getMonth() + 1).padStart(2, '0');
@@ -25,7 +20,7 @@ export function ComplianceTracker() {
     return `${yyyy}-${mm}-${dd}`;
   };
 
-  const [selectedYear, setSelectedYear] = useState<number>(currentDat ? currentDat.year : new Date().getFullYear());
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
 
   // Keep compliance tax-estimate inputs period-scoped instead of hydrating the
   // entire sales/purchases history into AccountingContext. One year of only the

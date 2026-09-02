@@ -10,13 +10,13 @@ import * as XLSX from 'xlsx';
 type HistoryTab = 'expenses' | 'income' | 'slp' | 'sls';
 
 export function History() {
-  const { currentClient, currentClientId, currentDat, saveClient, showToast, navigateToPage, setCurrentDat, historyTab, setHistoryTab, activeDevice } = useAccounting();
+  const { currentClient, currentClientId, saveClient, showToast, navigateToPage, historyTab, setHistoryTab, activeDevice } = useAccounting();
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
   const [localHistoryPurchases, setLocalHistoryPurchases] = useState<any[]>([]);
   const [localHistorySales, setLocalHistorySales] = useState<any[]>([]);
-  const [selectedMonth, setSelectedMonth] = useState<number>(currentDat?.month || new Date().getMonth() + 1);
-  const [selectedYear, setSelectedYear] = useState<number>(currentDat?.year || new Date().getFullYear());
+  const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1);
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const expenseColumnDefinitions = useMemo(() => [
     { key: 'date', label: 'Transaction Date' },
     { key: 'paymentMethod', label: 'Payment Method' },
@@ -262,26 +262,13 @@ export function History() {
     });
   }, [currentClient, currentClientId, saveClient]);
 
-  useEffect(() => {
-    if (currentDat) {
-      setSelectedMonth(currentDat.month);
-      setSelectedYear(currentDat.year);
-    }
-  }, [currentDat]);
-
   const handleLoadPeriod = () => {
-    const formatted = `${MONTHS[selectedMonth - 1]} ${selectedYear}`;
-    setCurrentDat({
-      month: selectedMonth,
-      year: selectedYear,
-      formatted
-    });
-    showToast(`Loaded data for ${formatted}`);
+    showToast(`Filtered data for ${MONTHS[selectedMonth - 1]} ${selectedYear}`);
   };
 
   const activeTab = historyTab as HistoryTab;
   const setActiveTab = (tab: HistoryTab) => setHistoryTab(tab);
-  const targetFormatted = currentDat ? currentDat.formatted : `${MONTHS[selectedMonth - 1]} ${selectedYear}`;
+  const targetFormatted = `${MONTHS[selectedMonth - 1]} ${selectedYear}`;
 
   // History is intentionally period-scoped. Do not depend on AccountingContext
   // containing the client's full transaction history. Query only the selected
@@ -429,28 +416,9 @@ export function History() {
     return { outputTax, netOfVat };
   };
 
-  // Derive unique DAT periods from transactions
-  const allPeriods = Array.from(new Set([
-    ...(currentClient.sales || []).map(s => s.datMonthYear),
-    ...(currentClient.purchases || []).map(p => p.datMonthYear)
-  ])).filter(Boolean);
-
-  const handleSwitchPeriod = (period: string) => {
-    const [monthName, yearStr] = period.split(' ');
-    const year = parseInt(yearStr);
-    const monthIndex = MONTHS.indexOf(monthName);
-    if (monthIndex !== -1) {
-      setCurrentDat({
-        month: monthIndex + 1,
-        year,
-        formatted: period
-      });
-      showToast(`Switched to ${period}`);
-    }
-  };
 
   const handleExportSLP = () => {
-    if (!purchases.length || !currentDat || !currentClient) return;
+    if (!purchases.length || !currentClient) return;
 
     const workbook = XLSX.utils.book_new();
     
@@ -535,11 +503,11 @@ export function History() {
     ];
 
     XLSX.utils.book_append_sheet(workbook, worksheet, 'SLP');
-    XLSX.writeFile(workbook, `SLP_${currentDat.formatted.replace(' ', '_')}.xlsx`);
+    XLSX.writeFile(workbook, `SLP_${targetFormatted.replace(' ', '_')}.xlsx`);
   };
 
   const handleExportSLS = () => {
-    if (!sales.length || !currentDat || !currentClient) return;
+    if (!sales.length || !currentClient) return;
 
     const workbook = XLSX.utils.book_new();
     
@@ -621,7 +589,7 @@ export function History() {
     ];
 
     XLSX.utils.book_append_sheet(workbook, worksheet, 'SLS');
-    XLSX.writeFile(workbook, `SLS_${currentDat.formatted.replace(' ', '_')}.xlsx`);
+    XLSX.writeFile(workbook, `SLS_${targetFormatted.replace(' ', '_')}.xlsx`);
   };
 
   return (
@@ -652,7 +620,7 @@ export function History() {
               <div className="p-4 border-b border-slate-100 dark:border-slate-800 flex flex-col xl:flex-row justify-between items-stretch xl:items-center gap-4 bg-slate-50/50 dark:bg-slate-800/30">
                 <div className="flex flex-col sm:flex-row sm:items-center gap-3">
                   <h3 className="font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2 whitespace-nowrap">
-                    {activeTab === 'expenses' ? 'Expense Records' : activeTab === 'income' ? 'Income Records' : 'DAT File Summary'}
+                    {activeTab === 'expenses' ? 'Expense Records' : activeTab === 'income' ? 'Income Records' : 'Summary'}
                     <span className="text-[10px] font-bold text-slate-500 bg-slate-200 dark:bg-slate-700 px-2 py-0.5 rounded-full">
                       {targetFormatted}
                     </span>
@@ -887,7 +855,7 @@ export function History() {
                     <div className="text-center py-12 text-slate-500 dark:text-slate-400">
                       <HistoryIcon className="w-8 h-8 mx-auto mb-3 opacity-20" />
                       <p className="font-medium">No {activeTab} found for this period.</p>
-                      <p className="text-xs">Adjust your search or change the DAT File Selection.</p>
+                      <p className="text-xs">Adjust your search or change the month/year filter.</p>
                     </div>
                   )}
                 </div>
@@ -963,7 +931,7 @@ export function History() {
                         ))
                       )}
                       {((activeTab === 'expenses' && filteredPurchases.length === 0) || (activeTab === 'income' && filteredSales.length === 0)) && (
-                        <tr><td colSpan={(activeTab === 'expenses' ? visibleExpenseColumns.length + 1 : 9)} className="px-4 py-12 text-center text-slate-500 dark:text-slate-400"><HistoryIcon className="w-8 h-8 mx-auto mb-3 opacity-20" /><p className="font-medium">No {activeTab} found for this period.</p><p className="text-xs">Adjust your search or change the DAT File Selection.</p></td></tr>
+                        <tr><td colSpan={(activeTab === 'expenses' ? visibleExpenseColumns.length + 1 : 9)} className="px-4 py-12 text-center text-slate-500 dark:text-slate-400"><HistoryIcon className="w-8 h-8 mx-auto mb-3 opacity-20" /><p className="font-medium">No {activeTab} found for this period.</p><p className="text-xs">Adjust your search or change the month/year filter.</p></td></tr>
                       )}
                     </tbody>
                   </table>
@@ -1017,22 +985,10 @@ export function History() {
                 </div>
               </div>
 
-              {!currentDat ? (
-                <div className="p-12 text-center text-slate-500 dark:text-slate-400">
-                  <FolderClock className="w-12 h-12 mx-auto mb-4 opacity-10" />
-                  <p className="font-bold">No Period Selected</p>
-                  <p className="text-sm mb-6">Please select a period to view the summary list.</p>
-                  <button 
-                    onClick={() => navigateToPage('purchases')}
-                    className="px-6 py-2 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/20"
-                  >
-                    Select Period Now
-                  </button>
-                </div>
-              ) : purchases.length === 0 ? (
+              {purchases.length === 0 ? (
                 <div className="p-12 text-center text-slate-500 dark:text-slate-400">
                   <HistoryIcon className="w-12 h-12 mx-auto mb-4 opacity-10" />
-                  <p className="font-bold">No Records in {currentDat.formatted}</p>
+                  <p className="font-bold">No Records in {targetFormatted}</p>
                   <p className="text-sm">Add some expense entries to see the summary here.</p>
                 </div>
               ) : (
@@ -1065,7 +1021,7 @@ export function History() {
                         const isCapital = p.expenseType === 'Capital Goods';
                         const isOthers = p.expenseType === 'Others';
 
-                        const monthNum = currentDat?.month?.toString().padStart(2, '0') || '—';
+                        const monthNum = String(selectedMonth).padStart(2, '0');
                         const grossTotal = p.amount + (p.inputTax || 0);
 
                         return (
@@ -1189,22 +1145,10 @@ export function History() {
                 </div>
               </div>
 
-              {!currentDat ? (
-                <div className="p-12 text-center text-slate-500 dark:text-slate-400">
-                  <FolderClock className="w-12 h-12 mx-auto mb-4 opacity-10" />
-                  <p className="font-bold">No Period Selected</p>
-                  <p className="text-sm mb-6">Please select a period to view the summary list.</p>
-                  <button 
-                    onClick={() => navigateToPage('sales')}
-                    className="px-6 py-2 bg-indigo-600 text-white rounded-xl font-bold shadow-lg shadow-indigo-500/20"
-                  >
-                    Select Period Now
-                  </button>
-                </div>
-              ) : sales.length === 0 ? (
+              {sales.length === 0 ? (
                 <div className="p-12 text-center text-slate-500 dark:text-slate-400">
                   <HistoryIcon className="w-12 h-12 mx-auto mb-4 opacity-10" />
-                  <p className="font-bold">No Records in {currentDat.formatted}</p>
+                  <p className="font-bold">No Records in {targetFormatted}</p>
                   <p className="text-sm">Add some income entries to see the summary here.</p>
                 </div>
               ) : (
@@ -1232,7 +1176,7 @@ export function History() {
                         const isExempt = s.vatType === 'VAT Exempt';
                         const isZeroRated = s.vatType === 'Zero-Rated';
                         const taxableAmount = (isExempt || isZeroRated) ? 0 : netOfVat;
-                        const monthNum = currentDat?.month?.toString().padStart(2, '0') || '—';
+                        const monthNum = String(selectedMonth).padStart(2, '0');
 
                         return (
                           <tr key={s.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/40 transition-colors">
