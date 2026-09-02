@@ -173,7 +173,9 @@ type ClientSection =
 type LoadedClientData = { data: Partial<Client>; sections: ClientSection[] };
 
 const PAGE_SECTIONS: Record<string, ClientSection[]> = {
-  '': ['sales', 'purchases'],
+  // Dashboard loads its recent transactions directly with a small, explicit query.
+  // Do not hydrate lifetime Sales/Purchases on the default landing page.
+  '': ['coa'],
   sales: ['sales', 'crj', 'coa', 'tinLibrary'],
   billing: ['billing', 'sales', 'crj', 'coa'],
   'journal-voucher': ['journalVoucher', 'coa'],
