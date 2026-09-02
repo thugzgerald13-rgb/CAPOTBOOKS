@@ -538,7 +538,7 @@ export function Purchases() {
       <div className="p-4 md:p-6 flex-1">
 
       <div className="mb-6 flex flex-wrap gap-2 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 shadow-sm">
-        <button type="button" onClick={() => navigate('/purchases/invoiced')} className={`flex-1 min-w-[140px] px-4 py-3 rounded-xl text-sm font-bold transition-all ${!isOtherPayments ? 'bg-amber-500 text-slate-900 shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Invoiced</button>
+        <button type="button" onClick={() => navigate('/purchases/invoiced')} className={`flex-1 min-w-[140px] px-4 py-3 rounded-xl text-sm font-bold transition-all ${!isOtherPayments && !isAP ? 'bg-amber-500 text-slate-900 shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Invoiced</button>
         <button type="button" onClick={() => navigate('/purchases/other-payments')} className={`flex-1 min-w-[140px] px-4 py-3 rounded-xl text-sm font-bold transition-all ${isOtherPayments ? 'bg-amber-500 text-slate-900 shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Other Payments</button>
         <button type="button" onClick={() => navigate('/purchases/ap')} className={`flex-1 min-w-[140px] px-4 py-3 rounded-xl text-sm font-bold transition-all ${isAP ? 'bg-amber-500 text-slate-900 shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Accounts Payable (AP)</button>
       </div>
