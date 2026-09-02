@@ -51,9 +51,6 @@ interface AccountingContextType {
   setCurrentDat: (dat: DatSelection | null) => void;
 
   saveClient: (id: string, clientData: Client) => Promise<void>;
-  saveSale: (clientId: string, sale: any) => Promise<void>;
-  savePurchase: (clientId: string, purchase: any) => Promise<void>;
-  deletePurchase: (clientId: string, purchaseId: string | number) => Promise<void>;
   addClient: (name: string) => Promise<void>;
   deleteClient: (id: string) => Promise<void>;
   saveBusinessProfile: (profile: BusinessProfile) => Promise<void>;
@@ -179,11 +176,11 @@ const PAGE_SECTIONS: Record<string, ClientSection[]> = {
   // Dashboard loads its recent transactions directly with a small, explicit query.
   // Do not hydrate lifetime Sales/Purchases on the default landing page.
   '': ['coa'],
-  sales: ['crj', 'coa', 'tinLibrary'],
+  sales: ['sales', 'crj', 'coa', 'tinLibrary'],
   billing: ['billing', 'sales', 'crj', 'coa'],
   'journal-voucher': ['journalVoucher', 'coa'],
-  'purchases/invoiced': ['coa', 'tinLibrary'],
-  'purchases/other-payments': ['coa', 'tinLibrary'],
+  'purchases/invoiced': ['purchases', 'coa', 'tinLibrary'],
+  'purchases/other-payments': ['purchases', 'coa', 'tinLibrary'],
   'purchases/ap': ['coa', 'tinLibrary'],
   tinlibrary: ['tinLibrary'],
   // History queries purchases/sales directly by selected period; don't duplicate those rows in context.
@@ -252,7 +249,7 @@ const loadNormalizedClient = async (clientId: string, sections: ClientSection[] 
     assetLapsingSchedule, billingInvoices, snapshots] = await Promise.all([
       query(requestedSections.has('purchases'), (() => { let q:any = supabase.from('purchases').select('id,dat_month_year,date,payment_method,check_number,bank_name,invoice_no,supplier_name,supplier_address,supplier_tin,amount,vat_type,exempt_amount,zero_rated_amount,expense_type,account_title,transaction_details,input_tax,attachment_name,attachment_type,attachment_original_type,attachment_size,attachment_original_size,attachment_compression,attachment_storage_path,withholding_option,atc_code,wht_rate,wht_amount').eq('client_id', clientId); if (periodFilter) q = q.eq('dat_month_year', periodFilter); return q; })()),
       query(requestedSections.has('sales'), (() => { let q:any = supabase.from('sales').select('id,dat_month_year,date,ref,payment_type,buyer_tin,buyer_name,buyer_address,vat_type,amount,net_of_vat,output_tax,income_type,description').eq('client_id', clientId); if (periodFilter) q = q.eq('dat_month_year', periodFilter); return q; })()),
-      query(requestedSections.has('expenses'), supabase.from('expenses').select('id,date,amount,category,description').eq('client_id', clientId)),
+      query(requestedSections.has('expenses'), supabase.from('expenses').select('id,date,amount,category,description').eq('client_id', clientId).order('date', { ascending: false }).limit(1000)),
       query(requestedSections.has('coa'), supabase.from('coa_columns').select('id,name,is_system').eq('client_id', clientId)),
       query(requestedSections.has('coa'), supabase.from('coa_accounts').select('id,name,type,normal_side,parent_id,hidden,opening_balance,custom_values').eq('client_id', clientId)),
       query(requestedJournalTypes.length > 0, supabase.from('journal_columns').select('id,journal_type,name,type,category,is_system').eq('client_id', clientId).in('journal_type', requestedJournalTypes)),
@@ -279,9 +276,9 @@ const loadNormalizedClient = async (clientId: string, sections: ClientSection[] 
       // Do not hydrate every voucher line globally; lines can be loaded on demand
       // when a detailed voucher view requires them.
       Promise.resolve({ data: [], error: null } as any),
-      query(requestedSections.has('apMatching'), supabase.from('purchase_orders').select('id,date,supplier_id,supplier_name,total_amount,status').eq('client_id', clientId)),
+      query(requestedSections.has('apMatching'), supabase.from('purchase_orders').select('id,date,supplier_id,supplier_name,total_amount,status').eq('client_id', clientId).order('date', { ascending: false }).limit(1000)),
       query(requestedSections.has('apMatching'), supabase.from('purchase_order_items').select('id,purchase_order_id,item_code,description,qty,unit_price').eq('client_id', clientId)),
-      query(requestedSections.has('apMatching'), supabase.from('receiving_reports').select('id,date,po_id,supplier_name,total_amount,received_by').eq('client_id', clientId)),
+      query(requestedSections.has('apMatching'), supabase.from('receiving_reports').select('id,date,po_id,supplier_name,total_amount,received_by').eq('client_id', clientId).order('date', { ascending: false }).limit(1000)),
       query(requestedSections.has('apMatching'), supabase.from('receiving_report_items').select('id,receiving_report_id,item_code,description,qty_ordered,qty_received,unit_price').eq('client_id', clientId)),
       query((requestedSections.has('apDashboard') || requestedSections.has('apMatching') || requestedSections.has('apDisbursements') || requestedSections.has('apWithholding') || requestedSections.has('apMemos')), supabase.from('payable_invoices').select('id,invoice_number,date,due_date,po_id,rr_id,supplier_id,supplier_name,subtotal,vat_amount,is_vatable,withholding_tax_id,wht_amount,total_amount,status,discrepancy_details,applied_prepayments').eq('client_id', clientId)),
       query((requestedSections.has('apMatching') || requestedSections.has('apMemos')), supabase.from('payable_invoice_items').select('id,payable_invoice_id,item_code,description,qty,unit_price,amount').eq('client_id', clientId)),
@@ -926,30 +923,52 @@ export function AccountingProvider({
         setSyncError(null);
 
         // Subscribe to realtime changes so multiple devices stay in sync (replaces onSnapshot)
-        // Avoid UPDATE subscriptions on the parent `clients` table. Every
-        // normalized save updates that row, and an UPDATE realtime payload can
-        // include the legacy `data` JSONB even though normal reads deliberately
-        // exclude it. That turns a small row-level change into unnecessary
-        // realtime egress. INSERT/DELETE are rare and still keep the client list
-        // synchronized across devices; metadata edits are refreshed explicitly
-        // when the client list is next loaded.
         clientsChannel = supabase
           .channel(`clients-${user.id}`)
           .on(
             'postgres_changes',
-            { event: 'INSERT', schema: 'public', table: 'clients', filter: `user_id=eq.${user.id}` },
+            { event: '*', schema: 'public', table: 'clients', filter: `user_id=eq.${user.id}` },
             (payload) => {
-              const row = payload.new as any;
-              setClients(prev => ({ ...prev, [row.id]: rowToClientMetadata(row) }));
-            }
-          )
-          .on(
-            'postgres_changes',
-            { event: 'DELETE', schema: 'public', table: 'clients', filter: `user_id=eq.${user.id}` },
-            (payload) => {
-              const id = (payload.old as any).id;
-              if (!id) return;
-              setClients(prev => { const next={...prev}; delete next[id]; return next; });
+              if (payload.eventType === 'DELETE') {
+                setClients((prev) => { const next={...prev}; delete next[(payload.old as any).id]; return next; });
+              } else {
+                const row = payload.new as any;
+                // Parent `clients` rows are also updated after normalized saves.
+                // Do not re-download the active client's accounting sections for
+                // every parent heartbeat/save; that turns one write into a large
+                // read/egress burst. Only rehydrate when actual client metadata
+                // changed (for example a client name, TIN, or address changed).
+                const nextMetadata = rowToClientMetadata(row);
+                let metadataChanged = false;
+                setClients(prev => {
+                  const existing = prev[row.id];
+                  metadataChanged = !existing || clientMetadataColumns.split(',').some(column => {
+                    const keyMap: Record<string, string> = {
+                      user_id:'userId', taxpayer_classification:'taxpayerClassification', registered_name:'registeredName',
+                      last_name:'lastName', first_name:'firstName', middle_name:'middleName', trade_name:'tradeName',
+                      zip_code:'zipCode', rdo_code:'rdoCode', has_multiple_business_lines:'hasMultipleBusinessLines',
+                      accounting_type:'accountingType', fiscal_month_end:'fiscalMonthEnd', coa_format:'coaFormat'
+                    };
+                    if (column === 'id' || column === 'name') return String((existing as any)?.[column] || '') !== String((nextMetadata as any)?.[column] || '');
+                    const localKey = keyMap[column] || column;
+                    const incoming = (nextMetadata as any)?.[localKey];
+                    const current = (existing as any)?.[localKey];
+                    return String(current ?? '') !== String(incoming ?? '');
+                  });
+                  return { ...prev, [row.id]: { ...(existing || {} as Client), ...nextMetadata } as Client };
+                });
+                if (metadataChanged && row.id === currentClientIdRef.current) {
+                  const sections = getSectionsForPage(activePageRef.current);
+                  loadNormalizedClient(row.id, sections)
+                    .then(normalized => {
+                      const loaded = loadedSectionsRef.current.get(row.id) || new Set<ClientSection>();
+                      sections.forEach(section => loaded.add(section));
+                      loadedSectionsRef.current.set(row.id, loaded);
+                      setClients(prev => ({ ...prev, [row.id]: { ...(prev[row.id] || {} as Client), ...(normalized.data as any) } as Client }));
+                    })
+                    .catch(e=>console.warn('Realtime normalized reload failed',e));
+                }
+              }
             }
           )
           .subscribe();
@@ -1109,49 +1128,6 @@ export function AccountingProvider({
   // saves in quick succession; overlapping normalized saves can otherwise race
   // their stale-row cleanup and make recently-added journal columns disappear.
   const saveQueuesRef = React.useRef<Record<string, Promise<void>>>({});
-
-  const saveSale = async (clientId: string, sale: any) => {
-    if (!user) return;
-    const row = {
-      id: String(sale.id), client_id: clientId, dat_month_year: sale.datMonthYear || null,
-      date: sale.date, ref: sale.ref || null, payment_type: sale.paymentType || null,
-      buyer_tin: sale.buyerTin || null, buyer_name: sale.buyerName || null,
-      buyer_address: sale.buyerAddress || null, vat_type: sale.vatType || null,
-      amount: Number(sale.amount || 0), net_of_vat: Number(sale.netOfVat || 0),
-      output_tax: Number(sale.outputTax || 0), income_type: sale.incomeType || null,
-      description: sale.desc || null
-    };
-    const { error } = await supabase.from('sales').upsert(row, { onConflict: 'id' });
-    if (error) throw error;
-  };
-
-  const savePurchase = async (clientId: string, purchase: any) => {
-    if (!user) return;
-    const row = {
-      id: String(purchase.id), client_id: clientId, dat_month_year: purchase.datMonthYear || null,
-      date: purchase.date, payment_method: purchase.paymentMethod || '', check_number: purchase.checkNumber || null,
-      bank_name: purchase.bankName || null, invoice_no: purchase.invoiceNo || null,
-      supplier_name: purchase.supplierName || '', supplier_address: purchase.supplierAddress || null,
-      supplier_tin: purchase.supplierTin || null, amount: Number(purchase.amount || 0),
-      vat_type: purchase.vatType || null, exempt_amount: Number(purchase.exemptAmount || 0),
-      zero_rated_amount: Number(purchase.zeroRatedAmount || 0), expense_type: purchase.expenseType || null,
-      account_title: purchase.accountTitle || null, transaction_details: purchase.transactionDetails || null,
-      input_tax: Number(purchase.inputTax || 0), attachment_name: purchase.attachment?.name || null,
-      attachment_type: purchase.attachment?.type || null, attachment_original_type: purchase.attachment?.originalType || null,
-      attachment_size: purchase.attachment?.size || null, attachment_original_size: purchase.attachment?.originalSize || null,
-      attachment_compression: purchase.attachment?.compression || null, attachment_storage_path: purchase.attachment?.storagePath || null,
-      withholding_option: purchase.withholdingOption || null, atc_code: purchase.atcCode || null,
-      wht_rate: purchase.whtRate ?? null, wht_amount: purchase.whtAmount ?? null
-    };
-    const { error } = await supabase.from('purchases').upsert(row, { onConflict: 'id' });
-    if (error) throw error;
-  };
-
-  const deletePurchase = async (clientId: string, purchaseId: string | number) => {
-    if (!user) return;
-    const { error } = await supabase.from('purchases').delete().eq('client_id', clientId).eq('id', String(purchaseId));
-    if (error) throw error;
-  };
 
   const saveClient = async (id: string, clientData: Client) => {
     // Accounting saves can change report balances. Invalidate only this
@@ -1465,9 +1441,6 @@ export function AccountingProvider({
         setCurrentClientId,
         setCurrentDat,
         saveClient,
-        saveSale,
-        savePurchase,
-        deletePurchase,
         addClient,
         deleteClient,
         saveBusinessProfile,
