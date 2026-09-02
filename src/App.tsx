@@ -1,183 +1,31 @@
-import React, { lazy, Suspense, useState } from 'react';
-import { Sidebar } from './components/Sidebar';
-import { Header } from './components/Header';
-import { Dashboard } from './components/Dashboard';
-import { AccountingProvider, useAccounting } from './context/AccountingContext';
-import { AnimatePresence, motion } from 'motion/react';
-import { AuthProvider, useAuth } from './context/AuthContext';
-import { AuthContainer } from './components/AuthContainer';
-import { RoleSelection } from './components/RoleSelection';
-import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
+// src/App.tsx
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { AccountingProvider } from '@/context/AccountingContext';
+// ... other imports
 
-const Sales = lazy(() => import('./components/Sales').then(m => ({ default: m.Sales })));
-const Billing = lazy(() => import('./components/Billing').then(m => ({ default: m.Billing })));
-const JournalVoucher = lazy(() => import('./components/JournalVoucher').then(m => ({ default: m.JournalVoucher })));
-const Purchases = lazy(() => import('./components/Purchases').then(m => ({ default: m.Purchases })));
-const TinLibrary = lazy(() => import('./components/TinLibrary').then(m => ({ default: m.TinLibrary })));
-const History = lazy(() => import('./components/History').then(m => ({ default: m.History })));
-const ChartOfAccounts = lazy(() => import('./components/ChartOfAccounts').then(m => ({ default: m.ChartOfAccounts })));
-const CashReceiptsJournal = lazy(() => import('./components/CashReceiptsJournal').then(m => ({ default: m.CashReceiptsJournal })));
-const CashDisbursementsJournal = lazy(() => import('./components/CashDisbursementsJournal').then(m => ({ default: m.CashDisbursementsJournal })));
-const PurchasesJournal = lazy(() => import('./components/PurchasesJournal').then(m => ({ default: m.PurchasesJournal })));
-const SalesJournal = lazy(() => import('./components/SalesJournal').then(m => ({ default: m.SalesJournal })));
-const GeneralJournal = lazy(() => import('./components/GeneralJournal').then(m => ({ default: m.GeneralJournal })));
-const GeneralLedger = lazy(() => import('./components/GeneralLedger').then(m => ({ default: m.GeneralLedger })));
-const ProfitAndLoss = lazy(() => import('./components/ProfitAndLoss').then(m => ({ default: m.ProfitAndLoss })));
-const BalanceSheet = lazy(() => import('./components/BalanceSheet').then(m => ({ default: m.BalanceSheet })));
-const CashFlow = lazy(() => import('./components/CashFlow').then(m => ({ default: m.CashFlow })));
-const AssetLapsing = lazy(() => import('./components/AssetLapsing').then(m => ({ default: m.AssetLapsing })));
-const Extras = lazy(() => import('./components/Extras').then(m => ({ default: m.Extras })));
-const AdminSettings = lazy(() => import('./components/AdminSettings').then(m => ({ default: m.AdminSettings })));
-const Diagnostics = lazy(() => import('./components/Diagnostics').then(m => ({ default: m.Diagnostics })));
-const FileManager = lazy(() => import('./components/FileManager').then(m => ({ default: m.FileManager })));
-const Inventory = lazy(() => import('./components/Inventory').then(m => ({ default: m.Inventory })));
-const BIRForms = lazy(() => import('./components/BIRForms').then(m => ({ default: m.BIRForms })));
-const ComplianceTracker = lazy(() => import('./components/ComplianceTracker').then(m => ({ default: m.ComplianceTracker })));
-const AccountSettings = lazy(() => import('./components/AccountSettings').then(m => ({ default: m.AccountSettings })));
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 2 * 60 * 1000,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
-function AppLayout() {
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const { toastMsg, clients, navigateToPage, activePage } = useAccounting();
-  const { userRole } = useAuth();
-
-  const hasClients = Object.keys(clients).length > 0;
+function App() {
+  // Retrieve clientId from route params or auth context
+  const clientId = 'some-client-id'; // replace with actual logic
 
   return (
-    <div className="flex h-screen bg-slate-50 dark:bg-slate-900 justify-center overflow-hidden font-sans">
-      <Sidebar isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} />
-      
-      <main className="app-main flex-1 flex flex-col h-screen overflow-y-auto w-full relative">
-        <Header onMenuClick={() => setIsSidebarOpen(true)} />
-        <div className="app-content px-4 md:px-8 pt-[1.5px] pb-1 md:pb-2 max-w-[1400px] mx-auto w-full">
-          {!activePage && (
-            hasClients ? (
-              <Dashboard />
-            ) : (
-              <div className="flex flex-col items-center justify-center py-20 px-4 text-center bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8">
-                <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100 mb-2">Welcome to your workspace</h2>
-                <p className="text-slate-500 dark:text-slate-400 max-w-md mb-8">Let's get started by creating your first {userRole === 'owner' ? 'business' : 'client'} profile to begin tracking transactions and generating reports.</p>
-                <button 
-                   onClick={() => navigateToPage(userRole === 'owner' ? 'business' : 'clients')}
-                   className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg shadow-blue-500/30 transition-all"
-                >
-                  {userRole === 'owner' ? 'Create Business Profile' : 'Create Client Profile'}
-                </button>
-              </div>
-            )
-          )}
-        </div>
-
-        {/* Global Toast */}
-        <AnimatePresence>
-          {toastMsg && (
-            <motion.div
-              initial={{ opacity: 0, y: 50, x: '-50%' }}
-              animate={{ opacity: 1, y: 0, x: '-50%' }}
-              exit={{ opacity: 0, scale: 0.9, x: '-50%' }}
-              className="fixed bottom-6 left-1/2 bg-emerald-500 text-white px-6 py-3 rounded-full font-semibold shadow-xl shadow-emerald-500/20 z-50 flex items-center gap-2"
-            >
-              ✓ {toastMsg}
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Pages: React Router only mounts the component matching the current
-            route, so navigating away actually unmounts the previous page
-            (fresh state each visit) instead of keeping ~20 components alive
-            and toggling visibility. */}
-        <div className="app-content transaction-page-content px-4 md:px-8 pt-[1.5px] pb-4 md:pb-8 max-w-[1400px] mx-auto w-full">
-          <Suspense fallback={
-            <div className="flex min-h-[240px] items-center justify-center">
-              <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-300 border-t-cyan-600" aria-label="Loading page" />
-            </div>
-          }>
-          <Routes>
-            <Route path="/sales" element={<Sales />} />
-            <Route path="/billing" element={<Billing />} />
-            <Route path="/journal-voucher" element={<JournalVoucher />} />
-            {/* Purchases has three sub-workspaces (Invoiced, Other Payments,
-                AP), each with its own URL so they're bookmarkable and work
-                with browser back/forward, same pattern as Extras below. */}
-            <Route path="/purchases" element={<Navigate to="/purchases/invoiced" replace />} />
-            <Route path="/purchases/invoiced" element={<Purchases />} />
-            <Route path="/purchases/other-payments" element={<Purchases />} />
-            <Route path="/purchases/ap" element={<Purchases />} />
-            <Route path="/tinlibrary" element={<TinLibrary />} />
-            <Route path="/history" element={<History />} />
-            <Route path="/coa" element={<ChartOfAccounts />} />
-            <Route path="/cash-receipt" element={<CashReceiptsJournal />} />
-            <Route path="/cash-disbursement" element={<CashDisbursementsJournal />} />
-            <Route path="/purchase-journal" element={<PurchasesJournal />} />
-            <Route path="/journal" element={<GeneralJournal />} />
-            <Route path="/ledger" element={<GeneralLedger />} />
-            <Route path="/pl" element={<ProfitAndLoss />} />
-            <Route path="/developertools/systemconfig" element={<AdminSettings />} />
-            <Route path="/developertools/diagnostics" element={<AdminSettings />} />
-            <Route path="/diagnostics" element={<Diagnostics />} />
-            {/* Extras bundles several related pages in one file; each gets
-                its own route but they all mount the same component, which
-                internally shows only the section matching the current route. */}
-            <Route path="/account-settings" element={<AccountSettings />} />
-            <Route path="/clients" element={<Extras />} />
-            <Route path="/business" element={<Extras />} />
-            <Route path="/reports" element={<Extras />} />
-            <Route path="/books" element={<Extras />} />
-            <Route path="/taxnotes" element={<Extras />} />
-            <Route path="/trialbalance" element={<Extras />} />
-            <Route path="/balancesheet" element={<BalanceSheet />} />
-            <Route path="/cashflow" element={<CashFlow />} />
-            <Route path="/assetlapsing" element={<AssetLapsing />} />
-            <Route path="/sales-journal" element={<SalesJournal />} />
-            <Route path="/files" element={<FileManager />} />
-            <Route path="/inventory" element={<Inventory />} />
-            <Route path="/bir-forms" element={<BIRForms />} />
-            <Route path="/compliance-tracker" element={<ComplianceTracker />} />
-            <Route path="/ap-workspace" element={<Navigate to="/purchases/ap" replace />} />
-          </Routes>
-          </Suspense>
-        </div>
-      </main>
-    </div>
+    <QueryClientProvider client={queryClient}>
+      <AccountingProvider clientId={clientId}>
+        {/* Your router or main layout */}
+        <Router>
+          {/* routes */}
+        </Router>
+      </AccountingProvider>
+    </QueryClientProvider>
   );
 }
 
-
-function MainApp() {
-  const { user, loading, userRole, setUserRole } = useAuth();
-
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 font-sans">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-600"></div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return <AuthContainer />;
-  }
-
-  const handleRoleSelect = (selectedRole: string) => {
-    setUserRole(selectedRole);
-  };
-
-  if (!userRole && user) {
-    return <RoleSelection onSelect={handleRoleSelect} />;
-  }
-
-  return (
-    <AccountingProvider>
-      <AppLayout />
-    </AccountingProvider>
-  );
-}
-
-export default function App() {
-  return (
-    <HashRouter>
-      <AuthProvider>
-        <MainApp />
-      </AuthProvider>
-    </HashRouter>
-  );
-}
+export default App;
