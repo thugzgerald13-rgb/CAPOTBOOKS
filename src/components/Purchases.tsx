@@ -301,7 +301,8 @@ export function Purchases() {
 
   useEffect(() => { setTransactionPage(0); setViewIndex(null); }, [currentClientId, currentDat?.formatted, isAP]);
 
-  const periodPurchases = isAP ? (currentClient?.purchases || []) : transactionRows;
+  const periodPurchases = isAP ? [] : transactionRows;
+  const apInvoices = currentClient?.payableInvoices || [];
 
 
   const loadPurchase = (index: number, purchaseList = periodPurchases) => {
@@ -340,16 +341,55 @@ export function Purchases() {
     }
   };
 
+  const loadAPInvoice = (index: number, invoiceList = apInvoices) => {
+    if (index < 0 || index >= invoiceList.length) return;
+    const inv: any = invoiceList[index];
+    if (!inv) return;
+    const rawDate = String(inv.date || '');
+    const dateParts = rawDate.split('/');
+    setDate(rawDate.match(/^\d{4}-\d{2}-\d{2}$/) ? rawDate : (dateParts.length === 3 ? `${dateParts[2]}-${dateParts[0].padStart(2, '0')}-${dateParts[1].padStart(2, '0')}` : rawDate));
+    setPaymentMethod('Cash');
+    setBankName('');
+    setCheckNumber('');
+    setInvoiceNo(inv.invoiceNumber || '');
+    setSupplierTin(String(inv.supplierId || '').replace(/^SUP-/, ''));
+    setSupplierName(inv.supplierName || '');
+    setSupplierAddress(inv.supplierAddress || '');
+    const storedVatType = inv.isVatable ? 'vat' : 'non-vat';
+    setVatType(storedVatType);
+    const item = Array.isArray(inv.items) && inv.items.length ? inv.items[0] : null;
+    setAccountTitle(item?.itemCode || '');
+    setTransactionDetails(item?.description || '');
+    const apSubtotal = Number(inv.subtotal || 0);
+    const apVat = Number(inv.vatAmount || 0);
+    const apGross = apSubtotal + apVat;
+    setAmount(apGross > 0 ? apGross.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '');
+    setNetAmount(Number(inv.subtotal || 0));
+    setInputTax(Number(inv.vatAmount || 0));
+    setExemptAmount(storedVatType === 'non-vat' ? Number(inv.subtotal || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '');
+    setZeroRatedAmount('');
+    setWithholdingOption(Number(inv.whtAmount || 0) > 0 ? 'with' : 'w/o');
+    setAtcCode(inv.withholdingTaxId || '');
+    setWhtAmount(Number(inv.whtAmount || 0));
+    setExpenseType('Capital Goods');
+    setAttachment(null);
+    setSequenceNumber(index + 1);
+    setViewIndex(index);
+  };
+
   useEffect(() => {
     const editPurchaseId = (location.state as { editPurchaseId?: number } | null)?.editPurchaseId;
     if (editPurchaseId == null || !currentClient) return;
 
-    const index = periodPurchases.findIndex(p => p.id === editPurchaseId);
-    if (index >= 0) {
-      loadPurchase(index, periodPurchases);
-      navigate(location.pathname, { replace: true, state: null });
+    if (isAP) {
+      const index = apInvoices.findIndex((p: any) => String(p.id) === String(editPurchaseId));
+      if (index >= 0) loadAPInvoice(index, apInvoices);
+    } else {
+      const index = periodPurchases.findIndex(p => p.id === editPurchaseId);
+      if (index >= 0) loadPurchase(index, periodPurchases);
     }
-  }, [location.state, location.pathname, currentClient, periodPurchases, navigate]);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.state, location.pathname, currentClient, periodPurchases, apInvoices, isAP, navigate]);
 
   const handleAddNew = () => {
     setViewIndex(null);
@@ -365,7 +405,7 @@ export function Purchases() {
     setTransactionDetails('');
     setAttachment(null);
     setAccountTitle('');
-    const count = periodPurchases.length;
+    const count = isAP ? apInvoices.length : periodPurchases.length;
     setSequenceNumber(count + 1);
   };
 
@@ -925,29 +965,24 @@ export function Purchases() {
         </div>
       </div>
 
-      {!isAP && (
-        <div className="mt-6 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4 shadow-sm">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
-            <div>
-              <h3 className="font-bold text-slate-800 dark:text-slate-100">Transactions for {currentDat?.formatted || 'selected period'}</h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Server-side pagination · 50 records per request · {transactionTotal.toLocaleString()} total</p>
-            </div>
-            <div className="flex items-center gap-2">
-              <button type="button" disabled={transactionLoading || transactionPage === 0} onClick={() => { setViewIndex(null); setTransactionPage(p => Math.max(0, p - 1)); }} className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-sm font-bold disabled:opacity-40">Previous</button>
-              <span className="text-xs font-bold text-slate-500 min-w-[90px] text-center">Page {transactionPage + 1} of {Math.max(1, Math.ceil(transactionTotal / PAGE_SIZE))}</span>
-              <button type="button" disabled={transactionLoading || (transactionPage + 1) * PAGE_SIZE >= transactionTotal} onClick={() => { setViewIndex(null); setTransactionPage(p => p + 1); }} className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-sm font-bold disabled:opacity-40">Next</button>
-            </div>
+      <div className="mt-6 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-4 shadow-sm">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-3">
+          <div>
+            <h3 className="font-bold text-slate-800 dark:text-slate-100">{isAP ? 'Accounts Payable Invoices' : `Transactions for ${currentDat?.formatted || 'selected period'}`}</h3>
+            <p className="text-xs text-slate-500 dark:text-slate-400">{isAP ? `${apInvoices.length.toLocaleString()} invoice${apInvoices.length === 1 ? '' : 's'} recorded` : `Server-side pagination · 50 records per request · ${transactionTotal.toLocaleString()} total`}</p>
           </div>
-          {transactionLoading ? <div className="py-6 text-center text-sm text-slate-500">Loading transactions…</div> : transactionError ? <div className="py-6 text-center text-sm text-red-500">{transactionError}</div> : transactionRows.length === 0 ? <div className="py-6 text-center text-sm text-slate-500">No transactions found for this DAT period.</div> : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead><tr className="border-b border-slate-200 dark:border-slate-700 text-left text-xs uppercase text-slate-500"><th className="py-2 pr-3">Date</th><th className="py-2 pr-3">Invoice #</th><th className="py-2 pr-3">Supplier</th><th className="py-2 pr-3 text-right">Amount</th><th className="py-2"></th></tr></thead>
-                <tbody>{transactionRows.map((p:any, i:number) => <tr key={String(p.id)} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50"><td className="py-2 pr-3 whitespace-nowrap">{p.date}</td><td className="py-2 pr-3">{p.invoiceNo || '—'}</td><td className="py-2 pr-3">{p.supplierName}</td><td className="py-2 pr-3 text-right font-semibold">₱{Number(p.amount || 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td><td className="py-2 text-right"><button type="button" onClick={() => loadPurchase(i, transactionRows)} className="text-amber-600 font-bold hover:underline">Open</button></td></tr>)}</tbody>
-              </table>
-            </div>
-          )}
+          {!isAP && <div className="flex items-center gap-2">
+            <button type="button" disabled={transactionLoading || transactionPage === 0} onClick={() => { setViewIndex(null); setTransactionPage(p => Math.max(0, p - 1)); }} className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-sm font-bold disabled:opacity-40">Previous</button>
+            <span className="text-xs font-bold text-slate-500 min-w-[90px] text-center">Page {transactionPage + 1} of {Math.max(1, Math.ceil(transactionTotal / PAGE_SIZE))}</span>
+            <button type="button" disabled={transactionLoading || (transactionPage + 1) * PAGE_SIZE >= transactionTotal} onClick={() => { setViewIndex(null); setTransactionPage(p => p + 1); }} className="px-4 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-sm font-bold disabled:opacity-40">Next</button>
+          </div>}
         </div>
-      )}
+        {isAP ? (apInvoices.length === 0 ? <div className="py-6 text-center text-sm text-slate-500">No accounts payable invoices recorded.</div> : (
+          <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b border-slate-200 dark:border-slate-700 text-left text-xs uppercase text-slate-500"><th className="py-2 pr-3">Date</th><th className="py-2 pr-3">Invoice #</th><th className="py-2 pr-3">Supplier</th><th className="py-2 pr-3">Status</th><th className="py-2 pr-3 text-right">Amount</th><th className="py-2"></th></tr></thead><tbody>{apInvoices.map((inv:any, i:number) => <tr key={String(inv.id)} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50"><td className="py-2 pr-3 whitespace-nowrap">{inv.date || '—'}</td><td className="py-2 pr-3">{inv.invoiceNumber || '—'}</td><td className="py-2 pr-3">{inv.supplierName || '—'}</td><td className="py-2 pr-3">{inv.status || 'Unmatched'}</td><td className="py-2 pr-3 text-right font-semibold">₱{Number(inv.totalAmount || 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td><td className="py-2 text-right"><button type="button" onClick={() => loadAPInvoice(i)} className="text-amber-600 font-bold hover:underline">Open</button></td></tr>)}</tbody></table></div>
+        )) : (transactionLoading ? <div className="py-6 text-center text-sm text-slate-500">Loading transactions…</div> : transactionError ? <div className="py-6 text-center text-sm text-red-500">{transactionError}</div> : transactionRows.length === 0 ? <div className="py-6 text-center text-sm text-slate-500">No transactions found for this DAT period.</div> : (
+          <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b border-slate-200 dark:border-slate-700 text-left text-xs uppercase text-slate-500"><th className="py-2 pr-3">Date</th><th className="py-2 pr-3">Invoice #</th><th className="py-2 pr-3">Supplier</th><th className="py-2 pr-3 text-right">Amount</th><th className="py-2"></th></tr></thead><tbody>{transactionRows.map((p:any, i:number) => <tr key={String(p.id)} className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50"><td className="py-2 pr-3 whitespace-nowrap">{p.date}</td><td className="py-2 pr-3">{p.invoiceNo || '—'}</td><td className="py-2 pr-3">{p.supplierName}</td><td className="py-2 pr-3 text-right font-semibold">₱{Number(p.amount || 0).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td><td className="py-2 text-right"><button type="button" onClick={() => loadPurchase(i, transactionRows)} className="text-amber-600 font-bold hover:underline">Open</button></td></tr>)}</tbody></table></div>
+        ))}
+      </div>
 
       </div>
     </div>
