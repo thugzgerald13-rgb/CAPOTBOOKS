@@ -300,7 +300,7 @@ export function BIRForms() {
       const endDate = new Date(selectedYear, endMonth, 0);
       const endDateString = `${selectedYear}-${String(endMonth).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
 
-      const [salesRes, purchasesRes, expensesRes, apRes, whtRes] = await Promise.all([
+      const [salesRes, purchasesRes, apRes, whtRes] = await Promise.all([
         supabase
           .from('sales')
           .select('id,date,amount,vat_type,net_of_vat')
@@ -310,12 +310,6 @@ export function BIRForms() {
         supabase
           .from('purchases')
           .select('id,date,amount,vat_type,input_tax')
-          .eq('client_id', currentClientId)
-          .gte('date', startDate)
-          .lte('date', endDateString),
-        supabase
-          .from('expenses')
-          .select('id,date,amount')
           .eq('client_id', currentClientId)
           .gte('date', startDate)
           .lte('date', endDateString),
@@ -331,7 +325,7 @@ export function BIRForms() {
           .eq('client_id', currentClientId)
       ]);
 
-      const firstError = [salesRes, purchasesRes, expensesRes, apRes, whtRes].find(r => r.error)?.error;
+      const firstError = [salesRes, purchasesRes, apRes, whtRes].find(r => r.error)?.error;
       if (firstError) {
         console.error('Failed to load BIR filing period data:', firstError);
         if (!cancelled) {
@@ -360,10 +354,11 @@ export function BIRForms() {
         vatType: p.vat_type,
         inputTax: p.input_tax == null ? undefined : Number(p.input_tax),
       })));
-      setBirExpenses((expensesRes.data || []).map((e: any) => ({
-        id: e.id,
-        date: e.date,
-        amount: Number(e.amount || 0),
+      // Purchases are the single source of expense transactions.
+      setBirExpenses((purchasesRes.data || []).map((p: any) => ({
+        id: p.id,
+        date: p.date,
+        amount: Number(p.amount || 0),
       })));
       setBirPayableInvoices((apRes.data || []).map((inv: any) => ({
         id: inv.id,
