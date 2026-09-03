@@ -5,7 +5,7 @@ import { Wrench, Plus, Trash2 } from 'lucide-react';
 import { AssetLapsingEntry } from '../types';
 
 export function AssetLapsing() {
-  const { currentClient, currentClientId, saveClient } = useAccounting();
+  const { currentClient, currentClientId, saveAssetLapsingSchedule } = useAccounting();
   const [asOfDate, setAsOfDate] = useState(new Date().toISOString().split('T')[0]);
 
   if (!currentClient || !currentClientId) return null;
@@ -13,7 +13,7 @@ export function AssetLapsing() {
   const schedule: AssetLapsingEntry[] = currentClient.assetLapsingSchedule || [];
 
   const saveSchedule = (updated: AssetLapsingEntry[]) => {
-    saveClient(currentClientId, { ...currentClient, assetLapsingSchedule: updated });
+    saveAssetLapsingSchedule(updated);
   };
 
   const handleAddRow = () => {

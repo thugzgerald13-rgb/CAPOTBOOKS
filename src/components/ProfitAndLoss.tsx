@@ -6,7 +6,7 @@ import { formatAccountAmount } from '../lib/accountingBalances';
 import { supabase } from '../lib/supabase';
 
 export function ProfitAndLoss() {
-  const { currentClient, currentClientId, saveClient } = useAccounting();
+  const { currentClient, currentClientId, saveFinancialReportSnapshot } = useAccounting();
   const year = new Date().getFullYear();
   const [balances, setBalances] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
@@ -64,7 +64,7 @@ export function ProfitAndLoss() {
   };
 
   const update = (field: 'companyName' | 'address' | 'reportName', value: string) =>
-    saveClient(currentClientId, { ...currentClient, plData: { ...data, [field]: value } });
+    saveFinancialReportSnapshot('P&L', { ...data, [field]: value });
 
   const renderAccounts = (items: typeof balances, sign: 'revenue' | 'debit') => items.length ? items.map(x => {
     const amount = sign === 'revenue'

@@ -17,7 +17,7 @@ interface CashFlowRow {
 const SECTION_ORDER = ['Operating Activities', 'Investing Activities', 'Financing Activities'];
 
 export function CashFlow() {
-  const { currentClient, currentClientId, saveClient } = useAccounting();
+  const { currentClient, currentClientId, saveFinancialReportSnapshot } = useAccounting();
   const year = new Date().getFullYear();
   const [rows, setRows] = useState<CashFlowRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -60,7 +60,7 @@ export function CashFlow() {
   };
 
   const update = (field: 'companyName' | 'address' | 'reportName', value: string) =>
-    saveClient(currentClientId, { ...currentClient, cfData: { ...data, [field]: value } });
+    saveFinancialReportSnapshot('Cash Flow', { ...data, [field]: value });
 
   const grouped = useMemo(() => Object.fromEntries(
     SECTION_ORDER.map(section => [section, rows.filter(r => r.section === section)])

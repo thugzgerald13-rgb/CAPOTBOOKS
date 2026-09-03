@@ -10,7 +10,7 @@ import { generateStandardDeadlines } from './BIRForms';
 import { supabase } from '../lib/supabase';
 
 export function ComplianceTracker() {
-  const { currentClient, currentClientId, setCurrentClientId, clients, businessProfile, activePage, navigateToPage, setBirFormTab, saveClient, ownerClientId } = useAccounting();
+  const { currentClient, currentClientId, setCurrentClientId, clients, businessProfile, activePage, navigateToPage, setBirFormTab, saveTaxDeadlines, ownerClientId } = useAccounting();
 
   const getSimulatedToday = () => {
     const today = new Date();
@@ -121,10 +121,7 @@ export function ComplianceTracker() {
       if (!hasDeadlinesForYear) {
         const yearDeadlines = generateStandardDeadlines(selectedYear);
         const mergedDeadlines = [...existingDeadlines, ...yearDeadlines];
-        saveClient(currentClient.id, {
-          ...currentClient,
-          taxDeadlines: mergedDeadlines
-        });
+        void saveTaxDeadlines(mergedDeadlines);
       }
     }
   }, [currentClient?.id, selectedYear]);
@@ -320,10 +317,7 @@ export function ComplianceTracker() {
       return d;
     });
 
-    saveClient(currentClient.id, {
-      ...currentClient,
-      taxDeadlines: updatedDeadlines
-    });
+    void saveTaxDeadlines(updatedDeadlines);
   };
 
   const handlePrint = () => {

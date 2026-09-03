@@ -16,11 +16,11 @@ export function Extras() {
     addClient, 
     navigateToPage, 
     currentClient, 
-    saveClient, 
     activePage, 
     deleteClient,
     businessProfile,
     saveBusinessProfile,
+    saveClientProfile,
     ownerClientId,
   } = useAccounting();
   const { userRole } = useAuth();
@@ -90,7 +90,7 @@ export function Extras() {
 
   const handleSaveProfile = () => {
     if (editingClient) {
-      saveClient(editingClient.id, editingClient);
+      saveClientProfile(editingClient.id, editingClient);
       // Stay on the form (grayed out) instead of closing, so the accountant
       // can confirm what was saved; Edit re-enables the fields.
       setIsClientLocked(true);

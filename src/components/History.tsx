@@ -10,7 +10,7 @@ import * as XLSX from 'xlsx';
 type HistoryTab = 'expenses' | 'income' | 'slp' | 'sls';
 
 export function History() {
-  const { currentClient, currentClientId, saveClient, showToast, navigateToPage, historyTab, setHistoryTab, activeDevice } = useAccounting();
+  const { currentClient, currentClientId, saveTinEntry, showToast, navigateToPage, historyTab, setHistoryTab, activeDevice } = useAccounting();
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
   const [localHistoryPurchases, setLocalHistoryPurchases] = useState<any[]>([]);
@@ -253,14 +253,8 @@ export function History() {
 
     if (!changed) return;
 
-    saveClient(currentClientId, {
-      ...currentClient,
-      tinLibrary: {
-        ...(currentClient.tinLibrary || { customers: [], suppliers: [] }),
-        suppliers: merged
-      }
-    });
-  }, [currentClient, currentClientId, saveClient]);
+    void Promise.all(merged.map((entry:any) => saveTinEntry(entry, 'supplier')));
+  }, [currentClient, currentClientId, saveTinEntry]);
 
   const handleLoadPeriod = () => {
     showToast(`Filtered data for ${MONTHS[selectedMonth - 1]} ${selectedYear}`);

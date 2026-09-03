@@ -213,7 +213,7 @@ function getCdjDisplayValue(entry: JournalEntry, column: JournalColumn, columns:
 }
 
 export function CashDisbursementsJournal() {
-  const { currentClient, currentClientId, saveClient, saveJournalColumn, deleteJournalColumn, saveJournalEntry, deleteJournalEntry, activeDevice } = useAccounting();
+  const { currentClient, currentClientId, saveJournalColumn, saveJournalColumns, saveJournalEntries, deleteJournalColumn, saveJournalEntry, deleteJournalEntry, activeDevice } = useAccounting();
   
   const [isEditingHeaders, setIsEditingHeaders] = useState(false);
   const [selectedAccountId, setSelectedAccountId] = useState('');
@@ -304,13 +304,8 @@ export function CashDisbursementsJournal() {
     });
 
     // One save only, for legacy/default column migration. No dependency on
-    // currentClient/entries/saveClient is intentionally used here because a
-    // save changes the context object and must not re-trigger this effect.
-    void saveClient(currentClientId, {
-      ...currentClient,
-      cdjColumns: normalized,
-      cdjEntries: migratedEntries,
-    });
+    // Persist the normalized CDJ columns and entries directly; do not rewrite the client aggregate.
+    void Promise.all([saveJournalColumns('CDJ', normalized), saveJournalEntries('CDJ', migratedEntries)]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentClientId]);
 

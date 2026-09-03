@@ -123,7 +123,7 @@ export function Purchases() {
   const navigate = useNavigate();
   const isOtherPayments = location.pathname === '/purchases/other-payments';
   const isAP = location.pathname === '/purchases/ap';
-  const { currentClient, currentClientId, currentDat, saveClient, savePurchase, deletePurchase, showToast, setCurrentDat } = useAccounting();
+  const { currentClient, currentClientId, currentDat, saveCoaAccounts, savePurchase, deletePurchase, showToast, setCurrentDat } = useAccounting();
   
   // Single record state (similar to original but react-friendly)
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -221,7 +221,7 @@ export function Purchases() {
       normalSide: getNormalSide(newPaymentAccountType),
     };
     const updatedAccounts = resequenceAccounts([...baseAccounts, newAccount], format);
-    saveClient(currentClientId, { ...currentClient, accounts: updatedAccounts, coaFormat: format });
+    saveCoaAccounts(updatedAccounts, format);
     setAccountTitle(name);
     setShowAddPaymentAccount(false);
     setNewPaymentAccountName('');
