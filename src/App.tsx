@@ -92,6 +92,11 @@ function AppLayout() {
             </div>
           }>
           <Routes>
+            {/* HashRouter starts at "/" when the app is opened without a hash.
+                Keep an explicit root route so React Router does not report
+                "No routes matched location \"/\"" while the dashboard
+                is rendered by AppLayout above. */}
+            <Route path="/" element={null} />
             <Route path="/sales" element={<Sales />} />
             <Route path="/billing" element={<Billing />} />
             <Route path="/journal-voucher" element={<JournalVoucher />} />
@@ -111,6 +116,13 @@ function AppLayout() {
             <Route path="/journal" element={<GeneralJournal />} />
             <Route path="/ledger" element={<GeneralLedger />} />
             <Route path="/pl" element={<ProfitAndLoss />} />
+            {/* AFS Draft entries currently use the existing report components.
+                Explicit routes prevent navigation to these sidebar entries from
+                producing React Router "No routes matched" errors. */}
+            <Route path="/afs-financial-position" element={<BalanceSheet />} />
+            <Route path="/afs-income-statements" element={<ProfitAndLoss />} />
+            <Route path="/afs-equity-retained-earnings" element={<BalanceSheet />} />
+            <Route path="/afs-ppe" element={<AssetLapsing />} />
             <Route path="/developertools/systemconfig" element={<AdminSettings />} />
             <Route path="/developertools/diagnostics" element={<AdminSettings />} />
             <Route path="/diagnostics" element={<Diagnostics />} />
