@@ -171,7 +171,6 @@ export interface Client {
   purchaseOrders?: PurchaseOrder[];
   receivingReports?: ReceivingReport[];
   bankAccounts?: BankAccount[];
-  supplierAdvances?: SupplierAdvance[];
   withholdingTaxEntries?: WithholdingTaxEntry[];
   debitCreditMemos?: DebitCreditMemo[];
   checkVouchers?: CheckVoucher[];
@@ -486,16 +485,6 @@ export interface BankAccount {
   bankName: string;
   accountNumber: string;
   balance: number;
-}
-
-export interface SupplierAdvance {
-  id: string;
-  supplierId: string;
-  supplierName: string;
-  date: string;
-  amount: number;
-  isLiquidated: boolean;
-  notes?: string;
 }
 
 export interface WithholdingTaxEntry {
