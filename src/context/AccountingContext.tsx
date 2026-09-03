@@ -799,6 +799,7 @@ export function AccountingProvider({
       // deleting same-name client rows here previously caused legitimate
       // normalized client data (including purchases, COA, and journals) to be
       // removed from the tenancy root.
+    }
   }, [businessProfile, clients, currentClientId, user, isReady]);
 
   const saveClient = async (id: string, clientData: Client) => {
