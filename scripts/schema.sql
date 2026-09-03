@@ -539,31 +539,6 @@ create index if not exists idx_bank_accounts_client_id
 -- ---------------------------------------------------------------------------
 
 
-create table if not exists public.check_vouchers (
-  id text primary key,
-  client_id text not null references public.clients(id) on delete cascade,
-  date date,
-  payee_name text,
-  invoice_id text,
-  invoice_number text,
-  payment_type text,
-  misc_details text,
-  amount numeric(18,2),
-  checked_by text,
-  approved_by text,
-  bank_account_id text,
-  bank_name text,
-  check_number text,
-  status text,
-  reversed_reason text,
-  reversed_at timestamptz,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-create index if not exists idx_check_vouchers_client_id
-  on public.check_vouchers(client_id);
-
 create table if not exists public.miscellaneous_payments (
   id text primary key,
   client_id text not null references public.clients(id) on delete cascade,
@@ -679,7 +654,6 @@ begin
     'tin_entries',
     'tax_deadlines',
     'bank_accounts',
-    'check_vouchers',
     'miscellaneous_payments',
     'asset_lapsing_schedule',
     'billing_invoices',
@@ -752,7 +726,6 @@ begin
     'tin_entries',
     'tax_deadlines',
     'bank_accounts',
-    'check_vouchers',
     'miscellaneous_payments',
     'asset_lapsing_schedule',
     'billing_invoices',
@@ -802,7 +775,7 @@ begin
     'receiving_reports','receiving_report_items','payable_invoices',
     'payable_invoice_items','inventory_columns','inventory_items','inventory_movements',
     'app_folders','app_files','tin_entries','tax_deadlines','bank_accounts',
-    'check_vouchers','miscellaneous_payments',
+    'miscellaneous_payments',
     'asset_lapsing_schedule','billing_invoices','financial_report_snapshots'
   ] loop
     if not exists (
