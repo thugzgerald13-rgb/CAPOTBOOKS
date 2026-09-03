@@ -147,7 +147,7 @@ const buildMatchingClient = (profileData: BusinessProfile, existing: Client | un
  * expected by the UI. No runtime persistence depends on `clients.data`.
  */
 const normalizedClientKeys = new Set([
-  'sales', 'purchases', 'expenses', 'accounts', 'coaColumns',
+  'sales', 'purchases', 'accounts', 'coaColumns',
   'crjColumns', 'crjEntries', 'cdjColumns', 'cdjEntries', 'pjColumns', 'pjEntries',
   'sjColumns', 'sjEntries', 'gjColumns', 'gjEntries', 'journalVouchers', 'purchaseOrders', 'receivingReports',
   'payableInvoices', 'inventoryItems', 'inventoryMovements', 'inventoryColumns',
@@ -194,8 +194,16 @@ const chunk = <T,>(items: T[], size = 200): T[][] => {
   return out;
 };
 
+const purchasesToExpenses = (purchases: any[] = []) => purchases.map((p:any) => ({
+  id: Number(p.id) || p.id,
+  date: rowDate(p.date),
+  amount: Number(p.amount || 0),
+  category: p.accountTitle || p.expenseType || '',
+  description: p.transactionDetails || p.invoiceNo || p.supplierName || ''
+}));
+
 const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> => {
-  const [purchases, sales, expenses, coaColumns, coaAccounts, journalColumns, journalEntries,
+  const [purchases, sales, coaColumns, coaAccounts, journalColumns, journalEntries,
     journalVouchers, journalVoucherLines, purchaseOrders, receivingReports,
     receivingReportItems, payableInvoices, payableInvoiceItems, inventoryColumns, inventoryItems,
     inventoryMovements, folders, files, tinEntries, taxDeadlines, bankAccounts, supplierAdvances,
@@ -203,7 +211,6 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
     assetLapsingSchedule, billingInvoices, snapshots] = await Promise.all([
       supabase.from('purchases').select('*').eq('client_id', clientId),
       supabase.from('sales').select('*').eq('client_id', clientId),
-      supabase.from('expenses').select('*').eq('client_id', clientId),
       supabase.from('coa_columns').select('*').eq('client_id', clientId),
       supabase.from('coa_accounts').select('*').eq('client_id', clientId),
       supabase.from('journal_columns').select('*').eq('client_id', clientId),
@@ -233,14 +240,14 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
       supabase.from('financial_report_snapshots').select('*').eq('client_id', clientId),
     ]);
 
-  const responses = [purchases, sales, expenses, coaColumns, coaAccounts, journalColumns, journalEntries,
+  const responses = [purchases, sales, coaColumns, coaAccounts, journalColumns, journalEntries,
     journalVouchers, journalVoucherLines, purchaseOrders, receivingReports,
     receivingReportItems, payableInvoices, payableInvoiceItems, inventoryColumns, inventoryItems,
     inventoryMovements, folders, files, tinEntries, taxDeadlines, bankAccounts, supplierAdvances,
     withholdingTaxEntries, debitCreditMemos, checkVouchers, miscellaneousPayments,
     assetLapsingSchedule, billingInvoices, snapshots];
   const responseNames = [
-    'purchases', 'sales', 'expenses', 'coa_columns', 'coa_accounts', 'journal_columns',
+    'purchases', 'sales', 'coa_columns', 'coa_accounts', 'journal_columns',
     'journal_entries', 'journal_vouchers', 'journal_voucher_lines', 'purchase_orders',
     'receiving_reports', 'receiving_report_items', 'payable_invoices',
     'payable_invoice_items', 'inventory_columns', 'inventory_items', 'inventory_movements',
@@ -259,7 +266,7 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
     throw wrapped;
   }
   const rows = responses.map((r: any) => r.data || []);
-  const [pRows,sRows,eRows,ccRows,caRows,jcRows,jeRows,jvRows,jvlRows,poRows,rrRows,rriRows,piRows,piiRows,icRows,iiRows,imRows,fRows,fileRows,tinRows,tdRows,baRows,saRows,whtRows,dcmRows,cvRows,mpRows,alsRows,biRows,snapshotRows] = rows;
+  const [pRows,sRows,ccRows,caRows,jcRows,jeRows,jvRows,jvlRows,poRows,rrRows,rriRows,piRows,piiRows,icRows,iiRows,imRows,fRows,fileRows,tinRows,tdRows,baRows,saRows,whtRows,dcmRows,cvRows,mpRows,alsRows,biRows,snapshotRows] = rows;
 
   const rrItemsBy = new Map<string, any[]>();
   rriRows.forEach((r:any) => { const a=rrItemsBy.get(r.receiving_report_id)||[]; a.push({ itemCode:r.item_code||'', description:r.description||'', qtyOrdered:Number(r.qty_ordered||0), qtyReceived:Number(r.qty_received||0), unitPrice:Number(r.unit_price||0) }); rrItemsBy.set(r.receiving_report_id,a); });
@@ -271,7 +278,7 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
   const result: Partial<Client> = {
     purchases: pRows.map((r:any) => ({ id:Number(r.id) || r.id, datMonthYear:r.dat_month_year||'', date:rowDate(r.date), paymentMethod:r.payment_method||'', checkNumber:r.check_number, bankName:r.bank_name, invoiceNo:r.invoice_no||'', supplierName:r.supplier_name||'', supplierAddress:r.supplier_address||'', supplierTin:r.supplier_tin||'', amount:Number(r.amount||0), vatType:r.vat_type||'', expenseType:r.expense_type||'', accountTitle:r.account_title||'', transactionDetails:r.transaction_details, inputTax:Number(r.input_tax||0), attachment:r.attachment_name ? { name:r.attachment_name, type:r.attachment_type||'', originalType:r.attachment_original_type||r.attachment_type||'', size:Number(r.attachment_size||0), originalSize:Number(r.attachment_original_size||r.attachment_size||0), compression:r.attachment_compression as any, content:'', storagePath:r.attachment_storage_path } : undefined, withholdingOption:r.withholding_option as any, atcCode:r.atc_code, whtRate:r.wht_rate == null ? null : Number(r.wht_rate), whtAmount:r.wht_amount == null ? undefined : Number(r.wht_amount) })),
     sales: sRows.map((r:any) => ({ id:Number(r.id)||r.id, datMonthYear:r.dat_month_year||'', date:rowDate(r.date), ref:r.ref||'', paymentType:r.payment_type||'', buyerTin:r.buyer_tin||'', buyerName:r.buyer_name||'', buyerAddress:r.buyer_address||'', vatType:r.vat_type||'', amount:Number(r.amount||0), netOfVat:Number(r.net_of_vat||0), outputTax:Number(r.output_tax||0), incomeType:r.income_type||'', desc:r.description||'' })),
-    expenses: eRows.map((r:any) => ({ id:Number(r.id)||r.id, date:rowDate(r.date), amount:Number(r.amount||0), category:r.category||'', description:r.description||'' })),
+     expenses: purchasesToExpenses(pRows),
     coaColumns: ccRows.map((r:any) => ({ id:strId(r.id), name:r.name, isSystem:!!r.is_system })),
     accounts: caRows.map((r:any) => ({ id:strId(r.id), name:r.name, type:r.type, normalSide:r.normal_side, parentId:r.parent_id, hidden:!!r.hidden, openingBalance:Number(r.opening_balance||0), ...(r.custom_values||{}) })),
     crjColumns: jcRows.filter((r:any)=>r.journal_type==='CRJ').map((r:any)=>({id:strId(r.id),name:r.name,type:r.type,category:r.category,isSystem:!!r.is_system})),
@@ -365,7 +372,6 @@ const persistNormalizedClient = async (client: Client, userId: string) => {
   };
   await syncMany('purchases',(client.purchases||[]).map((p:any)=>({id:strId(p.id),dat_month_year:p.datMonthYear||null,date:p.date,payment_method:p.paymentMethod||'',check_number:p.checkNumber||null,bank_name:p.bankName||null,invoice_no:p.invoiceNo||null,supplier_name:p.supplierName||'',supplier_address:p.supplierAddress||null,supplier_tin:p.supplierTin||null,amount:Number(p.amount||0),vat_type:p.vatType||null,expense_type:p.expenseType||null,account_title:p.accountTitle||null,transaction_details:p.transactionDetails||null,input_tax:Number(p.inputTax||0),attachment_name:p.attachment?.name||null,attachment_type:p.attachment?.type||null,attachment_original_type:p.attachment?.originalType||null,attachment_size:p.attachment?.size||null,attachment_original_size:p.attachment?.originalSize||null,attachment_compression:p.attachment?.compression||null,attachment_storage_path:p.attachment?.storagePath||null,withholding_option:p.withholdingOption||null,atc_code:p.atcCode||null,wht_rate:p.whtRate??null,wht_amount:p.whtAmount??null})));
   await syncMany('sales',(client.sales||[]).map((s:any)=>({id:strId(s.id),dat_month_year:s.datMonthYear||null,date:s.date,ref:s.ref||null,payment_type:s.paymentType||null,buyer_tin:s.buyerTin||null,buyer_name:s.buyerName||null,buyer_address:s.buyerAddress||null,vat_type:s.vatType||null,amount:Number(s.amount||0),net_of_vat:Number(s.netOfVat||0),output_tax:Number(s.outputTax||0),income_type:s.incomeType||null,description:s.desc||null})));
-  await syncMany('expenses',(client.expenses||[]).map((e:any)=>({id:strId(e.id),date:e.date,amount:Number(e.amount||0),category:e.category||'',description:e.description||''})));
   await syncMany('coa_columns',(client.coaColumns||[]).map((c:any)=>({id:strId(c.id),name:c.name,is_system:!!c.isSystem})));
   await syncMany('coa_accounts',(client.accounts||[]).map((a:any)=>{const {id,name,type,normalSide,parentId,hidden,openingBalance,...custom}=a;return {id:strId(id),name:name||'',type:type||'',normal_side:normalSide||null,parent_id:parentId||null,hidden:!!hidden,opening_balance:Number(openingBalance||0),custom_values:custom};}));
   const journalTypes:[string,string,string][]=[['CRJ','crjColumns','crjEntries'],['CDJ','cdjColumns','cdjEntries'],['PJ','pjColumns','pjEntries'],['SJ','sjColumns','sjEntries'],['GJ','gjColumns','gjEntries']];
@@ -496,7 +502,7 @@ export function AccountingProvider({
           hasMultipleBusinessLines: row.has_multiple_business_lines, accountingType: row.accounting_type,
           fiscalMonthEnd: row.fiscal_month_end, coaFormat: row.coa_format,
           tinLibrary: normalized.tinLibrary ?? {customers:[], suppliers:[]},
-          sales: normalized.sales ?? [], purchases: normalized.purchases ?? [], expenses: normalized.expenses ?? [],
+          sales: normalized.sales ?? [], purchases: normalized.purchases ?? [], expenses: purchasesToExpenses(normalized.purchases ?? []),
           ...(normalized as any)
         } as Client;
       }
@@ -695,7 +701,7 @@ export function AccountingProvider({
             zipCode: row.zip_code, rdoCode: row.rdo_code, phone: row.phone, email: row.email, category: row.category,
             hasMultipleBusinessLines: row.has_multiple_business_lines, accountingType: row.accounting_type,
             fiscalMonthEnd: row.fiscal_month_end, coaFormat: row.coa_format,
-            tinLibrary: normalized.tinLibrary ?? {customers:[], suppliers:[]}, sales: normalized.sales ?? [], purchases: normalized.purchases ?? [], expenses: normalized.expenses ?? [], ...(normalized as any) } as Client;
+            tinLibrary: normalized.tinLibrary ?? {customers:[], suppliers:[]}, sales: normalized.sales ?? [], purchases: normalized.purchases ?? [], expenses: purchasesToExpenses(normalized.purchases ?? []), ...(normalized as any) } as Client;
         }
         mergeCloudClients(cloudClients);
         setIsSyncing(false);
@@ -706,7 +712,7 @@ export function AccountingProvider({
         // transaction changing does not update `clients`, so listening only to the
         // root would leave another device stale.
         const normalizedRealtimeTables = [
-          'purchases','sales','expenses','coa_columns','coa_accounts','journal_columns',
+          'purchases','sales','coa_columns','coa_accounts','journal_columns',
           'journal_entries','journal_vouchers','journal_voucher_lines','purchase_orders',
           'receiving_reports','receiving_report_items','payable_invoices',
           'payable_invoice_items','inventory_columns','inventory_items','inventory_movements',
@@ -730,7 +736,7 @@ export function AccountingProvider({
                 zipCode: row.zip_code, rdoCode: row.rdo_code, phone: row.phone, email: row.email, category: row.category,
                 hasMultipleBusinessLines: row.has_multiple_business_lines, accountingType: row.accounting_type,
                 fiscalMonthEnd: row.fiscal_month_end, coaFormat: row.coa_format,
-                tinLibrary: normalized.tinLibrary ?? {customers:[], suppliers:[]}, sales: normalized.sales ?? [], purchases: normalized.purchases ?? [], expenses: normalized.expenses ?? [],
+                tinLibrary: normalized.tinLibrary ?? {customers:[], suppliers:[]}, sales: normalized.sales ?? [], purchases: normalized.purchases ?? [], expenses: purchasesToExpenses(normalized.purchases ?? []),
                 ...(normalized as any) } as Client;
               setClients(prev => ({ ...prev, [clientId]: hydrated }));
             } catch (e) { console.warn('Realtime normalized reload failed', e); }
