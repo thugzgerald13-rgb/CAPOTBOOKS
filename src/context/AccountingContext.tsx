@@ -507,8 +507,13 @@ export function AccountingProvider({
   // places on every refresh.
   useEffect(() => {
     if (!currentClientId && cloudPrefsLoaded && Object.keys(clients).length > 0) {
+      const ownerId = user ? ownerClientId(user.id) : null;
+      const availableClientIds = Object.keys(clients);
+      const nonOwnerClientId = availableClientIds.find((id) => id !== ownerId);
       const restoredId =
-        savedActiveClientId && clients[savedActiveClientId] ? savedActiveClientId : Object.keys(clients)[0];
+        savedActiveClientId && clients[savedActiveClientId]
+          ? savedActiveClientId
+          : (nonOwnerClientId || availableClientIds[0]);
       setCurrentClientId(restoredId);
     }
   }, [clients, cloudPrefsLoaded, savedActiveClientId, currentClientId]);
@@ -787,44 +792,13 @@ export function AccountingProvider({
         }
       }
 
-      // Clean up stray client records that duplicate the accountant's own business profile
-      // (e.g. leftover entries created before owner-profile syncing existed). These should
-      // never be listed as a client, so remove any non-owner client that matches the
-      // business profile by name.
-      const normalizedBizName = businessProfile.name?.trim().toLowerCase();
-      if (normalizedBizName) {
-        const strayIds = Object.values(clients)
-          .filter(
-            (client: Client) =>
-              client.id !== ownerId && client.name?.trim().toLowerCase() === normalizedBizName
-          )
-          .map((client: Client) => client.id);
-
-        if (strayIds.length > 0) {
-          setClients((prev) => {
-            const updated = { ...prev };
-            strayIds.forEach((id) => delete updated[id]);
-            return updated;
-          });
-
-          if (currentClientId && strayIds.includes(currentClientId)) {
-            setCurrentClientId(ownerId);
-          }
-
-          if (isReady) {
-            strayIds.forEach((id) => {
-              supabase
-                .from('clients')
-                .delete()
-                .eq('id', id)
-                .then(({ error }) => {
-                  if (error) console.error('Cleaning up stray owner-duplicate client failed:', error);
-                });
-            });
-          }
-        }
-      }
-    }
+      // Do not automatically delete a client merely because its name matches
+      // the user's business profile. A real client can legitimately have the
+      // same registered/trade name as the accountant's own business profile.
+      // The owner profile is represented separately by ownerClientId(user.id);
+      // deleting same-name client rows here previously caused legitimate
+      // normalized client data (including purchases, COA, and journals) to be
+      // removed from the tenancy root.
   }, [businessProfile, clients, currentClientId, user, isReady]);
 
   const saveClient = async (id: string, clientData: Client) => {
