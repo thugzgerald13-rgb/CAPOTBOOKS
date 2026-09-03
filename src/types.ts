@@ -171,7 +171,6 @@ export interface Client {
   purchaseOrders?: PurchaseOrder[];
   receivingReports?: ReceivingReport[];
   bankAccounts?: BankAccount[];
-  debitCreditMemos?: DebitCreditMemo[];
   checkVouchers?: CheckVoucher[];
   miscellaneousPayments?: MiscellaneousPayment[];
   inventoryItems?: InventoryItem[];
@@ -487,16 +486,6 @@ export interface BankAccount {
 }
 
 
-export interface DebitCreditMemo {
-  id: string;
-  type: 'Debit' | 'Credit'; // Debit reduces payables, Credit increases payables
-  invoiceId: string; // target invoice being modified
-  invoiceNumber: string;
-  supplierName: string;
-  date: string;
-  amount: number;
-  reason: string;
-}
 
 export interface CheckVoucher {
   id: string; // Voucher number, e.g., CV-2026-0001
