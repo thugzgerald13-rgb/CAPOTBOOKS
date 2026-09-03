@@ -159,6 +159,34 @@ const normalizedClientKeys = new Set([
 
 const rowDate = (value: any) => value ? String(value).slice(0, 10) : '';
 const strId = (value: any) => String(value);
+
+// Supabase/PostgREST errors are not guaranteed to pass `instanceof Error` in
+// every browser/bundler combination.  String(error) therefore sometimes
+// becomes the useless "[object Object]" message shown by the sync screen.
+// Keep the actual API details so connection/schema/RLS problems are visible.
+const formatSupabaseError = (error: unknown): string => {
+  if (error instanceof Error && error.message) return error.message;
+
+  if (error && typeof error === 'object') {
+    const e = error as Record<string, unknown>;
+    const parts = [
+      typeof e.message === 'string' ? e.message : '',
+      typeof e.code === 'string' ? `code ${e.code}` : '',
+      typeof e.details === 'string' ? e.details : '',
+      typeof e.hint === 'string' ? `Hint: ${e.hint}` : '',
+    ].filter(Boolean);
+    if (parts.length) return parts.join(' — ');
+
+    try {
+      return JSON.stringify(error);
+    } catch {
+      return 'Unknown Supabase error';
+    }
+  }
+
+  return String(error);
+};
+
 const base64ToUint8Array = (value: string) => { const binary = atob(value); const bytes = new Uint8Array(binary.length); for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i); return bytes; };
 const chunk = <T,>(items: T[], size = 200): T[][] => {
   const out: T[][] = [];
@@ -212,8 +240,25 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
     inventoryMovements, folders, files, tinEntries, taxDeadlines, bankAccounts, supplierAdvances,
     withholdingTaxEntries, debitCreditMemos, checkVouchers, miscellaneousPayments,
     assetLapsingSchedule, billingInvoices, snapshots];
-  const firstError = responses.find((r: any) => r.error)?.error;
-  if (firstError) throw firstError;
+  const responseNames = [
+    'purchases', 'sales', 'expenses', 'coa_columns', 'coa_accounts', 'journal_columns',
+    'journal_entries', 'journal_vouchers', 'journal_voucher_lines', 'purchase_orders',
+    'purchase_order_items', 'receiving_reports', 'receiving_report_items', 'payable_invoices',
+    'payable_invoice_items', 'inventory_columns', 'inventory_items', 'inventory_movements',
+    'app_folders', 'app_files', 'tin_entries', 'tax_deadlines', 'bank_accounts', 'supplier_advances',
+    'withholding_tax_entries', 'debit_credit_memos', 'check_vouchers', 'miscellaneous_payments',
+    'asset_lapsing_schedule', 'billing_invoices', 'financial_report_snapshots',
+  ];
+  const failedResponseIndex = responses.findIndex((r: any) => r.error);
+  if (failedResponseIndex >= 0) {
+    const failed = responses[failedResponseIndex] as any;
+    const table = responseNames[failedResponseIndex] || 'normalized data';
+    const error = failed.error;
+    const formatted = formatSupabaseError(error);
+    const wrapped = new Error(`Failed to load ${table}: ${formatted}`);
+    Object.assign(wrapped, { cause: error, table });
+    throw wrapped;
+  }
   const rows = responses.map((r: any) => r.data || []);
   const [pRows,sRows,eRows,ccRows,caRows,jcRows,jeRows,jvRows,jvlRows,poRows,poiRows,rrRows,rriRows,piRows,piiRows,icRows,iiRows,imRows,fRows,fileRows,tinRows,tdRows,baRows,saRows,whtRows,dcmRows,cvRows,mpRows,alsRows,biRows,snapshotRows] = rows;
 
@@ -716,9 +761,9 @@ export function AccountingProvider({
         if (isTimedOut) return;
 
         console.error('Sync error:', error);
-        let msg = error instanceof Error ? error.message : String(error);
+        let msg = formatSupabaseError(error);
 
-        if (msg.toLowerCase().includes('permission') || msg.toLowerCase().includes('rls')) {
+        if (msg.toLowerCase().includes('permission') || msg.toLowerCase().includes('rls') || msg.includes('42501')) {
           msg = 'Permission denied. Please ensure your Supabase Row Level Security policies are deployed and you are authorized.';
         } else if (msg.toLowerCase().includes('fetch')) {
           msg = 'Service unavailable. Check your internet connection.';
