@@ -277,7 +277,7 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
     throw wrapped;
   }
   const rows = responses.map((r: any) => r.data || []);
-  const [pRows,sRows,ccRows,caRows,jcRows,jeRows,jvRows,jvlRows,poRows,rrRows,rriRows,piRows,piiRows,icRows,iiRows,imRows,fRows,fileRows,tinRows,tdRows,baRows,whtRows,cvRows,alsRows,biRows,snapshotRows] = rows;
+  const [pRows,sRows,ccRows,caRows,jcRows,jeRows,jvRows,jvlRows,poRows,rrRows,rriRows,piRows,piiRows,icRows,iiRows,imRows,fRows,fileRows,tinRows,tdRows,baRows,alsRows,biRows,snapshotRows] = rows;
 
   const rrItemsBy = new Map<string, any[]>();
   rriRows.forEach((r:any) => { const a=rrItemsBy.get(r.receiving_report_id)||[]; a.push({ itemCode:r.item_code||'', description:r.description||'', qtyOrdered:Number(r.qty_ordered||0), qtyReceived:Number(r.qty_received||0), unitPrice:Number(r.unit_price||0) }); rrItemsBy.set(r.receiving_report_id,a); });
