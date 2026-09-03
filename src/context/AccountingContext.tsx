@@ -35,6 +35,10 @@ interface AccountingContextType {
   setCurrentDat: (dat: DatSelection | null) => void;
 
   saveClient: (id: string, clientData: Client) => Promise<void>;
+  saveClientProfile: (id: string, profile: Partial<Client>) => Promise<void>;
+  saveTaxDeadlines: (deadlines: any[]) => Promise<void>;
+  saveAssetLapsingSchedule: (entries: any[]) => Promise<void>;
+  saveFinancialReportSnapshot: (reportType: 'P&L' | 'Balance Sheet' | 'Cash Flow', data: any) => Promise<void>;
   savePurchase: (id: string, purchase: any) => Promise<void>;
   deletePurchase: (id: string) => Promise<void>;
   saveSale: (id: string, sale: any) => Promise<void>;
@@ -1165,6 +1169,75 @@ export function AccountingProvider({
     updateClientState(currentClientId, { billingInvoices: ((clients[currentClientId]?.billingInvoices || []) as any[]).filter(i => String(i.id) !== String(id)) });
   };
 
+  const saveClientProfile = async (id: string, profile: Partial<Client>) => {
+    if (!user) return;
+    const existing = clients[id] || ({ id } as Client);
+    const merged = { ...existing, ...profile, id } as Client;
+    const row = {
+      id, user_id: user.id, name: merged.name || '', tin: merged.tin || null,
+      taxpayer_classification: merged.taxpayerClassification || null,
+      registered_name: merged.registeredName || null, last_name: merged.lastName || null,
+      first_name: merged.firstName || null, middle_name: merged.middleName || null,
+      trade_name: merged.tradeName || null, substreet: merged.substreet || null,
+      street: merged.street || null, barangay: merged.barangay || null, district: merged.district || null,
+      city: merged.city || null, zip_code: merged.zipCode || null, rdo_code: merged.rdoCode || null,
+      phone: merged.phone || null, email: merged.email || null, category: merged.category || 'private',
+      has_multiple_business_lines: !!merged.hasMultipleBusinessLines, accounting_type: merged.accountingType || 'Calendar',
+      fiscal_month_end: merged.fiscalMonthEnd || 12, coa_format: merged.coaFormat || 'numeric',
+      updated_at: new Date().toISOString(),
+    };
+    const { error } = await supabase.from('clients').upsert(row, { onConflict: 'id' });
+    if (error) throw error;
+    updateClientState(id, profile as any);
+  };
+
+  const saveTaxDeadlines = async (deadlines: any[]) => {
+    if (!user || !currentClientId) return;
+    const rows = deadlines.map((d:any) => ({
+      id: String(d.id), client_id: currentClientId, form_type: d.formType || null, title: d.title || null,
+      period: d.period || null, due_date: d.dueDate || null, status: d.status || null,
+      tax_status: d.taxStatus || null, amount_due: d.amountDue ?? null, date_filed: d.dateFiled || null,
+      date_paid: d.datePaid || null, reference_no: d.referenceNo || null, confirmation_no: d.confirmationNo || null,
+      notes: d.notes || null,
+    }));
+    const { data: existing, error: readError } = await supabase.from('tax_deadlines').select('id').eq('client_id', currentClientId);
+    if (readError) throw readError;
+    const keep = new Set(rows.map(r => r.id));
+    const stale = (existing || []).map((r:any) => String(r.id)).filter(id => !keep.has(id));
+    if (rows.length) { const { error } = await supabase.from('tax_deadlines').upsert(rows, { onConflict: 'id' }); if (error) throw error; }
+    if (stale.length) { const { error } = await supabase.from('tax_deadlines').delete().eq('client_id', currentClientId).in('id', stale); if (error) throw error; }
+    updateClientState(currentClientId, { taxDeadlines: deadlines });
+  };
+
+  const saveAssetLapsingSchedule = async (entries: any[]) => {
+    if (!user || !currentClientId) return;
+    const rows = entries.map((a:any) => ({
+      id: String(a.id), client_id: currentClientId, date_purchased: a.datePurchased || null,
+      invoice_no: a.invoiceNo || null, description: a.description || null, cost: Number(a.cost || 0),
+      useful_life_years: Number(a.usefulLifeYears || 0), salvage_value: Number(a.salvageValue || 0),
+    }));
+    const { data: existing, error: readError } = await supabase.from('asset_lapsing_schedule').select('id').eq('client_id', currentClientId);
+    if (readError) throw readError;
+    const keep = new Set(rows.map(r => r.id));
+    const stale = (existing || []).map((r:any) => String(r.id)).filter(id => !keep.has(id));
+    if (rows.length) { const { error } = await supabase.from('asset_lapsing_schedule').upsert(rows, { onConflict: 'id' }); if (error) throw error; }
+    if (stale.length) { const { error } = await supabase.from('asset_lapsing_schedule').delete().eq('client_id', currentClientId).in('id', stale); if (error) throw error; }
+    updateClientState(currentClientId, { assetLapsingSchedule: entries });
+  };
+
+  const saveFinancialReportSnapshot = async (reportType: 'P&L' | 'Balance Sheet' | 'Cash Flow', data: any) => {
+    if (!user || !currentClientId) return;
+    const idSuffix = reportType === 'P&L' ? 'pl' : reportType === 'Balance Sheet' ? 'bs' : 'cf';
+    const periodKey = reportType === 'P&L' ? (data?.period || 'current') : reportType === 'Balance Sheet' ? (data?.asOfDate || 'current') : (data?.period || 'current');
+    const { error } = await supabase.from('financial_report_snapshots').upsert({
+      id: `${currentClientId}:${idSuffix}`, client_id: currentClientId, report_type: reportType,
+      period_key: periodKey, data: data || {}, updated_at: new Date().toISOString(),
+    }, { onConflict: 'id' });
+    if (error) throw error;
+    const key = reportType === 'P&L' ? 'plData' : reportType === 'Balance Sheet' ? 'bsData' : 'cfData';
+    updateClientState(currentClientId, { [key]: data } as any);
+  };
+
   const saveClient = async (id: string, clientData: Client) => {
     const updatedClient = { ...clientData, id, userId: user ? user.id : undefined } as Client;
     setClients((prev) => ({ ...prev, [id]: updatedClient }));
@@ -1510,6 +1583,10 @@ export function AccountingProvider({
         setCurrentClientId,
         setCurrentDat,
         saveClient,
+        saveClientProfile,
+        saveTaxDeadlines,
+        saveAssetLapsingSchedule,
+        saveFinancialReportSnapshot,
         savePurchase,
         deletePurchase,
         saveSale,
