@@ -171,7 +171,6 @@ export interface Client {
   purchaseOrders?: PurchaseOrder[];
   receivingReports?: ReceivingReport[];
   bankAccounts?: BankAccount[];
-  miscellaneousPayments?: MiscellaneousPayment[];
   inventoryItems?: InventoryItem[];
   inventoryMovements?: InventoryMovement[];
   inventoryColumns?: InventoryColumn[];
@@ -487,14 +486,3 @@ export interface BankAccount {
 
 
 
-export interface MiscellaneousPayment {
-  id: string;
-  date: string;
-  payeeName: string;
-  amount: number;
-  bankAccountId: string;
-  bankName: string;
-  checkNumber: string;
-  expenseCategory: string; // e.g., Utilities, Rent, Office Supplies
-  description: string;
-}
