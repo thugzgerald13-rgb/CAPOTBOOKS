@@ -151,7 +151,7 @@ const normalizedClientKeys = new Set([
   'crjColumns', 'crjEntries', 'cdjColumns', 'cdjEntries', 'pjColumns', 'pjEntries',
   'sjColumns', 'sjEntries', 'gjColumns', 'gjEntries', 'journalVouchers', 'purchaseOrders', 'receivingReports',
   'payableInvoices', 'inventoryItems', 'inventoryMovements', 'inventoryColumns',
-  'folders', 'files', 'taxDeadlines', 'bankAccounts', 'supplierAdvances',
+  'folders', 'files', 'taxDeadlines', 'bankAccounts',
   'withholdingTaxEntries', 'debitCreditMemos', 'checkVouchers', 'miscellaneousPayments',
   'assetLapsingSchedule', 'billingInvoices', 'tinLibrary', 'plData', 'bsData', 'cfData'
 ]);
@@ -227,7 +227,7 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
   const [purchases, sales, coaColumns, coaAccounts, journalColumns, journalEntries,
     journalVouchers, journalVoucherLines, purchaseOrders, receivingReports,
     receivingReportItems, payableInvoices, payableInvoiceItems, inventoryColumns, inventoryItems,
-    inventoryMovements, folders, files, tinEntries, taxDeadlines, bankAccounts, supplierAdvances,
+    inventoryMovements, folders, files, tinEntries, taxDeadlines, bankAccounts,
     withholdingTaxEntries, debitCreditMemos, checkVouchers, miscellaneousPayments,
     assetLapsingSchedule, billingInvoices, snapshots] = await Promise.all([
       supabase.from('purchases').select('*').eq('client_id', clientId),
@@ -251,7 +251,6 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
       supabase.from('tin_entries').select('*').eq('client_id', clientId),
       supabase.from('tax_deadlines').select('*').eq('client_id', clientId),
       supabase.from('bank_accounts').select('*').eq('client_id', clientId),
-      supabase.from('supplier_advances').select('*').eq('client_id', clientId),
       supabase.from('withholding_tax_entries').select('*').eq('client_id', clientId),
       supabase.from('debit_credit_memos').select('*').eq('client_id', clientId),
       supabase.from('check_vouchers').select('*').eq('client_id', clientId),
@@ -264,7 +263,7 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
   const responses = [purchases, sales, coaColumns, coaAccounts, journalColumns, journalEntries,
     journalVouchers, journalVoucherLines, purchaseOrders, receivingReports,
     receivingReportItems, payableInvoices, payableInvoiceItems, inventoryColumns, inventoryItems,
-    inventoryMovements, folders, files, tinEntries, taxDeadlines, bankAccounts, supplierAdvances,
+    inventoryMovements, folders, files, tinEntries, taxDeadlines, bankAccounts,
     withholdingTaxEntries, debitCreditMemos, checkVouchers, miscellaneousPayments,
     assetLapsingSchedule, billingInvoices, snapshots];
   const responseNames = [
@@ -272,7 +271,7 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
     'journal_entries', 'journal_vouchers', 'journal_voucher_lines', 'purchase_orders',
     'receiving_reports', 'receiving_report_items', 'payable_invoices',
     'payable_invoice_items', 'inventory_columns', 'inventory_items', 'inventory_movements',
-    'app_folders', 'app_files', 'tin_entries', 'tax_deadlines', 'bank_accounts', 'supplier_advances',
+    'app_folders', 'app_files', 'tin_entries', 'tax_deadlines', 'bank_accounts',
     'withholding_tax_entries', 'debit_credit_memos', 'check_vouchers', 'miscellaneous_payments',
     'asset_lapsing_schedule', 'billing_invoices', 'financial_report_snapshots',
   ];
@@ -287,7 +286,7 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
     throw wrapped;
   }
   const rows = responses.map((r: any) => r.data || []);
-  const [pRows,sRows,ccRows,caRows,jcRows,jeRows,jvRows,jvlRows,poRows,rrRows,rriRows,piRows,piiRows,icRows,iiRows,imRows,fRows,fileRows,tinRows,tdRows,baRows,saRows,whtRows,dcmRows,cvRows,mpRows,alsRows,biRows,snapshotRows] = rows;
+  const [pRows,sRows,ccRows,caRows,jcRows,jeRows,jvRows,jvlRows,poRows,rrRows,rriRows,piRows,piiRows,icRows,iiRows,imRows,fRows,fileRows,tinRows,tdRows,baRows,whtRows,dcmRows,cvRows,mpRows,alsRows,biRows,snapshotRows] = rows;
 
   const rrItemsBy = new Map<string, any[]>();
   rriRows.forEach((r:any) => { const a=rrItemsBy.get(r.receiving_report_id)||[]; a.push({ itemCode:r.item_code||'', description:r.description||'', qtyOrdered:Number(r.qty_ordered||0), qtyReceived:Number(r.qty_received||0), unitPrice:Number(r.unit_price||0) }); rrItemsBy.set(r.receiving_report_id,a); });
@@ -322,7 +321,6 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
     tinLibrary: { customers:tinRows.filter((r:any)=>r.party_type==='customer').map((r:any)=>({id:Number(r.id)||r.id,tin:r.tin,name:r.name,address:r.address})), suppliers:tinRows.filter((r:any)=>r.party_type==='supplier').map((r:any)=>({id:Number(r.id)||r.id,tin:r.tin,name:r.name,address:r.address})) },
     taxDeadlines: tdRows.map((r:any)=>({id:strId(r.id),formType:r.form_type,title:r.title,period:r.period,dueDate:rowDate(r.due_date),status:r.status,taxStatus:r.tax_status||undefined,amountDue:r.amount_due==null?undefined:Number(r.amount_due),dateFiled:rowDate(r.date_filed)||undefined,datePaid:rowDate(r.date_paid)||undefined,referenceNo:r.reference_no||undefined,confirmationNo:r.confirmation_no||undefined,notes:r.notes||undefined})),
     bankAccounts: baRows.map((r:any)=>({id:strId(r.id),bankName:r.bank_name,accountNumber:r.account_number,balance:Number(r.balance||0)})),
-    supplierAdvances: saRows.map((r:any)=>({id:strId(r.id),supplierId:r.supplier_id||'',supplierName:r.supplier_name||'',date:rowDate(r.date),amount:Number(r.amount||0),isLiquidated:!!r.is_liquidated,notes:r.notes||undefined})),
     withholdingTaxEntries: whtRows.map((r:any)=>({id:strId(r.id),atcCode:r.atc_code,description:r.description,taxRate:Number(r.tax_rate||0),category:r.category})),
     debitCreditMemos: dcmRows.map((r:any)=>({id:strId(r.id),type:r.type,invoiceId:r.invoice_id||'',invoiceNumber:r.invoice_number||'',supplierName:r.supplier_name||'',date:rowDate(r.date),amount:Number(r.amount||0),reason:r.reason})),
     checkVouchers: cvRows.map((r:any)=>({id:strId(r.id),date:rowDate(r.date),payeeName:r.payee_name,invoiceId:r.invoice_id||undefined,invoiceNumber:r.invoice_number||undefined,paymentType:r.payment_type,miscDetails:r.misc_details||undefined,amount:Number(r.amount||0),checkedBy:r.checked_by||'',approvedBy:r.approved_by||'',bankAccountId:r.bank_account_id||'',bankName:r.bank_name||'',checkNumber:r.check_number||'',status:r.status,reversedReason:r.reversed_reason||undefined,reversedAt:r.reversed_at||undefined})),
@@ -442,7 +440,6 @@ const persistNormalizedClient = async (client: Client, userId: string) => {
   }));
   await syncMany('tax_deadlines',(client.taxDeadlines||[]).map((t:any)=>({id:strId(t.id),form_type:t.formType,title:t.title,period:t.period,due_date:t.dueDate,status:t.status,tax_status:t.taxStatus||null,amount_due:t.amountDue??null,date_filed:t.dateFiled||null,date_paid:t.datePaid||null,reference_no:t.referenceNo||null,confirmation_no:t.confirmationNo||null,notes:t.notes||null})));
   await syncMany('bank_accounts',(client.bankAccounts||[]).map((b:any)=>({id:strId(b.id),bank_name:b.bankName,account_number:b.accountNumber,balance:Number(b.balance||0)})));
-  await syncMany('supplier_advances',(client.supplierAdvances||[]).map((a:any)=>({id:strId(a.id),supplier_id:a.supplierId||null,supplier_name:a.supplierName||null,date:a.date,amount:Number(a.amount||0),is_liquidated:!!a.isLiquidated,notes:a.notes||null})));
   await syncMany('withholding_tax_entries',(client.withholdingTaxEntries||[]).map((w:any)=>({id:strId(w.id),atc_code:w.atcCode,description:w.description,tax_rate:Number(w.taxRate||0),category:w.category})));
   await syncMany('debit_credit_memos',(client.debitCreditMemos||[]).map((m:any)=>({id:strId(m.id),type:m.type,invoice_id:m.invoiceId||null,invoice_number:m.invoiceNumber||null,supplier_name:m.supplierName||null,date:m.date,amount:Number(m.amount||0),reason:m.reason})));
   await syncMany('check_vouchers',(client.checkVouchers||[]).map((v:any)=>({id:strId(v.id),date:v.date,payee_name:v.payeeName,invoice_id:v.invoiceId||null,invoice_number:v.invoiceNumber||null,payment_type:v.paymentType,misc_details:v.miscDetails||null,amount:Number(v.amount||0),checked_by:v.checkedBy||null,approved_by:v.approvedBy||null,bank_account_id:v.bankAccountId||null,bank_name:v.bankName||null,check_number:v.checkNumber||null,status:v.status,reversed_reason:v.reversedReason||null,reversed_at:v.reversedAt||null})));
@@ -743,7 +740,7 @@ export function AccountingProvider({
           'journal_entries','journal_vouchers','journal_voucher_lines','purchase_orders',
           'receiving_reports','payable_invoices',
           'inventory_columns','inventory_items','inventory_movements',
-          'app_folders','app_files','tin_entries','tax_deadlines','bank_accounts','supplier_advances',
+          'app_folders','app_files','tin_entries','tax_deadlines','bank_accounts',
           'withholding_tax_entries','debit_credit_memos','check_vouchers','miscellaneous_payments',
           'asset_lapsing_schedule','billing_invoices','financial_report_snapshots'
         ];
