@@ -51,15 +51,6 @@ export async function fetchPurchases(clientId: string, page: number, pageSize: n
   return { data, count };
 }
 
-export async function fetchPurchaseItems(purchaseId: string) {
-  const { data, error } = await supabase
-    .from('purchase_order_items')
-    .select('*')
-    .eq('purchase_order_id', purchaseId);
-  if (error) throw error;
-  return data;
-}
-
 // ---------- Invoices (AP) ----------
 export async function fetchInvoices(clientId: string, page: number, pageSize: number) {
   const from = (page - 1) * pageSize;
