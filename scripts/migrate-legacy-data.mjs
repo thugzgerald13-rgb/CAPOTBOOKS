@@ -124,8 +124,7 @@ async function migrateClient(row) {
   await upsert('journal_vouchers',jvs); await upsert('journal_voucher_lines',jvl); report.tables.journal_vouchers=jvs.length; report.tables.journal_voucher_lines=jvl.length;
 
   const pos=arr(d.purchaseOrders).map(o=>({id:idOf(o),client_id:clientId,date:date(o.date),supplier_id:o.supplierId||null,supplier_name:o.supplierName||null,total_amount:num(o.totalAmount),status:o.status||null}));
-  const poi=[]; arr(d.purchaseOrders).forEach(o=>arr(o.items).forEach((i,n)=>poi.push({id:`${idOf(o)}:item:${n}`,client_id:clientId,purchase_order_id:idOf(o),item_code:i.itemCode||null,description:i.description||null,qty:num(i.qty),unit_price:num(i.unitPrice)})));
-  await upsert('purchase_orders',pos); await upsert('purchase_order_items',poi); report.tables.purchase_orders=pos.length; report.tables.purchase_order_items=poi.length;
+  await upsert('purchase_orders',pos); report.tables.purchase_orders=pos.length;
 
   const rrs=arr(d.receivingReports).map(r=>({id:idOf(r),client_id:clientId,date:date(r.date),po_id:r.poId||null,supplier_name:r.supplierName||null,total_amount:num(r.totalAmount),received_by:r.receivedBy||null}));
   const rri=[]; arr(d.receivingReports).forEach(r=>arr(r.items).forEach((i,n)=>rri.push({id:`${idOf(r)}:item:${n}`,client_id:clientId,receiving_report_id:idOf(r),item_code:i.itemCode||null,description:i.description||null,qty_ordered:num(i.qtyOrdered),qty_received:num(i.qtyReceived),unit_price:num(i.unitPrice)})));

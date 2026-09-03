@@ -33,8 +33,7 @@ select c.id as client_id, c.name,
 from clients c order by c.id;
 
 -- 4. AP line integrity and tenant integrity.
-select 'purchase_order_items' table_name, count(*) orphan_count from purchase_order_items i left join purchase_orders p on p.id=i.purchase_order_id where p.id is null
-union all select 'receiving_report_items',count(*) from receiving_report_items i left join receiving_reports r on r.id=i.receiving_report_id where r.id is null
+select 'receiving_report_items',count(*) from receiving_report_items i left join receiving_reports r on r.id=i.receiving_report_id where r.id is null
 union all select 'payable_invoice_items',count(*) from payable_invoice_items i left join payable_invoices p on p.id=i.payable_invoice_id where p.id is null
 union all select 'journal_voucher_lines',count(*) from journal_voucher_lines l left join journal_vouchers v on v.id=l.journal_voucher_id where v.id is null;
 

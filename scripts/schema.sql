@@ -305,23 +305,6 @@ create table if not exists public.purchase_orders (
 create index if not exists idx_purchase_orders_client_id
   on public.purchase_orders(client_id);
 
-create table if not exists public.purchase_order_items (
-  id text primary key,
-  client_id text not null references public.clients(id) on delete cascade,
-  purchase_order_id text not null references public.purchase_orders(id) on delete cascade,
-  item_code text,
-  description text,
-  qty numeric(18,4),
-  unit_price numeric(18,4),
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-create index if not exists idx_purchase_order_items_client_id
-  on public.purchase_order_items(client_id);
-create index if not exists idx_purchase_order_items_po_id
-  on public.purchase_order_items(purchase_order_id);
-
 create table if not exists public.receiving_reports (
   id text primary key,
   client_id text not null references public.clients(id) on delete cascade,
@@ -729,7 +712,6 @@ begin
     'journal_vouchers',
     'journal_voucher_lines',
     'purchase_orders',
-    'purchase_order_items',
     'receiving_reports',
     'receiving_report_items',
     'payable_invoices',
@@ -806,7 +788,6 @@ begin
     'journal_vouchers',
     'journal_voucher_lines',
     'purchase_orders',
-    'purchase_order_items',
     'receiving_reports',
     'receiving_report_items',
     'payable_invoices',
@@ -869,7 +850,7 @@ begin
   foreach tbl in array array[
     'clients','purchases','sales','coa_columns','coa_accounts','journal_columns',
     'journal_entries','journal_vouchers','journal_voucher_lines','purchase_orders',
-    'purchase_order_items','receiving_reports','receiving_report_items','payable_invoices',
+    'receiving_reports','receiving_report_items','payable_invoices',
     'payable_invoice_items','inventory_columns','inventory_items','inventory_movements',
     'app_folders','app_files','tin_entries','tax_deadlines','bank_accounts','supplier_advances',
     'withholding_tax_entries','debit_credit_memos','check_vouchers','miscellaneous_payments',
