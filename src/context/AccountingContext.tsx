@@ -202,6 +202,27 @@ const purchasesToExpenses = (purchases: any[] = []) => purchases.map((p:any) => 
   description: p.transactionDetails || p.invoiceNo || p.supplierName || ''
 }));
 
+const OPTIONAL_NORMALIZED_TABLES = new Set([
+  'receiving_report_items',
+  'payable_invoice_items',
+]);
+
+const isMissingTableError = (error: any) =>
+  error?.code === 'PGRST205' || error?.code === '42P01' ||
+  /could not find the table .* in the schema cache/i.test(String(error?.message || ''));
+
+// These child tables are part of the normalized schema but may be absent in
+// older Supabase projects. A missing optional table must not prevent the
+// application from loading the rest of the client's normalized data.
+const loadNormalizedTable = async (table: string, clientId: string) => {
+  const response = await supabase.from(table).select('*').eq('client_id', clientId);
+  if (response.error && OPTIONAL_NORMALIZED_TABLES.has(table) && isMissingTableError(response.error)) {
+    console.warn(`[CAPOT] Optional table "${table}" is not available; continuing with no rows.`);
+    return { data: [], error: null };
+  }
+  return response;
+};
+
 const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> => {
   const [purchases, sales, coaColumns, coaAccounts, journalColumns, journalEntries,
     journalVouchers, journalVoucherLines, purchaseOrders, receivingReports,
@@ -219,9 +240,9 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
       supabase.from('journal_voucher_lines').select('*').eq('client_id', clientId),
       supabase.from('purchase_orders').select('*').eq('client_id', clientId),
       supabase.from('receiving_reports').select('*').eq('client_id', clientId),
-      supabase.from('receiving_report_items').select('*').eq('client_id', clientId),
+      loadNormalizedTable('receiving_report_items', clientId),
       supabase.from('payable_invoices').select('*').eq('client_id', clientId),
-      supabase.from('payable_invoice_items').select('*').eq('client_id', clientId),
+      loadNormalizedTable('payable_invoice_items', clientId),
       supabase.from('inventory_columns').select('*').eq('client_id', clientId),
       supabase.from('inventory_items').select('*').eq('client_id', clientId),
       supabase.from('inventory_movements').select('*').eq('client_id', clientId),
@@ -345,7 +366,13 @@ const persistNormalizedClient = async (client: Client, userId: string) => {
       .from(table)
       .select('id')
       .eq('client_id', clientId);
-    if (existingError) throw existingError;
+    if (existingError) {
+      if (OPTIONAL_NORMALIZED_TABLES.has(table) && isMissingTableError(existingError)) {
+        console.warn(`[CAPOT] Skipping sync for optional table "${table}" because it is not available.`);
+        return;
+      }
+      throw existingError;
+    }
 
     const currentIds = new Set(normalizedRows.map(r => String(r.id)));
     const staleIds = (existingRows || [])
@@ -714,8 +741,8 @@ export function AccountingProvider({
         const normalizedRealtimeTables = [
           'purchases','sales','coa_columns','coa_accounts','journal_columns',
           'journal_entries','journal_vouchers','journal_voucher_lines','purchase_orders',
-          'receiving_reports','receiving_report_items','payable_invoices',
-          'payable_invoice_items','inventory_columns','inventory_items','inventory_movements',
+          'receiving_reports','payable_invoices',
+          'inventory_columns','inventory_items','inventory_movements',
           'app_folders','app_files','tin_entries','tax_deadlines','bank_accounts','supplier_advances',
           'withholding_tax_entries','debit_credit_memos','check_vouchers','miscellaneous_payments',
           'asset_lapsing_schedule','billing_invoices','financial_report_snapshots'
