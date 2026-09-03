@@ -24,6 +24,11 @@ type RecentTransaction = {
 
 const isoDate = (d: Date) => d.toISOString().slice(0, 10);
 
+const money = (value: number) => `₱${(Number(value) || 0).toLocaleString(undefined, {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+})}`;
+
 export function Dashboard() {
   const { currentClientId } = useAccounting();
   const [metrics, setMetrics] = useState<DashboardMetrics>({
