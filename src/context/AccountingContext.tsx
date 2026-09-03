@@ -201,7 +201,6 @@ const purchasesToExpenses = (purchases: any[] = []) => purchases.map((p:any) => 
 }));
 
 const OPTIONAL_NORMALIZED_TABLES = new Set([
-  'receiving_report_items',
   'payable_invoice_items',
 ]);
 
@@ -226,7 +225,7 @@ const loadNormalizedTable = async (table: string, clientId: string) => {
 const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> => {
   const [purchases, sales, coaColumns, coaAccounts, journalColumns, journalEntries,
     journalVouchers, journalVoucherLines, purchaseOrders, receivingReports,
-    receivingReportItems, payableInvoices, payableInvoiceItems, inventoryColumns, inventoryItems,
+    payableInvoices, payableInvoiceItems, inventoryColumns, inventoryItems,
     inventoryMovements, folders, files, tinEntries, taxDeadlines, bankAccounts,
     assetLapsingSchedule, billingInvoices, snapshots] = await Promise.all([
       supabase.from('purchases').select('*').eq('client_id', clientId),
@@ -239,7 +238,6 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
       supabase.from('journal_voucher_lines').select('*').eq('client_id', clientId),
       supabase.from('purchase_orders').select('*').eq('client_id', clientId),
       supabase.from('receiving_reports').select('*').eq('client_id', clientId),
-      loadNormalizedTable('receiving_report_items', clientId),
       supabase.from('payable_invoices').select('*').eq('client_id', clientId),
       loadNormalizedTable('payable_invoice_items', clientId),
       supabase.from('inventory_columns').select('*').eq('client_id', clientId),
@@ -257,13 +255,13 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
 
   const responses = [purchases, sales, coaColumns, coaAccounts, journalColumns, journalEntries,
     journalVouchers, journalVoucherLines, purchaseOrders, receivingReports,
-    receivingReportItems, payableInvoices, payableInvoiceItems, inventoryColumns, inventoryItems,
+    payableInvoices, payableInvoiceItems, inventoryColumns, inventoryItems,
     inventoryMovements, folders, files, tinEntries, taxDeadlines, bankAccounts,
     assetLapsingSchedule, billingInvoices, snapshots];
   const responseNames = [
     'purchases', 'sales', 'coa_columns', 'coa_accounts', 'journal_columns',
     'journal_entries', 'journal_vouchers', 'journal_voucher_lines', 'purchase_orders',
-    'receiving_reports', 'receiving_report_items', 'payable_invoices',
+    'receiving_reports', 'payable_invoices',
     'payable_invoice_items', 'inventory_columns', 'inventory_items', 'inventory_movements',
     'app_folders', 'app_files', 'tin_entries', 'tax_deadlines', 'bank_accounts',
     'asset_lapsing_schedule', 'billing_invoices', 'financial_report_snapshots',
@@ -279,10 +277,7 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
     throw wrapped;
   }
   const rows = responses.map((r: any) => r.data || []);
-  const [pRows,sRows,ccRows,caRows,jcRows,jeRows,jvRows,jvlRows,poRows,rrRows,rriRows,piRows,piiRows,icRows,iiRows,imRows,fRows,fileRows,tinRows,tdRows,baRows,whtRows,cvRows,alsRows,biRows,snapshotRows] = rows;
-
-  const rrItemsBy = new Map<string, any[]>();
-  rriRows.forEach((r:any) => { const a=rrItemsBy.get(r.receiving_report_id)||[]; a.push({ itemCode:r.item_code||'', description:r.description||'', qtyOrdered:Number(r.qty_ordered||0), qtyReceived:Number(r.qty_received||0), unitPrice:Number(r.unit_price||0) }); rrItemsBy.set(r.receiving_report_id,a); });
+  const [pRows,sRows,ccRows,caRows,jcRows,jeRows,jvRows,jvlRows,poRows,rrRows,piRows,piiRows,icRows,iiRows,imRows,fRows,fileRows,tinRows,tdRows,baRows,alsRows,biRows,snapshotRows] = rows;
   const piItemsBy = new Map<string, any[]>();
   piiRows.forEach((r:any) => { const a=piItemsBy.get(r.payable_invoice_id)||[]; a.push({ itemCode:r.item_code||'', description:r.description||'', qty:Number(r.qty||0), unitPrice:Number(r.unit_price||0) }); piItemsBy.set(r.payable_invoice_id,a); });
   const linesByVoucher = new Map<string, any[]>();
@@ -304,7 +299,7 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
     gjEntries: jeRows.filter((r:any)=>r.journal_type==='GJ').map((r:any)=>({id:strId(r.id),values:r.values||{},auto:!!r.auto,autoSource:r.auto_source})),
     journalVouchers: jvRows.map((r:any)=>({id:strId(r.id),date:rowDate(r.date),reference:r.reference||'',memo:r.memo||'',lines:linesByVoucher.get(r.id)||[]})),
     purchaseOrders: poRows.map((r:any)=>({id:strId(r.id),date:rowDate(r.date),supplierId:r.supplier_id||'',supplierName:r.supplier_name||'',items:[],totalAmount:Number(r.total_amount||0),status:r.status})),
-    receivingReports: rrRows.map((r:any)=>({id:strId(r.id),date:rowDate(r.date),poId:r.po_id||'',supplierName:r.supplier_name||'',items:rrItemsBy.get(r.id)||[],totalAmount:Number(r.total_amount||0),receivedBy:r.received_by||''})),
+    receivingReports: rrRows.map((r:any)=>({id:strId(r.id),date:rowDate(r.date),poId:r.po_id||'',supplierName:r.supplier_name||'',items:[],totalAmount:Number(r.total_amount||0),receivedBy:r.received_by||''})),
     payableInvoices: piRows.map((r:any)=>({id:strId(r.id),invoiceNumber:r.invoice_number||'',date:rowDate(r.date),dueDate:rowDate(r.due_date),poId:r.po_id||undefined,rrId:r.rr_id||undefined,supplierId:r.supplier_id||'',supplierName:r.supplier_name||'',items:piItemsBy.get(r.id)||[],subtotal:Number(r.subtotal||0),vatAmount:Number(r.vat_amount||0),isVatable:!!r.is_vatable,withholdingTaxId:r.withholding_tax_id||undefined,whtAmount:r.wht_amount==null?undefined:Number(r.wht_amount),totalAmount:Number(r.total_amount||0),status:r.status,discrepancyDetails:r.discrepancy_details||undefined,appliedPrepayments:r.applied_prepayments==null?undefined:Number(r.applied_prepayments)})),
     inventoryColumns: icRows.map((r:any)=>({id:strId(r.id),label:r.label})),
     inventoryItems: iiRows.map((r:any)=>({id:strId(r.id),code:r.code,name:r.name,sku:r.sku||'',description:r.description,category:r.category,unitOfMeasure:r.unit_of_measure,costPrice:Number(r.cost_price||0),sellingPrice:Number(r.selling_price||0),stockLevel:Number(r.stock_level||0),reorderPoint:Number(r.reorder_point||0),location:r.location,customFields:r.custom_fields||{}})),
@@ -398,7 +393,6 @@ const persistNormalizedClient = async (client: Client, userId: string) => {
   const jvl:any[]=[];(client.journalVouchers||[]).forEach((v:any)=>(v.lines||[]).forEach((l:any)=>jvl.push({id:strId(l.id),journal_voucher_id:strId(v.id),account_id:l.accountId||null,account_name:l.accountName||null,debit:Number(l.debit||0),credit:Number(l.credit||0)}))); await syncMany('journal_voucher_lines',jvl);
   await syncMany('purchase_orders',(client.purchaseOrders||[]).map((o:any)=>({id:strId(o.id),date:o.date,supplier_id:o.supplierId||null,supplier_name:o.supplierName||null,total_amount:Number(o.totalAmount||0),status:o.status})));
   await syncMany('receiving_reports',(client.receivingReports||[]).map((r:any)=>({id:strId(r.id),date:r.date,po_id:r.poId||null,supplier_name:r.supplierName||null,total_amount:Number(r.totalAmount||0),received_by:r.receivedBy||null})));
-  const rri:any[]=[];(client.receivingReports||[]).forEach((r:any)=>(r.items||[]).forEach((i:any,iIndex:number)=>rri.push({id:`${r.id}:item:${iIndex}`,receiving_report_id:strId(r.id),item_code:i.itemCode||null,description:i.description||null,qty_ordered:Number(i.qtyOrdered||0),qty_received:Number(i.qtyReceived||0),unit_price:Number(i.unitPrice||0)}))); await syncMany('receiving_report_items',rri);
   await syncMany('payable_invoices',(client.payableInvoices||[]).map((i:any)=>({id:strId(i.id),invoice_number:i.invoiceNumber||null,date:i.date,due_date:i.dueDate||null,po_id:i.poId||null,rr_id:i.rrId||null,supplier_id:i.supplierId||null,supplier_name:i.supplierName||null,subtotal:Number(i.subtotal||0),vat_amount:Number(i.vatAmount||0),is_vatable:!!i.isVatable,withholding_tax_id:i.withholdingTaxId||null,wht_amount:i.whtAmount??null,total_amount:Number(i.totalAmount||0),status:i.status,discrepancy_details:i.discrepancyDetails||null,applied_prepayments:i.appliedPrepayments??null})));
   const pii:any[]=[];(client.payableInvoices||[]).forEach((i:any)=>(i.items||[]).forEach((x:any,xIndex:number)=>pii.push({id:`${i.id}:item:${xIndex}`,payable_invoice_id:strId(i.id),item_code:x.itemCode||null,description:x.description||null,qty:Number(x.qty||0),unit_price:Number(x.unitPrice||0)}))); await syncMany('payable_invoice_items',pii);
   await syncMany('inventory_columns',(client.inventoryColumns||[]).map((c:any)=>({id:strId(c.id),label:c.label})));
