@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { LineChart, Trash2, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
+import { LineChart, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { GeneralLedgerAccount, GeneralLedgerEntry } from '../types';
@@ -18,7 +18,7 @@ const dateRange = (month: number, year: number) => {
 const formatAmount = (n: number) => Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export function GeneralLedger() {
-  const { currentClient, currentClientId, saveClient } = useAccounting();
+  const { currentClient, currentClientId } = useAccounting();
   const [typeFilter, setTypeFilter] = useState('All');
   const [accountFilter, setAccountFilter] = useState('');
   const [month, setMonth] = useState(new Date().getMonth()+1);
@@ -124,19 +124,12 @@ export function GeneralLedger() {
   if (!currentClient || !currentClientId) return null;
 
   const selectedCoa = coaAccounts.find(a => a.id === accountFilter);
-  const storedAccounts = currentClient.glAccounts || [];
-  const storedSelected = storedAccounts.find(g => g.accountId === accountFilter);
-  const manualEntries = (storedSelected?.entries || []).filter(e => !e.auto);
   const selectedAccount: GeneralLedgerAccount | null = selectedCoa ? {
     id: selectedCoa.id,
     accountTitle: selectedCoa.name,
     accountId: selectedCoa.id,
     accountType: selectedCoa.type,
-    entries: [...ledgerEntries, ...manualEntries.filter(e => {
-      const d = e.dateDr || e.dateCr || '';
-      const { start, end } = dateRange(month, year);
-      return d >= start && d < end;
-    })],
+    entries: ledgerEntries,
     openingBalance: selectedCoa.openingBalance,
     normalSide: selectedCoa.normalSide || getNormalSide(selectedCoa.type || '')
   } : null;
@@ -148,21 +141,7 @@ export function GeneralLedger() {
     ? [selectedAccount]
     : [];
 
-  const mutateEntries = (accountId:string, mutate:(entries:GeneralLedgerEntry[])=>GeneralLedgerEntry[]) => {
-    const existing = storedAccounts.find(g=>g.accountId===accountId);
-    const currentEntries = (existing?.entries || []).filter(e=>!e.auto);
-    const updated = mutate(currentEntries);
-    const acct = coaAccounts.find(a=>a.id===accountId);
-    const updatedStored = existing
-      ? storedAccounts.map(g=>g.accountId===accountId ? {...g, entries:[...(g.entries||[]).filter(e=>e.auto), ...updated]} : g)
-      : [...storedAccounts, { id:accountId, accountTitle:acct?.name||'', accountId, accountType:acct?.type, entries:updated }];
-    saveClient(currentClientId, {...currentClient, glAccounts:updatedStored});
-  };
-
   const toggleAccount=(id:string)=>setExpandedAccounts(p=>({...p,[id]:!p[id]}));
-  const clearEntries=(accountId:string,title:string)=>{
-    if(confirm(`Clear all manually-entered entries for "${title}"? Entries auto-posted from the source journals are not affected.`)) mutateEntries(accountId,()=>[]);
-  };
 
   return (
     <div className="w-full flex flex-col">
@@ -200,10 +179,10 @@ export function GeneralLedger() {
             return <div key={account.id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
               <div className="bg-slate-100 dark:bg-slate-800 px-4 py-3 flex justify-between items-center cursor-pointer border-b border-slate-200 dark:border-slate-700" onClick={()=>toggleAccount(account.id)}>
                 <div className="flex items-center gap-2"><h3 className="font-bold text-slate-800 dark:text-slate-200 tracking-wider uppercase text-sm">{account.accountTitle}</h3>{account.accountType&&<span className="text-[10px] font-bold px-2 py-0.5 bg-cyan-100 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300 rounded uppercase tracking-wide">{account.accountType}</span>}</div>
-                <div className="flex items-center gap-4"><span className="text-xs font-bold px-2 py-1 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded">Bal: ₱ {Math.abs(balance).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}{balance<0?' Cr':' Dr'}</span>{account.entries.some(e=>!e.auto)&&<button onClick={e=>{e.stopPropagation();clearEntries(account.accountId!,account.accountTitle)}} className="text-slate-400 hover:text-red-500"><Trash2 className="w-4 h-4"/></button>}{isExpanded?<ChevronUp className="w-5 h-5 text-slate-400"/>:<ChevronDown className="w-5 h-5 text-slate-400"/>}</div>
+                <div className="flex items-center gap-4"><span className="text-xs font-bold px-2 py-1 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded">Bal: ₱ {Math.abs(balance).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}{balance<0?' Cr':' Dr'}</span>{isExpanded?<ChevronUp className="w-5 h-5 text-slate-400"/>:<ChevronDown className="w-5 h-5 text-slate-400"/>}</div>
               </div>
               {isExpanded&&<div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="text-left text-xs uppercase text-slate-500 bg-slate-50 dark:bg-slate-950"><th className="px-4 py-2">Date</th><th className="px-4 py-2">Particulars</th><th className="px-4 py-2">PR</th><th className="px-4 py-2 text-right">Debit</th><th className="px-4 py-2 text-right">Credit</th><th className="px-4 py-2">Source</th></tr></thead><tbody>
-                {account.entries.map(e=><tr key={e.id} className="border-t border-slate-100 dark:border-slate-800"><td className="px-4 py-2">{e.dateDr||e.dateCr}</td><td className="px-4 py-2">{e.particularsDr||e.particularsCr}</td><td className="px-4 py-2">{e.refDr||e.refCr}</td><td className="px-4 py-2 text-right">{e.debit||''}</td><td className="px-4 py-2 text-right">{e.credit||''}</td><td className="px-4 py-2">{e.auto?<span className="text-cyan-600 font-semibold">Auto</span>:'Manual'}</td></tr>)}
+                {account.entries.map(e=><tr key={e.id} className="border-t border-slate-100 dark:border-slate-800"><td className="px-4 py-2">{e.dateDr||e.dateCr}</td><td className="px-4 py-2">{e.particularsDr||e.particularsCr}</td><td className="px-4 py-2">{e.refDr||e.refCr}</td><td className="px-4 py-2 text-right">{e.debit||''}</td><td className="px-4 py-2 text-right">{e.credit||''}</td><td className="px-4 py-2"><span className="text-cyan-600 font-semibold">Auto</span></td></tr>)}
                 {!account.entries.length&&<tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">No ledger entries for this period.</td></tr>}
               </tbody></table></div>}
             </div>;
