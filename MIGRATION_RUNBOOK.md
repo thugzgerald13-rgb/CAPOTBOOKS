@@ -31,12 +31,6 @@ For journals:
 - `pjEntries` -> `PJ`
 - `gjEntries` -> `GJ`
 
-For AP line arrays:
-
-- `purchaseOrders[].items[]` -> `purchase_order_items`
-- `receivingReports[].items[]` -> `receiving_report_items`
-- `payableInvoices[].items[]` -> `payable_invoice_items`
-
 Store `plData`, `bsData`, and `cfData` as regenerated
 `financial_report_snapshots.data`.
 
