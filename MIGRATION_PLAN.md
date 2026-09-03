@@ -38,16 +38,6 @@ For each legacy journal type (`crjEntries`, `cdjEntries`, `pjEntries`, `gjEntrie
 - Preserve `auto` and `autoSource`.
 - Migrate the corresponding runtime column definitions into `journal_columns`.
 
-## AP line migration
-
-Legacy nested arrays become child rows:
-
-- `purchaseOrders[].items[]` -> `purchase_order_items`
-- `receivingReports[].items[]` -> `receiving_report_items`
-- `payableInvoices[].items[]` -> `payable_invoice_items`
-
-This avoids rewriting an entire AP document whenever a single line changes.
-
 ## Financial statements
 
 `plData`, `bsData`, and `cfData` are copied into `financial_report_snapshots.data` as regenerated snapshots. They are not decomposed into line tables because the UI regenerates the report as a whole.
