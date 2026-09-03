@@ -215,7 +215,9 @@ const isMissingTableError = (error: any) =>
 const loadNormalizedTable = async (table: string, clientId: string) => {
   const response = await supabase.from(table).select('*').eq('client_id', clientId);
   if (response.error && OPTIONAL_NORMALIZED_TABLES.has(table) && isMissingTableError(response.error)) {
-    console.warn(`[CAPOT] Optional table "${table}" is not available; continuing with no rows.`);
+    // Optional normalized child table is absent in this Supabase project.
+    // Treat it as an empty collection without flooding the console on every
+    // sync/load cycle.
     return { data: [], error: null };
   }
   return response;
@@ -277,7 +279,7 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
     throw wrapped;
   }
   const rows = responses.map((r: any) => r.data || []);
-  const [pRows,sRows,ccRows,caRows,jcRows,jeRows,jvRows,jvlRows,poRows,rrRows,rriRows,piRows,piiRows,icRows,iiRows,imRows,fRows,fileRows,tinRows,tdRows,baRows,alsRows,biRows,snapshotRows] = rows;
+  const [pRows,sRows,ccRows,caRows,jcRows,jeRows,jvRows,jvlRows,poRows,rrRows,rriRows,piRows,piiRows,icRows,iiRows,imRows,fRows,fileRows,tinRows,tdRows,baRows,whtRows,cvRows,alsRows,biRows,snapshotRows] = rows;
 
   const rrItemsBy = new Map<string, any[]>();
   rriRows.forEach((r:any) => { const a=rrItemsBy.get(r.receiving_report_id)||[]; a.push({ itemCode:r.item_code||'', description:r.description||'', qtyOrdered:Number(r.qty_ordered||0), qtyReceived:Number(r.qty_received||0), unitPrice:Number(r.unit_price||0) }); rrItemsBy.set(r.receiving_report_id,a); });
@@ -353,7 +355,8 @@ const persistNormalizedClient = async (client: Client, userId: string) => {
       .eq('client_id', clientId);
     if (existingError) {
       if (OPTIONAL_NORMALIZED_TABLES.has(table) && isMissingTableError(existingError)) {
-        console.warn(`[CAPOT] Skipping sync for optional table "${table}" because it is not available.`);
+        // The optional child table is not installed in this database yet.
+        // Skip it without turning the otherwise healthy sync into an error.
         return;
       }
       throw existingError;
