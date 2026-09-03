@@ -538,22 +538,6 @@ create index if not exists idx_bank_accounts_client_id
 -- Memos / payments / checks
 -- ---------------------------------------------------------------------------
 
-create table if not exists public.debit_credit_memos (
-  id text primary key,
-  client_id text not null references public.clients(id) on delete cascade,
-  type text,
-  invoice_id text,
-  invoice_number text,
-  supplier_name text,
-  date date,
-  amount numeric(18,2),
-  reason text,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-create index if not exists idx_debit_credit_memos_client_id
-  on public.debit_credit_memos(client_id);
 
 create table if not exists public.check_vouchers (
   id text primary key,
@@ -695,7 +679,6 @@ begin
     'tin_entries',
     'tax_deadlines',
     'bank_accounts',
-    'debit_credit_memos',
     'check_vouchers',
     'miscellaneous_payments',
     'asset_lapsing_schedule',
@@ -769,7 +752,6 @@ begin
     'tin_entries',
     'tax_deadlines',
     'bank_accounts',
-    'debit_credit_memos',
     'check_vouchers',
     'miscellaneous_payments',
     'asset_lapsing_schedule',
@@ -820,7 +802,7 @@ begin
     'receiving_reports','receiving_report_items','payable_invoices',
     'payable_invoice_items','inventory_columns','inventory_items','inventory_movements',
     'app_folders','app_files','tin_entries','tax_deadlines','bank_accounts',
-    'debit_credit_memos','check_vouchers','miscellaneous_payments',
+    'check_vouchers','miscellaneous_payments',
     'asset_lapsing_schedule','billing_invoices','financial_report_snapshots'
   ] loop
     if not exists (
