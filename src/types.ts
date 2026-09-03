@@ -171,7 +171,6 @@ export interface Client {
   purchaseOrders?: PurchaseOrder[];
   receivingReports?: ReceivingReport[];
   bankAccounts?: BankAccount[];
-  checkVouchers?: CheckVoucher[];
   miscellaneousPayments?: MiscellaneousPayment[];
   inventoryItems?: InventoryItem[];
   inventoryMovements?: InventoryMovement[];
@@ -487,24 +486,6 @@ export interface BankAccount {
 
 
 
-export interface CheckVoucher {
-  id: string; // Voucher number, e.g., CV-2026-0001
-  date: string;
-  payeeName: string;
-  invoiceId?: string; // if clearing an invoice
-  invoiceNumber?: string;
-  paymentType: 'Invoice Clearance' | 'Advance' | 'Miscellaneous';
-  miscDetails?: string;
-  amount: number;
-  checkedBy: string;
-  approvedBy: string;
-  bankAccountId: string;
-  bankName: string;
-  checkNumber: string;
-  status: 'Withdrawn' | 'Cleared' | 'Reversed';
-  reversedReason?: string;
-  reversedAt?: string;
-}
 
 export interface MiscellaneousPayment {
   id: string;
