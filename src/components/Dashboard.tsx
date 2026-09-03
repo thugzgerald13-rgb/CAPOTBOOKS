@@ -21,96 +21,8 @@ type RecentTransaction = {
   amount: number;
 };
 
-type ServerBalance = {
-  account_id: string;
-  account_name: string;
-  account_type: string;
-  balance: number;
-  period_debit: number;
-  period_credit: number;
-};
-
-const money = (amount: number) =>
-  new Intl.NumberFormat('en-PH', {
-    style: 'currency',
-    currency: 'PHP',
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 2,
-  }).format(amount);
 
 const isoDate = (d: Date) => d.toISOString().slice(0, 10);
-
-const getMonthRange = () => {
-  const now = new Date();
-  return {
-    start: isoDate(new Date(now.getFullYear(), now.getMonth(), 1)),
-    end: isoDate(new Date(now.getFullYear(), now.getMonth() + 1, 0)),
-  };
-};
-
-const normal = (v: unknown) => String(v || '').trim().toLowerCase();
-
-function calculateMetrics(balances: ServerBalance[]): DashboardMetrics {
-  let revenue = 0;
-  let expenses = 0;
-  let cash = 0;
-  let ar = 0;
-  let ap = 0;
-
-  for (const account of balances) {
-    const type = normal(account.account_type);
-    const name = normal(account.account_name);
-    const balance = Number(account.balance || 0);
-    const periodDebit = Number(account.period_debit || 0);
-    const periodCredit = Number(account.period_credit || 0);
-
-    if (type === 'revenue') {
-      revenue += Math.max(0, periodCredit - periodDebit);
-    }
-
-    if (type === 'expense' || type === 'expenses' || type === 'cost' || type === 'costs') {
-      expenses += Math.max(0, periodDebit - periodCredit);
-    }
-
-    // Cash is intentionally identified by account name rather than account
-    // type because many COAs classify cash/bank as generic "Asset".
-    if (
-      name.includes('cash on hand') ||
-      name === 'cash' ||
-      name.includes('cash in bank') ||
-      name.includes('bank account') ||
-      name.includes('checking account') ||
-      name.includes('savings account')
-    ) {
-      cash += balance;
-    }
-
-    if (
-      name.includes('accounts receivable') ||
-      name === 'trade receivable' ||
-      name === 'trade receivables'
-    ) {
-      ar += Math.max(0, balance);
-    }
-
-    if (
-      name.includes('accounts payable') ||
-      name === 'trade payable' ||
-      name === 'trade payables'
-    ) {
-      ap += Math.max(0, -balance);
-    }
-  }
-
-  return {
-    revenue,
-    expenses,
-    netIncome: revenue - expenses,
-    cash,
-    ar,
-    ap,
-  };
-}
 
 export function Dashboard() {
   const { currentClientId } = useAccounting();
@@ -137,19 +49,16 @@ export function Dashboard() {
     setError(null);
 
     try {
-      const { start, end } = getMonthRange();
+      const now = new Date();
+      const start = isoDate(new Date(now.getFullYear(), now.getMonth(), 1));
+      const end = isoDate(new Date(now.getFullYear(), now.getMonth() + 1, 1));
 
-      // Dashboard metrics are server-side. The dashboard never downloads the
-      // client's transaction history into React just to calculate summary cards.
-      const [monthlyResult, endingResult, purchasesResult, salesResult] = await Promise.all([
-        supabase.rpc('get_server_account_balances', {
+      // Summary metrics come directly from the authoritative PostgreSQL report
+      // function. React does not recalculate balances or download the ledger.
+      const [metricsResult, purchasesResult, salesResult] = await Promise.all([
+        supabase.rpc('get_server_dashboard_metrics', {
           p_client_id: currentClientId,
           p_start_date: start,
-          p_end_date: end,
-        }),
-        supabase.rpc('get_server_account_balances', {
-          p_client_id: currentClientId,
-          p_start_date: '1900-01-01',
           p_end_date: end,
         }),
         supabase
@@ -166,19 +75,18 @@ export function Dashboard() {
           .limit(5),
       ]);
 
-      if (monthlyResult.error) throw monthlyResult.error;
-      if (endingResult.error) throw endingResult.error;
+      if (metricsResult.error) throw metricsResult.error;
       if (purchasesResult.error) throw purchasesResult.error;
       if (salesResult.error) throw salesResult.error;
 
-      const monthlyMetrics = calculateMetrics((monthlyResult.data || []) as ServerBalance[]);
-      const endingMetrics = calculateMetrics((endingResult.data || []) as ServerBalance[]);
-
+      const server = (metricsResult.data || [])[0] as any;
       setMetrics({
-        ...monthlyMetrics,
-        cash: endingMetrics.cash,
-        ar: endingMetrics.ar,
-        ap: endingMetrics.ap,
+        revenue: Number(server?.revenue || 0),
+        expenses: Number(server?.expenses || 0),
+        netIncome: Number(server?.net_income || 0),
+        cash: Number(server?.cash || 0),
+        ar: Number(server?.accounts_receivable || 0),
+        ap: Number(server?.accounts_payable || 0),
       });
 
       const purchases: RecentTransaction[] = (purchasesResult.data || []).map((row: any) => ({

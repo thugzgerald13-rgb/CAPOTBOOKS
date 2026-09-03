@@ -36,20 +36,29 @@ export function BalanceSheet() {
   if (!currentClient || !currentClientId) return null;
   const assets = balances.filter(x => ['asset', 'assets'].includes((x.account_type || '').toLowerCase()));
   const liabilities = balances.filter(x => ['liability', 'liabilities'].includes((x.account_type || '').toLowerCase()));
-  const equity = balances.filter(x => (x.account_type || '').toLowerCase() === 'equity');
+  const equity = balances.filter(x => ['equity', 'equities', 'capital'].includes((x.account_type || '').toLowerCase()));
+  const drawings = balances.filter(x => {
+    const type = (x.account_type || '').toLowerCase();
+    const name = (x.account_name || '').toLowerCase();
+    return ['equity', 'equities', 'capital'].includes(type) && name.includes('drawing');
+  });
 
   const assetTotal = assets.reduce((n, x) => n + Math.max(0, x.balance), 0);
   const liabilityTotal = liabilities.reduce((n, x) => n + Math.max(0, -x.balance), 0);
   const equityAccountsTotal = equity.reduce((n, x) => n + Math.max(0, -x.balance), 0);
+  const drawingsTotal = drawings.reduce((n, x) => n + Math.max(0, x.balance), 0);
 
+  // Net income must come from activity in the requested period, not the ending
+  // balance. This prevents any opening revenue/expense balances from being
+  // counted again as current-year income.
   const revenue = balances.filter(x => (x.account_type || '').toLowerCase() === 'revenue')
-    .reduce((n, x) => n + Math.max(0, -x.balance), 0);
+    .reduce((n, x) => n + Math.max(0, x.period_credit - x.period_debit), 0);
   const costs = balances.filter(x => ['cost','costs'].includes((x.account_type || '').toLowerCase()))
-    .reduce((n, x) => n + Math.max(0, x.balance), 0);
+    .reduce((n, x) => n + Math.max(0, x.period_debit - x.period_credit), 0);
   const expenses = balances.filter(x => ['expense','expenses'].includes((x.account_type || '').toLowerCase()))
-    .reduce((n, x) => n + Math.max(0, x.balance), 0);
+    .reduce((n, x) => n + Math.max(0, x.period_debit - x.period_credit), 0);
   const netIncome = revenue - costs - expenses;
-  const totalEquity = equityAccountsTotal + netIncome;
+  const totalEquity = equityAccountsTotal - drawingsTotal + netIncome;
   const totalLiabEquity = liabilityTotal + totalEquity;
 
   const data = currentClient.bsData || {
@@ -111,7 +120,13 @@ export function BalanceSheet() {
 
             <section>
               <div className="uppercase mb-2 font-bold">EQUITY</div>
-              <table className="w-full"><tbody>{renderAccounts(equity, 'credit')}
+              <table className="w-full"><tbody>{renderAccounts(equity.filter(x => !((x.account_name || '').toLowerCase().includes('drawing'))), 'credit')}
+                {drawings.map(x => (
+                  <tr key={x.account_id}>
+                    <td className="pl-6 py-1.5">{x.account_id} — {x.account_name}</td>
+                    <td className="w-40 py-1.5 text-right font-mono pr-2">({formatAccountAmount(Math.max(0, x.balance))})</td>
+                  </tr>
+                ))}
                 <tr><td className="pl-6 py-1.5">Current Year Net Income (Loss)</td><td className="text-right font-mono pr-2">{formatAccountAmount(netIncome)}</td></tr>
                 <tr className="font-bold border-t"><td className="pl-6 py-2">TOTAL EQUITY</td><td className="text-right font-mono pr-2">{formatAccountAmount(totalEquity)}</td></tr>
                 <tr className="font-bold border-t-2 border-slate-800"><td className="pl-6 py-2">TOTAL LIABILITIES &amp; EQUITY</td><td className="text-right font-mono pr-2">{formatAccountAmount(totalLiabEquity)}</td></tr>
