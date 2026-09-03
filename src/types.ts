@@ -171,7 +171,6 @@ export interface Client {
   purchaseOrders?: PurchaseOrder[];
   receivingReports?: ReceivingReport[];
   bankAccounts?: BankAccount[];
-  withholdingTaxEntries?: WithholdingTaxEntry[];
   debitCreditMemos?: DebitCreditMemo[];
   checkVouchers?: CheckVoucher[];
   miscellaneousPayments?: MiscellaneousPayment[];
@@ -487,13 +486,6 @@ export interface BankAccount {
   balance: number;
 }
 
-export interface WithholdingTaxEntry {
-  id: string;
-  atcCode: string; // e.g., WI 100, WC 158
-  description: string;
-  taxRate: number; // e.g., 0.01 for 1%, 0.02, 0.05
-  category: 'Expanded' | 'Tax on Compensation' | 'Final';
-}
 
 export interface DebitCreditMemo {
   id: string;
