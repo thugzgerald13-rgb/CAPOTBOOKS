@@ -37,6 +37,26 @@ interface AccountingContextType {
   saveClient: (id: string, clientData: Client) => Promise<void>;
   savePurchase: (id: string, purchase: any) => Promise<void>;
   deletePurchase: (id: string) => Promise<void>;
+  saveSale: (id: string, sale: any) => Promise<void>;
+  saveCoaColumns: (columns: any[]) => Promise<void>;
+  saveCoaAccounts: (accounts: any[], format?: 'numeric' | 'alphanumeric') => Promise<void>;
+  saveJournalColumn: (...args: any[]) => Promise<void>;
+  saveJournalColumns: (...args: any[]) => Promise<void>;
+  saveJournalEntry: (...args: any[]) => Promise<void>;
+  saveJournalEntries: (...args: any[]) => Promise<void>;
+  deleteJournalColumn: (...args: any[]) => Promise<void>;
+  deleteJournalEntry: (...args: any[]) => Promise<void>;
+  saveJournalVoucher: (clientId: string, voucher: any, gjEntries?: any[]) => Promise<void>;
+  deleteJournalVoucher: (clientId: string, voucherId: string) => Promise<void>;
+  saveInventoryColumn: (column: any) => Promise<void>;
+  deleteInventoryColumn: (columnId: string) => Promise<void>;
+  saveInventoryItem: (item: any) => Promise<void>;
+  deleteInventoryItem: (itemId: string) => Promise<void>;
+  saveInventoryMovement: (movement: any) => Promise<void>;
+  saveTinEntry: (entry: any, partyType: 'customer' | 'supplier') => Promise<void>;
+  deleteTinEntry: (id: string, partyType: 'customer' | 'supplier') => Promise<void>;
+  saveBillingInvoice: (id: string, invoice: any) => Promise<void>;
+  deleteBillingInvoice: (id: string) => Promise<void>;
   addClient: (name: string) => Promise<void>;
   deleteClient: (id: string) => Promise<void>;
   saveBusinessProfile: (profile: BusinessProfile) => Promise<void>;
@@ -129,7 +149,7 @@ const buildMatchingClient = (profileData: BusinessProfile, existing: Client | un
 const normalizedClientKeys = new Set([
   'sales', 'purchases', 'expenses', 'accounts', 'coaColumns',
   'crjColumns', 'crjEntries', 'cdjColumns', 'cdjEntries', 'pjColumns', 'pjEntries',
-  'gjColumns', 'gjEntries', 'journalVouchers', 'purchaseOrders', 'receivingReports',
+  'sjColumns', 'sjEntries', 'gjColumns', 'gjEntries', 'journalVouchers', 'purchaseOrders', 'receivingReports',
   'payableInvoices', 'inventoryItems', 'inventoryMovements', 'inventoryColumns',
   'folders', 'files', 'taxDeadlines', 'bankAccounts', 'supplierAdvances',
   'withholdingTaxEntries', 'debitCreditMemos', 'checkVouchers', 'miscellaneousPayments',
@@ -306,7 +326,7 @@ const persistNormalizedClient = async (client: Client, userId: string) => {
   await syncMany('expenses',(client.expenses||[]).map((e:any)=>({id:strId(e.id),date:e.date,amount:Number(e.amount||0),category:e.category||'',description:e.description||''})));
   await syncMany('coa_columns',(client.coaColumns||[]).map((c:any)=>({id:strId(c.id),name:c.name,is_system:!!c.isSystem})));
   await syncMany('coa_accounts',(client.accounts||[]).map((a:any)=>{const {id,name,type,normalSide,parentId,hidden,openingBalance,...custom}=a;return {id:strId(id),name:name||'',type:type||'',normal_side:normalSide||null,parent_id:parentId||null,hidden:!!hidden,opening_balance:Number(openingBalance||0),custom_values:custom};}));
-  const journalTypes:[string,string,string][]=[['CRJ','crjColumns','crjEntries'],['CDJ','cdjColumns','cdjEntries'],['PJ','pjColumns','pjEntries'],['GJ','gjColumns','gjEntries']];
+  const journalTypes:[string,string,string][]=[['CRJ','crjColumns','crjEntries'],['CDJ','cdjColumns','cdjEntries'],['PJ','pjColumns','pjEntries'],['SJ','sjColumns','sjEntries'],['GJ','gjColumns','gjEntries']];
   for(const [type,colKey,entryKey] of journalTypes){
     await syncMany('journal_columns',((client as any)[colKey]||[]).map((c:any)=>({id:strId(c.id),journal_type:type,name:c.name,type:c.type,category:c.category,is_system:!!c.isSystem})));
     await syncMany('journal_entries',((client as any)[entryKey]||[]).map((e:any)=>({id:strId(e.id),journal_type:type,values:e.values||{},auto:!!e.auto,auto_source:e.autoSource||null})));
@@ -802,6 +822,299 @@ export function AccountingProvider({
     }
   }, [businessProfile, clients, currentClientId, user, isReady]);
 
+  const updateClientState = (clientId: string, patch: Partial<Client>) => {
+    setClients(prev => ({
+      ...prev,
+      [clientId]: { ...prev[clientId], ...patch } as Client,
+    }));
+  };
+
+  const resolveJournalArgs = (args: any[]) => {
+    if (typeof args[0] === 'string' && ['CRJ', 'CDJ', 'PJ', 'SJ', 'GJ'].includes(args[0])) {
+      return { clientId: currentClientId, journalType: args[0], payload: args[1] };
+    }
+    return { clientId: args[0] as string, journalType: args[1] as string, payload: args[2] };
+  };
+
+  const journalEntryRow = (clientId: string, journalType: string, entry: any) => {
+    const values = entry?.values || {};
+    const numberValues = Object.values(values).map(v => Number(String(v ?? '').replace(/,/g, ''))).filter(v => Number.isFinite(v));
+    const debit = Number.isFinite(Number(values.debit)) ? Number(values.debit) : undefined;
+    const credit = Number.isFinite(Number(values.credit)) ? Number(values.credit) : undefined;
+    const totalDebit = debit ?? numberValues.reduce((sum, value) => sum + value, 0);
+    const dateValue = values.date || values.entry_date || values.transaction_date || null;
+    const description = values.particulars || values.description || values.memo || '';
+    return {
+      id: String(entry.id),
+      client_id: clientId,
+      journal_type: journalType,
+      values,
+      auto: !!entry.auto,
+      auto_source: entry.autoSource || null,
+      entry_date: dateValue || null,
+      description: String(description || ''),
+      total_debit: debit ?? null,
+      total_credit: credit ?? null,
+    };
+  };
+
+  const saveSale = async (id: string, sale: any) => {
+    if (!user || !currentClientId) return;
+    const row = {
+      id: String(id), client_id: currentClientId, dat_month_year: sale.datMonthYear || null,
+      date: sale.date || null, ref: sale.ref || null, payment_type: sale.paymentType || null,
+      buyer_tin: sale.buyerTin || null, buyer_name: sale.buyerName || null,
+      buyer_address: sale.buyerAddress || null, vat_type: sale.vatType || null,
+      amount: Number(sale.amount || 0), net_of_vat: Number(sale.netOfVat || 0),
+      output_tax: Number(sale.outputTax || 0), income_type: sale.incomeType || null,
+      description: sale.desc || null,
+    };
+    const { error } = await supabase.from('sales').upsert(row, { onConflict: 'id' });
+    if (error) throw error;
+    const next = [...(clients[currentClientId]?.sales || []).filter((x: any) => String(x.id) !== String(id)), sale];
+    updateClientState(currentClientId, { sales: next });
+  };
+
+  const saveCoaColumns = async (columns: any[]) => {
+    if (!user || !currentClientId) return;
+    const rows = columns.map(c => ({ id: String(c.id), client_id: currentClientId, name: c.name || '', is_system: !!c.isSystem }));
+    const { data: existing, error: readError } = await supabase.from('coa_columns').select('id').eq('client_id', currentClientId);
+    if (readError) throw readError;
+    const keep = new Set(rows.map(r => r.id));
+    const stale = (existing || []).map((r: any) => String(r.id)).filter(id => !keep.has(id));
+    if (rows.length) { const { error } = await supabase.from('coa_columns').upsert(rows, { onConflict: 'id' }); if (error) throw error; }
+    if (stale.length) { const { error } = await supabase.from('coa_columns').delete().eq('client_id', currentClientId).in('id', stale); if (error) throw error; }
+    updateClientState(currentClientId, { coaColumns: columns });
+  };
+
+  const saveCoaAccounts = async (accounts: any[], format?: 'numeric' | 'alphanumeric') => {
+    if (!user || !currentClientId) return;
+    const rows = accounts.map(a => {
+      const { id, name, type, normalSide, parentId, hidden, openingBalance, ...custom } = a;
+      return { id: String(id), client_id: currentClientId, name: name || '', type: type || '', normal_side: normalSide || null, parent_id: parentId || null, hidden: !!hidden, opening_balance: Number(openingBalance || 0), custom_values: custom };
+    });
+    const { data: existing, error: readError } = await supabase.from('coa_accounts').select('id').eq('client_id', currentClientId);
+    if (readError) throw readError;
+    const keep = new Set(rows.map(r => r.id));
+    const stale = (existing || []).map((r: any) => String(r.id)).filter(id => !keep.has(id));
+    if (rows.length) { const { error } = await supabase.from('coa_accounts').upsert(rows, { onConflict: 'id' }); if (error) throw error; }
+    if (stale.length) { const { error } = await supabase.from('coa_accounts').delete().eq('client_id', currentClientId).in('id', stale); if (error) throw error; }
+    updateClientState(currentClientId, { accounts, ...(format ? { coaFormat: format } : {}) });
+    if (format) {
+      const { error } = await supabase.from('clients').update({ coa_format: format }).eq('id', currentClientId).eq('user_id', user.id);
+      if (error) throw error;
+    }
+  };
+
+  const saveJournalColumn = async (...args: any[]) => {
+    if (!user) return;
+    const { clientId, journalType, payload } = resolveJournalArgs(args);
+    if (!clientId || !journalType || !payload) return;
+    const row = { id: String(payload.id), client_id: clientId, journal_type: journalType, name: payload.name || '', type: payload.type || 'text', category: payload.category || 'None', is_system: !!payload.isSystem };
+    const { error } = await supabase.from('journal_columns').upsert(row, { onConflict: 'id' });
+    if (error) throw error;
+    const key = `${String(journalType).toLowerCase()}Columns`;
+    const existing = ((clients[clientId] as any)?.[key] || []).filter((c: any) => String(c.id) !== String(payload.id));
+    updateClientState(clientId, { [key]: [...existing, payload] } as any);
+  };
+
+  const saveJournalColumns = async (...args: any[]) => {
+    if (!user) return;
+    let clientId: string | null;
+    let journalType: string;
+    let columns: any[];
+    if (typeof args[0] === 'string' && ['CRJ', 'CDJ', 'PJ', 'GJ', 'SJ'].includes(args[0])) {
+      clientId = currentClientId;
+      journalType = args[0];
+      columns = args[1] || [];
+    } else {
+      clientId = args[0];
+      journalType = args[1];
+      columns = args[2] || [];
+    }
+    if (!clientId) return;
+    const rows = columns.map(c => ({ id: String(c.id), client_id: clientId, journal_type: journalType, name: c.name || '', type: c.type || 'text', category: c.category || 'None', is_system: !!c.isSystem }));
+    const { data: existing, error: readError } = await supabase.from('journal_columns').select('id').eq('client_id', clientId).eq('journal_type', journalType);
+    if (readError) throw readError;
+    const keep = new Set(rows.map(r => r.id));
+    const stale = (existing || []).map((r: any) => String(r.id)).filter(id => !keep.has(id));
+    if (rows.length) { const { error } = await supabase.from('journal_columns').upsert(rows, { onConflict: 'id' }); if (error) throw error; }
+    if (stale.length) { const { error } = await supabase.from('journal_columns').delete().eq('client_id', clientId).eq('journal_type', journalType).in('id', stale); if (error) throw error; }
+    updateClientState(clientId, { [`${String(journalType).toLowerCase()}Columns`]: columns } as any);
+  };
+
+  const saveJournalEntry = async (...args: any[]) => {
+    if (!user) return;
+    const { clientId, journalType, payload } = resolveJournalArgs(args);
+    if (!clientId || !journalType || !payload) return;
+    const row = journalEntryRow(clientId, journalType, payload);
+    const { error } = await supabase.from('journal_entries').upsert(row, { onConflict: 'id' });
+    if (error) throw error;
+    const key = `${String(journalType).toLowerCase()}Entries`;
+    const existing = ((clients[clientId] as any)?.[key] || []).filter((e: any) => String(e.id) !== String(payload.id));
+    updateClientState(clientId, { [key]: [...existing, payload] } as any);
+  };
+
+  const saveJournalEntries = async (...args: any[]) => {
+    if (!user) return;
+    let clientId: string | null;
+    let journalType: string;
+    let entries: any[];
+    if (typeof args[0] === 'string' && ['CRJ', 'CDJ', 'PJ', 'GJ', 'SJ'].includes(args[0])) {
+      clientId = currentClientId;
+      journalType = args[0];
+      entries = args[1] || [];
+    } else {
+      clientId = args[0];
+      journalType = args[1];
+      entries = args[2] || [];
+    }
+    if (!clientId) return;
+    const rows = entries.map(e => journalEntryRow(clientId!, journalType, e));
+    if (rows.length) { const { error } = await supabase.from('journal_entries').upsert(rows, { onConflict: 'id' }); if (error) throw error; }
+    const existingEntries = ((clients[clientId] as any)?.[`${String(journalType).toLowerCase()}Entries`] || []);
+    const keep = new Set(entries.map(e => String(e.id)));
+    const stale = existingEntries.filter((e: any) => !keep.has(String(e.id)) && !e.auto).map((e: any) => String(e.id));
+    if (stale.length) { const { error } = await supabase.from('journal_entries').delete().eq('client_id', clientId).eq('journal_type', journalType).in('id', stale); if (error) throw error; }
+    updateClientState(clientId, { [`${String(journalType).toLowerCase()}Entries`]: entries } as any);
+  };
+
+  const deleteJournalColumn = async (...args: any[]) => {
+    if (!user) return;
+    const clientId = ['CRJ', 'CDJ', 'PJ', 'GJ', 'SJ'].includes(args[0]) ? currentClientId : args[0];
+    const journalType = ['CRJ', 'CDJ', 'PJ', 'GJ', 'SJ'].includes(args[0]) ? args[0] : args[1];
+    const id = ['CRJ', 'CDJ', 'PJ', 'GJ', 'SJ'].includes(args[0]) ? args[1] : args[2];
+    if (!clientId || !journalType || !id) return;
+    const { error } = await supabase.from('journal_columns').delete().eq('client_id', clientId).eq('journal_type', journalType).eq('id', String(id));
+    if (error) throw error;
+    const key = `${String(journalType).toLowerCase()}Columns`;
+    updateClientState(clientId, { [key]: (((clients[clientId] as any)?.[key] || []).filter((c: any) => String(c.id) !== String(id))) } as any);
+  };
+
+  const deleteJournalEntry = async (...args: any[]) => {
+    if (!user) return;
+    const clientId = ['CRJ', 'CDJ', 'PJ', 'GJ', 'SJ'].includes(args[0]) ? currentClientId : args[0];
+    const journalType = ['CRJ', 'CDJ', 'PJ', 'GJ', 'SJ'].includes(args[0]) ? args[0] : args[1];
+    const id = ['CRJ', 'CDJ', 'PJ', 'GJ', 'SJ'].includes(args[0]) ? args[1] : args[2];
+    if (!clientId || !journalType || !id) return;
+    const { error } = await supabase.from('journal_entries').delete().eq('client_id', clientId).eq('journal_type', journalType).eq('id', String(id));
+    if (error) throw error;
+    const key = `${String(journalType).toLowerCase()}Entries`;
+    updateClientState(clientId, { [key]: (((clients[clientId] as any)?.[key] || []).filter((e: any) => String(e.id) !== String(id))) } as any);
+  };
+
+  const saveJournalVoucher = async (clientId: string, voucher: any, gjEntries: any[] = []) => {
+    if (!user || !clientId) return;
+    const voucherRow = { id: String(voucher.id), client_id: clientId, date: voucher.date || null, reference: voucher.reference || null, memo: voucher.memo || null };
+    const { error: voucherError } = await supabase.from('journal_vouchers').upsert(voucherRow, { onConflict: 'id' });
+    if (voucherError) throw voucherError;
+    const lineRows = (voucher.lines || []).map((l: any) => ({ id: String(l.id), client_id: clientId, journal_voucher_id: String(voucher.id), account_id: l.accountId || null, account_name: l.accountName || null, debit: Number(l.debit || 0), credit: Number(l.credit || 0) }));
+    const { data: oldLines, error: oldLinesError } = await supabase.from('journal_voucher_lines').select('id').eq('client_id', clientId).eq('journal_voucher_id', String(voucher.id));
+    if (oldLinesError) throw oldLinesError;
+    if (lineRows.length) { const { error } = await supabase.from('journal_voucher_lines').upsert(lineRows, { onConflict: 'id' }); if (error) throw error; }
+    const keep = new Set(lineRows.map((l: any) => l.id));
+    const stale = (oldLines || []).map((l: any) => String(l.id)).filter((id: string) => !keep.has(id));
+    if (stale.length) { const { error } = await supabase.from('journal_voucher_lines').delete().eq('client_id', clientId).in('id', stale); if (error) throw error; }
+    if (gjEntries.length) {
+      const gjRows = gjEntries.map(e => ({ ...journalEntryRow(clientId, 'GJ', e), auto: true, auto_source: `journal_voucher:${voucher.id}` }));
+      const { error } = await supabase.from('journal_entries').upsert(gjRows, { onConflict: 'id' });
+      if (error) throw error;
+    }
+    const vouchers = [...((clients[clientId]?.journalVouchers || []) as any[]).filter(v => String(v.id) !== String(voucher.id)), voucher];
+    const gjExisting = (clients[clientId]?.gjEntries || []) as any[];
+    const nextGj = [...gjExisting.filter(e => !gjEntries.some(g => String(g.id) === String(e.id))), ...gjEntries.map(e => ({ ...e, auto: true, autoSource: `journal_voucher:${voucher.id}` }))];
+    updateClientState(clientId, { journalVouchers: vouchers, gjEntries: nextGj });
+  };
+
+  const deleteJournalVoucher = async (clientId: string, voucherId: string) => {
+    if (!user || !clientId) return;
+    const { error } = await supabase.from('journal_vouchers').delete().eq('client_id', clientId).eq('id', String(voucherId));
+    if (error) throw error;
+    const { error: gjError } = await supabase.from('journal_entries').delete().eq('client_id', clientId).eq('journal_type', 'GJ').eq('auto_source', `journal_voucher:${voucherId}`);
+    if (gjError) throw gjError;
+    updateClientState(clientId, {
+      journalVouchers: ((clients[clientId]?.journalVouchers || []) as any[]).filter(v => String(v.id) !== String(voucherId)),
+      gjEntries: ((clients[clientId]?.gjEntries || []) as any[]).filter(e => e.autoSource !== `journal_voucher:${voucherId}`),
+    });
+  };
+
+  const saveInventoryColumn = async (column: any) => {
+    if (!user || !currentClientId) return;
+    const row = { id: String(column.id), client_id: currentClientId, label: column.label || '' };
+    const { error } = await supabase.from('inventory_columns').upsert(row, { onConflict: 'id' });
+    if (error) throw error;
+    const next = [...((clients[currentClientId]?.inventoryColumns || []) as any[]).filter(c => String(c.id) !== String(column.id)), column];
+    updateClientState(currentClientId, { inventoryColumns: next });
+  };
+
+  const deleteInventoryColumn = async (columnId: string) => {
+    if (!user || !currentClientId) return;
+    const { error } = await supabase.from('inventory_columns').delete().eq('client_id', currentClientId).eq('id', String(columnId));
+    if (error) throw error;
+    updateClientState(currentClientId, { inventoryColumns: ((clients[currentClientId]?.inventoryColumns || []) as any[]).filter(c => String(c.id) !== String(columnId)) });
+  };
+
+  const saveInventoryItem = async (item: any) => {
+    if (!user || !currentClientId) return;
+    const row = { id: String(item.id), client_id: currentClientId, code: item.code || '', name: item.name || '', sku: item.sku || null, description: item.description || null, category: item.category || '', unit_of_measure: item.unitOfMeasure || '', cost_price: Number(item.costPrice || 0), selling_price: Number(item.sellingPrice || 0), stock_level: Number(item.stockLevel || 0), reorder_point: Number(item.reorderPoint || 0), location: item.location || null, custom_fields: item.customFields || {} };
+    const { error } = await supabase.from('inventory_items').upsert(row, { onConflict: 'id' });
+    if (error) throw error;
+    const next = [...((clients[currentClientId]?.inventoryItems || []) as any[]).filter(i => String(i.id) !== String(item.id)), item];
+    updateClientState(currentClientId, { inventoryItems: next });
+  };
+
+  const deleteInventoryItem = async (itemId: string) => {
+    if (!user || !currentClientId) return;
+    const { error } = await supabase.from('inventory_items').delete().eq('client_id', currentClientId).eq('id', String(itemId));
+    if (error) throw error;
+    updateClientState(currentClientId, { inventoryItems: ((clients[currentClientId]?.inventoryItems || []) as any[]).filter(i => String(i.id) !== String(itemId)), inventoryMovements: ((clients[currentClientId]?.inventoryMovements || []) as any[]).filter(m => String(m.itemId) !== String(itemId)) });
+  };
+
+  const saveInventoryMovement = async (movement: any) => {
+    if (!user || !currentClientId) return;
+    const row = { id: String(movement.id), client_id: currentClientId, item_id: movement.itemId || null, item_name: movement.itemName || null, item_code: movement.itemCode || null, date: movement.date || null, type: movement.type || null, qty: Number(movement.qty || 0), unit_cost: Number(movement.unitCost || 0), total_value: Number(movement.totalValue || 0), reference: movement.reference || null, notes: movement.notes || null };
+    const { error } = await supabase.from('inventory_movements').upsert(row, { onConflict: 'id' });
+    if (error) throw error;
+    const next = [...((clients[currentClientId]?.inventoryMovements || []) as any[]).filter(m => String(m.id) !== String(movement.id)), movement];
+    updateClientState(currentClientId, { inventoryMovements: next });
+  };
+
+  const saveTinEntry = async (entry: any, partyType: 'customer' | 'supplier') => {
+    if (!user || !currentClientId) return;
+    const row = { id: String(entry.id), client_id: currentClientId, tin: String(entry.tin || ''), name: String(entry.name || '').trim(), address: entry.address || null, party_type: partyType };
+    const { error } = await supabase.from('tin_entries').upsert(row, { onConflict: 'id' });
+    if (error) throw error;
+    const key = partyType === 'customer' ? 'customers' : 'suppliers';
+    const lib = clients[currentClientId]?.tinLibrary || { customers: [], suppliers: [] };
+    const next = { ...lib, [key]: [...((lib as any)[key] || []).filter((x: any) => String(x.id) !== String(entry.id)), entry] };
+    updateClientState(currentClientId, { tinLibrary: next as any });
+  };
+
+  const deleteTinEntry = async (id: string, partyType: 'customer' | 'supplier') => {
+    if (!user || !currentClientId) return;
+    const { error } = await supabase.from('tin_entries').delete().eq('client_id', currentClientId).eq('id', String(id)).eq('party_type', partyType);
+    if (error) throw error;
+    const key = partyType === 'customer' ? 'customers' : 'suppliers';
+    const lib = clients[currentClientId]?.tinLibrary || { customers: [], suppliers: [] };
+    updateClientState(currentClientId, { tinLibrary: { ...lib, [key]: ((lib as any)[key] || []).filter((x: any) => String(x.id) !== String(id)) } as any });
+  };
+
+  const saveBillingInvoice = async (id: string, invoice: any) => {
+    if (!user || !currentClientId) return;
+    const row = { id: String(id), client_id: currentClientId, date: invoice.date || null, due_date: invoice.dueDate || null, invoice_no: invoice.invoiceNo || '', customer_tin: invoice.customerTin || null, customer_name: invoice.customerName || null, customer_address: invoice.customerAddress || null, vat_type: invoice.vatType || null, amount: Number(invoice.amount || 0), net_of_vat: Number(invoice.netOfVat || 0), output_tax: Number(invoice.outputTax || 0), description: invoice.description || null, status: invoice.status || 'Outstanding', payment_type: invoice.paymentType || null, date_paid: invoice.datePaid || null, is_recurring: !!invoice.isRecurring, recurrence_frequency: invoice.recurrenceFrequency || null, next_billing_date: invoice.nextBillingDate || null, parent_invoice_id: invoice.parentInvoiceId || null };
+    const { error } = await supabase.from('billing_invoices').upsert(row, { onConflict: 'id' });
+    if (error) throw error;
+    const next = [...((clients[currentClientId]?.billingInvoices || []) as any[]).filter(i => String(i.id) !== String(id)), invoice];
+    updateClientState(currentClientId, { billingInvoices: next });
+  };
+
+  const deleteBillingInvoice = async (id: string) => {
+    if (!user || !currentClientId) return;
+    const { error } = await supabase.from('billing_invoices').delete().eq('client_id', currentClientId).eq('id', String(id));
+    if (error) throw error;
+    updateClientState(currentClientId, { billingInvoices: ((clients[currentClientId]?.billingInvoices || []) as any[]).filter(i => String(i.id) !== String(id)) });
+  };
+
   const saveClient = async (id: string, clientData: Client) => {
     const updatedClient = { ...clientData, id, userId: user ? user.id : undefined } as Client;
     setClients((prev) => ({ ...prev, [id]: updatedClient }));
@@ -1149,6 +1462,26 @@ export function AccountingProvider({
         saveClient,
         savePurchase,
         deletePurchase,
+        saveSale,
+        saveCoaColumns,
+        saveCoaAccounts,
+        saveJournalColumn,
+        saveJournalColumns,
+        saveJournalEntry,
+        saveJournalEntries,
+        deleteJournalColumn,
+        deleteJournalEntry,
+        saveJournalVoucher,
+        deleteJournalVoucher,
+        saveInventoryColumn,
+        deleteInventoryColumn,
+        saveInventoryItem,
+        deleteInventoryItem,
+        saveInventoryMovement,
+        saveTinEntry,
+        deleteTinEntry,
+        saveBillingInvoice,
+        deleteBillingInvoice,
         addClient,
         deleteClient,
         saveBusinessProfile,
