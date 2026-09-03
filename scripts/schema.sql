@@ -539,24 +539,6 @@ create index if not exists idx_bank_accounts_client_id
 -- ---------------------------------------------------------------------------
 
 
-create table if not exists public.miscellaneous_payments (
-  id text primary key,
-  client_id text not null references public.clients(id) on delete cascade,
-  date date,
-  payee_name text,
-  amount numeric(18,2),
-  bank_account_id text,
-  bank_name text,
-  check_number text,
-  expense_category text,
-  description text,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-create index if not exists idx_miscellaneous_payments_client_id
-  on public.miscellaneous_payments(client_id);
-
 create table if not exists public.asset_lapsing_schedule (
   id text primary key,
   client_id text not null references public.clients(id) on delete cascade,
@@ -654,7 +636,6 @@ begin
     'tin_entries',
     'tax_deadlines',
     'bank_accounts',
-    'miscellaneous_payments',
     'asset_lapsing_schedule',
     'billing_invoices',
     'financial_report_snapshots'
@@ -726,7 +707,6 @@ begin
     'tin_entries',
     'tax_deadlines',
     'bank_accounts',
-    'miscellaneous_payments',
     'asset_lapsing_schedule',
     'billing_invoices',
     'financial_report_snapshots'
@@ -775,7 +755,6 @@ begin
     'receiving_reports','receiving_report_items','payable_invoices',
     'payable_invoice_items','inventory_columns','inventory_items','inventory_movements',
     'app_folders','app_files','tin_entries','tax_deadlines','bank_accounts',
-    'miscellaneous_payments',
     'asset_lapsing_schedule','billing_invoices','financial_report_snapshots'
   ] loop
     if not exists (
