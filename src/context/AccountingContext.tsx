@@ -151,7 +151,7 @@ const normalizedClientKeys = new Set([
   'sjColumns', 'sjEntries', 'gjColumns', 'gjEntries', 'journalVouchers', 'purchaseOrders', 'receivingReports',
   'payableInvoices', 'inventoryItems', 'inventoryMovements', 'inventoryColumns',
   'folders', 'files', 'taxDeadlines', 'bankAccounts',
-  'checkVouchers', 'miscellaneousPayments',
+  'miscellaneousPayments',
   'assetLapsingSchedule', 'billingInvoices', 'tinLibrary', 'plData', 'bsData', 'cfData'
 ]);
 
@@ -227,7 +227,7 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
     journalVouchers, journalVoucherLines, purchaseOrders, receivingReports,
     receivingReportItems, payableInvoices, payableInvoiceItems, inventoryColumns, inventoryItems,
     inventoryMovements, folders, files, tinEntries, taxDeadlines, bankAccounts,
-    checkVouchers, miscellaneousPayments,
+    miscellaneousPayments,
     assetLapsingSchedule, billingInvoices, snapshots] = await Promise.all([
       supabase.from('purchases').select('*').eq('client_id', clientId),
       supabase.from('sales').select('*').eq('client_id', clientId),
@@ -250,7 +250,6 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
       supabase.from('tin_entries').select('*').eq('client_id', clientId),
       supabase.from('tax_deadlines').select('*').eq('client_id', clientId),
       supabase.from('bank_accounts').select('*').eq('client_id', clientId),
-      supabase.from('check_vouchers').select('*').eq('client_id', clientId),
       supabase.from('miscellaneous_payments').select('*').eq('client_id', clientId),
       supabase.from('asset_lapsing_schedule').select('*').eq('client_id', clientId),
       supabase.from('billing_invoices').select('*').eq('client_id', clientId),
@@ -261,7 +260,7 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
     journalVouchers, journalVoucherLines, purchaseOrders, receivingReports,
     receivingReportItems, payableInvoices, payableInvoiceItems, inventoryColumns, inventoryItems,
     inventoryMovements, folders, files, tinEntries, taxDeadlines, bankAccounts,
-    checkVouchers, miscellaneousPayments,
+    miscellaneousPayments,
     assetLapsingSchedule, billingInvoices, snapshots];
   const responseNames = [
     'purchases', 'sales', 'coa_columns', 'coa_accounts', 'journal_columns',
@@ -269,7 +268,7 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
     'receiving_reports', 'receiving_report_items', 'payable_invoices',
     'payable_invoice_items', 'inventory_columns', 'inventory_items', 'inventory_movements',
     'app_folders', 'app_files', 'tin_entries', 'tax_deadlines', 'bank_accounts',
-    'check_vouchers', 'miscellaneous_payments',
+    'miscellaneous_payments',
     'asset_lapsing_schedule', 'billing_invoices', 'financial_report_snapshots',
   ];
   const failedResponseIndex = responses.findIndex((r: any) => r.error);
@@ -318,7 +317,6 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
     tinLibrary: { customers:tinRows.filter((r:any)=>r.party_type==='customer').map((r:any)=>({id:Number(r.id)||r.id,tin:r.tin,name:r.name,address:r.address})), suppliers:tinRows.filter((r:any)=>r.party_type==='supplier').map((r:any)=>({id:Number(r.id)||r.id,tin:r.tin,name:r.name,address:r.address})) },
     taxDeadlines: tdRows.map((r:any)=>({id:strId(r.id),formType:r.form_type,title:r.title,period:r.period,dueDate:rowDate(r.due_date),status:r.status,taxStatus:r.tax_status||undefined,amountDue:r.amount_due==null?undefined:Number(r.amount_due),dateFiled:rowDate(r.date_filed)||undefined,datePaid:rowDate(r.date_paid)||undefined,referenceNo:r.reference_no||undefined,confirmationNo:r.confirmation_no||undefined,notes:r.notes||undefined})),
     bankAccounts: baRows.map((r:any)=>({id:strId(r.id),bankName:r.bank_name,accountNumber:r.account_number,balance:Number(r.balance||0)})),
-    checkVouchers: cvRows.map((r:any)=>({id:strId(r.id),date:rowDate(r.date),payeeName:r.payee_name,invoiceId:r.invoice_id||undefined,invoiceNumber:r.invoice_number||undefined,paymentType:r.payment_type,miscDetails:r.misc_details||undefined,amount:Number(r.amount||0),checkedBy:r.checked_by||'',approvedBy:r.approved_by||'',bankAccountId:r.bank_account_id||'',bankName:r.bank_name||'',checkNumber:r.check_number||'',status:r.status,reversedReason:r.reversed_reason||undefined,reversedAt:r.reversed_at||undefined})),
     miscellaneousPayments: mpRows.map((r:any)=>({id:strId(r.id),date:rowDate(r.date),payeeName:r.payee_name,amount:Number(r.amount||0),bankAccountId:r.bank_account_id||'',bankName:r.bank_name||'',checkNumber:r.check_number||'',expenseCategory:r.expense_category||'',description:r.description||''})),
     assetLapsingSchedule: alsRows.map((r:any)=>({id:strId(r.id),datePurchased:rowDate(r.date_purchased),invoiceNo:r.invoice_no||'',description:r.description,cost:Number(r.cost||0),usefulLifeYears:Number(r.useful_life_years||0),salvageValue:Number(r.salvage_value||0)})),
     billingInvoices: biRows.map((r:any)=>({id:strId(r.id),date:rowDate(r.date),dueDate:rowDate(r.due_date),invoiceNo:r.invoice_no,customerTin:r.customer_tin||'',customerName:r.customer_name||'',customerAddress:r.customer_address||'',vatType:r.vat_type||'',amount:Number(r.amount||0),netOfVat:Number(r.net_of_vat||0),outputTax:Number(r.output_tax||0),description:r.description||undefined,status:r.status,paymentType:r.payment_type||undefined,datePaid:rowDate(r.date_paid)||undefined,isRecurring:!!r.is_recurring,recurrenceFrequency:r.recurrence_frequency||undefined,nextBillingDate:rowDate(r.next_billing_date)||undefined,parentInvoiceId:r.parent_invoice_id||undefined})),
@@ -435,7 +433,6 @@ const persistNormalizedClient = async (client: Client, userId: string) => {
   }));
   await syncMany('tax_deadlines',(client.taxDeadlines||[]).map((t:any)=>({id:strId(t.id),form_type:t.formType,title:t.title,period:t.period,due_date:t.dueDate,status:t.status,tax_status:t.taxStatus||null,amount_due:t.amountDue??null,date_filed:t.dateFiled||null,date_paid:t.datePaid||null,reference_no:t.referenceNo||null,confirmation_no:t.confirmationNo||null,notes:t.notes||null})));
   await syncMany('bank_accounts',(client.bankAccounts||[]).map((b:any)=>({id:strId(b.id),bank_name:b.bankName,account_number:b.accountNumber,balance:Number(b.balance||0)})));
-  await syncMany('check_vouchers',(client.checkVouchers||[]).map((v:any)=>({id:strId(v.id),date:v.date,payee_name:v.payeeName,invoice_id:v.invoiceId||null,invoice_number:v.invoiceNumber||null,payment_type:v.paymentType,misc_details:v.miscDetails||null,amount:Number(v.amount||0),checked_by:v.checkedBy||null,approved_by:v.approvedBy||null,bank_account_id:v.bankAccountId||null,bank_name:v.bankName||null,check_number:v.checkNumber||null,status:v.status,reversed_reason:v.reversedReason||null,reversed_at:v.reversedAt||null})));
   await syncMany('miscellaneous_payments',(client.miscellaneousPayments||[]).map((m:any)=>({id:strId(m.id),date:m.date,payee_name:m.payeeName,amount:Number(m.amount||0),bank_account_id:m.bankAccountId||null,bank_name:m.bankName||null,check_number:m.checkNumber||null,expense_category:m.expenseCategory||null,description:m.description||null})));
   await syncMany('asset_lapsing_schedule',(client.assetLapsingSchedule||[]).map((a:any)=>({id:strId(a.id),date_purchased:a.datePurchased,invoice_no:a.invoiceNo||null,description:a.description,cost:Number(a.cost||0),useful_life_years:Number(a.usefulLifeYears||0),salvage_value:Number(a.salvageValue||0)})));
   await syncMany('billing_invoices',(client.billingInvoices||[]).map((b:any)=>({id:strId(b.id),date:b.date,due_date:b.dueDate,invoice_no:b.invoiceNo,customer_tin:b.customerTin||null,customer_name:b.customerName||null,customer_address:b.customerAddress||null,vat_type:b.vatType||null,amount:Number(b.amount||0),net_of_vat:Number(b.netOfVat||0),output_tax:Number(b.outputTax||0),description:b.description||null,status:b.status,payment_type:b.paymentType||null,date_paid:b.datePaid||null,is_recurring:!!b.isRecurring,recurrence_frequency:b.recurrenceFrequency||null,next_billing_date:b.nextBillingDate||null,parent_invoice_id:b.parentInvoiceId||null})));
@@ -734,7 +731,7 @@ export function AccountingProvider({
           'receiving_reports','payable_invoices',
           'inventory_columns','inventory_items','inventory_movements',
           'app_folders','app_files','tin_entries','tax_deadlines','bank_accounts',
-          'check_vouchers','miscellaneous_payments',
+          'miscellaneous_payments',
           'asset_lapsing_schedule','billing_invoices','financial_report_snapshots'
         ];
         let reloadTimer: ReturnType<typeof setTimeout> | null = null;
