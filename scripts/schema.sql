@@ -103,7 +103,7 @@ before update on public.clients
 for each row execute function public.set_updated_at();
 
 -- ---------------------------------------------------------------------------
--- Purchases / sales / expenses
+-- Purchases / sales
 -- ---------------------------------------------------------------------------
 
 create table if not exists public.purchases (
@@ -172,24 +172,6 @@ create index if not exists idx_sales_client_id on public.sales(client_id);
 drop trigger if exists trg_sales_updated_at on public.sales;
 create trigger trg_sales_updated_at
 before update on public.sales
-for each row execute function public.set_updated_at();
-
-create table if not exists public.expenses (
-  id text primary key,
-  client_id text not null references public.clients(id) on delete cascade,
-  date date,
-  amount numeric(18,2),
-  category text,
-  description text,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-create index if not exists idx_expenses_client_id on public.expenses(client_id);
-
-drop trigger if exists trg_expenses_updated_at on public.expenses;
-create trigger trg_expenses_updated_at
-before update on public.expenses
 for each row execute function public.set_updated_at();
 
 -- ---------------------------------------------------------------------------
@@ -817,7 +799,6 @@ begin
   foreach t in array array[
     'purchases',
     'sales',
-    'expenses',
     'coa_columns',
     'coa_accounts',
     'journal_columns',
@@ -886,7 +867,7 @@ declare
   tbl text;
 begin
   foreach tbl in array array[
-    'clients','purchases','sales','expenses','coa_columns','coa_accounts','journal_columns',
+    'clients','purchases','sales','coa_columns','coa_accounts','journal_columns',
     'journal_entries','journal_vouchers','journal_voucher_lines','purchase_orders',
     'purchase_order_items','receiving_reports','receiving_report_items','payable_invoices',
     'payable_invoice_items','inventory_columns','inventory_items','inventory_movements',
