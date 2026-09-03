@@ -164,6 +164,7 @@ export function ChartOfAccounts() {
     typeKey: string;
     codeKey?: string;
     openingBalanceKey?: string;
+    accountLevelKey?: string;
     matchedColumnKeys: Record<string, string>;
   } | null>(null);
 
@@ -420,6 +421,11 @@ export function ChartOfAccounts() {
         // so it needs its own lookup rather than relying on the coaColumns matching loop below.
         const openingBalanceKey = findColumnKey(rows[0], ['openingbalance', 'openbalance', 'beginningbalance', 'balance']);
 
+        // Account Level is used to preserve the source hierarchy. This is especially
+        // important when the same account title occurs more than once (for example,
+        // Packaging Supplies can legitimately exist under Inventories and COGS).
+        const accountLevelKey = findColumnKey(rows[0], ['accountlevel', 'level', 'accountclass']);
+
         // Match any remaining uploaded columns (Normal Entry, custom columns, etc.)
         // to the Chart of Accounts columns that share the same header/column name.
         const otherColumns = coaColumns.filter(col => col.id !== 'id' && col.id !== 'name' && col.id !== 'type');
@@ -438,7 +444,7 @@ export function ChartOfAccounts() {
         // (Previously this used window.confirm(), which can silently auto-resolve to "false"
         // in embedded/sandboxed preview frames — making the Override option look broken.)
         setPendingUploadRows(rows);
-        setPendingUploadKeys({ titleKey, typeKey, codeKey, openingBalanceKey, matchedColumnKeys });
+        setPendingUploadKeys({ titleKey, typeKey, codeKey, openingBalanceKey, accountLevelKey, matchedColumnKeys });
         setShowUploadChoice(true);
       } catch (err) {
         alert("Couldn't read that file. Please upload a CSV, XLS, or XLSX file with 'Account Title' and 'Account Type' columns.");
@@ -460,39 +466,60 @@ export function ChartOfAccounts() {
     setPendingUploadKeys(null);
     if (!rows || !keys) return;
 
-    const { titleKey, typeKey, codeKey, openingBalanceKey, matchedColumnKeys } = keys;
+    const { titleKey, typeKey, codeKey, openingBalanceKey, accountLevelKey, matchedColumnKeys } = keys;
     const format = currentClient.coaFormat || 'numeric';
     const baseAccounts = overwrite ? [] : accounts;
-    const usedIds = new Set(baseAccounts.map(a => a.id));
-    const existingNames = new Set(baseAccounts.map(a => a.name.trim().toLowerCase()));
+    const usedIds = new Set(baseAccounts.map(a => String(a.id)));
 
+    // Do not use account name as a uniqueness key. The imported COA can legitimately
+    // contain the same title more than once under different parents/types.
     const newAccounts: CoaAccount[] = [];
     let skipped = 0;
+    let currentMainId: string | undefined;
+    const occurrenceByKey = new Map<string, number>();
 
-    rows.forEach(row => {
-      const name = String(row[titleKey] || '').trim();
+    const cleanAccountName = (value: any) => String(value ?? '')
+      .trim()
+      .replace(/^(?:↳|->|=>|›|»)+\s*/, '')
+      .trim();
+
+    const normalizeLevel = (value: any) => String(value ?? '').trim().toLowerCase();
+    const isSubAccount = (value: any) => /sub[- ]?account|subaccount|child|detail/.test(normalizeLevel(value));
+
+    const parseOpeningBalance = (value: any): number | undefined => {
+      if (value === null || value === undefined || value === '') return undefined;
+      const raw = String(value).trim().replace(/[₱$\s,]/g, '');
+      if (!raw) return undefined;
+      const negative = /^\(.*\)$/.test(raw);
+      const numeric = raw.replace(/[()]/g, '');
+      const parsed = Number(numeric);
+      return Number.isFinite(parsed) ? (negative ? -Math.abs(parsed) : parsed) : undefined;
+    };
+
+    rows.forEach((row, rowIndex) => {
+      const name = cleanAccountName(row[titleKey]);
       const rawType = String(row[typeKey] || '').trim();
       if (!name || !rawType) { skipped++; return; }
-      if (existingNames.has(name.toLowerCase())) { skipped++; return; }
 
       const { type } = normalizeUploadedType(rawType);
+      const level = accountLevelKey ? row[accountLevelKey] : '';
+      const subAccount = accountLevelKey ? isSubAccount(level) : /^↳/.test(String(row[titleKey] ?? '').trim());
 
-      // Use the account code from the file when the file has one and it isn't already
-      // taken; otherwise fall back to auto-generating one so nothing is left without a code.
-      let id = '';
-      if (codeKey) {
-        const rawCode = String(row[codeKey] ?? '').trim();
-        if (rawCode && !usedIds.has(rawCode)) {
-          id = rawCode;
-        }
-      }
+      // Prefer a source code when supplied. Otherwise generate a stable unique code
+      // for this imported row. The row identity includes type + hierarchy so duplicate
+      // titles remain distinct.
+      const explicitCode = codeKey ? String(row[codeKey] ?? '').trim() : '';
+      const hierarchyKey = subAccount
+        ? `${currentMainId || 'root'}|${type}|${name.toLowerCase()}`
+        : `root|${type}|${name.toLowerCase()}`;
+      const occurrence = (occurrenceByKey.get(hierarchyKey) || 0) + 1;
+      occurrenceByKey.set(hierarchyKey, occurrence);
+      let id = explicitCode && !usedIds.has(explicitCode) ? explicitCode : '';
       if (!id) {
-        id = generateUploadedAccountId(name, type, usedIds, format);
+        id = generateUploadedAccountId(`${name}-${occurrence}-${rowIndex + 1}`, type, usedIds, format);
       }
       usedIds.add(id);
-      existingNames.add(name.toLowerCase());
 
-      // Pull in values from any matched columns (overrides the auto-derived Sub-Type/Normal Entry when present)
       const matchedValues: Record<string, any> = {};
       Object.entries(matchedColumnKeys).forEach(([colId, fileKey]) => {
         const rawValue = String(row[fileKey] ?? '').trim();
@@ -505,31 +532,30 @@ export function ChartOfAccounts() {
         }
       });
 
-      // Opening Balance, if the file has a matching column
-      let openingBalance: number | undefined;
-      if (openingBalanceKey) {
-        const rawBalance = String(row[openingBalanceKey] ?? '').trim().replace(/,/g, '');
-        if (rawBalance !== '') {
-          const parsedBalance = parseFloat(rawBalance);
-          if (!isNaN(parsedBalance)) openingBalance = parsedBalance;
-        }
-      }
-
-      newAccounts.push({
+      const openingBalance = openingBalanceKey ? parseOpeningBalance(row[openingBalanceKey]) : undefined;
+      const account: CoaAccount = {
         id,
         name,
         type,
         normalSide: getNormalSide(type),
         ...(openingBalance !== undefined ? { openingBalance } : {}),
         ...matchedValues,
-      });
+      };
+
+      if (subAccount && currentMainId) account.parentId = currentMainId;
+      else if (!subAccount) currentMainId = id;
+
+      newAccounts.push(account);
     });
 
     if (newAccounts.length === 0) {
-      showToast(skipped > 0 ? "No new accounts added — all rows were duplicates or incomplete." : "No valid rows found in the file.");
+      showToast(skipped > 0 ? "No accounts added — all rows were incomplete or invalid." : "No valid rows found in the file.");
       return;
     }
 
+    // Imported opening balances are source data. Do not create a balancing plug or
+    // silently alter any account. The source file may itself be unbalanced; preserve
+    // those amounts exactly and let the reconciliation/B/S report expose the difference.
     handleSaveAccounts([...baseAccounts, ...newAccounts]);
     showToast(
       overwrite
