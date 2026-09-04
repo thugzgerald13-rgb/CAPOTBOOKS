@@ -153,8 +153,8 @@ const buildMatchingClient = (profileData: BusinessProfile, existing: Client | un
 const normalizedClientKeys = new Set([
   'sales', 'purchases', 'accounts', 'coaColumns',
   'crjColumns', 'crjEntries', 'cdjColumns', 'cdjEntries', 'pjColumns', 'pjEntries',
-  'sjColumns', 'sjEntries', 'gjColumns', 'gjEntries', 'journalVouchers', 'purchaseOrders', 'receivingReports',
-  'payableInvoices', 'inventoryItems', 'inventoryMovements', 'inventoryColumns',
+  'sjColumns', 'sjEntries', 'gjColumns', 'gjEntries', 'journalVouchers',
+  'inventoryItems', 'inventoryMovements', 'inventoryColumns',
   'folders', 'files', 'taxDeadlines', 'bankAccounts',
   'assetLapsingSchedule', 'billingInvoices', 'tinLibrary', 'plData', 'bsData', 'cfData'
 ]);
@@ -229,8 +229,7 @@ const loadNormalizedTable = async (table: string, clientId: string) => {
 
 const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> => {
   const [purchases, sales, coaColumns, coaAccounts, journalColumns, journalEntries,
-    journalVouchers, journalVoucherLines, purchaseOrders, receivingReports,
-    payableInvoices, payableInvoiceItems, inventoryColumns, inventoryItems,
+    journalVouchers, journalVoucherLines, inventoryColumns, inventoryItems,
     inventoryMovements, folders, files, tinEntries, taxDeadlines, bankAccounts,
     assetLapsingSchedule, billingInvoices, snapshots] = await Promise.all([
       supabase.from('purchases').select('*').eq('client_id', clientId),
@@ -241,10 +240,6 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
       supabase.from('journal_entries').select('*').eq('client_id', clientId),
       supabase.from('journal_vouchers').select('*').eq('client_id', clientId),
       supabase.from('journal_voucher_lines').select('*').eq('client_id', clientId),
-      supabase.from('purchase_orders').select('*').eq('client_id', clientId),
-      supabase.from('receiving_reports').select('*').eq('client_id', clientId),
-      supabase.from('payable_invoices').select('*').eq('client_id', clientId),
-      loadNormalizedTable('payable_invoice_items', clientId),
       supabase.from('inventory_columns').select('*').eq('client_id', clientId),
       supabase.from('inventory_items').select('*').eq('client_id', clientId),
       supabase.from('inventory_movements').select('*').eq('client_id', clientId),
@@ -259,15 +254,12 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
     ]);
 
   const responses = [purchases, sales, coaColumns, coaAccounts, journalColumns, journalEntries,
-    journalVouchers, journalVoucherLines, purchaseOrders, receivingReports,
-    payableInvoices, payableInvoiceItems, inventoryColumns, inventoryItems,
+    journalVouchers, journalVoucherLines, inventoryColumns, inventoryItems,
     inventoryMovements, folders, files, tinEntries, taxDeadlines, bankAccounts,
     assetLapsingSchedule, billingInvoices, snapshots];
   const responseNames = [
     'purchases', 'sales', 'coa_columns', 'coa_accounts', 'journal_columns',
-    'journal_entries', 'journal_vouchers', 'journal_voucher_lines', 'purchase_orders',
-    'receiving_reports', 'payable_invoices',
-    'payable_invoice_items', 'inventory_columns', 'inventory_items', 'inventory_movements',
+    'journal_entries', 'journal_vouchers', 'journal_voucher_lines',  'inventory_columns', 'inventory_items', 'inventory_movements',
     'app_folders', 'app_files', 'tin_entries', 'tax_deadlines', 'bank_accounts',
     'asset_lapsing_schedule', 'billing_invoices', 'financial_report_snapshots',
   ];
@@ -305,9 +297,6 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
     sjEntries: jeRows.filter((r:any)=>r.journal_type==='SJ').map((r:any)=>({id:strId(r.id),values:r.values||{},auto:!!r.auto,autoSource:r.auto_source})),
     gjEntries: jeRows.filter((r:any)=>r.journal_type==='GJ').map((r:any)=>({id:strId(r.id),values:r.values||{},auto:!!r.auto,autoSource:r.auto_source})),
     journalVouchers: jvRows.map((r:any)=>({id:strId(r.id),date:rowDate(r.date),reference:r.reference||'',memo:r.memo||'',lines:linesByVoucher.get(r.id)||[]})),
-    purchaseOrders: poRows.map((r:any)=>({id:strId(r.id),date:rowDate(r.date),supplierId:r.supplier_id||'',supplierName:r.supplier_name||'',items:[],totalAmount:Number(r.total_amount||0),status:r.status})),
-    receivingReports: rrRows.map((r:any)=>({id:strId(r.id),date:rowDate(r.date),poId:r.po_id||'',supplierName:r.supplier_name||'',items:[],totalAmount:Number(r.total_amount||0),receivedBy:r.received_by||''})),
-    payableInvoices: piRows.map((r:any)=>({id:strId(r.id),invoiceNumber:r.invoice_number||'',date:rowDate(r.date),dueDate:rowDate(r.due_date),poId:r.po_id||undefined,rrId:r.rr_id||undefined,supplierId:r.supplier_id||'',supplierName:r.supplier_name||'',items:piItemsBy.get(r.id)||[],subtotal:Number(r.subtotal||0),vatAmount:Number(r.vat_amount||0),isVatable:!!r.is_vatable,withholdingTaxId:r.withholding_tax_id||undefined,whtAmount:r.wht_amount==null?undefined:Number(r.wht_amount),totalAmount:Number(r.total_amount||0),status:r.status,discrepancyDetails:r.discrepancy_details||undefined,appliedPrepayments:r.applied_prepayments==null?undefined:Number(r.applied_prepayments)})),
     inventoryColumns: icRows.map((r:any)=>({id:strId(r.id),label:r.label})),
     inventoryItems: iiRows.map((r:any)=>({id:strId(r.id),code:r.code,name:r.name,sku:r.sku||'',description:r.description,category:r.category,unitOfMeasure:r.unit_of_measure,costPrice:Number(r.cost_price||0),sellingPrice:Number(r.selling_price||0),stockLevel:Number(r.stock_level||0),reorderPoint:Number(r.reorder_point||0),location:r.location,customFields:r.custom_fields||{}})),
     inventoryMovements: imRows.map((r:any)=>({id:strId(r.id),itemId:r.item_id||'',itemName:r.item_name||'',itemCode:r.item_code||'',date:rowDate(r.date),type:r.type,qty:Number(r.qty||0),unitCost:Number(r.unit_cost||0),totalValue:Number(r.total_value||0),reference:r.reference||'',notes:r.notes})),
@@ -630,8 +619,7 @@ export function AccountingProvider({
         // root would leave another device stale.
         const normalizedRealtimeTables = [
           'purchases','sales','coa_columns','coa_accounts','journal_columns',
-          'journal_entries','journal_vouchers','journal_voucher_lines','purchase_orders',
-          'receiving_reports','payable_invoices',
+          'journal_entries','journal_vouchers','journal_voucher_lines',
           'inventory_columns','inventory_items','inventory_movements',
           'app_folders','app_files','tin_entries','tax_deadlines','bank_accounts',
           'asset_lapsing_schedule','billing_invoices','financial_report_snapshots'
