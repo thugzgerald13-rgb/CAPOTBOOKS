@@ -19,7 +19,7 @@ export async function parsePdf(file: Blob | ArrayBuffer): Promise<ParsedPdf> {
   const document = await PDFDocument.load(data, { ignoreEncryption: true });
   const pageCount = document.getPageCount();
 
-  const pdf = await getDocument({ data: new Uint8Array(data), disableWorker: true }).promise;
+  const pdf = await getDocument({ data: new Uint8Array(data) }).promise;
   const pages: string[] = [];
 
   try {
@@ -45,3 +45,4 @@ export async function parsePdf(file: Blob | ArrayBuffer): Promise<ParsedPdf> {
     await pdf.destroy();
   }
 }
+
