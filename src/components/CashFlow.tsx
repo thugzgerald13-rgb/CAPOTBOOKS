@@ -29,11 +29,11 @@ export function CashFlow() {
     setLoading(true);
     setReportError(null);
 
-    supabase.rpc('get_server_cash_flow', {
+    Promise.resolve(supabase.rpc('get_server_cash_flow', {
       p_client_id: currentClientId,
       p_start_date: `${year}-01-01`,
       p_end_date: `${year + 1}-01-01`,
-    })
+    }))
       .then(({ data, error }) => {
         if (error) throw error;
         if (!cancelled) setRows((data || []).map((r: any) => ({
@@ -123,3 +123,4 @@ export function CashFlow() {
     </div>
   );
 }
+

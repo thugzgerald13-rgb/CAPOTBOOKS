@@ -108,9 +108,13 @@ export function Sales() {
       return;
     }
 
+    const selectedDate = new Date(date);
+    const y = selectedDate.getFullYear();
+    const m = selectedDate.getMonth() + 1;
+
     const newSale = {
       id: Date.now(),
-      datMonthYear: `${getMonthName(parseInt(m))} ${y}`,
+      datMonthYear: `${getMonthName(m)} ${y}`,
       date,
       ref,
       paymentType,
@@ -278,3 +282,4 @@ export function Sales() {
     </div>
   );
 }
+

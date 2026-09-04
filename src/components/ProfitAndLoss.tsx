@@ -21,11 +21,11 @@ export function ProfitAndLoss() {
 
     setLoading(true);
     setReportError(null);
-    supabase.rpc('get_server_account_balances', {
+    Promise.resolve(supabase.rpc('get_server_account_balances', {
       p_client_id: currentClientId,
       p_start_date: `${year}-01-01`,
       p_end_date: `${year + 1}-01-01`,
-    })
+    }))
       .then(({ data, error }) => {
         if (error) throw error;
         if (!cancelled) setBalances((data || []).map((row:any) => ({
@@ -133,3 +133,4 @@ export function ProfitAndLoss() {
     </div>
   );
 }
+

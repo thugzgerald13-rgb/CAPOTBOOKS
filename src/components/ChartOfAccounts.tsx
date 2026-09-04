@@ -312,7 +312,7 @@ export function ChartOfAccounts() {
   // really in the table (including any custom/free-text types from an upload)
   // rather than a fixed, hardcoded list.
   const availableFilterTypes = useMemo(() => {
-    const types = accounts.map(a => a.type).filter((t): t is string => !!t && t.trim() !== '');
+    const types: string[] = accounts.map(a => String(a.type ?? '')).filter(t => t.trim() !== '');
     return Array.from(new Set(types)).sort((a, b) => a.localeCompare(b));
   }, [accounts]);
 
@@ -522,7 +522,7 @@ export function ChartOfAccounts() {
 
       const matchedValues: Record<string, any> = {};
       Object.entries(matchedColumnKeys).forEach(([colId, fileKey]) => {
-        const rawValue = String(row[fileKey] ?? '').trim();
+        const rawValue = String(row[String(fileKey)] ?? '').trim();
         if (!rawValue) return;
         if (colId === 'normalSide') {
           const v = rawValue.toLowerCase();
@@ -1569,3 +1569,4 @@ export function ChartOfAccounts() {
     </div>
   );
 }
+

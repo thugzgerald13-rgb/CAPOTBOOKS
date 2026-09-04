@@ -34,11 +34,11 @@ export function Extras() {
     let cancelled = false;
     if (activePage !== 'trialbalance' || !currentClientId) return;
     setTrialBalanceError(null);
-    supabase.rpc('get_server_account_balances', {
+    Promise.resolve(supabase.rpc('get_server_account_balances', {
       p_client_id: currentClientId,
       p_start_date: `${trialBalanceYear}-01-01`,
       p_end_date: `${trialBalanceYear + 1}-01-01`,
-    })
+    }))
       .then(({ data, error }) => {
         if (error) throw error;
         if (!cancelled) setTrialBalances((data || []).map((row:any) => ({
@@ -1186,3 +1186,4 @@ export function Extras() {
     </>
   );
 }
+

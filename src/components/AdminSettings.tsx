@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { ShieldAlert, Download, Users, RefreshCw, Mail, Calendar, LineChart, CheckCircle2, XCircle, Copy, Check } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
+import { Client } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import packageJson from '../../package.json';
@@ -133,7 +134,7 @@ function DiagnosticsTab() {
   }, []);
 
   const recordCounts = useMemo(() => {
-    const list = Object.values(clients);
+    const list = Object.values(clients) as Client[];
     return {
       clients: list.length,
       sales: list.reduce((sum, c) => sum + (c.sales?.length || 0), 0),
@@ -512,3 +513,4 @@ export function AdminSettings() {
     </div>
   );
 }
+

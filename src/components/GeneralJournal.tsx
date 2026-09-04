@@ -42,8 +42,8 @@ export function GeneralJournal() {
   };
 
   const handleSaveEntries = async (newEntries: JournalEntry[]) => {
-    const previousIds = new Set(entries.map(e => e.id));
-    const nextIds = new Set(newEntries.map(e => e.id));
+    const previousIds = new Set<string>(entries.map(e => String(e.id)));
+    const nextIds = new Set<string>(newEntries.map(e => String(e.id)));
     for (const entry of newEntries) await saveJournalEntry(currentClientId, 'GJ', entry);
     for (const id of previousIds) {
       if (!nextIds.has(id)) await deleteJournalEntry(currentClientId, 'GJ', id);
@@ -442,3 +442,4 @@ export function GeneralJournal() {
     </div>
   );
 }
+
