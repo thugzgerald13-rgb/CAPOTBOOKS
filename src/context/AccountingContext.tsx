@@ -325,6 +325,26 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
   return result;
 };
 
+const persistClientShell = async (client: Client, userId: string) => {
+  const row = {
+    id: client.id, user_id: userId, name: client.name || '', tin: client.tin || null,
+    taxpayer_classification: client.taxpayerClassification || null,
+    registered_name: client.registeredName || null, last_name: client.lastName || null,
+    first_name: client.firstName || null, middle_name: client.middleName || null,
+    trade_name: client.tradeName || null, substreet: client.substreet || null,
+    street: client.street || null, barangay: client.barangay || null, district: client.district || null,
+    city: client.city || null, zip_code: client.zipCode || null, rdo_code: client.rdoCode || null,
+    phone: client.phone || null, email: client.email || null, category: client.category || 'private',
+    has_multiple_business_lines: !!client.hasMultipleBusinessLines,
+    accounting_type: client.accountingType || 'Calendar', fiscal_month_end: client.fiscalMonthEnd || 12,
+    coa_format: client.coaFormat || 'numeric', updated_at: new Date().toISOString(),
+  };
+  const { error } = await supabase.from('clients').upsert(row, { onConflict: 'id' });
+  if (error) throw error;
+};
+
+// Legacy aggregate synchronization remains defined below only as a compatibility
+// reference during migration. Runtime paths must use targeted normalized writes.
 const persistNormalizedClient = async (client: Client, userId: string) => {
   const clientId = client.id;
   const parent = {
@@ -862,7 +882,7 @@ export function AccountingProvider({
         // the business profile on every refresh.
 
         if (isReady) {
-          persistNormalizedClient(matchingClient, user.id).catch((error) => console.error('Auto-syncing owner client failed:', error));
+          persistClientShell(matchingClient, user.id).catch((error) => console.error('Auto-syncing owner client shell failed:', error));
         }
       }
 
@@ -1238,16 +1258,36 @@ export function AccountingProvider({
     updateClientState(currentClientId, { [key]: data } as any);
   };
 
+  // Compatibility entry point for older callers.  Client-level saves now update
+  // only the tenancy/profile row; transactional entities must use their targeted
+  // normalized save functions (savePurchase, saveSale, saveJournalEntry, etc.).
+  // This prevents a single profile save from rewriting/deleting an entire client's
+  // normalized transaction set.
   const saveClient = async (id: string, clientData: Client) => {
-    const updatedClient = { ...clientData, id, userId: user ? user.id : undefined } as Client;
-    setClients((prev) => ({ ...prev, [id]: updatedClient }));
     if (!user) return;
+    const existing = clients[id] || ({ id } as Client);
+    const merged = { ...existing, ...clientData, id } as Client;
+    const row = {
+      id, user_id: user.id, name: merged.name || '', tin: merged.tin || null,
+      taxpayer_classification: merged.taxpayerClassification || null,
+      registered_name: merged.registeredName || null, last_name: merged.lastName || null,
+      first_name: merged.firstName || null, middle_name: merged.middleName || null,
+      trade_name: merged.tradeName || null, substreet: merged.substreet || null,
+      street: merged.street || null, barangay: merged.barangay || null, district: merged.district || null,
+      city: merged.city || null, zip_code: merged.zipCode || null, rdo_code: merged.rdoCode || null,
+      phone: merged.phone || null, email: merged.email || null, category: merged.category || 'private',
+      has_multiple_business_lines: !!merged.hasMultipleBusinessLines, accounting_type: merged.accountingType || 'Calendar',
+      fiscal_month_end: merged.fiscalMonthEnd || 12, coa_format: merged.coaFormat || 'numeric',
+      updated_at: new Date().toISOString(),
+    };
     try {
-      await persistNormalizedClient(updatedClient, user.id);
-      showToast('Saved to normalized Supabase tables');
+      const { error } = await supabase.from('clients').upsert(row, { onConflict: 'id' });
+      if (error) throw error;
+      setClients((prev) => ({ ...prev, [id]: merged }));
+      showToast('Client profile saved');
     } catch (error) {
-      console.error('Normalized client save failed:', error);
-      await handleSupabaseError(error, OperationType.UPDATE, `normalized-client/${id}`);
+      console.error('Client profile save failed:', error);
+      await handleSupabaseError(error, OperationType.UPDATE, `client-profile/${id}`);
     }
   };
 
@@ -1385,7 +1425,7 @@ export function AccountingProvider({
 
     if (user) {
       try {
-        await persistNormalizedClient(newClient, user.id);
+        await persistClientShell(newClient, user.id);
         showToast('Client added');
       } catch (error) {
         await handleSupabaseError(error, OperationType.CREATE, `clients/${newId}`);
@@ -1438,7 +1478,7 @@ export function AccountingProvider({
         const existing = clients[ownerId];
         const matchingClient = buildMatchingClient(profileData, existing, ownerId);
 
-        await persistNormalizedClient(matchingClient, user.id);
+        await persistClientShell(matchingClient, user.id);
 
         setClients((prev) => ({
           ...prev,
