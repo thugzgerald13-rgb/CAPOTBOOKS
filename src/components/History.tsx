@@ -365,17 +365,20 @@ export function History() {
   const activeConfig = TabConfig[activeTab] || TabConfig.expenses;
 
 
-  const handleDeleteExpense = async (id: number) => {
+  const handleDeleteExpense = async (id: string | number) => {
     if (!currentClientId) return;
     const { error } = await supabase.from('purchases').delete().eq('client_id', currentClientId).eq('id', id);
     if (error) { console.error(error); showToast('Unable to delete expense'); return; }
-    setLocalHistoryPurchases(prev => prev.filter(p => p.id !== id));
+    setLocalHistoryPurchases(prev => prev.filter(p => String(p.id) !== String(id)));
     showToast('Expense deleted');
   };
 
   const handleEditExpense = (purchase: typeof purchases[number]) => {
+    // Supabase `purchases.id` is stored as TEXT. Pass the exact ID through
+    // navigation without coercing it to a number. The Purchases screen also
+    // compares IDs as strings so UUID/text IDs edit reliably.
     const path = purchase.invoiceNo && purchase.supplierTin ? '/purchases/invoiced' : '/purchases/other-payments';
-    navigate(path, { state: { editPurchaseId: purchase.id } });
+    navigate(path, { state: { editPurchaseId: String(purchase.id) } });
   };
 
   const handleDeleteIncome = async (id: number) => {
@@ -1247,3 +1250,4 @@ export function History() {
     </div>
   );
 }
+

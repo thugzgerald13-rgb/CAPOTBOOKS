@@ -295,11 +295,11 @@ export function Purchases() {
   };
 
   useEffect(() => {
-    const editPurchaseId = (location.state as { editPurchaseId?: number } | null)?.editPurchaseId;
+    const editPurchaseId = (location.state as { editPurchaseId?: string | number } | null)?.editPurchaseId;
     if (editPurchaseId == null || !currentClient) return;
 
     const allPurchases = currentClient.purchases || [];
-    const index = allPurchases.findIndex(p => p.id === editPurchaseId);
+    const index = allPurchases.findIndex(p => String(p.id) === String(editPurchaseId));
     if (index >= 0) {
       loadPurchase(index, allPurchases);
       navigate(location.pathname, { replace: true, state: null });
@@ -816,3 +816,11 @@ export function Purchases() {
     </div>
   );
 }
+```
+
+---
+
+## 📄 `CAPOT-main/src/components/PurchasesJournal.tsx`
+
+*tsx · 16 KB*
+
