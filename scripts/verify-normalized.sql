@@ -142,7 +142,7 @@ where schemaname='public'
     'clients','purchases','sales','coa_columns','coa_accounts','journal_columns',
     'journal_entries','journal_vouchers','journal_voucher_lines','inventory_columns','inventory_items','inventory_movements',
     'app_folders','app_files','tin_entries','tax_deadlines','bank_accounts',
-    'withholding_tax_entries','asset_lapsing_schedule','billing_invoices','financial_report_snapshots'
+    'asset_lapsing_schedule','billing_invoices','financial_report_snapshots'
   )
 order by tablename, policyname;
 
