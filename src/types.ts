@@ -18,6 +18,7 @@ export interface Purchase {
   supplierTin: string;
   amount: number;
   vatType: string;
+  entrySource?: 'invoiced' | 'other-payments' | 'ap';
   exemptAmount?: number;
   zeroRatedAmount?: number;
   expenseType: string;
@@ -173,6 +174,11 @@ export interface Client {
   purchaseOrders?: PurchaseOrder[];
   receivingReports?: ReceivingReport[];
   bankAccounts?: BankAccount[];
+  supplierAdvances?: SupplierAdvance[];
+  withholdingTaxEntries?: WithholdingTaxEntry[];
+  debitCreditMemos?: DebitCreditMemo[];
+  checkVouchers?: CheckVoucher[];
+  miscellaneousPayments?: MiscellaneousPayment[];
   inventoryItems?: InventoryItem[];
   inventoryMovements?: InventoryMovement[];
   inventoryColumns?: InventoryColumn[];
@@ -410,6 +416,11 @@ export interface JournalEntry {
 export type CashReceipt = JournalEntry;
 export type CashDisbursement = JournalEntry;
 
+export interface DatSelection {
+  month: number;
+  year: number;
+  formatted: string;
+}
 
 // ============================================================================
 // ACCOUNTS PAYABLE & CASH DISBURSEMENTS MODULES
@@ -485,7 +496,62 @@ export interface BankAccount {
   balance: number;
 }
 
+export interface SupplierAdvance {
+  id: string;
+  supplierId: string;
+  supplierName: string;
+  date: string;
+  amount: number;
+  isLiquidated: boolean;
+  notes?: string;
+}
 
+export interface WithholdingTaxEntry {
+  id: string;
+  atcCode: string; // e.g., WI 100, WC 158
+  description: string;
+  taxRate: number; // e.g., 0.01 for 1%, 0.02, 0.05
+  category: 'Expanded' | 'Tax on Compensation' | 'Final';
+}
 
+export interface DebitCreditMemo {
+  id: string;
+  type: 'Debit' | 'Credit'; // Debit reduces payables, Credit increases payables
+  invoiceId: string; // target invoice being modified
+  invoiceNumber: string;
+  supplierName: string;
+  date: string;
+  amount: number;
+  reason: string;
+}
 
+export interface CheckVoucher {
+  id: string; // Voucher number, e.g., CV-2026-0001
+  date: string;
+  payeeName: string;
+  invoiceId?: string; // if clearing an invoice
+  invoiceNumber?: string;
+  paymentType: 'Invoice Clearance' | 'Advance' | 'Miscellaneous';
+  miscDetails?: string;
+  amount: number;
+  checkedBy: string;
+  approvedBy: string;
+  bankAccountId: string;
+  bankName: string;
+  checkNumber: string;
+  status: 'Withdrawn' | 'Cleared' | 'Reversed';
+  reversedReason?: string;
+  reversedAt?: string;
+}
 
+export interface MiscellaneousPayment {
+  id: string;
+  date: string;
+  payeeName: string;
+  amount: number;
+  bankAccountId: string;
+  bankName: string;
+  checkNumber: string;
+  expenseCategory: string; // e.g., Utilities, Rent, Office Supplies
+  description: string;
+}
