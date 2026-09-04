@@ -17,12 +17,6 @@ select c.id as client_id, c.name,
        (select count(*) from journal_entries x where x.client_id=c.id) journal_entries,
        (select count(*) from journal_vouchers x where x.client_id=c.id) journal_vouchers,
        (select count(*) from journal_voucher_lines x where x.client_id=c.id) journal_voucher_lines,
-       (select count(*) from purchase_orders x where x.client_id=c.id) purchase_orders,
-       (select count(*) from purchase_order_items x where x.client_id=c.id) purchase_order_items,
-       (select count(*) from receiving_reports x where x.client_id=c.id) receiving_reports,
-       (select count(*) from receiving_report_items x where x.client_id=c.id) receiving_report_items,
-       (select count(*) from payable_invoices x where x.client_id=c.id) payable_invoices,
-       (select count(*) from payable_invoice_items x where x.client_id=c.id) payable_invoice_items,
        (select count(*) from inventory_columns x where x.client_id=c.id) inventory_columns,
        (select count(*) from inventory_items x where x.client_id=c.id) inventory_items,
        (select count(*) from inventory_movements x where x.client_id=c.id) inventory_movements,
@@ -31,11 +25,6 @@ select c.id as client_id, c.name,
        (select count(*) from tin_entries x where x.client_id=c.id) tin_entries,
        (select count(*) from tax_deadlines x where x.client_id=c.id) tax_deadlines,
        (select count(*) from bank_accounts x where x.client_id=c.id) bank_accounts,
-       (select count(*) from supplier_advances x where x.client_id=c.id) supplier_advances,
-       (select count(*) from withholding_tax_entries x where x.client_id=c.id) withholding_tax_entries,
-       (select count(*) from debit_credit_memos x where x.client_id=c.id) debit_credit_memos,
-       (select count(*) from check_vouchers x where x.client_id=c.id) check_vouchers,
-       (select count(*) from miscellaneous_payments x where x.client_id=c.id) miscellaneous_payments,
        (select count(*) from asset_lapsing_schedule x where x.client_id=c.id) asset_lapsing_schedule,
        (select count(*) from billing_invoices x where x.client_id=c.id) billing_invoices,
        (select count(*) from financial_report_snapshots x where x.client_id=c.id) report_snapshots
@@ -51,12 +40,6 @@ select c.id as client_id, c.name,
        (select count(*) from sales s where s.client_id=c.id) as normalized_sales,
        jsonb_array_length(coalesce(c.data->'accounts','[]'::jsonb)) as legacy_accounts,
        (select count(*) from coa_accounts a where a.client_id=c.id) as normalized_accounts,
-       jsonb_array_length(coalesce(c.data->'purchaseOrders','[]'::jsonb)) as legacy_purchase_orders,
-       (select count(*) from purchase_orders x where x.client_id=c.id) as normalized_purchase_orders,
-       jsonb_array_length(coalesce(c.data->'receivingReports','[]'::jsonb)) as legacy_receiving_reports,
-       (select count(*) from receiving_reports x where x.client_id=c.id) as normalized_receiving_reports,
-       jsonb_array_length(coalesce(c.data->'payableInvoices','[]'::jsonb)) as legacy_payable_invoices,
-       (select count(*) from payable_invoices x where x.client_id=c.id) as normalized_payable_invoices,
        jsonb_array_length(coalesce(c.data->'inventoryItems','[]'::jsonb)) as legacy_inventory_items,
        (select count(*) from inventory_items x where x.client_id=c.id) as normalized_inventory_items
 from public.clients c
@@ -82,29 +65,10 @@ select c.id as client_id, c.name,
        coalesce((select sum(wht_amount) from purchases p where p.client_id=c.id),0) purchase_wht_total,
        coalesce((select sum(amount) from sales s where s.client_id=c.id),0) sales_total,
        coalesce((select sum(output_tax) from sales s where s.client_id=c.id),0) output_tax_total,
-       coalesce((select sum(total_amount) from purchase_orders x where x.client_id=c.id),0) purchase_order_total,
-       coalesce((select sum(total_amount) from receiving_reports x where x.client_id=c.id),0) receiving_report_total,
-       coalesce((select sum(total_amount) from payable_invoices x where x.client_id=c.id),0) payable_invoice_total,
        coalesce((select sum(total_value) from inventory_movements x where x.client_id=c.id),0) inventory_movement_total
 from public.clients c
 order by c.id;
 
--- 7. AP child-row integrity.
-select 'purchase_order_items', count(*)
-from purchase_order_items i
-left join purchase_orders p on p.id=i.purchase_order_id
-where p.id is null
-union all
-select 'receiving_report_items', count(*)
-from receiving_report_items i
-left join receiving_reports r on r.id=i.receiving_report_id
-where r.id is null
-union all
-select 'payable_invoice_items', count(*)
-from payable_invoice_items i
-left join payable_invoices p on p.id=i.payable_invoice_id
-where p.id is null
-union all
 select 'journal_voucher_lines', count(*)
 from journal_voucher_lines l
 left join journal_vouchers v on v.id=l.journal_voucher_id
@@ -119,12 +83,6 @@ union all select 'journal_columns',count(*) from journal_columns p left join cli
 union all select 'journal_entries',count(*) from journal_entries p left join clients c on c.id=p.client_id where c.id is null
 union all select 'journal_vouchers',count(*) from journal_vouchers p left join clients c on c.id=p.client_id where c.id is null
 union all select 'journal_voucher_lines',count(*) from journal_voucher_lines p left join clients c on c.id=p.client_id where c.id is null
-union all select 'purchase_orders',count(*) from purchase_orders p left join clients c on c.id=p.client_id where c.id is null
-union all select 'purchase_order_items',count(*) from purchase_order_items p left join clients c on c.id=p.client_id where c.id is null
-union all select 'receiving_reports',count(*) from receiving_reports p left join clients c on c.id=p.client_id where c.id is null
-union all select 'receiving_report_items',count(*) from receiving_report_items p left join clients c on c.id=p.client_id where c.id is null
-union all select 'payable_invoices',count(*) from payable_invoices p left join clients c on c.id=p.client_id where c.id is null
-union all select 'payable_invoice_items',count(*) from payable_invoice_items p left join clients c on c.id=p.client_id where c.id is null
 union all select 'inventory_items',count(*) from inventory_items p left join clients c on c.id=p.client_id where c.id is null
 union all select 'inventory_movements',count(*) from inventory_movements p left join clients c on c.id=p.client_id where c.id is null
 union all select 'app_files',count(*) from app_files p left join clients c on c.id=p.client_id where c.id is null
@@ -182,12 +140,9 @@ from pg_policies
 where schemaname='public'
   and tablename in (
     'clients','purchases','sales','coa_columns','coa_accounts','journal_columns',
-    'journal_entries','journal_vouchers','journal_voucher_lines','purchase_orders',
-    'purchase_order_items','receiving_reports','receiving_report_items','payable_invoices',
-    'payable_invoice_items','inventory_columns','inventory_items','inventory_movements',
-    'app_folders','app_files','tin_entries','tax_deadlines','bank_accounts','supplier_advances',
-    'withholding_tax_entries','debit_credit_memos','check_vouchers','miscellaneous_payments',
-    'asset_lapsing_schedule','billing_invoices','financial_report_snapshots'
+    'journal_entries','journal_vouchers','journal_voucher_lines','inventory_columns','inventory_items','inventory_movements',
+    'app_folders','app_files','tin_entries','tax_deadlines','bank_accounts',
+    'withholding_tax_entries','asset_lapsing_schedule','billing_invoices','financial_report_snapshots'
   )
 order by tablename, policyname;
 
