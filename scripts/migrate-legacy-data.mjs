@@ -118,19 +118,6 @@ async function migrateClient(row) {
   const jvl=[]; arr(d.journalVouchers).forEach(v=>arr(v.lines).forEach((l,i)=>jvl.push({id:idOf(l,`${v.id}:line:${i}`),client_id:clientId,journal_voucher_id:idOf(v),account_id:l.accountId||null,account_name:l.accountName||null,debit:num(l.debit),credit:num(l.credit)})));
   await upsert('journal_vouchers',jvs); await upsert('journal_voucher_lines',jvl); report.tables.journal_vouchers=jvs.length; report.tables.journal_voucher_lines=jvl.length;
 
-  const pos=arr(d.purchaseOrders).map(o=>({id:idOf(o),client_id:clientId,date:date(o.date),supplier_id:o.supplierId||null,supplier_name:o.supplierName||null,total_amount:num(o.totalAmount),status:o.status||null}));
-  const poi=[]; arr(d.purchaseOrders).forEach(o=>arr(o.items).forEach((i,n)=>poi.push({id:`${idOf(o)}:item:${n}`,client_id:clientId,purchase_order_id:idOf(o),item_code:i.itemCode||null,description:i.description||null,qty:num(i.qty),unit_price:num(i.unitPrice)})));
-  await upsert('purchase_orders',pos); await upsert('purchase_order_items',poi); report.tables.purchase_orders=pos.length; report.tables.purchase_order_items=poi.length;
-
-  const rrs=arr(d.receivingReports).map(r=>({id:idOf(r),client_id:clientId,date:date(r.date),po_id:r.poId||null,supplier_name:r.supplierName||null,total_amount:num(r.totalAmount),received_by:r.receivedBy||null}));
-  const rri=[]; arr(d.receivingReports).forEach(r=>arr(r.items).forEach((i,n)=>rri.push({id:`${idOf(r)}:item:${n}`,client_id:clientId,receiving_report_id:idOf(r),item_code:i.itemCode||null,description:i.description||null,qty_ordered:num(i.qtyOrdered),qty_received:num(i.qtyReceived),unit_price:num(i.unitPrice)})));
-  await upsert('receiving_reports',rrs); await upsert('receiving_report_items',rri);
-  report.tables.receiving_reports=rrs.length; report.tables.receiving_report_items=rri.length;
-
-  const pis=arr(d.payableInvoices).map(i=>({id:idOf(i),client_id:clientId,invoice_number:i.invoiceNumber||null,date:date(i.date),due_date:date(i.dueDate),po_id:i.poId||null,rr_id:i.rrId||null,supplier_id:i.supplierId||null,supplier_name:i.supplierName||null,subtotal:num(i.subtotal),vat_amount:num(i.vatAmount),is_vatable:bool(i.isVatable),withholding_tax_id:i.withholdingTaxId||null,wht_amount:i.whtAmount??null,total_amount:num(i.totalAmount),status:i.status||null,discrepancy_details:i.discrepancyDetails||null,applied_prepayments:i.appliedPrepayments??null}));
-  const pii=[]; arr(d.payableInvoices).forEach(i=>arr(i.items).forEach((x,n)=>pii.push({id:`${idOf(i)}:item:${n}`,client_id:clientId,payable_invoice_id:idOf(i),item_code:x.itemCode||null,description:x.description||null,qty:num(x.qty),unit_price:num(x.unitPrice)})));
-  await upsert('payable_invoices',pis); await upsert('payable_invoice_items',pii); report.tables.payable_invoices=pis.length; report.tables.payable_invoice_items=pii.length;
-
   const inventoryColumns=arr(d.inventoryColumns).map(c=>({id:idOf(c),client_id:clientId,label:c.label||null}));
   const inventoryItems=arr(d.inventoryItems).map(i=>({id:idOf(i),client_id:clientId,code:i.code||null,name:i.name||null,sku:i.sku||null,description:i.description||null,category:i.category||null,unit_of_measure:i.unitOfMeasure||null,cost_price:num(i.costPrice),selling_price:num(i.sellingPrice),stock_level:num(i.stockLevel),reorder_point:num(i.reorderPoint),location:i.location||null,custom_fields:i.customFields||{}}));
   const movements=arr(d.inventoryMovements).map(m=>({id:idOf(m),client_id:clientId,item_id:m.itemId||null,item_name:m.itemName||null,item_code:m.itemCode||null,date:date(m.date),type:m.type||null,qty:num(m.qty),unit_cost:num(m.unitCost),total_value:num(m.totalValue),reference:m.reference||null,notes:m.notes||null}));
