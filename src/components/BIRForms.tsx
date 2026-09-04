@@ -275,8 +275,7 @@ export function BIRForms() {
   // client's entire sales/purchases/expenses/AP history into React.
   const [birSales, setBirSales] = useState<any[]>([]);
   const [birPurchases, setBirPurchases] = useState<any[]>([]);
-  const [birExpenses, setBirExpenses] = useState<any[]>([]);
-  const [birPayableInvoices, setBirPayableInvoices] = useState<any[]>([]);
+
 
   useEffect(() => {
     let cancelled = false;
@@ -285,8 +284,6 @@ export function BIRForms() {
       if (!currentClientId) {
         setBirSales([]);
         setBirPurchases([]);
-        setBirExpenses([]);
-        setBirPayableInvoices([]);
         return;
       }
 
@@ -299,7 +296,7 @@ export function BIRForms() {
       const endDate = new Date(selectedYear, endMonth, 0);
       const endDateString = `${selectedYear}-${String(endMonth).padStart(2, '0')}-${String(endDate.getDate()).padStart(2, '0')}`;
 
-      const [salesRes, purchasesRes, apRes] = await Promise.all([
+      const [salesRes, purchasesRes] = await Promise.all([
         supabase
           .from('sales')
           .select('id,date,amount,vat_type,net_of_vat')
@@ -308,26 +305,18 @@ export function BIRForms() {
           .lte('date', endDateString),
         supabase
           .from('purchases')
-          .select('id,date,amount,vat_type,input_tax')
+          .select('id,date,amount,vat_type,input_tax,account_title,expense_type,transaction_details,wht_amount,wht_rate,atc_code,supplier_name')
           .eq('client_id', currentClientId)
           .gte('date', startDate)
-          .lte('date', endDateString),
-        supabase
-          .from('payable_invoices')
-          .select('id,date,subtotal,wht_amount,withholding_tax_id')
-          .eq('client_id', currentClientId)
-          .gte('date', startDate)
-          .lte('date', endDateString),
+          .lte('date', endDateString)
       ]);
 
-      const firstError = [salesRes, purchasesRes, apRes].find(r => r.error)?.error;
+      const firstError = [salesRes, purchasesRes].find(r => r.error)?.error;
       if (firstError) {
         console.error('Failed to load BIR filing period data:', firstError);
         if (!cancelled) {
           setBirSales([]);
           setBirPurchases([]);
-          setBirExpenses([]);
-          setBirPayableInvoices([]);
         }
         return;
       }
@@ -347,19 +336,11 @@ export function BIRForms() {
         amount: Number(p.amount || 0),
         vatType: p.vat_type,
         inputTax: p.input_tax == null ? undefined : Number(p.input_tax),
-      })));
-      // Purchases are the single source of expense transactions.
-      setBirExpenses((purchasesRes.data || []).map((p: any) => ({
-        id: p.id,
-        date: p.date,
-        amount: Number(p.amount || 0),
-      })));
-      setBirPayableInvoices((apRes.data || []).map((inv: any) => ({
-        id: inv.id,
-        date: inv.date,
-        subtotal: Number(inv.subtotal || 0),
-        whtAmount: Number(inv.wht_amount || 0),
-        withholdingTaxId: inv.withholding_tax_id,
+        category: p.account_title || p.expense_type || '',
+        description: p.transaction_details || p.supplier_name || '',
+        whtAmount: p.wht_amount == null ? 0 : Number(p.wht_amount),
+        whtRate: p.wht_rate == null ? 0 : Number(p.wht_rate),
+        atcCode: p.atc_code || '',
       })));
     };
 
@@ -409,17 +390,8 @@ export function BIRForms() {
       }
     });
 
-    // Filter Expenses
-    const expensesList = birExpenses.filter(e => {
-      const d = new Date(e.date);
-      if (isNaN(d.getTime())) return false;
-      const isYear = d.getFullYear() === selectedYear;
-      if (['1601-C', '0619-E'].includes(activeFormType)) {
-        return isYear && getMonthNum(e.date) === selectedMonth;
-      } else {
-        return isYear && getQuarterNum(e.date) === selectedQuarter;
-      }
-    });
+    // Expenses are derived from normalized purchases; there is no standalone expenses table.
+    const expensesList = purchasesList.map(p => ({ id: p.id, date: p.date, amount: p.amount }));
 
     const salesTotal = salesList.reduce((sum, s) => sum + s.amount, 0);
     // VAT-taxable base for 2550Q: net-of-VAT amount for VATable entries only (excludes
@@ -438,44 +410,38 @@ export function BIRForms() {
       .reduce((sum, p) => sum + (p.inputTax || p.amount * 0.12), 0);
     const expensesTotal = expensesList.reduce((sum, e) => sum + e.amount, 0);
 
-    // Monthly Expanded Withholding Tax (EWT) computation (for 0619-E)
-    const monthlyWhtInvoices = birPayableInvoices.filter(inv => {
-      const d = new Date(inv.date);
-      if (isNaN(d.getTime())) return false;
-      return d.getFullYear() === selectedYear && (d.getMonth() + 1) === selectedMonth;
-    });
-    const monthlyEwtTotal = monthlyWhtInvoices.reduce((sum, inv) => sum + (inv.whtAmount || 0), 0);
+    // Monthly / quarterly Expanded Withholding Tax (EWT) is sourced from normalized purchases.
+    const monthlyEwtTotal = purchasesList.reduce((sum, p) => sum + (p.whtAmount || 0), 0);
 
-    // Quarterly EWT breakdown for 1601-EQ
     const qMonths = [
       (selectedQuarter - 1) * 3 + 1,
       (selectedQuarter - 1) * 3 + 2,
       (selectedQuarter - 1) * 3 + 3
     ];
 
-    const ewtMonth1 = birPayableInvoices.filter(inv => {
-      const d = new Date(inv.date);
-      if (isNaN(d.getTime())) return false;
-      return d.getFullYear() === selectedYear && (d.getMonth() + 1) === qMonths[0];
-    }).reduce((sum, inv) => sum + (inv.whtAmount || 0), 0);
+    const ewtMonth1 = purchasesList.filter(p => getMonthNum(p.date) === qMonths[0])
+      .reduce((sum, p) => sum + (p.whtAmount || 0), 0);
+    const ewtMonth2 = purchasesList.filter(p => getMonthNum(p.date) === qMonths[1])
+      .reduce((sum, p) => sum + (p.whtAmount || 0), 0);
+    const ewtMonth3 = purchasesList.filter(p => getMonthNum(p.date) === qMonths[2])
+      .reduce((sum, p) => sum + (p.whtAmount || 0), 0);
 
-    const ewtMonth2 = birPayableInvoices.filter(inv => {
-      const d = new Date(inv.date);
-      if (isNaN(d.getTime())) return false;
-      return d.getFullYear() === selectedYear && (d.getMonth() + 1) === qMonths[1];
-    }).reduce((sum, inv) => sum + (inv.whtAmount || 0), 0);
+    const quarterlyWhtPurchases = purchasesList.filter(p => getQuarterNum(p.date) === selectedQuarter && (p.whtAmount || 0) > 0);
+    const quarterlyAtcGrid: Record<string, { atcCode: string; description: string; baseAmount: number; rate: number; taxWithheld: number }> = {};
+    quarterlyWhtPurchases.forEach(p => {
+      const atcCode = p.atcCode || 'UNCLASSIFIED';
+      const description = p.category || p.description || 'Withholding tax';
+      const rate = Number(p.whtRate || 0);
+      if (!quarterlyAtcGrid[atcCode]) {
+        quarterlyAtcGrid[atcCode] = { atcCode, description, baseAmount: 0, rate, taxWithheld: 0 };
+      }
+      const wht = Number(p.whtAmount || 0);
+      const baseAmount = rate > 0 ? wht / (rate / 100) : Number(p.amount || 0);
+      quarterlyAtcGrid[atcCode].baseAmount += baseAmount;
+      quarterlyAtcGrid[atcCode].taxWithheld += wht;
+    });
 
-    const ewtMonth3 = birPayableInvoices.filter(inv => {
-      const d = new Date(inv.date);
-      if (isNaN(d.getTime())) return false;
-      return d.getFullYear() === selectedYear && (d.getMonth() + 1) === qMonths[2];
-    }).reduce((sum, inv) => sum + (inv.whtAmount || 0), 0);
-
-    // Grouping for 1601-EQ ATC Matrix
-    // ATC master data is no longer stored in a dedicated normalized table.
-    // Keep the report list empty until an ATC source is supplied elsewhere.
-    const quarterlyAtcList: Array<{ atcCode: string; description: string; baseAmount: number; rate: number; taxWithheld: number }> = [];
-
+    const quarterlyAtcList = Object.values(quarterlyAtcGrid);
     const quarterlyTotalTaxesWithheld = quarterlyAtcList.reduce((sum, item) => sum + item.taxWithheld, 0);
 
     return {
@@ -492,7 +458,7 @@ export function BIRForms() {
       quarterlyAtcList,
       quarterlyTotalTaxesWithheld
     };
-  }, [currentClient, birSales, birPurchases, birExpenses, birPayableInvoices, selectedYear, selectedQuarter, selectedMonth, activeFormType]);
+  }, [currentClient, birSales, birPurchases, selectedYear, selectedQuarter, selectedMonth, activeFormType]);
 
   // Clean values combining manual overrides and compiled values.
   // Uses vatableNetSales (net-of-VAT, VATable entries only) rather than the gross
