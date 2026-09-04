@@ -1,5 +1,5 @@
 // src/hooks/useJournalEntries.ts
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import {
   fetchJournalEntries,
   fetchJournalEntryDetail,
@@ -12,7 +12,7 @@ export function useJournalEntries(clientId: string, page: number, pageSize = 20)
     queryKey: ['journalEntries', clientId, page, pageSize],
     queryFn: () => fetchJournalEntries(clientId, page, pageSize),
     staleTime: 2 * 60 * 1000,
-    keepPreviousData: true,
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -47,3 +47,4 @@ export function useDeleteJournalEntry() {
     },
   });
 }
+
