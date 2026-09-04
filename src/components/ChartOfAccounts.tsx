@@ -312,8 +312,8 @@ export function ChartOfAccounts() {
   // really in the table (including any custom/free-text types from an upload)
   // rather than a fixed, hardcoded list.
   const availableFilterTypes = useMemo(() => {
-    const types: string[] = accounts.map(a => String(a.type ?? '')).filter(t => t.trim() !== '');
-    return Array.from(new Set(types)).sort((a, b) => a.localeCompare(b));
+    const types: string[] = accounts.map(a => a.type).filter((t): t is string => !!t && t.trim() !== '');
+    return Array.from(new Set<string>(types)).sort((a, b) => a.localeCompare(b));
   }, [accounts]);
 
   if (!currentClient || !currentClientId) return null;
@@ -469,7 +469,7 @@ export function ChartOfAccounts() {
     const { titleKey, typeKey, codeKey, openingBalanceKey, accountLevelKey, matchedColumnKeys } = keys;
     const format = currentClient.coaFormat || 'numeric';
     const baseAccounts = overwrite ? [] : accounts;
-    const usedIds = new Set(baseAccounts.map(a => String(a.id)));
+    const usedIds = new Set<string>(baseAccounts.map((a: CoaAccount) => String(a.id)));
 
     // Do not use account name as a uniqueness key. The imported COA can legitimately
     // contain the same title more than once under different parents/types.
@@ -521,16 +521,19 @@ export function ChartOfAccounts() {
       usedIds.add(id);
 
       const matchedValues: Record<string, any> = {};
-      Object.entries(matchedColumnKeys).forEach(([colId, fileKey]) => {
-        const rawValue = String(row[String(fileKey)] ?? '').trim();
-        if (!rawValue) return;
-        if (colId === 'normalSide') {
-          const v = rawValue.toLowerCase();
-          if (v === 'debit' || v === 'credit') matchedValues.normalSide = v;
-        } else {
-          matchedValues[colId] = rawValue;
-        }
-      });
+      Object.keys(matchedColumnKeys).forEach((colId) => {
+		const key = String(matchedColumnKeys[colId]);
+		const rawValue = String(row[key] ?? '').trim();
+
+		if (!rawValue) return;
+
+		if (colId === 'normalSide') {
+		const v = rawValue.toLowerCase();
+		if (v === 'debit' || v === 'credit') matchedValues.normalSide = v;
+		} else {
+		matchedValues[colId] = rawValue;
+		}
+	});
 
       const openingBalance = openingBalanceKey ? parseOpeningBalance(row[openingBalanceKey]) : undefined;
       const account: CoaAccount = {
@@ -1569,4 +1572,3 @@ export function ChartOfAccounts() {
     </div>
   );
 }
-
