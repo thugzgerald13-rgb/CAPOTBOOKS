@@ -1,3 +1,4 @@
+
 import React, { useEffect, useMemo, useState } from 'react';
 import { LineChart, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
@@ -16,6 +17,13 @@ const dateRange = (month: number, year: number) => {
 };
 
 const formatAmount = (n: number) => Math.abs(n).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const entryDate = (entry: GeneralLedgerEntry) => String(entry.dateDr || entry.dateCr || '').slice(0, 10);
+
+const numberValue = (value: unknown) => {
+  const n = parseFloat(String(value ?? '').replace(/,/g, ''));
+  return Number.isFinite(n) ? n : 0;
+};
 
 export function GeneralLedger() {
   const { currentClient, currentClientId } = useAccounting();
@@ -106,11 +114,41 @@ export function GeneralLedger() {
         setBeginningBalance(prior);
         setLedgerEntries(mapped);
       } catch (e:any) {
-        console.error('General Ledger server load failed', e);
+        // The PostgreSQL ledger RPC is authoritative when available. If the
+        // deployed database function has a parameter/typing mismatch, keep the
+        // GL usable by falling back to the already-normalized client GL that
+        // AccountingContext derives from the same tenant-scoped source rows.
+        // This is intentionally read-only: no fallback data is written back to
+        // Supabase and no legacy clients.data payload is consulted.
+        console.error('General Ledger server load failed; using normalized local fallback', e);
         if (!cancelled) {
-          setLedgerEntries([]);
-          setBeginningBalance(0);
-          setLoadError(e?.message || 'Unable to load General Ledger data from the server.');
+          const selected = (currentClient?.glAccounts || []).find((account: GeneralLedgerAccount) =>
+            String(account.accountId) === String(accountFilter)
+          );
+          if (selected) {
+            const periodRows = (selected.entries || []).filter((entry: GeneralLedgerEntry) => {
+              const d = entryDate(entry);
+              return d >= start && d < end;
+            });
+
+            const priorRows = (selected.entries || []).filter((entry: GeneralLedgerEntry) => {
+              const d = entryDate(entry);
+              return Boolean(d) && d < start;
+            });
+
+            const opening = numberValue(selected.openingBalance);
+            const priorActivity = priorRows.reduce((total, entry) =>
+              total + numberValue(entry.debit) - numberValue(entry.credit), 0
+            );
+
+            setBeginningBalance(opening + priorActivity);
+            setLedgerEntries(periodRows);
+            setLoadError('Server ledger query is unavailable; showing the normalized local ledger for this account and period.');
+          } else {
+            setLedgerEntries([]);
+            setBeginningBalance(0);
+            setLoadError(e?.message || 'Unable to load General Ledger data from the server.');
+          }
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -193,3 +231,4 @@ export function GeneralLedger() {
     </div>
   );
 }
+
