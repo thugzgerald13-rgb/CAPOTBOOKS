@@ -560,6 +560,104 @@ function postPurchases(client: Client, accounts: CoaAccount[]): Posting[] {
  * records directly into the CDJ. Those are source documents/workflows, not
  * the CDJ's accounting source, and doing so duplicates transactions.
  */
+function purchaseCashDisbursementsToCdjEntries(client: Client, accounts: CoaAccount[]): JournalEntry[] {
+  const entries: JournalEntry[] = [];
+  const cashAccount = findAccountByLabel('Cash', accounts)
+    || findAccountByLabel('Cash on Hand', accounts)
+    || accounts.find(a => normalize(a.name).includes('cash'));
+
+  if (!cashAccount) return entries;
+
+  (client.purchases || []).forEach(p => {
+    const paymentMethod = String(p.paymentMethod || '').trim().toLowerCase();
+    if (paymentMethod !== 'cash' && paymentMethod !== 'check') return;
+
+    const netAmount = Number(p.amount) || 0;
+    const inputTax = Number(p.inputTax) || 0;
+    const wht = p.withholdingOption === 'with' ? (Number(p.whtAmount) || 0) : 0;
+    const cashDue = netAmount + inputTax - wht;
+    if (cashDue <= 0) return;
+
+    const accountTitle = String(p.accountTitle || '').trim();
+    const values: Record<string, any> = {
+      date: p.date || '',
+      payee: p.supplierName || '',
+      folio_f: p.invoiceNo || p.checkNumber || '',
+      [CDJ_CASH_ON_HAND_BANK_ID]: two(cashDue),
+      cash: two(cashDue),
+      account_title: accountTitle,
+      amount: two(netAmount),
+      input_tax: two(inputTax),
+      inputTax: two(inputTax),
+    };
+
+    // Preserve the bank/check reference without changing the visible CDJ
+    // column model.  The page will continue to show Folio/F as the source ref.
+    if (p.checkNumber) values.check_number = p.checkNumber;
+    if (p.bankName) values.bank_name = p.bankName;
+
+    entries.push({
+      id: `cdj-auto:purchase:${p.id}`,
+      auto: true,
+      autoSource: 'Purchases',
+      values,
+    });
+  });
+
+  return entries;
+}
+
+function journalVoucherCashDisbursementsToCdjEntries(client: Client, accounts: CoaAccount[]): JournalEntry[] {
+  const cashAccount = findAccountByLabel('Cash', accounts)
+    || findAccountByLabel('Cash on Hand', accounts)
+    || accounts.find(a => normalize(a.name).includes('cash'));
+  if (!cashAccount) return [];
+
+  const entries: JournalEntry[] = [];
+  (client.journalVouchers || []).forEach(voucher => {
+    const lines = Array.isArray(voucher.lines) ? voucher.lines : [];
+    const cashCredits = lines.filter((line: any) => {
+      const credit = Number(line.credit) || 0;
+      const isCash = String(line.accountId || '') === String(cashAccount.id)
+        || normalize(String(line.accountName || '')) === normalize(String(cashAccount.name));
+      return isCash && credit > 0;
+    });
+    if (!cashCredits.length) return;
+
+    const cashCredit = cashCredits.reduce((sum: number, line: any) => sum + (Number(line.credit) || 0), 0);
+    const debitLines = lines.filter((line: any) => {
+      const debit = Number(line.debit) || 0;
+      const isCash = String(line.accountId || '') === String(cashAccount.id)
+        || normalize(String(line.accountName || '')) === normalize(String(cashAccount.name));
+      return !isCash && debit > 0;
+    });
+
+    debitLines.forEach((line: any, index: number) => {
+      const debit = Number(line.debit) || 0;
+      if (debit <= 0) return;
+      const allocatedCash = Math.min(debit, cashCredit);
+      if (allocatedCash <= 0) return;
+
+      entries.push({
+        id: `cdj-auto:jv:${voucher.id}:${line.id || index}`,
+        auto: true,
+        autoSource: 'Journal Voucher',
+        values: {
+          date: voucher.date || '',
+          payee: line.accountName || voucher.memo || 'Journal Voucher',
+          folio_f: voucher.reference || '',
+          [CDJ_CASH_ON_HAND_BANK_ID]: two(allocatedCash),
+          cash: two(allocatedCash),
+          account_title: line.accountName || '',
+          amount: two(debit),
+        },
+      });
+    });
+  });
+
+  return entries;
+}
+
 function generalJournalCashDisbursementsToCdjEntries(client: Client, accounts: CoaAccount[]): JournalEntry[] {
   const columns = client.gjColumns || DEFAULT_GJ_COLUMNS;
   const cashAccount = findAccountByLabel('Cash', accounts)
@@ -584,16 +682,11 @@ function generalJournalCashDisbursementsToCdjEntries(client: Client, accounts: C
     const debit = parseFloat(String(v[debitCol] ?? '').replace(/,/g, ''));
     const credit = parseFloat(String(v[creditCol] ?? '').replace(/,/g, ''));
 
-    // A General Journal row is a cash disbursement only when the row credits
-    // Cash. The corresponding debit/account title is represented in the CDJ
-    // as the account being debited.
     if (!Number.isFinite(credit) || credit <= 0) return;
 
     const creditedAccount = findAccountByLabel(particulars, accounts);
     if (!creditedAccount || creditedAccount.id !== cashAccount.id) return;
 
-    // If the GJ uses one row for the cash credit and separate debit rows,
-    // recover the debit side from the other rows sharing the same date/ref.
     const matchingDebitRows = (client.gjEntries || []).filter(other => {
       if (other.id === entry.id) return false;
       const ov = other.values || {};
@@ -621,18 +714,16 @@ function generalJournalCashDisbursementsToCdjEntries(client: Client, accounts: C
             date,
             payee: title,
             folio_f: ref,
+            [CDJ_CASH_ON_HAND_BANK_ID]: two(Math.min(otherDebit, credit)),
+            cash: two(Math.min(otherDebit, credit)),
             account_title: title,
             amount: two(otherDebit),
-            cash: two(Math.min(otherDebit, credit)),
           },
         });
       });
       return;
     }
 
-    // Also support a balanced single-row/custom-column GJ entry where the
-    // account title and debit amount are stored on the same row as the cash
-    // credit information.
     if (Number.isFinite(debit) && debit > 0 && particulars) {
       entries.push({
         id: `cdj-auto:gj:${entry.id}`,
@@ -642,9 +733,10 @@ function generalJournalCashDisbursementsToCdjEntries(client: Client, accounts: C
           date,
           payee: particulars,
           folio_f: ref,
+          [CDJ_CASH_ON_HAND_BANK_ID]: two(Math.min(debit, credit)),
+          cash: two(Math.min(debit, credit)),
           account_title: particulars,
           amount: two(debit),
-          cash: two(Math.min(debit, credit)),
         },
       });
     }
@@ -655,19 +747,19 @@ function generalJournalCashDisbursementsToCdjEntries(client: Client, accounts: C
 
 /**
  * Returns the client with its Cash Disbursements Journal (`cdjEntries`)
- * synced: every manually-typed row is kept untouched, plus a freshly
- * regenerated set of auto-posted rows for cash payments recorded elsewhere
- * (cash-basis Purchases, and Journal Vouchers that credit Cash). Safe to
- * call repeatedly — it's idempotent and cheap enough to run on every
- * save/read, and should run before `syncGeneralLedger` so the ledger picks
- * up these auto-posted rows too.
+ * synced. Manual CDJ rows are preserved, while auto rows are regenerated from
+ * the books/workflows that explicitly represent cash outflows:
+ * cash/check Purchases, cash-out Journal Vouchers, and General Journal rows
+ * that credit Cash. This keeps the visible CDJ in sync without requiring the
+ * user to re-enter source transactions manually.
  */
 export function syncCashDisbursementsJournal(client: Client): Client {
   const accounts = getCoaAccounts(client);
-  // CDJ is populated from the books of original entry. Only General Journal
-  // cash-credit entries are eligible here; initial transaction modules and
-  // AP/check workflows must not be copied directly into the CDJ.
-  const autoEntries = generalJournalCashDisbursementsToCdjEntries(client, accounts);
+  const autoEntries = [
+    ...purchaseCashDisbursementsToCdjEntries(client, accounts),
+    ...journalVoucherCashDisbursementsToCdjEntries(client, accounts),
+    ...generalJournalCashDisbursementsToCdjEntries(client, accounts),
+  ];
   const manualEntries = (client.cdjEntries || []).filter(e => !e.auto);
 
   if (autoEntries.length === 0 && manualEntries.length === (client.cdjEntries || []).length) {
@@ -980,3 +1072,4 @@ export function syncGeneralLedger(client: Client): Client {
 
   return { ...client, glAccounts: nextGlAccounts };
 }
+
