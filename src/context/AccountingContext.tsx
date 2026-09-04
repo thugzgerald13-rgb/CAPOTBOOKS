@@ -233,7 +233,7 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
     'inventory_movements', 'app_folders', 'app_files', 'tin_entries', 'tax_deadlines',
     'bank_accounts', 'asset_lapsing_schedule', 'billing_invoices', 'financial_report_snapshots',
   ];
-  const failedResponseIndex = responses.findIndex  const failedResponseIndex = responses.findIndex((r: any) => r.error);
+  const failedResponseIndex = responses.findIndex((r: any) => r.error);
   if (failedResponseIndex >= 0) {
     const failed = responses[failedResponseIndex] as any;
     const table = responseNames[failedResponseIndex] || 'normalized data';
@@ -1506,3 +1506,4 @@ export const useAccounting = () => {
   if (!ctx) throw new Error('useAccounting must be used within AccountingProvider');
   return ctx;
 };
+
