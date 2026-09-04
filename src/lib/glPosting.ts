@@ -551,14 +551,20 @@ function postPurchases(client: Client, accounts: CoaAccount[]): Posting[] {
 // ---------------------------------------------------------------------------
 
 /**
- * The CDJ is populated from the BOOKS OF ORIGINAL ENTRY, not from the
- * initial transaction-entry modules. In this application the General Journal
- * is the original-entry book that can contain a cash disbursement: a debit to
- * the expense/asset/payable account paired with a credit to Cash.
+ * Purchase cash/check transactions are source transactions for the CDJ.
  *
- * Do not pull Purchases, Sales, AP/check-voucher, or miscellaneous-payment
- * records directly into the CDJ. Those are source documents/workflows, not
- * the CDJ's accounting source, and doing so duplicates transactions.
+ * IMPORTANT: Purchase.amount is the VATable net amount only. Non-VAT/Exempt
+ * and 0-Rated purchases are stored separately in exemptAmount and
+ * zeroRatedAmount, respectively. Therefore a purchase with amount === 0 can
+ * still be a real cash disbursement.
+ *
+ * CDJ calculation:
+ *   VATable net + Exempt/Non-VAT + 0-Rated + Input Tax - Withholding
+ *   = Cash/Bank credit
+ *
+ * The purchase row keeps the expense classification in the account title;
+ * the CDJ amount column carries the total expense base
+ * (VATable + Exempt/Non-VAT + 0-Rated), while Input Tax remains separate.
  */
 function purchaseCashDisbursementsToCdjEntries(client: Client, accounts: CoaAccount[]): JournalEntry[] {
   const entries: JournalEntry[] = [];
@@ -572,10 +578,19 @@ function purchaseCashDisbursementsToCdjEntries(client: Client, accounts: CoaAcco
     const paymentMethod = String(p.paymentMethod || '').trim().toLowerCase();
     if (paymentMethod !== 'cash' && paymentMethod !== 'check') return;
 
+    // `amount` is the VATable net amount. Non-VAT/Exempt and 0-Rated values
+    // live in their dedicated fields and must also participate in CDJ.
     const netAmount = Number(p.amount) || 0;
+    const exemptAmount = Number(p.exemptAmount) || 0;
+    const zeroRatedAmount = Number(p.zeroRatedAmount) || 0;
     const inputTax = Number(p.inputTax) || 0;
-    const wht = p.withholdingOption === 'with' ? (Number(p.whtAmount) || 0) : 0;
-    const cashDue = netAmount + inputTax - wht;
+    const withholding = p.withholdingOption === 'with' ? (Number(p.whtAmount) || 0) : 0;
+
+    const expenseBase = netAmount + exemptAmount + zeroRatedAmount;
+    const cashDue = expenseBase + inputTax - withholding;
+
+    // Keep genuinely empty source rows out of the CDJ, but do NOT treat
+    // amount === 0 as empty when Exempt/0-Rated/Input Tax contains value.
     if (cashDue <= 0) return;
 
     const accountTitle = String(p.accountTitle || '').trim();
@@ -586,13 +601,13 @@ function purchaseCashDisbursementsToCdjEntries(client: Client, accounts: CoaAcco
       [CDJ_CASH_ON_HAND_BANK_ID]: two(cashDue),
       cash: two(cashDue),
       account_title: accountTitle,
-      amount: two(netAmount),
+      amount: two(expenseBase),
       input_tax: two(inputTax),
       inputTax: two(inputTax),
     };
 
     // Preserve the bank/check reference without changing the visible CDJ
-    // column model.  The page will continue to show Folio/F as the source ref.
+    // column model. The page will continue to show Folio/F as the source ref.
     if (p.checkNumber) values.check_number = p.checkNumber;
     if (p.bankName) values.bank_name = p.bankName;
 
@@ -1072,4 +1087,5 @@ export function syncGeneralLedger(client: Client): Client {
 
   return { ...client, glAccounts: nextGlAccounts };
 }
+
 
