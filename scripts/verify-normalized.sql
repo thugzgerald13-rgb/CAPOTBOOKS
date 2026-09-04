@@ -100,3 +100,42 @@ where n.nspname='public' and p.proname='is_client_owner';
 --   jsonb_array_length(coalesce(c.data->'gjEntries','[]'::jsonb)) legacy_gj,
 --   (select count(*) from journal_entries j where j.client_id=c.id and j.journal_type='GJ') normalized_gj
 -- from clients c where c.id='REPLACE_CLIENT_ID';
+
+-- 10. Schema preflight: every table/column written by the migration must exist.
+-- This catches older Supabase projects where CREATE TABLE IF NOT EXISTS did not
+-- upgrade an already-existing table.
+with required(table_name, column_name) as (
+  values
+    ('clients','id'),('clients','user_id'),('clients','data'),
+    ('purchases','client_id'),('purchases','date'),('purchases','amount'),('purchases','input_tax'),('purchases','attachment_storage_path'),('purchases','wht_amount'),
+    ('sales','client_id'),('sales','date'),('sales','amount'),('sales','net_of_vat'),('sales','output_tax'),
+    ('expenses','client_id'),('expenses','date'),('expenses','amount'),
+    ('coa_columns','client_id'),('coa_columns','name'),('coa_accounts','client_id'),('coa_accounts','name'),('coa_accounts','normal_side'),('coa_accounts','opening_balance'),
+    ('journal_columns','client_id'),('journal_columns','journal_type'),('journal_columns','name'),
+    ('journal_entries','client_id'),('journal_entries','journal_type'),('journal_entries','values'),('journal_entries','auto'),('journal_entries','auto_source'),('journal_entries','total_debit'),('journal_entries','total_credit'),
+    ('journal_vouchers','client_id'),('journal_vouchers','date'),('journal_voucher_lines','client_id'),('journal_voucher_lines','journal_voucher_id'),
+    ('purchase_orders','client_id'),('receiving_reports','client_id'),('payable_invoices','client_id'),('payable_invoice_items','client_id'),
+    ('inventory_columns','client_id'),('inventory_items','client_id'),('inventory_movements','client_id'),
+    ('app_folders','client_id'),('app_files','client_id'),('app_files','storage_path'),
+    ('tin_entries','client_id'),('tax_deadlines','client_id'),('bank_accounts','client_id'),('asset_lapsing_schedule','client_id'),('billing_invoices','client_id'),
+    ('financial_report_snapshots','client_id'),('financial_report_snapshots','report_type'),('financial_report_snapshots','data')
+)
+select r.table_name, r.column_name
+from required r
+left join information_schema.columns c
+  on c.table_schema='public' and c.table_name=r.table_name and c.column_name=r.column_name
+where c.column_name is null
+order by r.table_name, r.column_name;
+
+-- 11. RLS preflight for all tenant-scoped normalized tables.
+select t.tablename, coalesce(c.relrowsecurity,false) as rls_enabled
+from (values
+  ('purchases'),('sales'),('expenses'),('coa_columns'),('coa_accounts'),
+  ('journal_columns'),('journal_entries'),('journal_vouchers'),('journal_voucher_lines'),
+  ('purchase_orders'),('receiving_reports'),('payable_invoices'),('payable_invoice_items'),
+  ('inventory_columns'),('inventory_items'),('inventory_movements'),
+  ('app_folders'),('app_files'),('tin_entries'),('tax_deadlines'),('bank_accounts'),
+  ('asset_lapsing_schedule'),('billing_invoices'),('financial_report_snapshots')
+) as t(tablename)
+left join pg_class c on c.relname=t.tablename and c.relnamespace='public'::regnamespace
+order by t.tablename;
