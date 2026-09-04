@@ -111,7 +111,7 @@ async function migrateClient(row) {
   const accounts=arr(d.accounts).map(a=>{const {id,name,type,normalSide,parentId,hidden,openingBalance,...custom}=a||{};return{id:idOf({id}),client_id:clientId,name:name||'',type:type||'',normal_side:normalSide||null,parent_id:parentId||null,hidden:bool(hidden),opening_balance:num(openingBalance),custom_values:custom};});
   await upsert('coa_accounts',accounts); report.tables.coa_accounts=accounts.length;
 
-  const journalTypes=[['CRJ','crjColumns','crjEntries'],['CDJ','cdjColumns','cdjEntries'],['PJ','pjColumns','pjEntries'],['GJ','gjColumns','gjEntries']];
+  const journalTypes=[['CRJ','crjColumns','crjEntries'],['CDJ','cdjColumns','cdjEntries'],['PJ','pjColumns','pjEntries'],['SJ','sjColumns','sjEntries'],['GJ','gjColumns','gjEntries']];
   for (const [type,colKey,entryKey] of journalTypes) {
     const cols=arr(d[colKey]).map(c=>({id:idOf(c),client_id:clientId,journal_type:type,name:c.name,type:c.type||null,category:c.category||null,is_system:bool(c.isSystem)}));
     const entries=arr(d[entryKey]).map(e=>({id:idOf(e),client_id:clientId,journal_type:type,values:e.values||{},auto:bool(e.auto),auto_source:e.autoSource||null}));
@@ -174,3 +174,4 @@ for (const client of clients) {
   catch (e) { console.error(`FAILED ${client.id}: ${e.message}`); process.exitCode=1; }
 }
 console.log(`Migration finished for ${results.length}/${clients.length} clients.`);
+
