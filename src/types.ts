@@ -159,6 +159,8 @@ export interface Client {
   cdjEntries?: JournalEntry[];
   pjColumns?: JournalColumn[];
   pjEntries?: JournalEntry[];
+  sjColumns?: JournalColumn[];
+  sjEntries?: JournalEntry[];
   gjColumns?: JournalColumn[];
   gjEntries?: JournalEntry[];
   glAccounts?: GeneralLedgerAccount[];
@@ -482,6 +484,7 @@ export interface BankAccount {
   accountNumber: string;
   balance: number;
 }
+
 
 
 
