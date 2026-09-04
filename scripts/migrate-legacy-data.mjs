@@ -89,9 +89,6 @@ async function migrateClient(row) {
     accounting_type: row.accounting_type || d.accountingType || 'Calendar', fiscal_month_end: row.fiscal_month_end || d.fiscalMonthEnd || 12,
     coa_format: row.coa_format || d.coaFormat || 'numeric', updated_at: new Date().toISOString()
   };
-  const { error: parentError } = await supabase.from('clients').upsert(parent, { onConflict:'id' });
-  if (parentError) throw parentError;
-
   const purchases = [];
   for (const p of arr(d.purchases)) {
     const id = idOf(p, `legacy-purchase-${clientId}-${p.date || ''}-${p.invoiceNo || ''}`);
@@ -104,21 +101,12 @@ async function migrateClient(row) {
   const sales=arr(d.sales).map(s=>({id:idOf(s),client_id:clientId,dat_month_year:s.datMonthYear||null,date:date(s.date),ref:s.ref||null,payment_type:s.paymentType||null,buyer_tin:s.buyerTin||null,buyer_name:s.buyerName||null,buyer_address:s.buyerAddress||null,vat_type:s.vatType||null,amount:num(s.amount),net_of_vat:num(s.netOfVat),output_tax:num(s.outputTax),income_type:s.incomeType||null,description:s.desc||null}));
   await upsert('sales',sales); report.tables.sales=sales.length;
 
-  // The normalized model has no `expenses` table. CAPOT derives expense
-  // history from normalized purchases, so a separate legacy expenses array
-  // cannot be inserted safely into the target schema. Fail loudly when such
-  // legacy-only rows exist instead of silently discarding them.
-  const legacyExpenses=arr(d.expenses);
-  if (legacyExpenses.length) {
-    throw new Error(`Legacy client ${clientId} contains ${legacyExpenses.length} expense rows, but the normalized schema has no expenses table. Migrate/map those rows to the supported purchase model before proceeding.`);
-  }
-
   const coaColumns=arr(d.coaColumns).map(c=>({id:idOf(c),client_id:clientId,name:c.name,is_system:bool(c.isSystem)}));
   await upsert('coa_columns',coaColumns); report.tables.coa_columns=coaColumns.length;
-  const accounts=arr(d.accounts).map(a=>{const {id,name,type,normalSide,parentId,hidden,openingBalance,...custom}=a||{};return{id:idOf({id}),client_id:clientId,name:name||'',type:type||'',normal_side:normalSide||null,parent_id:parentId||null,hidden:bool(hidden),opening_balance:num(openingBalance),custom_values:custom};});
+  const accounts=arr(d.accounts).map(a=>{const {id,name,type,normalSide,parentId,hidden,openingBalance,...custom}=a||{};return{id:idOf(a,`legacy-account-${clientId}-${String(name||'').trim().toLowerCase().replace(/[^a-z0-9]+/g,'_')}`),client_id:clientId,name:name||'',type:type||'',normal_side:normalSide||null,parent_id:parentId||null,hidden:bool(hidden),opening_balance:num(openingBalance),custom_values:custom};});
   await upsert('coa_accounts',accounts); report.tables.coa_accounts=accounts.length;
 
-  const journalTypes=[['CRJ','crjColumns','crjEntries'],['CDJ','cdjColumns','cdjEntries'],['PJ','pjColumns','pjEntries'],['SJ','sjColumns','sjEntries'],['GJ','gjColumns','gjEntries']];
+  const journalTypes=[['CRJ','crjColumns','crjEntries'],['CDJ','cdjColumns','cdjEntries'],['PJ','pjColumns','pjEntries'],['GJ','gjColumns','gjEntries']];
   for (const [type,colKey,entryKey] of journalTypes) {
     const cols=arr(d[colKey]).map(c=>({id:idOf(c),client_id:clientId,journal_type:type,name:c.name,type:c.type||null,category:c.category||null,is_system:bool(c.isSystem)}));
     const entries=arr(d[entryKey]).map(e=>({id:idOf(e),client_id:clientId,journal_type:type,values:e.values||{},auto:bool(e.auto),auto_source:e.autoSource||null}));
@@ -131,10 +119,13 @@ async function migrateClient(row) {
   await upsert('journal_vouchers',jvs); await upsert('journal_voucher_lines',jvl); report.tables.journal_vouchers=jvs.length; report.tables.journal_voucher_lines=jvl.length;
 
   const pos=arr(d.purchaseOrders).map(o=>({id:idOf(o),client_id:clientId,date:date(o.date),supplier_id:o.supplierId||null,supplier_name:o.supplierName||null,total_amount:num(o.totalAmount),status:o.status||null}));
-  await upsert('purchase_orders',pos); report.tables.purchase_orders=pos.length;
+  const poi=[]; arr(d.purchaseOrders).forEach(o=>arr(o.items).forEach((i,n)=>poi.push({id:`${idOf(o)}:item:${n}`,client_id:clientId,purchase_order_id:idOf(o),item_code:i.itemCode||null,description:i.description||null,qty:num(i.qty),unit_price:num(i.unitPrice)})));
+  await upsert('purchase_orders',pos); await upsert('purchase_order_items',poi); report.tables.purchase_orders=pos.length; report.tables.purchase_order_items=poi.length;
 
   const rrs=arr(d.receivingReports).map(r=>({id:idOf(r),client_id:clientId,date:date(r.date),po_id:r.poId||null,supplier_name:r.supplierName||null,total_amount:num(r.totalAmount),received_by:r.receivedBy||null}));
-  await upsert('receiving_reports',rrs); report.tables.receiving_reports=rrs.length;
+  const rri=[]; arr(d.receivingReports).forEach(r=>arr(r.items).forEach((i,n)=>rri.push({id:`${idOf(r)}:item:${n}`,client_id:clientId,receiving_report_id:idOf(r),item_code:i.itemCode||null,description:i.description||null,qty_ordered:num(i.qtyOrdered),qty_received:num(i.qtyReceived),unit_price:num(i.unitPrice)})));
+  await upsert('receiving_reports',rrs); await upsert('receiving_report_items',rri);
+  report.tables.receiving_reports=rrs.length; report.tables.receiving_report_items=rri.length;
 
   const pis=arr(d.payableInvoices).map(i=>({id:idOf(i),client_id:clientId,invoice_number:i.invoiceNumber||null,date:date(i.date),due_date:date(i.dueDate),po_id:i.poId||null,rr_id:i.rrId||null,supplier_id:i.supplierId||null,supplier_name:i.supplierName||null,subtotal:num(i.subtotal),vat_amount:num(i.vatAmount),is_vatable:bool(i.isVatable),withholding_tax_id:i.withholdingTaxId||null,wht_amount:i.whtAmount??null,total_amount:num(i.totalAmount),status:i.status||null,discrepancy_details:i.discrepancyDetails||null,applied_prepayments:i.appliedPrepayments??null}));
   const pii=[]; arr(d.payableInvoices).forEach(i=>arr(i.items).forEach((x,n)=>pii.push({id:`${idOf(i)}:item:${n}`,client_id:clientId,payable_invoice_id:idOf(i),item_code:x.itemCode||null,description:x.description||null,qty:num(x.qty),unit_price:num(x.unitPrice)})));
@@ -152,7 +143,7 @@ async function migrateClient(row) {
   for (const f of arr(d.files)) {
     const id=idOf(f); let storagePath=f.storagePath||f.storage_path||null;
     if (!storagePath && (f.content || f.data)) { storagePath=await uploadAttachment(clientId,'files',id,f); if(storagePath) report.attachments++; }
-    if (storagePath) files.push({id,client_id:clientId,name:f.name||null,type:f.type||'application/octet-stream',size:num(f.size,0),uploaded_at:f.uploadedAt||new Date().toISOString(),folder_id:f.folderId||null,storage_path:storagePath,description:f.description||null});
+    files.push({id,client_id:clientId,name:f.name||null,type:f.type||'application/octet-stream',size:num(f.size,0),uploaded_at:f.uploadedAt||new Date().toISOString(),folder_id:f.folderId||null,storage_path:storagePath,description:f.description||null});
   }
   await upsert('app_files',files); report.tables.app_files=files.length;
 
@@ -160,6 +151,11 @@ async function migrateClient(row) {
   await upsert('tin_entries',tins); report.tables.tin_entries=tins.length;
   const deadlines=arr(d.taxDeadlines).map(t=>({id:idOf(t),client_id:clientId,form_type:t.formType||null,title:t.title||null,period:t.period||null,due_date:date(t.dueDate),status:t.status||null,tax_status:t.taxStatus||null,amount_due:t.amountDue??null,date_filed:date(t.dateFiled),date_paid:date(t.datePaid),reference_no:t.referenceNo||null,confirmation_no:t.confirmationNo||null,notes:t.notes||null})); await upsert('tax_deadlines',deadlines); report.tables.tax_deadlines=deadlines.length;
   const banks=arr(d.bankAccounts).map(b=>({id:idOf(b),client_id:clientId,bank_name:b.bankName||null,account_number:b.accountNumber||null,balance:num(b.balance)})); await upsert('bank_accounts',banks); report.tables.bank_accounts=banks.length;
+  const advances=arr(d.supplierAdvances).map(a=>({id:idOf(a),client_id:clientId,supplier_id:a.supplierId||null,supplier_name:a.supplierName||null,date:date(a.date),amount:num(a.amount),is_liquidated:bool(a.isLiquidated),notes:a.notes||null})); await upsert('supplier_advances',advances); report.tables.supplier_advances=advances.length;
+  const wht=arr(d.withholdingTaxEntries).map(w=>({id:idOf(w),client_id:clientId,atc_code:w.atcCode||null,description:w.description||null,tax_rate:num(w.taxRate),category:w.category||null})); await upsert('withholding_tax_entries',wht); report.tables.withholding_tax_entries=wht.length;
+  const memos=arr(d.debitCreditMemos).map(m=>({id:idOf(m),client_id:clientId,type:m.type||null,invoice_id:m.invoiceId||null,invoice_number:m.invoiceNumber||null,supplier_name:m.supplierName||null,date:date(m.date),amount:num(m.amount),reason:m.reason||null})); await upsert('debit_credit_memos',memos); report.tables.debit_credit_memos=memos.length;
+  const checks=arr(d.checkVouchers).map(v=>({id:idOf(v),client_id:clientId,date:date(v.date),payee_name:v.payeeName||null,invoice_id:v.invoiceId||null,invoice_number:v.invoiceNumber||null,payment_type:v.paymentType||null,misc_details:v.miscDetails||null,amount:num(v.amount),checked_by:v.checkedBy||null,approved_by:v.approvedBy||null,bank_account_id:v.bankAccountId||null,bank_name:v.bankName||null,check_number:v.checkNumber||null,status:v.status||null,reversed_reason:v.reversedReason||null,reversed_at:v.reversedAt||null})); await upsert('check_vouchers',checks); report.tables.check_vouchers=checks.length;
+  const misc=arr(d.miscellaneousPayments).map(m=>({id:idOf(m),client_id:clientId,date:date(m.date),payee_name:m.payeeName||null,amount:num(m.amount),bank_account_id:m.bankAccountId||null,bank_name:m.bankName||null,check_number:m.checkNumber||null,expense_category:m.expenseCategory||null,description:m.description||null})); await upsert('miscellaneous_payments',misc); report.tables.miscellaneous_payments=misc.length;
   const als=arr(d.assetLapsingSchedule).map(a=>({id:idOf(a),client_id:clientId,date_purchased:date(a.datePurchased),invoice_no:a.invoiceNo||null,description:a.description||null,cost:num(a.cost),useful_life_years:num(a.usefulLifeYears),salvage_value:num(a.salvageValue)})); await upsert('asset_lapsing_schedule',als); report.tables.asset_lapsing_schedule=als.length;
   const bi=arr(d.billingInvoices).map(b=>({id:idOf(b),client_id:clientId,date:date(b.date),due_date:date(b.dueDate),invoice_no:b.invoiceNo||null,customer_tin:b.customerTin||null,customer_name:b.customerName||null,customer_address:b.customerAddress||null,vat_type:b.vatType||null,amount:num(b.amount),net_of_vat:num(b.netOfVat),output_tax:num(b.outputTax),description:b.description||null,status:b.status||null,payment_type:b.paymentType||null,date_paid:date(b.datePaid),is_recurring:bool(b.isRecurring),recurrence_frequency:b.recurrenceFrequency||null,next_billing_date:date(b.nextBillingDate),parent_invoice_id:b.parentInvoiceId||null})); await upsert('billing_invoices',bi); report.tables.billing_invoices=bi.length;
 
@@ -168,6 +164,12 @@ async function migrateClient(row) {
   if(d.bsData) snapshots.push({id:`${clientId}:bs`,client_id:clientId,report_type:'Balance Sheet',period_key:d.bsData.asOfDate||'current',data:d.bsData});
   if(d.cfData) snapshots.push({id:`${clientId}:cf`,client_id:clientId,report_type:'Cash Flow',period_key:d.cfData.period||'current',data:d.cfData});
   await upsert('financial_report_snapshots',snapshots); report.tables.financial_report_snapshots=snapshots.length;
+
+  // Update the tenancy root last. This prevents the clients realtime listener
+  // from rehydrating a partially migrated client while child rows are still
+  // being written.
+  const { error: parentError } = await supabase.from('clients').upsert(parent, { onConflict:'id' });
+  if (parentError) throw parentError;
 
   return report;
 }
@@ -181,4 +183,3 @@ for (const client of clients) {
   catch (e) { console.error(`FAILED ${client.id}: ${e.message}`); process.exitCode=1; }
 }
 console.log(`Migration finished for ${results.length}/${clients.length} clients.`);
-

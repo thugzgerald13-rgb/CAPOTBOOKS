@@ -305,6 +305,23 @@ create table if not exists public.purchase_orders (
 create index if not exists idx_purchase_orders_client_id
   on public.purchase_orders(client_id);
 
+create table if not exists public.purchase_order_items (
+  id text primary key,
+  client_id text not null references public.clients(id) on delete cascade,
+  purchase_order_id text not null references public.purchase_orders(id) on delete cascade,
+  item_code text,
+  description text,
+  qty numeric(18,4),
+  unit_price numeric(18,4),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_purchase_order_items_client_id
+  on public.purchase_order_items(client_id);
+create index if not exists idx_purchase_order_items_po_id
+  on public.purchase_order_items(purchase_order_id);
+
 create table if not exists public.receiving_reports (
   id text primary key,
   client_id text not null references public.clients(id) on delete cascade,
@@ -533,11 +550,99 @@ create table if not exists public.bank_accounts (
 create index if not exists idx_bank_accounts_client_id
   on public.bank_accounts(client_id);
 
+create table if not exists public.supplier_advances (
+  id text primary key,
+  client_id text not null references public.clients(id) on delete cascade,
+  supplier_id text,
+  supplier_name text,
+  date date,
+  amount numeric(18,2),
+  is_liquidated boolean not null default false,
+  notes text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_supplier_advances_client_id
+  on public.supplier_advances(client_id);
+
+create table if not exists public.withholding_tax_entries (
+  id text primary key,
+  client_id text not null references public.clients(id) on delete cascade,
+  atc_code text,
+  description text,
+  tax_rate numeric(9,4),
+  category text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_withholding_tax_entries_client_id
+  on public.withholding_tax_entries(client_id);
 
 -- ---------------------------------------------------------------------------
 -- Memos / payments / checks
 -- ---------------------------------------------------------------------------
 
+create table if not exists public.debit_credit_memos (
+  id text primary key,
+  client_id text not null references public.clients(id) on delete cascade,
+  type text,
+  invoice_id text,
+  invoice_number text,
+  supplier_name text,
+  date date,
+  amount numeric(18,2),
+  reason text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_debit_credit_memos_client_id
+  on public.debit_credit_memos(client_id);
+
+create table if not exists public.check_vouchers (
+  id text primary key,
+  client_id text not null references public.clients(id) on delete cascade,
+  date date,
+  payee_name text,
+  invoice_id text,
+  invoice_number text,
+  payment_type text,
+  misc_details text,
+  amount numeric(18,2),
+  checked_by text,
+  approved_by text,
+  bank_account_id text,
+  bank_name text,
+  check_number text,
+  status text,
+  reversed_reason text,
+  reversed_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_check_vouchers_client_id
+  on public.check_vouchers(client_id);
+
+create table if not exists public.miscellaneous_payments (
+  id text primary key,
+  client_id text not null references public.clients(id) on delete cascade,
+  date date,
+  payee_name text,
+  amount numeric(18,2),
+  bank_account_id text,
+  bank_name text,
+  check_number text,
+  expense_category text,
+  description text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_miscellaneous_payments_client_id
+  on public.miscellaneous_payments(client_id);
 
 create table if not exists public.asset_lapsing_schedule (
   id text primary key,
@@ -609,209 +714,6 @@ create index if not exists idx_financial_report_snapshots_period
   on public.financial_report_snapshots(client_id, period_key);
 
 -- ---------------------------------------------------------------------------
--- Upgrade protection for schemas created by older CAPOT versions.
--- CREATE TABLE IF NOT EXISTS does not add columns to an existing table.
--- Keep these ALTERs idempotent so the migration can safely target an existing
--- staging database before legacy data is copied.
--- ---------------------------------------------------------------------------
-
-alter table public.purchases add column if not exists dat_month_year text;
-alter table public.purchases add column if not exists date date;
-alter table public.purchases add column if not exists payment_method text;
-alter table public.purchases add column if not exists check_number text;
-alter table public.purchases add column if not exists bank_name text;
-alter table public.purchases add column if not exists invoice_no text;
-alter table public.purchases add column if not exists supplier_name text;
-alter table public.purchases add column if not exists supplier_address text;
-alter table public.purchases add column if not exists supplier_tin text;
-alter table public.purchases add column if not exists amount numeric(18,2);
-alter table public.purchases add column if not exists vat_type text;
-alter table public.purchases add column if not exists expense_type text;
-alter table public.purchases add column if not exists account_title text;
-alter table public.purchases add column if not exists transaction_details text;
-alter table public.purchases add column if not exists input_tax numeric(18,2);
-alter table public.purchases add column if not exists attachment_name text;
-alter table public.purchases add column if not exists attachment_type text;
-alter table public.purchases add column if not exists attachment_original_type text;
-alter table public.purchases add column if not exists attachment_size bigint;
-alter table public.purchases add column if not exists attachment_original_size bigint;
-alter table public.purchases add column if not exists attachment_compression text;
-alter table public.purchases add column if not exists attachment_storage_path text;
-alter table public.purchases add column if not exists withholding_option text;
-alter table public.purchases add column if not exists atc_code text;
-alter table public.purchases add column if not exists wht_rate numeric(9,4);
-alter table public.purchases add column if not exists wht_amount numeric(18,2);
-
-alter table public.sales add column if not exists dat_month_year text;
-alter table public.sales add column if not exists date date;
-alter table public.sales add column if not exists ref text;
-alter table public.sales add column if not exists payment_type text;
-alter table public.sales add column if not exists buyer_tin text;
-alter table public.sales add column if not exists buyer_name text;
-alter table public.sales add column if not exists buyer_address text;
-alter table public.sales add column if not exists vat_type text;
-alter table public.sales add column if not exists amount numeric(18,2);
-alter table public.sales add column if not exists net_of_vat numeric(18,2);
-alter table public.sales add column if not exists output_tax numeric(18,2);
-alter table public.sales add column if not exists income_type text;
-alter table public.sales add column if not exists description text;
-
-alter table public.coa_columns add column if not exists name text;
-alter table public.coa_columns add column if not exists is_system boolean not null default false;
-alter table public.coa_accounts add column if not exists name text;
-alter table public.coa_accounts add column if not exists type text;
-alter table public.coa_accounts add column if not exists normal_side text;
-alter table public.coa_accounts add column if not exists parent_id text;
-alter table public.coa_accounts add column if not exists hidden boolean not null default false;
-alter table public.coa_accounts add column if not exists opening_balance numeric(18,2);
-alter table public.coa_accounts add column if not exists custom_values jsonb not null default '{}'::jsonb;
-
-alter table public.journal_columns add column if not exists journal_type text;
-alter table public.journal_columns add column if not exists name text;
-alter table public.journal_columns add column if not exists type text;
-alter table public.journal_columns add column if not exists category text;
-alter table public.journal_columns add column if not exists is_system boolean not null default false;
-
-alter table public.journal_entries add column if not exists client_id text;
-alter table public.journal_entries add column if not exists journal_type text;
-alter table public.journal_entries add column if not exists "values" jsonb not null default '{}'::jsonb;
-alter table public.journal_entries add column if not exists auto boolean not null default false;
-alter table public.journal_entries add column if not exists auto_source text;
-alter table public.journal_entries add column if not exists entry_date date;
-alter table public.journal_entries add column if not exists description text;
-alter table public.journal_entries add column if not exists total_debit numeric(18,2);
-alter table public.journal_entries add column if not exists total_credit numeric(18,2);
-
-alter table public.journal_vouchers add column if not exists date date;
-alter table public.journal_vouchers add column if not exists reference text;
-alter table public.journal_vouchers add column if not exists memo text;
-alter table public.journal_voucher_lines add column if not exists account_id text;
-alter table public.journal_voucher_lines add column if not exists account_name text;
-alter table public.journal_voucher_lines add column if not exists debit numeric(18,2) not null default 0;
-alter table public.journal_voucher_lines add column if not exists credit numeric(18,2) not null default 0;
-
-alter table public.purchase_orders add column if not exists date date;
-alter table public.purchase_orders add column if not exists supplier_id text;
-alter table public.purchase_orders add column if not exists supplier_name text;
-alter table public.purchase_orders add column if not exists total_amount numeric(18,2);
-alter table public.purchase_orders add column if not exists status text;
-alter table public.receiving_reports add column if not exists date date;
-alter table public.receiving_reports add column if not exists po_id text;
-alter table public.receiving_reports add column if not exists supplier_name text;
-alter table public.receiving_reports add column if not exists total_amount numeric(18,2);
-alter table public.receiving_reports add column if not exists received_by text;
-alter table public.receiving_report_items add column if not exists item_code text;
-alter table public.receiving_report_items add column if not exists description text;
-alter table public.receiving_report_items add column if not exists qty numeric(18,4);
-alter table public.receiving_report_items add column if not exists unit_price numeric(18,2);
-
-alter table public.payable_invoices add column if not exists invoice_number text;
-alter table public.payable_invoices add column if not exists date date;
-alter table public.payable_invoices add column if not exists due_date date;
-alter table public.payable_invoices add column if not exists po_id text;
-alter table public.payable_invoices add column if not exists rr_id text;
-alter table public.payable_invoices add column if not exists supplier_id text;
-alter table public.payable_invoices add column if not exists supplier_name text;
-alter table public.payable_invoices add column if not exists subtotal numeric(18,2);
-alter table public.payable_invoices add column if not exists vat_amount numeric(18,2);
-alter table public.payable_invoices add column if not exists is_vatable boolean not null default false;
-alter table public.payable_invoices add column if not exists withholding_tax_id text;
-alter table public.payable_invoices add column if not exists wht_amount numeric(18,2);
-alter table public.payable_invoices add column if not exists total_amount numeric(18,2);
-alter table public.payable_invoices add column if not exists status text;
-alter table public.payable_invoices add column if not exists discrepancy_details text;
-alter table public.payable_invoices add column if not exists applied_prepayments jsonb;
-alter table public.payable_invoice_items add column if not exists item_code text;
-alter table public.payable_invoice_items add column if not exists description text;
-alter table public.payable_invoice_items add column if not exists qty numeric(18,4);
-alter table public.payable_invoice_items add column if not exists unit_price numeric(18,2);
-
-alter table public.inventory_columns add column if not exists label text;
-alter table public.inventory_items add column if not exists code text;
-alter table public.inventory_items add column if not exists name text;
-alter table public.inventory_items add column if not exists sku text;
-alter table public.inventory_items add column if not exists description text;
-alter table public.inventory_items add column if not exists category text;
-alter table public.inventory_items add column if not exists unit_of_measure text;
-alter table public.inventory_items add column if not exists cost_price numeric(18,2);
-alter table public.inventory_items add column if not exists selling_price numeric(18,2);
-alter table public.inventory_items add column if not exists stock_level numeric(18,4);
-alter table public.inventory_items add column if not exists reorder_point numeric(18,4);
-alter table public.inventory_items add column if not exists location text;
-alter table public.inventory_items add column if not exists custom_fields jsonb not null default '{}'::jsonb;
-alter table public.inventory_movements add column if not exists item_id text;
-alter table public.inventory_movements add column if not exists item_name text;
-alter table public.inventory_movements add column if not exists item_code text;
-alter table public.inventory_movements add column if not exists date date;
-alter table public.inventory_movements add column if not exists type text;
-alter table public.inventory_movements add column if not exists qty numeric(18,4);
-alter table public.inventory_movements add column if not exists unit_cost numeric(18,2);
-alter table public.inventory_movements add column if not exists total_value numeric(18,2);
-alter table public.inventory_movements add column if not exists reference text;
-alter table public.inventory_movements add column if not exists notes text;
-
-alter table public.app_folders add column if not exists name text;
-alter table public.app_folders add column if not exists is_default boolean not null default false;
-alter table public.app_folders add column if not exists type text default 'custom';
-alter table public.app_files add column if not exists name text;
-alter table public.app_files add column if not exists type text;
-alter table public.app_files add column if not exists size bigint;
-alter table public.app_files add column if not exists uploaded_at timestamptz;
-alter table public.app_files add column if not exists folder_id text;
-alter table public.app_files add column if not exists storage_path text;
-alter table public.app_files add column if not exists description text;
-
-alter table public.tin_entries add column if not exists tin text;
-alter table public.tin_entries add column if not exists name text;
-alter table public.tin_entries add column if not exists address text;
-alter table public.tin_entries add column if not exists party_type text;
-alter table public.tax_deadlines add column if not exists form_type text;
-alter table public.tax_deadlines add column if not exists title text;
-alter table public.tax_deadlines add column if not exists period text;
-alter table public.tax_deadlines add column if not exists due_date date;
-alter table public.tax_deadlines add column if not exists status text;
-alter table public.tax_deadlines add column if not exists tax_status text;
-alter table public.tax_deadlines add column if not exists amount_due numeric(18,2);
-alter table public.tax_deadlines add column if not exists date_filed date;
-alter table public.tax_deadlines add column if not exists date_paid date;
-alter table public.tax_deadlines add column if not exists reference_no text;
-alter table public.tax_deadlines add column if not exists confirmation_no text;
-alter table public.tax_deadlines add column if not exists notes text;
-
-alter table public.bank_accounts add column if not exists bank_name text;
-alter table public.bank_accounts add column if not exists account_number text;
-alter table public.bank_accounts add column if not exists balance numeric(18,2);
-alter table public.asset_lapsing_schedule add column if not exists date_purchased date;
-alter table public.asset_lapsing_schedule add column if not exists invoice_no text;
-alter table public.asset_lapsing_schedule add column if not exists description text;
-alter table public.asset_lapsing_schedule add column if not exists cost numeric(18,2);
-alter table public.asset_lapsing_schedule add column if not exists useful_life_years numeric(18,4);
-alter table public.asset_lapsing_schedule add column if not exists salvage_value numeric(18,2);
-
-alter table public.billing_invoices add column if not exists date date;
-alter table public.billing_invoices add column if not exists due_date date;
-alter table public.billing_invoices add column if not exists invoice_no text;
-alter table public.billing_invoices add column if not exists customer_tin text;
-alter table public.billing_invoices add column if not exists customer_name text;
-alter table public.billing_invoices add column if not exists customer_address text;
-alter table public.billing_invoices add column if not exists vat_type text;
-alter table public.billing_invoices add column if not exists amount numeric(18,2);
-alter table public.billing_invoices add column if not exists net_of_vat numeric(18,2);
-alter table public.billing_invoices add column if not exists output_tax numeric(18,2);
-alter table public.billing_invoices add column if not exists description text;
-alter table public.billing_invoices add column if not exists status text;
-alter table public.billing_invoices add column if not exists payment_type text;
-alter table public.billing_invoices add column if not exists date_paid date;
-alter table public.billing_invoices add column if not exists is_recurring boolean not null default false;
-alter table public.billing_invoices add column if not exists recurrence_frequency text;
-alter table public.billing_invoices add column if not exists next_billing_date date;
-alter table public.billing_invoices add column if not exists parent_invoice_id text;
-
-alter table public.financial_report_snapshots add column if not exists report_type text;
-alter table public.financial_report_snapshots add column if not exists period_key text;
-alter table public.financial_report_snapshots add column if not exists data jsonb not null default '{}'::jsonb;
-
--- ---------------------------------------------------------------------------
 -- updated_at triggers
 -- ---------------------------------------------------------------------------
 
@@ -827,6 +729,7 @@ begin
     'journal_vouchers',
     'journal_voucher_lines',
     'purchase_orders',
+    'purchase_order_items',
     'receiving_reports',
     'receiving_report_items',
     'payable_invoices',
@@ -839,6 +742,11 @@ begin
     'tin_entries',
     'tax_deadlines',
     'bank_accounts',
+    'supplier_advances',
+    'withholding_tax_entries',
+    'debit_credit_memos',
+    'check_vouchers',
+    'miscellaneous_payments',
     'asset_lapsing_schedule',
     'billing_invoices',
     'financial_report_snapshots'
@@ -898,6 +806,7 @@ begin
     'journal_vouchers',
     'journal_voucher_lines',
     'purchase_orders',
+    'purchase_order_items',
     'receiving_reports',
     'receiving_report_items',
     'payable_invoices',
@@ -910,6 +819,11 @@ begin
     'tin_entries',
     'tax_deadlines',
     'bank_accounts',
+    'supplier_advances',
+    'withholding_tax_entries',
+    'debit_credit_memos',
+    'check_vouchers',
+    'miscellaneous_payments',
     'asset_lapsing_schedule',
     'billing_invoices',
     'financial_report_snapshots'
@@ -955,9 +869,10 @@ begin
   foreach tbl in array array[
     'clients','purchases','sales','coa_columns','coa_accounts','journal_columns',
     'journal_entries','journal_vouchers','journal_voucher_lines','purchase_orders',
-    'receiving_reports','receiving_report_items','payable_invoices',
+    'purchase_order_items','receiving_reports','receiving_report_items','payable_invoices',
     'payable_invoice_items','inventory_columns','inventory_items','inventory_movements',
-    'app_folders','app_files','tin_entries','tax_deadlines','bank_accounts',
+    'app_folders','app_files','tin_entries','tax_deadlines','bank_accounts','supplier_advances',
+    'withholding_tax_entries','debit_credit_memos','check_vouchers','miscellaneous_payments',
     'asset_lapsing_schedule','billing_invoices','financial_report_snapshots'
   ] loop
     if not exists (
