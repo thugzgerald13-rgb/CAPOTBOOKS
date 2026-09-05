@@ -1259,19 +1259,32 @@ export function AccountingProvider({
     if (error) throw error;
     updateClientState(currentClientId, { billingInvoices: ((clients[currentClientId]?.billingInvoices || []) as any[]).filter(i => String(i.id) !== String(id)) });
   };
+const saveClient = async (id: string, clientData: Client) => {
+  const updatedClient = {
+    ...clientData,
+    id,
+    userId: user ? user.id : undefined
+  } as Client;
 
-  const saveClient = async (id: string, clientData: Client) => {
-    const updatedClient = { ...clientData, id, userId: user ? user.id : undefined } as Client;
-    setClients((prev) => ({ ...prev, [id]: updatedClient }));
-    if (!user) return;
-    try {
-      await persistNormalizedClient(updatedClient, user.id);
-      showToast('Saved to normalized Supabase tables');
-    } catch (error) {
-      console.error('Normalized client save failed:', error);
-      await handleSupabaseError(error, OperationType.UPDATE, `normalized-client/${id}`);
-    }
-  };
+  setClients((prev) => ({ ...prev, [id]: updatedClient }));
+
+  if (!user) return;
+
+  try {
+    // Save only the client/root profile.
+    // Individual normalized records are persisted by their own save functions.
+    await persistClientRoot(updatedClient, user.id);
+
+    showToast('Client profile saved');
+  } catch (error) {
+    console.error('Client profile save failed:', error);
+    await handleSupabaseError(
+      error,
+      OperationType.UPDATE,
+      `clients/${id}`
+    );
+  }
+};;
 
   const uploadPurchaseAttachment = async (clientId: string, purchaseId: string, attachment: any) => {
     if (!attachment?.data) return attachment?.storagePath || null;
