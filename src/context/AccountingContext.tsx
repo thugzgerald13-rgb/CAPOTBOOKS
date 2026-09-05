@@ -198,30 +198,61 @@ const purchasesToExpenses = (purchases: any[] = []) => purchases.map((p:any) => 
   description: p.transactionDetails || p.invoiceNo || p.supplierName || ''
 }));
 
+// Explicit column projections for every normalized table. Selecting '*' was
+// pulling every column (including ones the mapping below never reads) across
+// 19 tables on every single client load, which is pure wasted PostgREST
+// egress. Each list below is exactly the set of columns actually consumed
+// further down in this function.
+const PURCHASES_COLUMNS = 'id,dat_month_year,date,payment_method,check_number,bank_name,invoice_no,supplier_name,supplier_address,supplier_tin,amount,vat_type,expense_type,account_title,transaction_details,input_tax,attachment_name,attachment_type,attachment_original_type,attachment_size,attachment_original_size,attachment_compression,attachment_storage_path,withholding_option,atc_code,wht_rate,wht_amount';
+const SALES_COLUMNS = 'id,dat_month_year,date,ref,payment_type,buyer_tin,buyer_name,buyer_address,vat_type,amount,net_of_vat,output_tax,income_type,description';
+const COA_COLUMNS_COLUMNS = 'id,name,is_system';
+const COA_ACCOUNTS_COLUMNS = 'id,name,type,normal_side,parent_id,hidden,opening_balance,custom_values';
+const JOURNAL_COLUMNS_COLUMNS = 'id,journal_type,name,type,category,is_system';
+const JOURNAL_ENTRIES_COLUMNS = 'id,journal_type,values,auto,auto_source';
+const JOURNAL_VOUCHERS_COLUMNS = 'id,date,reference,memo';
+const JOURNAL_VOUCHER_LINES_COLUMNS = 'id,journal_voucher_id,account_id,account_name,debit,credit';
+const INVENTORY_COLUMNS_COLUMNS = 'id,label';
+const INVENTORY_ITEMS_COLUMNS = 'id,code,name,sku,description,category,unit_of_measure,cost_price,selling_price,stock_level,reorder_point,location,custom_fields';
+const INVENTORY_MOVEMENTS_COLUMNS = 'id,item_id,item_name,item_code,date,type,qty,unit_cost,total_value,reference,notes';
+const APP_FOLDERS_COLUMNS = 'id,name,is_default,type';
+const APP_FILES_COLUMNS = 'id,name,type,size,uploaded_at,folder_id,storage_path,description';
+const TIN_ENTRIES_COLUMNS = 'id,party_type,tin,name,address';
+const TAX_DEADLINES_COLUMNS = 'id,form_type,title,period,due_date,status,tax_status,amount_due,date_filed,date_paid,reference_no,confirmation_no,notes';
+const BANK_ACCOUNTS_COLUMNS = 'id,bank_name,account_number,balance';
+const ASSET_LAPSING_COLUMNS = 'id,date_purchased,invoice_no,description,cost,useful_life_years,salvage_value';
+const BILLING_INVOICES_COLUMNS = 'id,date,due_date,invoice_no,customer_tin,customer_name,customer_address,vat_type,amount,net_of_vat,output_tax,description,status,payment_type,date_paid,is_recurring,recurrence_frequency,next_billing_date,parent_invoice_id';
+const SNAPSHOTS_COLUMNS = 'report_type,data';
+
+// The `clients` table also carries a legacy `data` jsonb blob plus `address`,
+// `tax_id`, `created_at`, and `updated_at` columns that nothing here reads.
+// select('*') was shipping all of that on every client-list load and on
+// every single realtime row refresh. Project only what's mapped below.
+const CLIENTS_LIST_COLUMNS = 'id,name,tin,taxpayer_classification,registered_name,last_name,first_name,middle_name,trade_name,substreet,street,barangay,district,city,zip_code,rdo_code,phone,email,category,has_multiple_business_lines,accounting_type,fiscal_month_end,coa_format';
+
 const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> => {
   const [purchases, sales, coaColumns, coaAccounts, journalColumns, journalEntries,
     journalVouchers, journalVoucherLines, inventoryColumns, inventoryItems, inventoryMovements,
     folders, files, tinEntries, taxDeadlines, bankAccounts, assetLapsingSchedule,
     billingInvoices, snapshots] = await Promise.all([
-      supabase.from('purchases').select('*').eq('client_id', clientId),
-      supabase.from('sales').select('*').eq('client_id', clientId),
-      supabase.from('coa_columns').select('*').eq('client_id', clientId),
-      supabase.from('coa_accounts').select('*').eq('client_id', clientId),
-      supabase.from('journal_columns').select('*').eq('client_id', clientId),
-      supabase.from('journal_entries').select('*').eq('client_id', clientId),
-      supabase.from('journal_vouchers').select('*').eq('client_id', clientId),
-      supabase.from('journal_voucher_lines').select('*').eq('client_id', clientId),
-      supabase.from('inventory_columns').select('*').eq('client_id', clientId),
-      supabase.from('inventory_items').select('*').eq('client_id', clientId),
-      supabase.from('inventory_movements').select('*').eq('client_id', clientId),
-      supabase.from('app_folders').select('*').eq('client_id', clientId),
-      supabase.from('app_files').select('*').eq('client_id', clientId),
-      supabase.from('tin_entries').select('*').eq('client_id', clientId),
-      supabase.from('tax_deadlines').select('*').eq('client_id', clientId),
-      supabase.from('bank_accounts').select('*').eq('client_id', clientId),
-      supabase.from('asset_lapsing_schedule').select('*').eq('client_id', clientId),
-      supabase.from('billing_invoices').select('*').eq('client_id', clientId),
-      supabase.from('financial_report_snapshots').select('*').eq('client_id', clientId),
+      supabase.from('purchases').select(PURCHASES_COLUMNS).eq('client_id', clientId),
+      supabase.from('sales').select(SALES_COLUMNS).eq('client_id', clientId),
+      supabase.from('coa_columns').select(COA_COLUMNS_COLUMNS).eq('client_id', clientId),
+      supabase.from('coa_accounts').select(COA_ACCOUNTS_COLUMNS).eq('client_id', clientId),
+      supabase.from('journal_columns').select(JOURNAL_COLUMNS_COLUMNS).eq('client_id', clientId),
+      supabase.from('journal_entries').select(JOURNAL_ENTRIES_COLUMNS).eq('client_id', clientId),
+      supabase.from('journal_vouchers').select(JOURNAL_VOUCHERS_COLUMNS).eq('client_id', clientId),
+      supabase.from('journal_voucher_lines').select(JOURNAL_VOUCHER_LINES_COLUMNS).eq('client_id', clientId),
+      supabase.from('inventory_columns').select(INVENTORY_COLUMNS_COLUMNS).eq('client_id', clientId),
+      supabase.from('inventory_items').select(INVENTORY_ITEMS_COLUMNS).eq('client_id', clientId),
+      supabase.from('inventory_movements').select(INVENTORY_MOVEMENTS_COLUMNS).eq('client_id', clientId),
+      supabase.from('app_folders').select(APP_FOLDERS_COLUMNS).eq('client_id', clientId),
+      supabase.from('app_files').select(APP_FILES_COLUMNS).eq('client_id', clientId),
+      supabase.from('tin_entries').select(TIN_ENTRIES_COLUMNS).eq('client_id', clientId),
+      supabase.from('tax_deadlines').select(TAX_DEADLINES_COLUMNS).eq('client_id', clientId),
+      supabase.from('bank_accounts').select(BANK_ACCOUNTS_COLUMNS).eq('client_id', clientId),
+      supabase.from('asset_lapsing_schedule').select(ASSET_LAPSING_COLUMNS).eq('client_id', clientId),
+      supabase.from('billing_invoices').select(BILLING_INVOICES_COLUMNS).eq('client_id', clientId),
+      supabase.from('financial_report_snapshots').select(SNAPSHOTS_COLUMNS).eq('client_id', clientId),
     ]);
 
   const responses = [purchases, sales, coaColumns, coaAccounts, journalColumns, journalEntries,
@@ -446,7 +477,7 @@ export function AccountingProvider({
     setIsSyncing(true);
 
     try {
-      const { data, error } = await supabase.from('clients').select('*').eq('user_id', user.id);
+      const { data, error } = await supabase.from('clients').select(CLIENTS_LIST_COLUMNS).eq('user_id', user.id);
       if (error) throw error;
       const cloudClients: Record<string, Client> = {};
       for (const row of data || []) {
@@ -644,7 +675,7 @@ export function AccountingProvider({
 
     const initClients = async () => {
       try {
-        const { data, error } = await supabase.from('clients').select('*').eq('user_id', user.id);
+        const { data, error } = await supabase.from('clients').select(CLIENTS_LIST_COLUMNS).eq('user_id', user.id);
         if (isTimedOut) return;
         if (error) throw error;
 
@@ -825,7 +856,7 @@ export function AccountingProvider({
               setClients(prev => { const next = { ...prev }; delete next[clientId]; return next; });
             } else {
               // Client profile changes are tiny; refresh only the root row.
-              void supabase.from('clients').select('*').eq('id', clientId).eq('user_id', user.id).maybeSingle()
+              void supabase.from('clients').select(CLIENTS_LIST_COLUMNS).eq('id', clientId).eq('user_id', user.id).maybeSingle()
                 .then(({ data: row, error }) => {
                   if (error || !row) return;
                   setClients(prev => {
@@ -847,11 +878,17 @@ export function AccountingProvider({
 
         // Filter each child subscription to the clients this user currently has.
         // This prevents Realtime traffic from unrelated tenants while preserving
-        // multi-client support.
-        for (const clientId of Object.keys(cloudClients)) {
+        // multi-client support. Previously this registered one subscription per
+        // (client x table) pair, so a user with several clients was opening
+        // dozens of filters on a single channel. Postgres Changes filters
+        // support `in`, so register one subscription per table with all of the
+        // user's client ids batched into a single filter instead.
+        const ownedClientIds = Object.keys(cloudClients);
+        if (ownedClientIds.length > 0) {
+          const clientIdList = ownedClientIds.map(id => `"${id}"`).join(',');
           for (const table of normalizedRealtimeTables) {
             clientsChannel = clientsChannel.on('postgres_changes', {
-              event: '*', schema: 'public', table, filter: `client_id=eq.${clientId}`
+              event: '*', schema: 'public', table, filter: `client_id=in.(${clientIdList})`
             }, (payload) => updateRealtimeClient(table, payload));
           }
         }
@@ -1696,4 +1733,5 @@ export const useAccounting = () => {
   if (!ctx) throw new Error('useAccounting must be used within AccountingProvider');
   return ctx;
 };
+
 
