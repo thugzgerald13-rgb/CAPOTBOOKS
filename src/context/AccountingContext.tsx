@@ -229,40 +229,111 @@ const SNAPSHOTS_COLUMNS = 'report_type,data';
 // every single realtime row refresh. Project only what's mapped below.
 const CLIENTS_LIST_COLUMNS = 'id,name,tin,taxpayer_classification,registered_name,last_name,first_name,middle_name,trade_name,substreet,street,barangay,district,city,zip_code,rdo_code,phone,email,category,has_multiple_business_lines,accounting_type,fiscal_month_end,coa_format';
 
-const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> => {
-  const [purchases, sales, coaColumns, coaAccounts, journalColumns, journalEntries,
-    journalVouchers, journalVoucherLines, inventoryColumns, inventoryItems, inventoryMovements,
-    folders, files, tinEntries, taxDeadlines, bankAccounts, assetLapsingSchedule,
-    billingInvoices, snapshots] = await Promise.all([
-      supabase.from('purchases').select(PURCHASES_COLUMNS).eq('client_id', clientId),
-      supabase.from('sales').select(SALES_COLUMNS).eq('client_id', clientId),
-      supabase.from('coa_columns').select(COA_COLUMNS_COLUMNS).eq('client_id', clientId),
-      supabase.from('coa_accounts').select(COA_ACCOUNTS_COLUMNS).eq('client_id', clientId),
-      supabase.from('journal_columns').select(JOURNAL_COLUMNS_COLUMNS).eq('client_id', clientId),
-      supabase.from('journal_entries').select(JOURNAL_ENTRIES_COLUMNS).eq('client_id', clientId),
-      supabase.from('journal_vouchers').select(JOURNAL_VOUCHERS_COLUMNS).eq('client_id', clientId),
-      supabase.from('journal_voucher_lines').select(JOURNAL_VOUCHER_LINES_COLUMNS).eq('client_id', clientId),
-      supabase.from('inventory_columns').select(INVENTORY_COLUMNS_COLUMNS).eq('client_id', clientId),
-      supabase.from('inventory_items').select(INVENTORY_ITEMS_COLUMNS).eq('client_id', clientId),
-      supabase.from('inventory_movements').select(INVENTORY_MOVEMENTS_COLUMNS).eq('client_id', clientId),
-      supabase.from('app_folders').select(APP_FOLDERS_COLUMNS).eq('client_id', clientId),
-      supabase.from('app_files').select(APP_FILES_COLUMNS).eq('client_id', clientId),
-      supabase.from('tin_entries').select(TIN_ENTRIES_COLUMNS).eq('client_id', clientId),
-      supabase.from('tax_deadlines').select(TAX_DEADLINES_COLUMNS).eq('client_id', clientId),
-      supabase.from('bank_accounts').select(BANK_ACCOUNTS_COLUMNS).eq('client_id', clientId),
-      supabase.from('asset_lapsing_schedule').select(ASSET_LAPSING_COLUMNS).eq('client_id', clientId),
-      supabase.from('billing_invoices').select(BILLING_INVOICES_COLUMNS).eq('client_id', clientId),
-      supabase.from('financial_report_snapshots').select(SNAPSHOTS_COLUMNS).eq('client_id', clientId),
-    ]);
+// ---------------------------------------------------------------------------
+// Incremental ("delta") sync for the highest-volume, most-frequently-edited
+// tables.
+//
+// loadNormalizedClient() used to re-download every row of every normalized
+// table on every call (initial login AND every manual "sync"). For an
+// established client with years of transactions, a re-sync could cost as
+// much egress as the very first load. These 8 tables are exactly the ones
+// already covered live by the Realtime subscription below, so they're the
+// ones where we can safely track "have I already loaded this row" and only
+// ask PostgREST for rows that changed since the last time we asked.
+//
+// How it works: each of these tables has a DB-maintained `updated_at`
+// (bumped by a trigger on every insert/update - see schema.sql). We keep an
+// in-memory cache of every row we've already fetched for a client, plus a
+// cursor timestamp. On the next call we fetch only `updated_at >= cursor`
+// and upsert those rows into the cache by id, then rebuild the mapped
+// result from the merged cache instead of a fresh full table.
+//
+// Caveat (documented, not silently swept under the rug): a delta fetch
+// cannot see rows that were deleted, since a deleted row simply isn't
+// returned by any filter. That's why updateRealtimeClient() below also
+// evicts a row from this cache the moment a DELETE event arrives - as long
+// as the Realtime channel stays connected (it's opened right after the
+// first load and kept open for the session), the cache stays correct. A
+// delete that happens while the tab is closed/disconnected is caught the
+// next time this client gets its one-time full load in a fresh session.
+const DELTA_SYNC_TABLES = [
+  { table: 'purchases', columns: PURCHASES_COLUMNS },
+  { table: 'sales', columns: SALES_COLUMNS },
+  { table: 'coa_columns', columns: COA_COLUMNS_COLUMNS },
+  { table: 'coa_accounts', columns: COA_ACCOUNTS_COLUMNS },
+  { table: 'journal_columns', columns: JOURNAL_COLUMNS_COLUMNS },
+  { table: 'journal_entries', columns: JOURNAL_ENTRIES_COLUMNS },
+  { table: 'journal_vouchers', columns: JOURNAL_VOUCHERS_COLUMNS },
+  { table: 'journal_voucher_lines', columns: JOURNAL_VOUCHER_LINES_COLUMNS },
+] as const;
 
-  const responses = [purchases, sales, coaColumns, coaAccounts, journalColumns, journalEntries,
-    journalVouchers, journalVoucherLines, inventoryColumns, inventoryItems, inventoryMovements,
+interface DeltaCacheEntry {
+  cursor: string;
+  // table name -> (row id -> raw row)
+  rows: Map<string, Map<string, any>>;
+}
+
+// Module-level so it survives across renders/effects for the lifetime of the
+// tab, but resets on a hard page reload (which is fine - the very next load
+// just falls back to a full fetch per table, same as before this change).
+const deltaSyncCache = new Map<string, DeltaCacheEntry>();
+
+const getDeltaRows = (entry: DeltaCacheEntry, table: string): any[] =>
+  Array.from(entry.rows.get(table)?.values() ?? []);
+
+const upsertDeltaRows = (entry: DeltaCacheEntry, table: string, freshRows: any[]) => {
+  let rowMap = entry.rows.get(table);
+  if (!rowMap) { rowMap = new Map(); entry.rows.set(table, rowMap); }
+  for (const row of freshRows) rowMap.set(String(row.id), row);
+};
+
+// Exposed so a client that's deleted/removed doesn't keep its cache around
+// forever, and so a hard "resync from scratch" can be forced if ever needed.
+export const clearNormalizedClientCache = (clientId?: string) => {
+  if (clientId) deltaSyncCache.delete(clientId);
+  else deltaSyncCache.clear();
+};
+
+const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> => {
+  // Timestamp captured *before* any query fires, so the next delta sync's
+  // `>=` filter can't miss a row that changes mid-request.
+  const requestStartedAt = new Date().toISOString();
+  const cacheEntry = deltaSyncCache.get(clientId);
+
+  const deltaQueryPromises = DELTA_SYNC_TABLES.map(({ table, columns }) => {
+    let query = supabase.from(table).select(`${columns},updated_at`).eq('client_id', clientId);
+    if (cacheEntry) query = query.gte('updated_at', cacheEntry.cursor);
+    return query;
+  });
+
+  // These 11 tables are lower-volume/lower-churn (settings, folders,
+  // deadlines, etc.) and aren't covered by the Realtime subscription, so
+  // they're kept as plain full fetches - already column-trimmed above.
+  const fullQueryPromises = [
+    supabase.from('inventory_columns').select(INVENTORY_COLUMNS_COLUMNS).eq('client_id', clientId),
+    supabase.from('inventory_items').select(INVENTORY_ITEMS_COLUMNS).eq('client_id', clientId),
+    supabase.from('inventory_movements').select(INVENTORY_MOVEMENTS_COLUMNS).eq('client_id', clientId),
+    supabase.from('app_folders').select(APP_FOLDERS_COLUMNS).eq('client_id', clientId),
+    supabase.from('app_files').select(APP_FILES_COLUMNS).eq('client_id', clientId),
+    supabase.from('tin_entries').select(TIN_ENTRIES_COLUMNS).eq('client_id', clientId),
+    supabase.from('tax_deadlines').select(TAX_DEADLINES_COLUMNS).eq('client_id', clientId),
+    supabase.from('bank_accounts').select(BANK_ACCOUNTS_COLUMNS).eq('client_id', clientId),
+    supabase.from('asset_lapsing_schedule').select(ASSET_LAPSING_COLUMNS).eq('client_id', clientId),
+    supabase.from('billing_invoices').select(BILLING_INVOICES_COLUMNS).eq('client_id', clientId),
+    supabase.from('financial_report_snapshots').select(SNAPSHOTS_COLUMNS).eq('client_id', clientId),
+  ];
+
+  const [deltaResults, inventoryColumns, inventoryItems, inventoryMovements, folders, files,
+    tinEntries, taxDeadlines, bankAccounts, assetLapsingSchedule, billingInvoices, snapshots] =
+    await Promise.all([Promise.all(deltaQueryPromises), ...fullQueryPromises]);
+
+  const responses = [...deltaResults, inventoryColumns, inventoryItems, inventoryMovements,
     folders, files, tinEntries, taxDeadlines, bankAccounts, assetLapsingSchedule, billingInvoices, snapshots];
   const responseNames = [
-    'purchases', 'sales', 'coa_columns', 'coa_accounts', 'journal_columns', 'journal_entries',
-    'journal_vouchers', 'journal_voucher_lines', 'inventory_columns', 'inventory_items',
-    'inventory_movements', 'app_folders', 'app_files', 'tin_entries', 'tax_deadlines',
-    'bank_accounts', 'asset_lapsing_schedule', 'billing_invoices', 'financial_report_snapshots',
+    ...DELTA_SYNC_TABLES.map(t => t.table),
+    'inventory_columns', 'inventory_items', 'inventory_movements', 'app_folders', 'app_files',
+    'tin_entries', 'tax_deadlines', 'bank_accounts', 'asset_lapsing_schedule', 'billing_invoices',
+    'financial_report_snapshots',
   ];
   const failedResponseIndex = responses.findIndex((r: any) => r.error);
   if (failedResponseIndex >= 0) {
@@ -274,8 +345,35 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
     Object.assign(wrapped, { cause: error, table });
     throw wrapped;
   }
-  const rows = responses.map((r: any) => r.data || []);
-  const [pRows,sRows,ccRows,caRows,jcRows,jeRows,jvRows,jvlRows,icRows,iiRows,imRows,fRows,fileRows,tinRows,tdRows,baRows,alsRows,biRows,snapshotRows] = rows;
+
+  // Merge this batch's delta rows into the cache, then read the *merged*
+  // (not just freshly-fetched) rows back out for mapping below.
+  const activeEntry: DeltaCacheEntry = cacheEntry ?? { cursor: requestStartedAt, rows: new Map() };
+  DELTA_SYNC_TABLES.forEach(({ table }, i) => {
+    upsertDeltaRows(activeEntry, table, (deltaResults[i] as any).data || []);
+  });
+  activeEntry.cursor = requestStartedAt;
+  deltaSyncCache.set(clientId, activeEntry);
+
+  const pRows = getDeltaRows(activeEntry, 'purchases');
+  const sRows = getDeltaRows(activeEntry, 'sales');
+  const ccRows = getDeltaRows(activeEntry, 'coa_columns');
+  const caRows = getDeltaRows(activeEntry, 'coa_accounts');
+  const jcRows = getDeltaRows(activeEntry, 'journal_columns');
+  const jeRows = getDeltaRows(activeEntry, 'journal_entries');
+  const jvRows = getDeltaRows(activeEntry, 'journal_vouchers');
+  const jvlRows = getDeltaRows(activeEntry, 'journal_voucher_lines');
+  const icRows = (inventoryColumns as any).data || [];
+  const iiRows = (inventoryItems as any).data || [];
+  const imRows = (inventoryMovements as any).data || [];
+  const fRows = (folders as any).data || [];
+  const fileRows = (files as any).data || [];
+  const tinRows = (tinEntries as any).data || [];
+  const tdRows = (taxDeadlines as any).data || [];
+  const baRows = (bankAccounts as any).data || [];
+  const alsRows = (assetLapsingSchedule as any).data || [];
+  const biRows = (billingInvoices as any).data || [];
+  const snapshotRows = (snapshots as any).data || [];
 
   const linesByVoucher = new Map<string, any[]>();
   jvlRows.forEach((r:any) => { const a=linesByVoucher.get(r.journal_voucher_id)||[]; a.push({ id:strId(r.id), accountId:r.account_id||'', accountName:r.account_name||'', debit:Number(r.debit||0), credit:Number(r.credit||0) }); linesByVoucher.set(r.journal_voucher_id,a); });
@@ -701,10 +799,11 @@ export function AccountingProvider({
         // reload of every normalized table for the client. That meant one saved
         // transaction could download the entire client again. Apply the changed
         // row directly to the in-memory client instead.
-        const normalizedRealtimeTables = [
-          'purchases', 'sales', 'coa_columns', 'coa_accounts', 'journal_columns',
-          'journal_entries', 'journal_vouchers', 'journal_voucher_lines'
-        ];
+        // Sourced from DELTA_SYNC_TABLES so this list and the delta-sync cache
+        // in loadNormalizedClient() can never drift apart - both need to agree
+        // on exactly which tables are "live" for correctness (see the DELETE
+        // eviction below).
+        const normalizedRealtimeTables = DELTA_SYNC_TABLES.map(t => t.table);
 
         const updateRealtimeClient = (table: string, payload: any) => {
           const eventType = payload.eventType;
@@ -750,6 +849,17 @@ export function AccountingProvider({
               }
             }
             if (!clientId || !prev[clientId]) return prev;
+
+            // Keep the delta-sync raw cache (used by loadNormalizedClient
+            // above) honest: a DELETE can never be discovered by a
+            // `updated_at >= cursor` query, since the row is simply gone.
+            // Evict it here, while we still have the channel open and know
+            // which client it belonged to, so the next resync doesn't
+            // resurrect it from the cache.
+            if (eventType === 'DELETE' && rowId) {
+              const deltaEntry = deltaSyncCache.get(clientId);
+              deltaEntry?.rows.get(table)?.delete(rowId);
+            }
 
             const current: any = prev[clientId];
             const next: any = { ...current };
@@ -1466,6 +1576,11 @@ export function AccountingProvider({
         return currentMerged;
       });
     }
+
+    // Drop the delta-sync raw cache for this client so it doesn't sit around
+    // in memory (and so a client id reused later, e.g. undo/recreate, starts
+    // from a clean full load instead of stale cached rows).
+    clearNormalizedClientCache(id);
 
     if (user) {
       try {
