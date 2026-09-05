@@ -816,11 +816,3 @@ export function Purchases() {
     </div>
   );
 }
-```
-
----
-
-## 📄 `CAPOT-main/src/components/PurchasesJournal.tsx`
-
-*tsx · 16 KB*
-
