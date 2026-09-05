@@ -1371,6 +1371,54 @@ export function AccountingProvider({
     [rawCurrentClient]
   );
 
+  // Persist every source-derived CDJ transaction into the normalized
+  // journal_entries table. syncCashDisbursementsJournal() intentionally stays
+  // pure, so the generated CDJ rows exist in currentClient but are not written
+  // to Supabase unless we explicitly reconcile them here. This is important
+  // for migrated clients: journal_entries may contain only a subset of the
+  // transactions that are currently derivable from Purchases/JVs/GJ.
+  useEffect(() => {
+    if (!user || !rawCurrentClient || !currentClient) return;
+
+    const persistedIds = new Set(
+      (rawCurrentClient.cdjEntries || []).map((entry: any) => String(entry.id))
+    );
+    const missingGenerated = (currentClient.cdjEntries || []).filter(
+      (entry: any) => entry.auto && !persistedIds.has(String(entry.id))
+    );
+
+    if (!missingGenerated.length) return;
+
+    let cancelled = false;
+    const rows = missingGenerated.map((entry: any) =>
+      journalEntryRow(rawCurrentClient.id, 'CDJ', entry)
+    );
+
+    void (async () => {
+      try {
+        // Upsert the complete missing set in one operation. We deliberately do
+        // not call saveJournalEntries() here because that function also mutates
+        // the React client aggregate; direct persistence prevents a render ->
+        // sync -> save loop while keeping journal_entries authoritative.
+        const { error } = await supabase
+          .from('journal_entries')
+          .upsert(rows, { onConflict: 'id' });
+        if (error) throw error;
+        if (!cancelled) {
+          console.info(
+            `CDJ persistence sync: captured ${missingGenerated.length} missing transaction(s) in journal_entries.`
+          );
+        }
+      } catch (error) {
+        console.error('CDJ persistence sync failed:', error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user, rawCurrentClient, currentClient]);
+
   if (syncError) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 px-6">
