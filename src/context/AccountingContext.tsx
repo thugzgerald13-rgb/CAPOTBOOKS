@@ -666,52 +666,194 @@ export function AccountingProvider({
         setIsReady(true);
         setSyncError(null);
 
-        // Subscribe to the tenancy root and every normalized child table. A child
-        // transaction changing does not update `clients`, so listening only to the
-        // root would leave another device stale.
+        // Keep Realtime lightweight. A child-row change used to trigger a full
+        // reload of every normalized table for the client. That meant one saved
+        // transaction could download the entire client again. Apply the changed
+        // row directly to the in-memory client instead.
         const normalizedRealtimeTables = [
-          'purchases','sales','coa_columns','coa_accounts','journal_columns',
-          'journal_entries','journal_vouchers','journal_voucher_lines',
-          'inventory_columns','inventory_items','inventory_movements',
-          'app_folders','app_files','tin_entries','tax_deadlines','bank_accounts',
-          'asset_lapsing_schedule','billing_invoices','financial_report_snapshots'
+          'purchases', 'sales', 'coa_columns', 'coa_accounts', 'journal_columns',
+          'journal_entries', 'journal_vouchers', 'journal_voucher_lines'
         ];
-        let reloadTimer: ReturnType<typeof setTimeout> | null = null;
-        const scheduleClientReload = (clientId: string) => {
-          if (reloadTimer) clearTimeout(reloadTimer);
-          reloadTimer = setTimeout(async () => {
-            try {
-              const { data: row, error: rowError } = await supabase.from('clients').select('*').eq('id', clientId).eq('user_id', user.id).maybeSingle();
-              if (rowError) throw rowError;
-              if (!row) return;
-              const normalized = await loadNormalizedClient(clientId);
-              const hydrated = { id: row.id, name: row.name || 'Client',
-                tin: row.tin, taxpayerClassification: row.taxpayer_classification, registeredName: row.registered_name,
-                lastName: row.last_name, firstName: row.first_name, middleName: row.middle_name, tradeName: row.trade_name,
-                substreet: row.substreet, street: row.street, barangay: row.barangay, district: row.district, city: row.city,
-                zipCode: row.zip_code, rdoCode: row.rdo_code, phone: row.phone, email: row.email, category: row.category,
-                hasMultipleBusinessLines: row.has_multiple_business_lines, accountingType: row.accounting_type,
-                fiscalMonthEnd: row.fiscal_month_end, coaFormat: row.coa_format,
-                tinLibrary: normalized.tinLibrary ?? {customers:[], suppliers:[]}, sales: normalized.sales ?? [], purchases: normalized.purchases ?? [], expenses: purchasesToExpenses(normalized.purchases ?? []),
-                ...(normalized as any) } as Client;
-              setClients(prev => ({ ...prev, [clientId]: hydrated }));
-            } catch (e) { console.warn('Realtime normalized reload failed', e); }
-          }, 150);
+
+        const updateRealtimeClient = (table: string, payload: any) => {
+          const eventType = payload.eventType;
+          const row = eventType === 'DELETE' ? (payload.old || {}) : (payload.new || {});
+          const rowId = row.id == null ? '' : String(row.id);
+
+          setClients(prev => {
+            let clientId = row.client_id ? String(row.client_id) : '';
+
+            // DELETE payloads may contain only the primary key unless the table
+            // has REPLICA IDENTITY FULL. Find the owning client locally instead
+            // of issuing another Supabase query just to process the event.
+            if (!clientId && rowId) {
+              for (const [candidateId, candidate] of Object.entries(prev)) {
+                const c: any = candidate;
+                const candidateLists: any[][] = [];
+                if (table === 'journal_entries') {
+                  const journalKeys = row.journal_type
+                    ? [`${String(row.journal_type).toLowerCase()}Entries`]
+                    : ['crjEntries', 'cdjEntries', 'pjEntries', 'sjEntries', 'gjEntries'];
+                  journalKeys.forEach(key => candidateLists.push(c[key] || []));
+                } else if (table === 'journal_columns') {
+                  ['crjColumns', 'cdjColumns', 'pjColumns', 'sjColumns', 'gjColumns'].forEach(key => candidateLists.push(c[key] || []));
+                } else {
+                  const key = table === 'coa_accounts' ? 'accounts'
+                    : table === 'coa_columns' ? 'coaColumns'
+                    : table === 'purchases' ? 'purchases'
+                    : table === 'sales' ? 'sales'
+                    : table === 'journal_vouchers' ? 'journalVouchers' : '';
+                  if (key) candidateLists.push(c[key] || []);
+                }
+                if (candidateLists.some(list => list.some((item: any) => String(item.id) === rowId))) {
+                  clientId = candidateId;
+                  break;
+                }
+                if (table === 'journal_voucher_lines') {
+                  const vouchers = c.journalVouchers || [];
+                  if (vouchers.some((v: any) => (v.lines || []).some((l: any) => String(l.id) === rowId))) {
+                    clientId = candidateId;
+                    break;
+                  }
+                }
+              }
+            }
+            if (!clientId || !prev[clientId]) return prev;
+
+            const current: any = prev[clientId];
+            const next: any = { ...current };
+
+            const replaceRow = (key: string, mapped: any) => {
+              const list = Array.isArray(current[key]) ? current[key] : [];
+              if (eventType === 'DELETE') {
+                next[key] = list.filter((item: any) => String(item.id) !== rowId);
+              } else {
+                const index = list.findIndex((item: any) => String(item.id) === rowId);
+                next[key] = index >= 0
+                  ? list.map((item: any, i: number) => i === index ? mapped : item)
+                  : [...list, mapped];
+              }
+            };
+
+            if (table === 'purchases') {
+              if (eventType === 'DELETE') {
+                replaceRow('purchases', null);
+                next.expenses = purchasesToExpenses(next.purchases || []);
+              } else {
+                replaceRow('purchases', {
+                  id: Number(row.id) || row.id, datMonthYear: row.dat_month_year || '', date: rowDate(row.date),
+                  paymentMethod: row.payment_method || '', checkNumber: row.check_number, bankName: row.bank_name,
+                  invoiceNo: row.invoice_no || '', supplierName: row.supplier_name || '', supplierAddress: row.supplier_address || '',
+                  supplierTin: row.supplier_tin || '', amount: Number(row.amount || 0), vatType: row.vat_type || '',
+                  expenseType: row.expense_type || '', accountTitle: row.account_title || '', transactionDetails: row.transaction_details,
+                  inputTax: Number(row.input_tax || 0), attachment: row.attachment_name ? {
+                    name: row.attachment_name, type: row.attachment_type || '', originalType: row.attachment_original_type || row.attachment_type || '',
+                    size: Number(row.attachment_size || 0), originalSize: Number(row.attachment_original_size || row.attachment_size || 0),
+                    compression: row.attachment_compression, content: '', storagePath: row.attachment_storage_path
+                  } : undefined,
+                  withholdingOption: row.withholding_option, atcCode: row.atc_code,
+                  whtRate: row.wht_rate == null ? null : Number(row.wht_rate),
+                  whtAmount: row.wht_amount == null ? undefined : Number(row.wht_amount)
+                });
+                next.expenses = purchasesToExpenses(next.purchases || []);
+              }
+            } else if (table === 'sales') {
+              replaceRow('sales', eventType === 'DELETE' ? null : {
+                id: Number(row.id) || row.id, datMonthYear: row.dat_month_year || '', date: rowDate(row.date), ref: row.ref || '',
+                paymentType: row.payment_type || '', buyerTin: row.buyer_tin || '', buyerName: row.buyer_name || '', buyerAddress: row.buyer_address || '',
+                vatType: row.vat_type || '', amount: Number(row.amount || 0), netOfVat: Number(row.net_of_vat || 0),
+                outputTax: Number(row.output_tax || 0), incomeType: row.income_type || '', desc: row.description || ''
+              });
+            } else if (table === 'coa_accounts') {
+              replaceRow('accounts', eventType === 'DELETE' ? null : {
+                id: String(row.id), name: row.name, type: row.type, normalSide: row.normal_side, parentId: row.parent_id,
+                hidden: !!row.hidden, openingBalance: Number(row.opening_balance || 0), ...(row.custom_values || {})
+              });
+            } else if (table === 'coa_columns') {
+              replaceRow('coaColumns', eventType === 'DELETE' ? null : { id: String(row.id), name: row.name, isSystem: !!row.is_system });
+            } else if (table === 'journal_columns') {
+              const key = `${String(row.journal_type || '').toLowerCase()}Columns`;
+              if (!row.journal_type) return prev;
+              replaceRow(key, eventType === 'DELETE' ? null : {
+                id: String(row.id), name: row.name, type: row.type, category: row.category, isSystem: !!row.is_system
+              });
+            } else if (table === 'journal_entries') {
+              const key = `${String(row.journal_type || '').toLowerCase()}Entries`;
+              if (!row.journal_type) return prev;
+              replaceRow(key, eventType === 'DELETE' ? null : {
+                id: String(row.id), values: row.values || {}, auto: !!row.auto, autoSource: row.auto_source
+              });
+            } else if (table === 'journal_vouchers') {
+              if (eventType === 'DELETE') {
+                replaceRow('journalVouchers', null);
+              } else {
+                const existingLines = (current.journalVouchers || []).find((v: any) => String(v.id) === rowId)?.lines || [];
+                replaceRow('journalVouchers', {
+                  id: String(row.id), date: rowDate(row.date), reference: row.reference || '', memo: row.memo || '', lines: existingLines
+                });
+              }
+            } else if (table === 'journal_voucher_lines') {
+              if (!row.journal_voucher_id) return prev;
+              const voucherId = String(row.journal_voucher_id);
+              const vouchers = Array.isArray(current.journalVouchers) ? current.journalVouchers : [];
+              next.journalVouchers = vouchers.map((voucher: any) => {
+                if (String(voucher.id) !== voucherId) return voucher;
+                const lines = Array.isArray(voucher.lines) ? voucher.lines : [];
+                if (eventType === 'DELETE') {
+                  return { ...voucher, lines: lines.filter((line: any) => String(line.id) !== rowId) };
+                }
+                const mapped = {
+                  id: String(row.id), accountId: row.account_id || '', accountName: row.account_name || '',
+                  debit: Number(row.debit || 0), credit: Number(row.credit || 0)
+                };
+                const index = lines.findIndex((line: any) => String(line.id) === rowId);
+                return { ...voucher, lines: index >= 0 ? lines.map((line: any, i: number) => i === index ? mapped : line) : [...lines, mapped] };
+              });
+            }
+
+            return { ...prev, [clientId]: next };
+          });
         };
 
         clientsChannel = supabase.channel(`normalized-${user.id}`)
-          .on('postgres_changes', { event: '*', schema: 'public', table: 'clients', filter: `user_id=eq.${user.id}` }, (payload) => {
+          .on('postgres_changes', {
+            event: '*', schema: 'public', table: 'clients', filter: `user_id=eq.${user.id}`
+          }, (payload) => {
             const clientId = String((payload.eventType === 'DELETE' ? payload.old : payload.new)?.id || '');
             if (!clientId) return;
             if (payload.eventType === 'DELETE') {
               setClients(prev => { const next = { ...prev }; delete next[clientId]; return next; });
-            } else scheduleClientReload(clientId);
+            } else {
+              // Client profile changes are tiny; refresh only the root row.
+              void supabase.from('clients').select('*').eq('id', clientId).eq('user_id', user.id).maybeSingle()
+                .then(({ data: row, error }) => {
+                  if (error || !row) return;
+                  setClients(prev => {
+                    const existing = prev[clientId];
+                    if (!existing) return prev;
+                    return { ...prev, [clientId]: {
+                      ...existing, id: row.id, name: row.name || 'Client', tin: row.tin,
+                      taxpayerClassification: row.taxpayer_classification, registeredName: row.registered_name,
+                      lastName: row.last_name, firstName: row.first_name, middleName: row.middle_name, tradeName: row.trade_name,
+                      substreet: row.substreet, street: row.street, barangay: row.barangay, district: row.district, city: row.city,
+                      zipCode: row.zip_code, rdoCode: row.rdo_code, phone: row.phone, email: row.email, category: row.category,
+                      hasMultipleBusinessLines: row.has_multiple_business_lines, accountingType: row.accounting_type,
+                      fiscalMonthEnd: row.fiscal_month_end, coaFormat: row.coa_format
+                    } as Client };
+                  });
+                });
+            }
           });
-        for (const table of normalizedRealtimeTables) {
-          clientsChannel = clientsChannel.on('postgres_changes', { event: '*', schema: 'public', table,  }, (payload) => {
-            const clientId = String((payload.eventType === 'DELETE' ? payload.old : payload.new)?.client_id || '');
-            if (clientId) scheduleClientReload(clientId);
-          });
+
+        // Filter each child subscription to the clients this user currently has.
+        // This prevents Realtime traffic from unrelated tenants while preserving
+        // multi-client support.
+        for (const clientId of Object.keys(cloudClients)) {
+          for (const table of normalizedRealtimeTables) {
+            clientsChannel = clientsChannel.on('postgres_changes', {
+              event: '*', schema: 'public', table, filter: `client_id=eq.${clientId}`
+            }, (payload) => updateRealtimeClient(table, payload));
+          }
         }
         clientsChannel.subscribe();
       } catch (error) {
