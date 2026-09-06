@@ -22,14 +22,49 @@ export function BalanceSheet() {
     }))
       .then(({ data, error }) => {
         if (error) throw error;
-        if (!cancelled) setBalances((data || []).map((row:any) => ({
+        if (cancelled) return;
+        const serverRows = (data || []).map((row:any) => ({
           account_id: String(row.account_id), account_name: String(row.account_name || ''),
           account_type: String(row.account_type || ''), balance: Number(row.balance || 0),
           period_debit: Number(row.period_debit || 0), period_credit: Number(row.period_credit || 0),
           period_balance: Number(row.period_balance || 0),
-        })));
+        }));
+        if (serverRows.length) {
+          setBalances(serverRows);
+          return;
+        }
+        throw new Error('Server returned no account balances.');
       })
-      .catch(err => { if (!cancelled) setReportError(err?.message || 'Unable to load report balances.'); });
+      .catch(err => {
+        if (cancelled) return;
+        // The report must remain populated even when the optional PostgreSQL
+        // reporting RPC has not yet been installed. currentClient.glAccounts is
+        // already rebuilt from the normalized journals by AccountingContext.
+        const start = `${year}-01-01`;
+        const end = `${year + 1}-01-01`;
+        const fallback = (currentClient.glAccounts || []).map((account:any) => {
+          const entries = Array.isArray(account.entries) ? account.entries : [];
+          const periodEntries = entries.filter((entry:any) => {
+            const d = String(entry.date || entry.dateDr || entry.dateCr || '').slice(0, 10);
+            return d >= start && d < end;
+          });
+          const period_debit = periodEntries.reduce((n:number, entry:any) => n + Number(String(entry.debit ?? '').replace(/,/g, '') || 0), 0);
+          const period_credit = periodEntries.reduce((n:number, entry:any) => n + Number(String(entry.credit ?? '').replace(/,/g, '') || 0), 0);
+          const allEntries = entries.filter((entry:any) => String(entry.date || entry.dateDr || entry.dateCr || '').slice(0, 10) < end);
+          const totalDebit = allEntries.reduce((n:number, entry:any) => n + Number(String(entry.debit ?? '').replace(/,/g, '') || 0), 0);
+          const totalCredit = allEntries.reduce((n:number, entry:any) => n + Number(String(entry.credit ?? '').replace(/,/g, '') || 0), 0);
+          return {
+            account_id: String(account.accountId || account.id),
+            account_name: String(account.accountTitle || ''),
+            account_type: String(account.accountType || ''),
+            balance: totalDebit - totalCredit,
+            period_debit, period_credit,
+            period_balance: period_debit - period_credit,
+          };
+        });
+        setBalances(fallback);
+        setReportError(fallback.length ? null : (err?.message || 'Unable to load report balances.'));
+      });
     return () => { cancelled = true; };
   }, [currentClientId, currentClient, year]);
 
@@ -144,4 +179,5 @@ export function BalanceSheet() {
     </div>
   );
 }
+
 
