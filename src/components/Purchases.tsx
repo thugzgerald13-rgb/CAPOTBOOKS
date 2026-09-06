@@ -274,11 +274,19 @@ export function Purchases() {
       
       const storedVatType = p.vatType || 'vat';
       setVatType(storedVatType);
-      const exempt = Number((p as any).exemptAmount || 0);
-      const zeroRated = Number((p as any).zeroRatedAmount || 0);
+      const exempt = Number((p as any).exemptAmount ?? 0);
+      const zeroRated = Number((p as any).zeroRatedAmount ?? 0);
       setExemptAmount(exempt ? exempt.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '');
       setZeroRatedAmount(zeroRated ? zeroRated.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '');
-      const gross = storedVatType === 'vat' ? (Number(p.amount || 0) + Number(p.inputTax || 0)) : storedVatType === 'vat-nonvat' ? (Number(p.amount || 0) + Number(p.inputTax || 0) + exempt) : storedVatType === 'non-vat' ? exempt : zeroRated;
+      const baseAmount = Number(p.amount ?? 0);
+      const inputTax = Number(p.inputTax ?? 0);
+      const gross = storedVatType === 'vat'
+        ? baseAmount + inputTax
+        : storedVatType === 'vat-nonvat'
+          ? baseAmount + inputTax + exempt
+          : storedVatType === 'non-vat'
+            ? exempt
+            : zeroRated;
       setAmount(gross ? gross.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '');
       setWithholdingOption(p.withholdingOption || 'w/o');
       setAtcCode(p.atcCode || '');
