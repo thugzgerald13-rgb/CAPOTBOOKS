@@ -1086,8 +1086,11 @@ export function syncGeneralLedger(client: Client): Client {
     nextByAccount.set(g.accountId, g);
   });
 
-  const touchedAccountIds = new Set<string>([...nextByAccount.keys(), ...autoByAccount.keys()]);
-
+  const touchedAccountIds = new Set<string>([
+  ...accounts.map(a => a.id),        // all COA accounts
+  ...nextByAccount.keys(),           // any existing GL accounts (safety)
+  ...autoByAccount.keys()            // auto-posted accounts
+]);
   const nextGlAccounts: GeneralLedgerAccount[] = [];
   touchedAccountIds.forEach(accountId => {
     const acct = accounts.find(a => a.id === accountId);
