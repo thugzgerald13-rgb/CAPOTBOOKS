@@ -3,72 +3,47 @@ import { Landmark } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { formatAccountAmount, getCurrentYear } from '../lib/accountingBalances';
-import { supabase } from '../lib/supabase';
 
 export function BalanceSheet() {
   const { currentClient, currentClientId, saveFinancialReportSnapshot } = useAccounting();
   const [balances, setBalances] = useState<any[]>([]);
   const [reportError, setReportError] = useState<string | null>(null);
-  // Use the latest accounting year present in the live General Ledger.
-  // The browser calendar year can differ from the transaction year (e.g.
-  // transactions entered in 2025 while the current date is 2026).
   const year = getCurrentYear(currentClient || ({ glAccounts: [] } as any));
 
   useEffect(() => {
-    let cancelled = false;
-    if (!currentClientId) { setBalances([]); return; }
-    setReportError(null);
-    Promise.resolve(supabase.rpc('get_server_account_balances', {
-      p_client_id: currentClientId,
-      p_start_date: `${year}-01-01`,
-      p_end_date: `${year + 1}-01-01`,
-    }))
-      .then(({ data, error }) => {
-        if (error) throw error;
-        if (cancelled) return;
-        const serverRows = (data || []).map((row:any) => ({
-          account_id: String(row.account_id), account_name: String(row.account_name || ''),
-          account_type: String(row.account_type || ''), balance: Number(row.balance || 0),
-          period_debit: Number(row.period_debit || 0), period_credit: Number(row.period_credit || 0),
-          period_balance: Number(row.period_balance || 0),
-        }));
-        if (serverRows.length) {
-          setBalances(serverRows);
-          return;
-        }
-        throw new Error('Server returned no account balances.');
-      })
-      .catch(err => {
-        if (cancelled) return;
-        // The report must remain populated even when the optional PostgreSQL
-        // reporting RPC has not yet been installed. currentClient.glAccounts is
-        // already rebuilt from the normalized journals by AccountingContext.
-        const start = `${year}-01-01`;
-        const end = `${year + 1}-01-01`;
-        const fallback = (currentClient.glAccounts || []).map((account:any) => {
-          const entries = Array.isArray(account.entries) ? account.entries : [];
-          const periodEntries = entries.filter((entry:any) => {
-            const d = String(entry.date || entry.dateDr || entry.dateCr || '').slice(0, 10);
-            return d >= start && d < end;
-          });
-          const period_debit = periodEntries.reduce((n:number, entry:any) => n + Number(String(entry.debit ?? '').replace(/,/g, '') || 0), 0);
-          const period_credit = periodEntries.reduce((n:number, entry:any) => n + Number(String(entry.credit ?? '').replace(/,/g, '') || 0), 0);
-          const allEntries = entries.filter((entry:any) => String(entry.date || entry.dateDr || entry.dateCr || '').slice(0, 10) < end);
-          const totalDebit = allEntries.reduce((n:number, entry:any) => n + Number(String(entry.debit ?? '').replace(/,/g, '') || 0), 0);
-          const totalCredit = allEntries.reduce((n:number, entry:any) => n + Number(String(entry.credit ?? '').replace(/,/g, '') || 0), 0);
-          return {
-            account_id: String(account.accountId || account.id),
-            account_name: String(account.accountTitle || ''),
-            account_type: String(account.accountType || ''),
-            balance: totalDebit - totalCredit,
-            period_debit, period_credit,
-            period_balance: period_debit - period_credit,
-          };
-        });
-        setBalances(fallback);
-        setReportError(fallback.length ? null : (err?.message || 'Unable to load report balances.'));
+    if (!currentClientId) {
+      setBalances([]);
+      setReportError(null);
+      return;
+    }
+
+    const start = `${year}-01-01`;
+    const end = `${year + 1}-01-01`;
+
+    const fallback = (currentClient.glAccounts || []).map((account: any) => {
+      const entries = Array.isArray(account.entries) ? account.entries : [];
+      const periodEntries = entries.filter((entry: any) => {
+        const d = String(entry.date || entry.dateDr || entry.dateCr || '').slice(0, 10);
+        return d >= start && d < end;
       });
-    return () => { cancelled = true; };
+      const period_debit = periodEntries.reduce((n: number, entry: any) => n + Number(String(entry.debit ?? '').replace(/,/g, '') || 0), 0);
+      const period_credit = periodEntries.reduce((n: number, entry: any) => n + Number(String(entry.credit ?? '').replace(/,/g, '') || 0), 0);
+      const allEntries = entries.filter((entry: any) => String(entry.date || entry.dateDr || entry.dateCr || '').slice(0, 10) < end);
+      const totalDebit = allEntries.reduce((n: number, entry: any) => n + Number(String(entry.debit ?? '').replace(/,/g, '') || 0), 0);
+      const totalCredit = allEntries.reduce((n: number, entry: any) => n + Number(String(entry.credit ?? '').replace(/,/g, '') || 0), 0);
+      return {
+        account_id: String(account.accountId || account.id),
+        account_name: String(account.accountTitle || ''),
+        account_type: String(account.accountType || ''),
+        balance: totalDebit - totalCredit,
+        period_debit,
+        period_credit,
+        period_balance: period_debit - period_credit,
+      };
+    });
+
+    setBalances(fallback);
+    setReportError(fallback.length ? null : 'No accounts found.');
   }, [currentClientId, currentClient, year]);
 
   if (!currentClient || !currentClientId) return null;
@@ -86,9 +61,6 @@ export function BalanceSheet() {
   const equityAccountsTotal = equity.reduce((n, x) => n + Math.max(0, -x.balance), 0);
   const drawingsTotal = drawings.reduce((n, x) => n + Math.max(0, x.balance), 0);
 
-  // Net income must come from activity in the requested period, not the ending
-  // balance. This prevents any opening revenue/expense balances from being
-  // counted again as current-year income.
   const revenue = balances.filter(x => (x.account_type || '').toLowerCase() === 'revenue')
     .reduce((n, x) => n + Math.max(0, x.period_credit - x.period_debit), 0);
   const costs = balances.filter(x => ['cost','costs'].includes((x.account_type || '').toLowerCase()))
@@ -140,7 +112,7 @@ export function BalanceSheet() {
           </div>
 
           {reportError && <div className="mb-4 p-3 rounded-lg bg-red-50 text-red-700 text-sm">{reportError}</div>}
-          {!reportError && balances.length === 0 && <div className="mb-4 text-center text-sm text-slate-400">Loading server-calculated balances…</div>}
+          {!reportError && balances.length === 0 && <div className="mb-4 text-center text-sm text-slate-400">No accounts found for this client.</div>}
           <div className="max-w-3xl mx-auto space-y-6">
             <section>
               <div className="uppercase mb-2 font-bold">ASSETS</div>
@@ -182,5 +154,3 @@ export function BalanceSheet() {
     </div>
   );
 }
-
-
