@@ -2,14 +2,17 @@ import React, { useEffect, useState } from 'react';
 import { Landmark } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
-import { formatAccountAmount } from '../lib/accountingBalances';
+import { formatAccountAmount, getCurrentYear } from '../lib/accountingBalances';
 import { supabase } from '../lib/supabase';
 
 export function BalanceSheet() {
   const { currentClient, currentClientId, saveFinancialReportSnapshot } = useAccounting();
   const [balances, setBalances] = useState<any[]>([]);
   const [reportError, setReportError] = useState<string | null>(null);
-  const year = new Date().getFullYear();
+  // Use the latest accounting year present in the live General Ledger.
+  // The browser calendar year can differ from the transaction year (e.g.
+  // transactions entered in 2025 while the current date is 2026).
+  const year = getCurrentYear(currentClient || ({ glAccounts: [] } as any));
 
   useEffect(() => {
     let cancelled = false;
