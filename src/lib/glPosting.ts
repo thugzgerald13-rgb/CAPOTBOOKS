@@ -384,6 +384,82 @@ function postSalesJournal(client: Client, accounts: CoaAccount[]): Posting[] {
 }
 
 // ---------------------------------------------------------------------------
+// NEW: Sales Journal synchronization from `client.sales`.
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the client with its Sales Journal (`sjEntries`) synchronized with
+ * credit‑card and on‑account sales from the Income module.
+ *
+ * The `sales` array is the authoritative source for credit sales. For each
+ * sale where `paymentType` is 'Credit Card' or 'On Account', we generate a
+ * Sales Journal entry that carries the same values the manual SJ form would
+ * store (date, invoice_no, customer info, net_of_vat, output_vat, etc.).
+ *
+ * We merge these generated auto entries with any existing `sjEntries`,
+ * refreshing rows with the same ID (derived from the sale's id) and appending
+ * genuinely new entries, but never deleting manual entries.
+ */
+export function syncSalesJournal(client: Client): Client {
+  const accounts = getCoaAccounts(client);
+  const columns = client.sjColumns || DEFAULT_SJ_COLUMNS;
+
+  const generatedEntries: JournalEntry[] = (client.sales || [])
+    .filter((s: any) => s.paymentType === 'Credit Card' || s.paymentType === 'On Account')
+    .map((sale: any) => {
+      const gross = Number(sale.amount) || 0;
+      const net = Number(sale.netOfVat ?? gross) || 0;
+      const vat = Number(sale.outputTax ?? 0) || 0;
+      const exemptZero = sale.vatType === 'VAT Exempt' || sale.vatType === 'Zero-Rated' ? gross : 0;
+
+      const values: Record<string, any> = {};
+      // Only include columns that exist in the current SJ column set.
+      columns.forEach(col => {
+        if (col.type !== 'number') return;
+        switch (col.id) {
+          case 'date': values.date = sale.date || ''; break;
+          case 'invoice_no': values.invoice_no = sale.ref || ''; break;
+          case 'customer_tin': values.customer_tin = sale.buyerTin || ''; break;
+          case 'customer_name': values.customer_name = sale.buyerName || ''; break;
+          case 'customer_address': values.customer_address = sale.buyerAddress || ''; break;
+          case 'net_of_vat': values.net_of_vat = net ? net.toFixed(2) : ''; break;
+          case 'output_vat': values.output_vat = vat ? vat.toFixed(2) : ''; break;
+          case 'exempt_zero_rated': values.exempt_zero_rated = exemptZero ? exemptZero.toFixed(2) : ''; break;
+          case 'account_title': values.account_title = sale.incomeType || 'Sales'; break;
+          case 'accounts_receivable': values.accounts_receivable = sale.paymentType === 'On Account' ? gross.toFixed(2) : ''; break;
+          case 'credit_card': values.credit_card = sale.paymentType === 'Credit Card' ? gross.toFixed(2) : ''; break;
+          default: break;
+        }
+      });
+
+      return {
+        id: `sale_${sale.id}`,
+        values,
+        auto: true,
+        autoSource: 'Sales',
+      };
+    });
+
+  const persistedEntries = client.sjEntries || [];
+  if (generatedEntries.length === 0) return client;
+
+  // Merge by ID: refresh generated rows, preserve manual rows, append new.
+  const generatedById = new Map(generatedEntries.map(entry => [String(entry.id), entry]));
+  const persistedIds = new Set(persistedEntries.map(entry => String(entry.id)));
+
+  const mergedEntries = persistedEntries.map(entry =>
+    generatedById.get(String(entry.id)) || entry
+  );
+
+  // Append only generated rows that are not already persisted.
+  generatedEntries.forEach(entry => {
+    if (!persistedIds.has(String(entry.id))) mergedEntries.push(entry);
+  });
+
+  return { ...client, sjEntries: mergedEntries };
+}
+
+// ---------------------------------------------------------------------------
 // Source: General Journal — the general book of original entry.
 //
 // Each General Journal row already represents an account-title line. The
@@ -1065,6 +1141,10 @@ export function computeAutoPostings(client: Client): Posting[] {
  * for backward compatibility.
  * Safe to call repeatedly — it's idempotent and cheap enough to run on
  * every save/read.
+ *
+ * Modified: now always returns a `glAccounts` array (even empty) instead of
+ * returning the client unchanged when no postings/GL entries exist. This
+ * ensures consumers like the Dashboard always have a defined array.
  */
 export function syncGeneralLedger(client: Client): Client {
   const accounts = getCoaAccounts(client);
@@ -1087,10 +1167,11 @@ export function syncGeneralLedger(client: Client): Client {
   });
 
   const touchedAccountIds = new Set<string>([
-  ...accounts.map(a => a.id),        // all COA accounts
-  ...nextByAccount.keys(),           // any existing GL accounts (safety)
-  ...autoByAccount.keys()            // auto-posted accounts
-]);
+    ...accounts.map(a => a.id),        // all COA accounts
+    ...nextByAccount.keys(),           // any existing GL accounts (safety)
+    ...autoByAccount.keys()            // auto-posted accounts
+  ]);
+
   const nextGlAccounts: GeneralLedgerAccount[] = [];
   touchedAccountIds.forEach(accountId => {
     const acct = accounts.find(a => a.id === accountId);
@@ -1106,10 +1187,8 @@ export function syncGeneralLedger(client: Client): Client {
     });
   });
 
-  // Nothing changed and nothing to sync — avoid a needless object churn.
-  if (nextGlAccounts.length === 0 && existing.length === 0) return client;
-
+  // Always return a defined glAccounts array. Previously, if both postings
+  // and existing GL were empty, we returned the client unchanged, which left
+  // `glAccounts` undefined and broke consumers that expected an array.
   return { ...client, glAccounts: nextGlAccounts };
 }
-
-
