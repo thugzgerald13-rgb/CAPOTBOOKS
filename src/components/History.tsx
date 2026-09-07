@@ -49,6 +49,10 @@ export function History() {
   const expenseColumnsRef = useRef<HTMLDivElement>(null);
   const expenseExportRef = useRef<HTMLDivElement>(null);
 
+  // NEW: refreshKey to force re-fetch when "Load" is clicked or purchases change
+  const [refreshKey, setRefreshKey] = useState(0);
+  const prevPurchaseCountRef = useRef<number | undefined>(undefined);
+
   useEffect(() => {
     if (!currentClientId) return;
     try {
@@ -256,8 +260,10 @@ export function History() {
     void Promise.all(merged.map((entry:any) => saveTinEntry(entry, 'supplier')));
   }, [currentClient, currentClientId, saveTinEntry]);
 
+  // UPDATED: handleLoadPeriod now actually triggers a re-fetch
   const handleLoadPeriod = () => {
-    showToast(`Filtered data for ${MONTHS[selectedMonth - 1]} ${selectedYear}`);
+    setRefreshKey(k => k + 1);
+    showToast(`Refreshed data for ${MONTHS[selectedMonth - 1]} ${selectedYear}`);
   };
 
   const activeTab = historyTab as HistoryTab;
@@ -351,7 +357,23 @@ export function History() {
 
     loadHistoryPeriod();
     return () => { cancelled = true; };
-  }, [currentClientId, selectedMonth, selectedYear]);
+  }, [currentClientId, selectedMonth, selectedYear, refreshKey]); // Added refreshKey
+
+  // NEW: Auto-refresh when the number of purchases changes (e.g., adding a new purchase)
+  useEffect(() => {
+    const count = currentClient?.purchases?.length || 0;
+    if (prevPurchaseCountRef.current !== undefined && prevPurchaseCountRef.current !== count) {
+      // Only refresh if the new purchase falls within the selected period
+      const startDate = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01`;
+      const endDate = new Date(selectedYear, selectedMonth, 0).toISOString().split('T')[0];
+      const hasRelevantChange = (currentClient?.purchases || []).some(p => {
+        const d = String(p.date || '').slice(0, 10);
+        return d >= startDate && d <= endDate;
+      });
+      if (hasRelevantChange) setRefreshKey(k => k + 1);
+    }
+    prevPurchaseCountRef.current = count;
+  }, [currentClient?.purchases?.length, selectedMonth, selectedYear]);
 
   if (!currentClient) return null;
 
@@ -1250,4 +1272,3 @@ export function History() {
     </div>
   );
 }
-
