@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { TrendingUp, ShoppingBag, DollarSign, Wallet, ArrowDownLeft, ArrowUpRight, RefreshCw } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
-import { supabase } from '../lib/supabase';
 
 type DashboardMetrics = {
   revenue: number;
@@ -21,7 +20,6 @@ type RecentTransaction = {
   amount: number;
 };
 
-
 const isoDate = (d: Date) => d.toISOString().slice(0, 10);
 
 const money = (value: number) => `₱${(Number(value) || 0).toLocaleString(undefined, {
@@ -29,8 +27,52 @@ const money = (value: number) => `₱${(Number(value) || 0).toLocaleString(undef
   maximumFractionDigits: 2,
 })}`;
 
+const numberValue = (value: unknown) => {
+  const n = Number(String(value ?? '').replace(/,/g, ''));
+  return Number.isFinite(n) ? n : 0;
+};
+
+const accountBalance = (account: any) => {
+  const entries = Array.isArray(account?.entries) ? account.entries : [];
+  const movement = entries.reduce(
+    (total: number, entry: any) =>
+      total + numberValue(entry?.debit) - numberValue(entry?.credit),
+    0
+  );
+
+  const opening = numberValue(account?.openingBalance);
+  const normalSide = String(account?.normalSide || '').toLowerCase();
+
+  // Opening balances are stored as unsigned amounts plus their normal side.
+  // Convert them to the same debit-minus-credit sign used by GL entries.
+  const signedOpening =
+    normalSide === 'credit' ? -Math.abs(opening) : Math.abs(opening);
+
+  return signedOpening + movement;
+};
+
+const normalizedAccountName = (value: unknown) =>
+  String(value ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ');
+
+const amountForPeriod = (account: any, start: string, end: string) => {
+  const entries = Array.isArray(account?.entries) ? account.entries : [];
+
+  return entries
+    .filter((entry: any) => {
+      const date = String(entry?.date || entry?.dateDr || entry?.dateCr || '').slice(0, 10);
+      return date >= start && date < end;
+    })
+    .reduce(
+      (totals: { debit: number; credit: number }, entry: any) => ({
+        debit: totals.debit + numberValue(entry?.debit),
+        credit: totals.credit + numberValue(entry?.credit),
+      }),
+      { debit: 0, credit: 0 }
+    );
+};
+
 export function Dashboard() {
-  const { currentClientId } = useAccounting();
+  const { currentClient, currentClientId } = useAccounting();
   const [metrics, setMetrics] = useState<DashboardMetrics>({
     revenue: 0,
     expenses: 0,
@@ -44,9 +86,10 @@ export function Dashboard() {
   const [error, setError] = useState<string | null>(null);
 
   const loadDashboard = async () => {
-    if (!currentClientId) {
+    if (!currentClientId || !currentClient) {
       setRecent([]);
       setMetrics({ revenue: 0, expenses: 0, netIncome: 0, cash: 0, ar: 0, ap: 0 });
+      setError(null);
       return;
     }
 
@@ -57,58 +100,90 @@ export function Dashboard() {
       const now = new Date();
       const start = isoDate(new Date(now.getFullYear(), now.getMonth(), 1));
       const end = isoDate(new Date(now.getFullYear(), now.getMonth() + 1, 1));
+      const accounts = Array.isArray(currentClient.glAccounts) ? currentClient.glAccounts : [];
 
-      // Summary metrics come directly from the authoritative PostgreSQL report
-      // function. React does not recalculate balances or download the ledger.
-      const [metricsResult, purchasesResult, salesResult] = await Promise.all([
-        supabase.rpc('get_server_dashboard_metrics', {
-          p_client_id: currentClientId,
-          p_start_date: start,
-          p_end_date: end,
-        }),
-        supabase
-          .from('purchases')
-          .select('id,date,supplier_name,invoice_no,amount')
-          .eq('client_id', currentClientId)
-          .order('date', { ascending: false })
-          .limit(5),
-        supabase
-          .from('sales')
-          .select('id,date,buyer_name,ref,amount')
-          .eq('client_id', currentClientId)
-          .order('date', { ascending: false })
-          .limit(5),
-      ]);
+      let revenue = 0;
+      let costs = 0;
+      let expenses = 0;
+      let cash = 0;
+      let ar = 0;
+      let ap = 0;
 
-      if (metricsResult.error) throw metricsResult.error;
-      if (purchasesResult.error) throw purchasesResult.error;
-      if (salesResult.error) throw salesResult.error;
+      accounts.forEach((account: any) => {
+        const name = normalizedAccountName(account.accountTitle);
+        const type = String(account.accountType || '').trim().toLowerCase();
+        const period = amountForPeriod(account, start, end);
 
-      const server = (metricsResult.data || [])[0] as any;
-      setMetrics({
-        revenue: Number(server?.revenue || 0),
-        expenses: Number(server?.expenses || 0),
-        netIncome: Number(server?.net_income || 0),
-        cash: Number(server?.cash || 0),
-        ar: Number(server?.accounts_receivable || 0),
-        ap: Number(server?.accounts_payable || 0),
+        if (type === 'revenue') {
+          revenue += Math.max(0, period.credit - period.debit);
+        }
+
+        if (type === 'cost' || type === 'costs') {
+          costs += Math.max(0, period.debit - period.credit);
+        }
+
+        if (type === 'expense' || type === 'expenses') {
+          expenses += Math.max(0, period.debit - period.credit);
+        }
+
+        const balance = accountBalance(account);
+
+        if (
+          ['asset', 'assets'].includes(type) &&
+          (name === 'cash' ||
+            name.includes('cash on hand') ||
+            name.includes('cash in bank') ||
+            name.includes('bank account') ||
+            name.includes('bank'))
+        ) {
+          cash += Math.max(0, balance);
+        }
+
+        if (
+          ['asset', 'assets'].includes(type) &&
+          (name === 'accounts receivable' ||
+            name === 'account receivable' ||
+            name.includes('accounts receivable'))
+        ) {
+          ar += Math.max(0, balance);
+        }
+
+        if (
+          ['liability', 'liabilities'].includes(type) &&
+          (name === 'accounts payable' ||
+            name === 'account payable' ||
+            name.includes('accounts payable'))
+        ) {
+          ap += Math.max(0, -balance);
+        }
       });
 
-      const purchases: RecentTransaction[] = (purchasesResult.data || []).map((row: any) => ({
-        id: `purchase-${row.id}`,
-        date: row.date || '',
-        description: row.supplier_name || row.invoice_no || 'Purchase',
-        type: 'Purchase',
-        amount: Number(row.amount || 0),
-      }));
+      setMetrics({
+        revenue,
+        expenses: costs + expenses,
+        netIncome: revenue - costs - expenses,
+        cash,
+        ar,
+        ap,
+      });
 
-      const sales: RecentTransaction[] = (salesResult.data || []).map((row: any) => ({
-        id: `sale-${row.id}`,
-        date: row.date || '',
-        description: row.buyer_name || row.ref || 'Sale',
-        type: 'Sale',
-        amount: Number(row.amount || 0),
-      }));
+      const purchases: RecentTransaction[] = (Array.isArray(currentClient.purchases) ? currentClient.purchases : [])
+        .map((row: any) => ({
+          id: `purchase-${row.id}`,
+          date: row.date || '',
+          description: row.supplierName || row.invoiceNo || 'Purchase',
+          type: 'Purchase',
+          amount: numberValue(row.amount),
+        }));
+
+      const sales: RecentTransaction[] = (Array.isArray(currentClient.sales) ? currentClient.sales : [])
+        .map((row: any) => ({
+          id: `sale-${row.id}`,
+          date: row.date || '',
+          description: row.buyerName || row.ref || 'Sale',
+          type: 'Sale',
+          amount: numberValue(row.amount),
+        }));
 
       setRecent(
         [...purchases, ...sales]
@@ -118,14 +193,15 @@ export function Dashboard() {
     } catch (e) {
       console.error('Dashboard load failed:', e);
       setError(e instanceof Error ? e.message : 'Unable to load dashboard.');
+      setRecent([]);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    loadDashboard();
-  }, [currentClientId]);
+    void loadDashboard();
+  }, [currentClientId, currentClient]);
 
   const cards = useMemo(() => [
     { label: 'Revenue this month', value: metrics.revenue, icon: TrendingUp },
@@ -142,12 +218,12 @@ export function Dashboard() {
         <div>
           <h1 className="text-2xl font-extrabold text-slate-900 dark:text-white">Dashboard</h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            Server-side summaries for the selected client.
+            Live summaries from the selected client's normalized accounting data.
           </p>
         </div>
         <button
           type="button"
-          onClick={loadDashboard}
+          onClick={() => void loadDashboard()}
           disabled={loading}
           className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-semibold text-slate-700 dark:text-slate-200 disabled:opacity-50"
         >
@@ -185,7 +261,7 @@ export function Dashboard() {
       <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
         <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-700">
           <h2 className="font-bold text-slate-900 dark:text-white">Recent transactions</h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Only the latest 5 records are requested.</p>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Only the latest 5 records are shown.</p>
         </div>
 
         {recent.length === 0 ? (
