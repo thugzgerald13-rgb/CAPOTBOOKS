@@ -88,12 +88,14 @@ export function Extras() {
     setIsClientLocked(true);
   };
 
-  const handleSaveProfile = () => {
-    if (editingClient) {
-      saveClientProfile(editingClient.id, editingClient);
-      // Stay on the form (grayed out) instead of closing, so the accountant
-      // can confirm what was saved; Edit re-enables the fields.
+  const handleSaveProfile = async () => {
+    if (!editingClient) return;
+    try {
+      await saveClientProfile(editingClient.id, editingClient);
+      // Stay on the form (grayed out) only after Supabase confirms the save.
       setIsClientLocked(true);
+    } catch (error) {
+      console.error('Client profile save failed:', error);
     }
   };
 
@@ -133,9 +135,28 @@ export function Extras() {
     }
   };
 
-  const handleAddClient = () => {
+  const handleAddClient = async () => {
     const existingCount = Object.values(clients).filter((client: Client) => client.id !== ownerClientId).length;
-    addClient(`New Client ${existingCount + 1}`);
+    const nextName = `New Client ${existingCount + 1}`;
+    const createdId = await addClient(nextName);
+    if (!createdId) return;
+
+    const created: Client = {
+      id: createdId,
+      name: nextName,
+      tinLibrary: { customers: [], suppliers: [] },
+      sales: [],
+      purchases: [],
+      expenses: [],
+      folders: [
+        { id: 'folder_revenue', name: 'Revenue', isDefault: true, type: 'revenue' },
+        { id: 'folder_expense', name: 'Expense', isDefault: true, type: 'expense' },
+      ],
+      files: [],
+      userId: undefined,
+    } as Client;
+    setEditingClient(created);
+    setIsClientLocked(false);
   };
 
   const salesTotal = currentClient?.sales.reduce((s,i)=>s+i.amount,0) || 0;
