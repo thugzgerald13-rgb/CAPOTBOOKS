@@ -1471,6 +1471,24 @@ export function AccountingProvider({
     };
     const { error } = await supabase.from('purchases').upsert(row, { onConflict: 'id' });
     if (error) throw error;
+
+    // ======================================================================
+    // AUTO-ADD SUPPLIER TO TIN LIBRARY
+    // ======================================================================
+    if (purchase.supplierTin && purchase.supplierName) {
+        const tin = String(purchase.supplierTin).trim();
+        const name = String(purchase.supplierName).trim();
+        const suppliers = clients[currentClientId]?.tinLibrary?.suppliers || [];
+        const existing = suppliers.find((s: any) => String(s.tin).trim() === tin);
+        if (!existing) {
+            const normalizedTin = tin.replace(/\D/g, '');
+            const supplierId = `tin_supplier_${normalizedTin}`;
+            const supplierEntry = { id: supplierId, tin, name, address: purchase.supplierAddress || '' };
+            await saveTinEntry(supplierEntry, 'supplier');
+        }
+    }
+    // ======================================================================
+
     const hydrated = { ...purchase, attachment: purchase.attachment ? { ...purchase.attachment, storagePath, data: undefined } : undefined };
     setClients(prev => ({ ...prev, [currentClientId]: { ...prev[currentClientId], purchases: [...(prev[currentClientId]?.purchases || []).filter((p:any)=>String(p.id)!==String(id)), hydrated] } as Client }));
   };
@@ -1832,10 +1850,10 @@ export function AccountingProvider({
         addClient,
         deleteClient,
         saveBusinessProfile,
-      saveFolder,
-      deleteFolder,
-      saveFile,
-      deleteFile,
+        saveFolder,
+        deleteFolder,
+        saveFile,
+        deleteFile,
         showToast,
         activeDevice,
       }}
@@ -1850,6 +1868,3 @@ export const useAccounting = () => {
   if (!ctx) throw new Error('useAccounting must be used within AccountingProvider');
   return ctx;
 };
-
-
-
