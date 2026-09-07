@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { useAuth } from './AuthContext';
 import { handleSupabaseError, OperationType } from '../lib/supabaseUtils';
-import { syncGeneralLedger, syncCashDisbursementsJournal } from '../lib/glPosting';
+import { syncGeneralLedger, syncCashDisbursementsJournal, syncSalesJournal } from '../lib/glPosting';
 
 interface AccountingContextType {
   clients: Record<string, Client>;
@@ -1661,7 +1661,9 @@ export function AccountingProvider({
   // wraps everything.
   const rawCurrentClient = currentClientId ? clients[currentClientId] : null;
   const currentClient = useMemo(
-    () => (rawCurrentClient ? syncGeneralLedger(syncCashDisbursementsJournal(rawCurrentClient)) : null),
+    () => (rawCurrentClient
+      ? syncGeneralLedger(syncSalesJournal(syncCashDisbursementsJournal(rawCurrentClient)))
+      : null),
     [rawCurrentClient]
   );
 
@@ -1848,5 +1850,6 @@ export const useAccounting = () => {
   if (!ctx) throw new Error('useAccounting must be used within AccountingProvider');
   return ctx;
 };
+
 
 
