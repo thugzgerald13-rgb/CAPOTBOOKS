@@ -35,6 +35,7 @@ interface AccountingContextType {
   setCurrentDat: (dat: DatSelection | null) => void;
 
   saveClient: (id: string, clientData: Client) => Promise<void>;
+  saveClientProfile: (id: string, clientData: Client) => Promise<void>;
   savePurchase: (id: string, purchase: any) => Promise<void>;
   deletePurchase: (id: string) => Promise<void>;
   saveSale: (id: string, sale: any) => Promise<void>;
@@ -57,7 +58,7 @@ interface AccountingContextType {
   deleteTinEntry: (id: string, partyType: 'customer' | 'supplier') => Promise<void>;
   saveBillingInvoice: (id: string, invoice: any) => Promise<void>;
   deleteBillingInvoice: (id: string) => Promise<void>;
-  addClient: (name: string) => Promise<void>;
+  addClient: (name: string) => Promise<string | null>;
   deleteClient: (id: string) => Promise<void>;
   saveBusinessProfile: (profile: BusinessProfile) => Promise<void>;
   saveFolder: (folder: any) => Promise<void>;
@@ -1408,16 +1409,41 @@ export function AccountingProvider({
   };
 
   const saveClient = async (id: string, clientData: Client) => {
-    const updatedClient = { ...clientData, id, userId: user ? user.id : undefined } as Client;
-    setClients((prev) => ({ ...prev, [id]: updatedClient }));
     if (!user) return;
+
+    const updatedClient = { ...clientData, id, userId: user.id } as Client;
+    const previousClient = clients[id];
+
     try {
+      // Persist first. Do not advertise a successful save or leave a local-only
+      // client visible when Supabase rejected the write (for example because
+      // the account's RLS policy is not yet deployed).
       await persistNormalizedClient(updatedClient, user.id);
-      showToast('Saved to normalized Supabase tables');
+      setClients((prev) => ({ ...prev, [id]: updatedClient }));
+      showToast('Client saved');
     } catch (error) {
       console.error('Normalized client save failed:', error);
+      if (previousClient) {
+        setClients((prev) => ({ ...prev, [id]: previousClient }));
+      } else {
+        setClients((prev) => {
+          const next = { ...prev };
+          delete next[id];
+          return next;
+        });
+        // Keep the existing selection untouched; a failed new client is removed
+        // from the client map and will no longer be shown as a valid client.
+      }
       await handleSupabaseError(error, OperationType.UPDATE, `normalized-client/${id}`);
+      throw error;
     }
+  };
+
+  // Client Profiles uses this explicit name. Keep saveClient as the public
+  // compatibility API while exposing the profile-specific alias so the UI and
+  // provider contract cannot drift apart.
+  const saveClientProfile = async (id: string, clientData: Client) => {
+    await saveClient(id, clientData);
   };
 
   const uploadPurchaseAttachment = async (clientId: string, purchaseId: string, attachment: any) => {
@@ -1544,12 +1570,14 @@ export function AccountingProvider({
     setClients(prev => ({ ...prev, [currentClientId]: { ...prev[currentClientId], files: (prev[currentClientId]?.files || []).filter((f:any)=>String(f.id)!==String(fileId)) } as Client }));
   };
 
-  const addClient = async (name: string) => {
-    if (!name.trim()) return;
+  const addClient = async (name: string): Promise<string | null> => {
+    if (!user || !name.trim()) return null;
+
     const newId = 'client_' + Date.now();
     const newClient: Client = {
       id: newId,
       name: name.trim(),
+      userId: user.id,
       tinLibrary: { customers: [], suppliers: [] },
       sales: [],
       purchases: [],
@@ -1561,22 +1589,18 @@ export function AccountingProvider({
       files: [],
     } as Client;
 
-    setClients((prev) => ({
-      ...prev,
-      [newId]: {
-        ...newClient,
-        userId: user ? user.id : undefined,
-      },
-    }));
-    setCurrentClientId(newId);
-
-    if (user) {
-      try {
-        await persistNormalizedClient(newClient, user.id);
-        showToast('Client added');
-      } catch (error) {
-        await handleSupabaseError(error, OperationType.CREATE, `clients/${newId}`);
-      }
+    try {
+      // The authenticated accountant owns the newly-created client row. This
+      // matches clients_insert_own RLS without granting cross-user access.
+      await persistNormalizedClient(newClient, user.id);
+      setClients((prev) => ({ ...prev, [newId]: newClient }));
+      setCurrentClientId(newId);
+      showToast('Client added');
+      return newId;
+    } catch (error) {
+      console.error('Client creation failed:', error);
+      await handleSupabaseError(error, OperationType.CREATE, `clients/${newId}`);
+      return null;
     }
   };
 
@@ -1825,6 +1849,7 @@ export function AccountingProvider({
         setCurrentClientId,
         setCurrentDat,
         saveClient,
+        saveClientProfile,
         savePurchase,
         deletePurchase,
         saveSale,
