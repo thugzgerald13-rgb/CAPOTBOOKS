@@ -146,9 +146,9 @@ export function AccountSettings() {
     setError(''); setMessage('');
     const username = memberUsername.trim().toLowerCase().replace(/\s+/g, '');
     const displayName = memberDisplayName.trim();
-    if (!username) return setError('Username is required.');
-    if (!displayName) return setError('User name is required.');
-    if (memberPassword.length < 6) return setError('User password must be at least 6 characters.');
+    if (!username) return setError('Login username is required.');
+    if (!displayName) return setError('Display name is required.');
+    if (memberPassword.length < 6) return setError('Password must be at least 6 characters.');
     setMemberSaving('new');
     try {
       const { error: rpcError } = await supabase.rpc('create_account_member', {
@@ -248,11 +248,45 @@ export function AccountSettings() {
 
               <form onSubmit={addMember} className="rounded-2xl border border-cyan-200 dark:border-cyan-900/60 bg-cyan-50/60 dark:bg-cyan-900/10 p-4 space-y-4">
                 <div className="flex items-center gap-2 font-bold text-slate-800 dark:text-slate-100"><UserPlus className="w-4 h-4" /> Add Account User</div>
+                
+                {/* FIXED UI: Clear labels to differentiate Display Name vs Login Username */}
                 <div className="grid md:grid-cols-3 gap-3">
-                  <input value={memberDisplayName} onChange={(e) => setMemberDisplayName(e.target.value)} className="px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900" placeholder="User name" required />
-                  <input value={memberUsername} onChange={(e) => setMemberUsername(e.target.value)} autoComplete="off" className="px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900" placeholder="Username" required />
-                  <input type="password" value={memberPassword} onChange={(e) => setMemberPassword(e.target.value)} autoComplete="new-password" minLength={6} className="px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900" placeholder="Password (min. 6)" required />
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">Display Name</label>
+                    <input 
+                      value={memberDisplayName} 
+                      onChange={(e) => setMemberDisplayName(e.target.value)} 
+                      className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                      placeholder="e.g. John Doe"
+                      required 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">Login Username</label>
+                    <input 
+                      value={memberUsername} 
+                      onChange={(e) => setMemberUsername(e.target.value)} 
+                      autoComplete="off" 
+                      className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                      placeholder="e.g. johndoe"
+                      required 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-600 dark:text-slate-400 mb-1">Password</label>
+                    <input 
+                      type="password" 
+                      value={memberPassword} 
+                      onChange={(e) => setMemberPassword(e.target.value)} 
+                      autoComplete="new-password" 
+                      minLength={6} 
+                      className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900"
+                      placeholder="Minimum 6 characters"
+                      required 
+                    />
+                  </div>
                 </div>
+
                 <p className="text-xs text-slate-500 dark:text-slate-400">The username/password belongs only to this account user. It is not a separate CAPOT/Supabase account.</p>
                 <div className="grid lg:grid-cols-2 gap-3">
                   {PERMISSION_GROUPS.map((group) => <div key={group.prefix} className="rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3"><div className="flex items-center justify-between gap-2 mb-2"><div><p className="text-sm font-bold">{group.label}</p><p className="text-xs text-slate-500">{group.description}</p></div><button type="button" onClick={() => setNewPermissions(setAllForGroup(newPermissions, group, true) as Record<PermissionKey, boolean>)} className="text-[11px] font-bold text-cyan-600">All</button></div><div className="flex flex-wrap gap-2">{group.actions.map((action) => { const key = `${group.prefix}_${action}` as PermissionKey; return <label key={key} className="flex items-center gap-1.5 text-xs"><input type="checkbox" checked={Boolean(newPermissions[key])} onChange={(e) => setNewPermissions(setPermission(newPermissions, key, e.target.checked) as Record<PermissionKey, boolean>)} />{action === 'view' ? 'View' : action === 'edit' ? 'Edit' : 'Delete'}</label>; })}</div></div>)}
@@ -268,7 +302,7 @@ export function AccountSettings() {
                     {open && selected && <div className="p-4 border-t border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-900/20 space-y-4">
                       <label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" checked={selected.active} onChange={(e) => setMembers((prev) => prev.map((m) => m.id === selected.id ? { ...m, active: e.target.checked } : m))} /> User is active</label>
                       <div className="grid lg:grid-cols-2 gap-3">{PERMISSION_GROUPS.map((group) => <div key={group.prefix} className="rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3"><div className="flex items-center justify-between gap-2 mb-2"><div><p className="text-sm font-bold">{group.label}</p><p className="text-xs text-slate-500">{group.description}</p></div><button type="button" onClick={() => setMembers((prev) => prev.map((m) => m.id === selected.id ? { ...m, permissions: setAllForGroup(m.permissions, group, true) } : m))} className="text-[11px] font-bold text-cyan-600">All</button></div><div className="flex flex-wrap gap-2">{group.actions.map((action) => { const key = `${group.prefix}_${action}` as PermissionKey; return <label key={key} className="flex items-center gap-1.5 text-xs"><input type="checkbox" checked={Boolean(selected.permissions[key])} onChange={(e) => setMembers((prev) => prev.map((m) => m.id === selected.id ? { ...m, permissions: setPermission(m.permissions, key, e.target.checked) } : m))} />{action === 'view' ? 'View' : action === 'edit' ? 'Edit' : 'Delete'}</label>; })}</div></div>)}</div>
-                      <div className="grid md:grid-cols-2 gap-3"><input value={selected.display_name} onChange={(e) => setMembers((prev) => prev.map((m) => m.id === selected.id ? { ...m, display_name: e.target.value } : m))} className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900" placeholder="User name" /><input value={selected.username} onChange={(e) => setMembers((prev) => prev.map((m) => m.id === selected.id ? { ...m, username: e.target.value.toLowerCase().replace(/\s+/g, '') } : m))} className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900" placeholder="Username" /></div>
+                      <div className="grid md:grid-cols-2 gap-3"><input value={selected.display_name} onChange={(e) => setMembers((prev) => prev.map((m) => m.id === selected.id ? { ...m, display_name: e.target.value } : m))} className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900" placeholder="Display Name" /><input value={selected.username} onChange={(e) => setMembers((prev) => prev.map((m) => m.id === selected.id ? { ...m, username: e.target.value.toLowerCase().replace(/\s+/g, '') } : m))} className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900" placeholder="Login Username" /></div>
                       <div className="flex flex-wrap items-center justify-between gap-3 pt-2"><button type="button" onClick={() => removeMember(selected)} disabled={memberSaving === selected.id} className="px-4 py-2.5 rounded-xl border border-red-200 text-red-600 font-bold text-sm disabled:opacity-50"><Trash2 className="w-4 h-4 inline mr-2" />Remove User</button><button type="button" onClick={() => saveMember(selected)} disabled={memberSaving === selected.id} className="px-5 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white font-bold text-sm disabled:opacity-50"><Save className="w-4 h-4 inline mr-2" />{memberSaving === selected.id ? 'Saving...' : 'Save User'}</button></div>
                     </div>}
                   </div>;
