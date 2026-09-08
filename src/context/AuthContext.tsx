@@ -25,7 +25,7 @@ interface AuthContextType {
   activeAccountUser: ManagedAccountUser | null;
   accountUserSelectionRequired: boolean;
   selectAccountUser: (memberId: string, password: string) => Promise<void>;
-  selectOwnerAccount: () => void;
+  selectOwnerAccount: () => Promise<void>;
   reloadAccountUsers: () => Promise<void>;
 }
 
@@ -49,6 +49,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [needsAccountSetup, setNeedsAccountSetup] = useState(false);
   const [accountUsers, setAccountUsers] = useState<ManagedAccountUser[]>([]);
   const [activeAccountUser, setActiveAccountUser] = useState<ManagedAccountUser | null>(null);
+  // Tracks whether the signed-in user has actually gone through the
+  // "Select User" screen this session — distinct from activeAccountUser,
+  // which is also null for the owner. Without this, clicking "Continue as
+  // Owner" (which sets activeAccountUser to null, its existing value)
+  // produces no state change, so the selection screen never goes away.
+  const [identityConfirmed, setIdentityConfirmed] = useState(false);
 
   const DEVELOPER_EMAIL =
     (import.meta.env.VITE_ADMIN_EMAIL || 'thugz.gerald13@gmail.com').trim().toLowerCase();
@@ -82,6 +88,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       try {
         syncAccountSetupState(usr);
         setActiveAccountUser(null);
+        setIdentityConfirmed(false);
         await supabase.from('profiles').upsert({
           id: usr.id,
           email: usr.email,
@@ -132,6 +139,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setNeedsAccountSetup(false);
         setAccountUsers([]);
         setActiveAccountUser(null);
+        setIdentityConfirmed(false);
       }
       setLoading(false);
     });
@@ -167,9 +175,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setNeedsAccountSetup(false);
   };
 
-  const selectOwnerAccount = () => {
+  const selectOwnerAccount = async () => {
     setActiveAccountUser(null);
-    setPermissions((current) => current);
+    setIdentityConfirmed(true);
+    try {
+      const { data, error } = await supabase.rpc('get_my_account_permissions');
+      if (error) throw error;
+      setPermissions((data || {}) as Record<string, boolean>);
+    } catch (error) {
+      console.error('Owner permission load error:', error);
+    }
   };
 
   const selectAccountUser = async (memberId: string, password: string) => {
@@ -181,16 +196,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
     if (error) throw error;
     const member = data as ManagedAccountUser;
     setActiveAccountUser(member);
+    setIdentityConfirmed(true);
     setPermissions(member.permissions || {});
   };
 
   const signOut = async () => {
     setActiveAccountUser(null);
+    setIdentityConfirmed(false);
     setPermissions({});
     await supabase.auth.signOut();
   };
 
-  const accountUserSelectionRequired = Boolean(user && accountUsers.length > 0 && !activeAccountUser);
+  const accountUserSelectionRequired = Boolean(user && accountUsers.length > 0 && !identityConfirmed);
 
   return (
     <AuthContext.Provider value={{
