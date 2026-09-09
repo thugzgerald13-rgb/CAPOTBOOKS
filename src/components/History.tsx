@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, type PointerEvent as ReactPointerEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
@@ -7,6 +7,36 @@ import { cn, MONTHS, generateCSV, formatTIN, downloadAttachment } from '../lib/u
 import { supabase } from '../lib/supabase';
 import { DEFAULT_ACCOUNTS } from './ChartOfAccounts';
 import * as XLSX from 'xlsx';
+
+// Default pixel widths for the Expense History columns. The user can widen or
+// narrow each column by dragging the right edge of its header; the resulting
+// widths are stored per client in localStorage and merged over these defaults.
+const DEFAULT_EXPENSE_COLUMN_WIDTHS: Record<string, number> = {
+  transactionNo: 80,
+  date: 120,
+  paymentMethod: 130,
+  bankName: 140,
+  checkNumber: 120,
+  invoiceNo: 110,
+  supplierTin: 130,
+  supplierName: 180,
+  supplierAddress: 200,
+  vatType: 100,
+  exemptAmount: 100,
+  zeroRatedAmount: 100,
+  amount: 110,
+  netAmount: 110,
+  inputTax: 100,
+  withholdingOption: 140,
+  atcCode: 100,
+  whtRate: 90,
+  whtAmount: 110,
+  expenseType: 120,
+  accountTitle: 180,
+  transactionDetails: 200,
+  attachment: 100,
+};
+const MIN_EXPENSE_COLUMN_WIDTH = 60;
 
 type HistoryTab = 'expenses' | 'income' | 'slp' | 'sls';
 
@@ -50,6 +80,134 @@ export function History() {
   const [visibleExpenseColumns, setVisibleExpenseColumns] = useState<string[]>(defaultExpenseColumns);
   const expenseColumnsRef = useRef<HTMLDivElement>(null);
   const expenseExportRef = useRef<HTMLDivElement>(null);
+
+  // ---- Expense History: column resize + drag-to-reorder ------------------
+  // Column widths are persisted per client in localStorage. Reordering is
+  // achieved by reordering `visibleExpenseColumns`, which the existing
+  // effects already persist, so CSV/XLSX export order matches the screen.
+  const [expenseColumnWidths, setExpenseColumnWidths] = useState<Record<string, number>>({});
+  const [dragColKey, setDragColKey] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{ key: string; before: boolean } | null>(null);
+  const [resizingColKey, setResizingColKey] = useState<string | null>(null);
+  const columnDragRef = useRef<{
+    mode: 'reorder' | 'resize';
+    key: string;
+    startX: number;
+    startWidth: number;
+    active: boolean;
+  } | null>(null);
+  const dropTargetRef = useRef<{ key: string; before: boolean } | null>(null);
+
+  useEffect(() => {
+    if (!currentClientId) return;
+    try {
+      const saved = localStorage.getItem(`capot-expense-history-colwidths-${currentClientId}`);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed === 'object') setExpenseColumnWidths(parsed);
+      }
+    } catch { /* ignore corrupt storage */ }
+  }, [currentClientId]);
+
+  useEffect(() => {
+    if (!currentClientId) return;
+    try {
+      localStorage.setItem(`capot-expense-history-colwidths-${currentClientId}`, JSON.stringify(expenseColumnWidths));
+    } catch { /* ignore */ }
+  }, [currentClientId, expenseColumnWidths]);
+
+  const getExpenseColWidth = (key: string) =>
+    expenseColumnWidths[key] ?? DEFAULT_EXPENSE_COLUMN_WIDTHS[key] ?? 120;
+
+  // Click-hold on a header cell, then drag horizontally to reorder. A 5px
+  // threshold keeps a plain click from starting a drag. Drop position is
+  // determined from the cell currently under the pointer (header or body).
+  const beginColumnDrag = (e: ReactPointerEvent<HTMLTableCellElement>, key: string) => {
+    if (e.button !== 0) return;
+    const drag = { mode: 'reorder' as const, key, startX: e.clientX, startWidth: 0, active: false };
+    columnDragRef.current = drag;
+
+    const onMove = (ev: PointerEvent) => {
+      const d = columnDragRef.current;
+      if (!d || d.mode !== 'reorder') return;
+      if (!d.active) {
+        if (Math.abs(ev.clientX - d.startX) < 5) return;
+        d.active = true;
+        setDragColKey(d.key);
+        document.body.style.userSelect = 'none';
+        document.body.style.cursor = 'grabbing';
+      }
+      const el = document.elementFromPoint(ev.clientX, ev.clientY) as HTMLElement | null;
+      const cell = el?.closest('[data-col-key]') as HTMLElement | null;
+      const overKey = cell?.dataset.colKey ?? null;
+      if (!overKey || overKey === d.key) {
+        dropTargetRef.current = null;
+        setDropTarget(null);
+        return;
+      }
+      const rect = cell.getBoundingClientRect();
+      const target = { key: overKey, before: ev.clientX < rect.left + rect.width / 2 };
+      dropTargetRef.current = target;
+      setDropTarget(target);
+    };
+
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+      const d = columnDragRef.current;
+      const target = dropTargetRef.current;
+      columnDragRef.current = null;
+      dropTargetRef.current = null;
+      setDragColKey(null);
+      setDropTarget(null);
+      if (d?.mode === 'reorder' && d.active && target) {
+        setVisibleExpenseColumns(prev => {
+          const from = prev.indexOf(d.key);
+          if (from === -1) return prev;
+          const next = [...prev];
+          next.splice(from, 1);
+          let to = next.indexOf(target.key);
+          if (to === -1) return prev;
+          if (!target.before) to += 1;
+          next.splice(to, 0, d.key);
+          return next;
+        });
+      }
+    };
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp, { once: true });
+  };
+
+  // Drag the thin handle on a header's right edge to resize that column.
+  const beginColumnResize = (e: ReactPointerEvent<HTMLSpanElement>, key: string) => {
+    e.stopPropagation();
+    e.preventDefault();
+    const cell = (e.currentTarget as HTMLElement).closest('[data-col-key]') as HTMLElement | null;
+    const startWidth = cell?.getBoundingClientRect().width ?? getExpenseColWidth(key);
+    columnDragRef.current = { mode: 'resize', key, startX: e.clientX, startWidth, active: true };
+    setResizingColKey(key);
+    document.body.style.userSelect = 'none';
+    document.body.style.cursor = 'col-resize';
+
+    const onMove = (ev: PointerEvent) => {
+      const d = columnDragRef.current;
+      if (!d || d.mode !== 'resize') return;
+      const next = Math.max(MIN_EXPENSE_COLUMN_WIDTH, Math.round(d.startWidth + (ev.clientX - d.startX)));
+      setExpenseColumnWidths(prev => ({ ...prev, [d.key]: next }));
+    };
+    const onUp = () => {
+      window.removeEventListener('pointermove', onMove);
+      document.body.style.userSelect = '';
+      document.body.style.cursor = '';
+      columnDragRef.current = null;
+      setResizingColKey(null);
+    };
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp, { once: true });
+  };
+  // ------------------------------------------------------------------------
 
   // Inline editing of the Account Title column in Expense History.
   // `editingAccountId` holds the purchase.id currently being edited (null
@@ -1095,11 +1253,40 @@ export function History() {
                             </th>
                             {visibleExpenseColumns.map(key => {
                               const def = expenseColumnDefinitions.find(c => c.key === key);
-                              return def ? (
-                                <th key={key} className={`px-3 py-3 border-b border-slate-200 dark:border-slate-700 whitespace-nowrap ${key === 'transactionNo' ? 'text-center w-16' : ['amount','netAmount','inputTax','exemptAmount','zeroRatedAmount','whtAmount'].includes(key) ? 'text-right' : 'text-left'}`}>
+                              if (!def) return null;
+                              const w = getExpenseColWidth(key);
+                              const align = key === 'transactionNo'
+                                ? 'text-center'
+                                : ['amount','netAmount','inputTax','exemptAmount','zeroRatedAmount','whtAmount'].includes(key)
+                                  ? 'text-right'
+                                  : 'text-left';
+                              const isDragging = dragColKey === key;
+                              const dropBefore = dropTarget?.key === key && dropTarget.before;
+                              const dropAfter = dropTarget?.key === key && !dropTarget.before;
+                              return (
+                                <th
+                                  key={key}
+                                  data-col-key={key}
+                                  onPointerDown={(e) => beginColumnDrag(e, key)}
+                                  style={{ width: w, minWidth: w, position: 'relative' }}
+                                  title="Drag to reorder column · drag the right edge to resize"
+                                  className={cn(
+                                    'px-3 py-3 border-b border-slate-200 dark:border-slate-700 whitespace-nowrap select-none cursor-grab',
+                                    align,
+                                    isDragging && 'opacity-40 cursor-grabbing',
+                                    dropBefore && 'shadow-[inset_3px_0_0_#2563eb]',
+                                    dropAfter && 'shadow-[inset_-3px_0_0_#2563eb]',
+                                    resizingColKey === key && 'shadow-[inset_-2px_0_0_#2563eb]'
+                                  )}
+                                >
                                   {def.label}
+                                  <span
+                                    onPointerDown={(e) => beginColumnResize(e, key)}
+                                    className="absolute right-0 top-0 bottom-0 w-[6px] -mr-1 cursor-col-resize hover:bg-blue-400/50 active:bg-blue-500/70 z-10 touch-none"
+                                    title="Drag to resize column"
+                                  />
                                 </th>
-                              ) : null;
+                              );
                             })}
                             <th className="px-3 py-3 border-b border-slate-200 dark:border-slate-700 w-24 sticky right-0 bg-slate-50 dark:bg-slate-800 z-30">Actions</th>
                           </>
@@ -1132,7 +1319,7 @@ export function History() {
                               />
                             </td>
                             {visibleExpenseColumns.map(key => (
-                              <td key={key} className={`px-3 py-3 text-xs align-top whitespace-nowrap ${key === 'transactionNo' ? 'text-center' : ['amount','netAmount','inputTax','exemptAmount','zeroRatedAmount','whtAmount'].includes(key) ? 'text-right font-semibold' : ''}`}>
+                              <td key={key} data-col-key={key} style={{ minWidth: getExpenseColWidth(key) }} className={`px-3 py-3 text-xs align-top whitespace-nowrap ${key === 'transactionNo' ? 'text-center' : ['amount','netAmount','inputTax','exemptAmount','zeroRatedAmount','whtAmount'].includes(key) ? 'text-right font-semibold' : ''}`}>
                                 {key === 'attachment' && p.attachment ? (
                                   <button onClick={() => downloadAttachment(p.attachment)} className="p-1.5 text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg" title="Download attachment"><Download className="w-4 h-4" /></button>
                                 ) : key === 'accountTitle' ? (
