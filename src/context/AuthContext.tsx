@@ -2,14 +2,6 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 
-export type ManagedAccountUser = {
-  id: string;
-  username: string;
-  display_name: string;
-  permissions: Record<string, boolean>;
-  active: boolean;
-};
-
 interface AuthContextType {
   user: User | null;
   loading: boolean;
@@ -21,20 +13,12 @@ interface AuthContextType {
   signOut: () => Promise<void>;
   needsAccountSetup: boolean;
   completeAccountSetup: (password: string) => Promise<void>;
-  accountUsers: ManagedAccountUser[];
-  activeAccountUser: ManagedAccountUser | null;
-  accountUserSelectionRequired: boolean;
-  selectAccountUser: (memberId: string, password: string) => Promise<void>;
-  selectOwnerAccount: () => Promise<void>;
-  reloadAccountUsers: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null, loading: true, isAdmin: false, userRole: null, permissions: {},
   hasPermission: () => false, setUserRole: () => {}, signOut: async () => {},
-  needsAccountSetup: false, completeAccountSetup: async () => {}, accountUsers: [],
-  activeAccountUser: null, accountUserSelectionRequired: false,
-  selectAccountUser: async () => {}, selectOwnerAccount: () => {}, reloadAccountUsers: async () => {},
+  needsAccountSetup: false, completeAccountSetup: async () => {},
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -47,14 +31,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [userRole, setUserRoleState] = useState<string | null>(null);
   const [permissions, setPermissions] = useState<Record<string, boolean>>({});
   const [needsAccountSetup, setNeedsAccountSetup] = useState(false);
-  const [accountUsers, setAccountUsers] = useState<ManagedAccountUser[]>([]);
-  const [activeAccountUser, setActiveAccountUser] = useState<ManagedAccountUser | null>(null);
-  // Tracks whether the signed-in user has actually gone through the
-  // "Select User" screen this session — distinct from activeAccountUser,
-  // which is also null for the owner. Without this, clicking "Continue as
-  // Owner" (which sets activeAccountUser to null, its existing value)
-  // produces no state change, so the selection screen never goes away.
-  const [identityConfirmed, setIdentityConfirmed] = useState(false);
 
   const DEVELOPER_EMAIL =
     (import.meta.env.VITE_ADMIN_EMAIL || 'thugz.gerald13@gmail.com').trim().toLowerCase();
@@ -71,24 +47,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setNeedsAccountSetup(googleUser && !hasPassword);
   };
 
-  const loadAccountUsers = async () => {
-    if (!user) return;
-    try {
-      const { data, error } = await supabase.rpc('list_account_members');
-      if (error) throw error;
-      setAccountUsers((data || []) as ManagedAccountUser[]);
-    } catch (error) {
-      console.error('Account users load error:', error);
-      setAccountUsers([]);
-    }
-  };
-
   useEffect(() => {
     const syncUser = async (usr: User) => {
       try {
         syncAccountSetupState(usr);
-        setActiveAccountUser(null);
-        setIdentityConfirmed(false);
         await supabase.from('profiles').upsert({
           id: usr.id,
           email: usr.email,
@@ -109,18 +71,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
           setPermissions((permissionData || {}) as Record<string, boolean>);
         }
 
-        const { data: members, error: membersError } = await supabase.rpc('list_account_members');
-        if (membersError) {
-          console.error('Account users load error:', membersError);
-          setAccountUsers([]);
-        } else {
-          setAccountUsers((members || []) as ManagedAccountUser[]);
-        }
       } catch (error) {
         console.error('Auth sync error:', error);
         setUserRoleState(null);
         setPermissions({});
-        setAccountUsers([]);
       }
     };
 
@@ -137,9 +91,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setUserRoleState(null);
         setPermissions({});
         setNeedsAccountSetup(false);
-        setAccountUsers([]);
-        setActiveAccountUser(null);
-        setIdentityConfirmed(false);
       }
       setLoading(false);
     });
@@ -175,45 +126,15 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setNeedsAccountSetup(false);
   };
 
-  const selectOwnerAccount = async () => {
-    setActiveAccountUser(null);
-    setIdentityConfirmed(true);
-    try {
-      const { data, error } = await supabase.rpc('get_my_account_permissions');
-      if (error) throw error;
-      setPermissions((data || {}) as Record<string, boolean>);
-    } catch (error) {
-      console.error('Owner permission load error:', error);
-    }
-  };
-
-  const selectAccountUser = async (memberId: string, password: string) => {
-    if (!password) throw new Error('Password is required.');
-    const { data, error } = await supabase.rpc('authenticate_account_member', {
-      p_member_id: memberId,
-      p_password: password,
-    });
-    if (error) throw error;
-    const member = data as ManagedAccountUser;
-    setActiveAccountUser(member);
-    setIdentityConfirmed(true);
-    setPermissions(member.permissions || {});
-  };
-
   const signOut = async () => {
-    setActiveAccountUser(null);
-    setIdentityConfirmed(false);
     setPermissions({});
     await supabase.auth.signOut();
   };
 
-  const accountUserSelectionRequired = Boolean(user && accountUsers.length > 0 && !identityConfirmed);
-
   return (
     <AuthContext.Provider value={{
       user, loading, isAdmin, userRole, permissions, hasPermission, setUserRole, signOut,
-      needsAccountSetup, completeAccountSetup, accountUsers, activeAccountUser,
-      accountUserSelectionRequired, selectAccountUser, selectOwnerAccount, reloadAccountUsers: loadAccountUsers,
+      needsAccountSetup, completeAccountSetup,
     }}>
       {children}
     </AuthContext.Provider>
