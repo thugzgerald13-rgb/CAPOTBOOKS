@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
-import { Search, Trash2, Receipt, ShoppingCart, FolderClock, History as HistoryIcon, FileDown, FileSpreadsheet, Download, Pencil, Columns3, ChevronDown } from 'lucide-react';
+import { Search, Trash2, Receipt, ShoppingCart, FolderClock, History as HistoryIcon, FileDown, FileSpreadsheet, Download, Pencil, Columns3, ChevronDown, X } from 'lucide-react';
 import { cn, MONTHS, generateCSV, formatTIN, downloadAttachment } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import { DEFAULT_ACCOUNTS } from './ChartOfAccounts';
@@ -59,6 +59,11 @@ export function History() {
   // Guard so Escape (cancel) does not also trigger a save via the input's
   // onBlur that fires when the input is unmounted.
   const cancelEditRef = useRef(false);
+  // Bulk selection: mark multiple expense rows and reassign them to one
+  // Account Title in a single action.
+  const [selectedPurchaseIds, setSelectedPurchaseIds] = useState<Set<string>>(new Set());
+  const [bulkAccountTitle, setBulkAccountTitle] = useState('');
+  const [bulkSaving, setBulkSaving] = useState(false);
   // Account-title suggestions: the same Asset/Costs/Expense list the
   // Purchases screen uses for "Payment for", derived from the client's
   // Chart of Accounts (with the built-in defaults as a fallback).
@@ -114,6 +119,9 @@ export function History() {
   const toggleExpenseColumn = (key: string) => {
     setVisibleExpenseColumns(prev => prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]);
   };
+  // Drop the bulk selection whenever the loaded period changes or a refresh
+  // is triggered, so a stale id can never be acted upon.
+  useEffect(() => { setSelectedPurchaseIds(new Set()); setBulkAccountTitle(''); }, [selectedMonth, selectedYear, refreshKey]);
 
   const getExpenseExportValue = (p: any, key: string) => {
     switch (key) {
@@ -485,6 +493,48 @@ export function History() {
     (s.invoiceNo && s.invoiceNo.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
+  // ---- Bulk Account Title reassignment helpers ----
+  const toggleSelectPurchase = (id: string | number) => {
+    const key = String(id);
+    setSelectedPurchaseIds(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+  const allFilteredSelected = filteredPurchases.length > 0 && filteredPurchases.every(p => selectedPurchaseIds.has(String(p.id)));
+  const toggleSelectAllFiltered = () => {
+    setSelectedPurchaseIds(prev => {
+      const next = new Set(prev);
+      if (allFilteredSelected) {
+        filteredPurchases.forEach(p => next.delete(String(p.id)));
+      } else {
+        filteredPurchases.forEach(p => next.add(String(p.id)));
+      }
+      return next;
+    });
+  };
+  const clearBulkSelection = () => { setSelectedPurchaseIds(new Set()); setBulkAccountTitle(''); };
+  const handleBulkSetAccountTitle = async () => {
+    if (selectedPurchaseIds.size === 0 || bulkSaving) return;
+    const trimmed = bulkAccountTitle.trim();
+    // Act on every selected id, including rows that may be hidden by search.
+    const targetIds = new Set([...selectedPurchaseIds]);
+    const idValues = localHistoryPurchases.filter(p => targetIds.has(String(p.id))).map(p => p.id);
+    if (idValues.length === 0) { clearBulkSelection(); return; }
+    setBulkSaving(true);
+    const { error } = await supabase
+      .from('purchases')
+      .update({ account_title: trimmed || null })
+      .eq('client_id', currentClientId)
+      .in('id', idValues);
+    setBulkSaving(false);
+    if (error) { console.error('Bulk account title update failed:', error); showToast('Unable to update selected expenses'); return; }
+    setLocalHistoryPurchases(prev => prev.map(p => targetIds.has(String(p.id)) ? { ...p, accountTitle: trimmed || undefined } : p));
+    showToast(`Updated ${idValues.length} expense${idValues.length === 1 ? '' : 's'} to “${trimmed || '(no account title)'}”`);
+    clearBulkSelection();
+  };
+
   // Legacy sales entries (saved before Net of VAT / Output Tax were tracked per-entry) stored
   // `amount` as the NET figure with a flat 12% always added on top. Newer entries store
   // `amount` as the GROSS figure with netOfVat/outputTax computed from vatType.
@@ -790,15 +840,64 @@ export function History() {
                 {paymentAccountOptions.map(name => <option key={name} value={name} />)}
               </datalist>
 
+              {/* Bulk action bar: appears when one or more expense rows are selected */}
+              {activeTab === 'expenses' && selectedPurchaseIds.size > 0 && (
+                <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex flex-wrap items-center gap-3 bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800 shadow-2xl rounded-2xl px-4 py-3 max-w-[92vw]">
+                  <span className="text-xs font-bold text-blue-700 dark:text-blue-300 whitespace-nowrap">
+                    {selectedPurchaseIds.size} selected
+                  </span>
+                  <input
+                    type="text"
+                    value={bulkAccountTitle}
+                    onChange={e => setBulkAccountTitle(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); void handleBulkSetAccountTitle(); } }}
+                    list="expense-account-title-suggestions"
+                    placeholder="Choose or type account title…"
+                    className="w-56 max-w-full px-3 py-2 text-xs font-bold text-blue-800 dark:text-blue-200 bg-blue-50 dark:bg-blue-900/20 border border-blue-300 dark:border-blue-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void handleBulkSetAccountTitle()}
+                    disabled={bulkSaving}
+                    className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60 rounded-xl transition-colors"
+                  >
+                    {bulkSaving ? (
+                      <span className="inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <Pencil className="w-3.5 h-3.5" />
+                    )}
+                    Set Account Title
+                  </button>
+                  <button
+                    type="button"
+                    onClick={clearBulkSelection}
+                    disabled={bulkSaving}
+                    title="Clear selection"
+                    className="p-2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition-colors disabled:opacity-50"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
               {activeDevice === 'mobile' ? (
                 <div className="p-4 flex flex-col gap-4">
                   {activeTab === 'expenses' ? (
                     filteredPurchases.map((p) => (
-                      <div key={p.id} className="bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800 rounded-2xl p-4 flex flex-col gap-3 relative shadow-sm">
+                      <div key={p.id} className={`rounded-2xl p-4 flex flex-col gap-3 relative shadow-sm border ${selectedPurchaseIds.has(String(p.id)) ? 'bg-blue-50/60 dark:bg-blue-900/15 border-blue-300 dark:border-blue-700' : 'bg-slate-50 dark:bg-slate-800/50 border-slate-100 dark:border-slate-800'}`}>
                         <div className="flex justify-between items-start border-b border-slate-200/60 dark:border-slate-700 pb-2">
-                          <div>
-                            <span className="text-[10px] font-mono text-slate-500 block">Date</span>
-                            <span className="text-xs font-bold text-slate-800 dark:text-slate-200">{p.date}</span>
+                          <div className="flex items-start gap-2">
+                            <input
+                              type="checkbox"
+                              checked={selectedPurchaseIds.has(String(p.id))}
+                              onChange={() => toggleSelectPurchase(p.id)}
+                              title="Select for bulk account-title edit"
+                              className="w-4 h-4 accent-blue-600 cursor-pointer mt-0.5 shrink-0"
+                            />
+                            <div>
+                              <span className="text-[10px] font-mono text-slate-500 block">Date</span>
+                              <span className="text-xs font-bold text-slate-800 dark:text-slate-200">{p.date}</span>
+                            </div>
                           </div>
                           <div>
                             <span className="text-[10px] font-mono text-slate-500 block text-right">Invoice No.</span>
@@ -974,6 +1073,15 @@ export function History() {
                       <tr className="bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-xs uppercase font-bold tracking-wider shadow-sm">
                         {activeTab === 'expenses' ? (
                           <>
+                            <th className="px-2 py-3 border-b border-slate-200 dark:border-slate-700 w-10 text-center sticky left-0 bg-slate-50 dark:bg-slate-800 z-30">
+                              <input
+                                type="checkbox"
+                                checked={allFilteredSelected}
+                                onChange={toggleSelectAllFiltered}
+                                title="Select all visible expenses"
+                                className="w-4 h-4 accent-blue-600 cursor-pointer align-middle"
+                              />
+                            </th>
                             {visibleExpenseColumns.map(key => {
                               const def = expenseColumnDefinitions.find(c => c.key === key);
                               return def ? (
@@ -1002,7 +1110,16 @@ export function History() {
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                       {activeTab === 'expenses' ? (
                         filteredPurchases.map((p) => (
-                          <tr key={p.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group">
+                          <tr key={p.id} className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group ${selectedPurchaseIds.has(String(p.id)) ? 'bg-blue-50/60 dark:bg-blue-900/15' : ''}`}>
+                            <td className="px-2 py-3 text-center align-top sticky left-0 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/50 z-10 border-r border-slate-100 dark:border-slate-800">
+                              <input
+                                type="checkbox"
+                                checked={selectedPurchaseIds.has(String(p.id))}
+                                onChange={() => toggleSelectPurchase(p.id)}
+                                title="Select for bulk account-title edit"
+                                className="w-4 h-4 accent-blue-600 cursor-pointer align-middle"
+                              />
+                            </td>
                             {visibleExpenseColumns.map(key => (
                               <td key={key} className={`px-3 py-3 text-xs align-top whitespace-nowrap ${['amount','netAmount','inputTax','exemptAmount','zeroRatedAmount','whtAmount'].includes(key) ? 'text-right font-semibold' : ''}`}>
                                 {key === 'attachment' && p.attachment ? (
@@ -1072,7 +1189,7 @@ export function History() {
                         ))
                       )}
                       {((activeTab === 'expenses' && filteredPurchases.length === 0) || (activeTab === 'income' && filteredSales.length === 0)) && (
-                        <tr><td colSpan={(activeTab === 'expenses' ? visibleExpenseColumns.length + 1 : 9)} className="px-4 py-12 text-center text-slate-500 dark:text-slate-400"><HistoryIcon className="w-8 h-8 mx-auto mb-3 opacity-20" /><p className="font-medium">No {activeTab} found for this period.</p><p className="text-xs">Adjust your search or change the month/year filter.</p></td></tr>
+                        <tr><td colSpan={(activeTab === 'expenses' ? visibleExpenseColumns.length + 2 : 9)} className="px-4 py-12 text-center text-slate-500 dark:text-slate-400"><HistoryIcon className="w-8 h-8 mx-auto mb-3 opacity-20" /><p className="font-medium">No {activeTab} found for this period.</p><p className="text-xs">Adjust your search or change the month/year filter.</p></td></tr>
                       )}
                     </tbody>
                   </table>
