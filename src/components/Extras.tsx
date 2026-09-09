@@ -22,6 +22,7 @@ export function Extras() {
     saveBusinessProfile,
     saveClientProfile,
     ownerClientId,
+    showToast,
   } = useAccounting();
   const { userRole } = useAuth();
   const [editingClient, setEditingClient] = useState<Client | null>(null);
@@ -59,6 +60,20 @@ export function Extras() {
   const [editingBusiness, setEditingBusiness] = useState<BusinessProfile | null>(null);
   const [newBusinessName, setNewBusinessName] = useState('');
   const [isBusinessLocked, setIsBusinessLocked] = useState(false);
+
+  // Onboarding gate: TIN, Taxpayer Classification, Trade Name, Address (any
+  // address line) and RDO Code are required before the user can start.
+  const missingBusinessFields = (p: BusinessProfile | null): string[] => {
+    if (!p) return ['Business profile'];
+    const missing: string[] = [];
+    if (!String(p.tin || '').trim()) missing.push('TIN');
+    if (!String(p.taxpayerClassification || '').trim()) missing.push('Taxpayer Classification');
+    if (!String(p.tradeName || '').trim()) missing.push('Trade Name');
+    if (![p.substreet, p.street, p.barangay, p.district, p.city].some(v => String(v || '').trim())) missing.push('Address');
+    if (!String(p.rdoCode || '').trim()) missing.push('RDO Code');
+    return missing;
+  };
+  const missingBusinessRequired = missingBusinessFields(editingBusiness);
 
   // Synchronize when the business profile page opens/updates
   useEffect(() => {
@@ -100,10 +115,16 @@ export function Extras() {
   };
 
   const handleSaveBusinessProfile = () => {
-    if (editingBusiness) {
-      saveBusinessProfile(editingBusiness);
-      setIsBusinessLocked(true);
+    if (!editingBusiness) return;
+    const missing = missingBusinessFields(editingBusiness);
+    if (missing.length > 0) {
+      showToast(`Please complete required fields first: ${missing.join(', ')}.`);
+      return;
     }
+    saveBusinessProfile(editingBusiness);
+    setIsBusinessLocked(true);
+    showToast('Business profile saved. Welcome aboard!');
+    navigateToPage(null);
   };
 
   const handleCreateBusinessProfile = () => {
@@ -916,11 +937,17 @@ export function Extras() {
             </fieldset>
 
             {/* Form Footer */}
+            {!isBusinessLocked && missingBusinessRequired.length > 0 && (
+              <p className="px-4 pb-2 text-xs font-semibold text-red-500">
+                Complete all required fields to start: {missingBusinessRequired.join(', ')}.
+              </p>
+            )}
             <div className="border-t border-slate-300 dark:border-slate-700 pt-4 flex justify-end items-center gap-3 px-4">
               <div className="flex gap-3">
                 <button 
                   onClick={handleSaveBusinessProfile}
-                  disabled={isBusinessLocked}
+                  disabled={isBusinessLocked || missingBusinessRequired.length > 0}
+                  title={missingBusinessRequired.length > 0 ? `Missing: ${missingBusinessRequired.join(', ')}` : 'Save business profile'}
                   className="bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-2 rounded shadow-sm flex items-center gap-2 transition disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   <Save className="w-4 h-4" /> Save
