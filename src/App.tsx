@@ -1,4 +1,4 @@
-import React, { lazy, Suspense, useState } from 'react';
+import React, { lazy, Suspense, useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
 import { Dashboard } from './components/Dashboard';
@@ -37,10 +37,26 @@ const AccountSettings = lazy(() => import('./components/AccountSettings').then(m
 
 function AppLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const { toastMsg, clients, navigateToPage, activePage } = useAccounting();
+  const { toastMsg, clients, navigateToPage, activePage, businessProfile } = useAccounting();
   const { userRole } = useAuth();
 
   const hasClients = Object.keys(clients).length > 0;
+
+  // Onboarding gate: once a role (Business Owner or Accountant) is chosen,
+  // the Business Profile must be completed — TIN, Taxpayer Classification,
+  // Trade Name, Address and RDO Code — before any other page can be opened.
+  useEffect(() => {
+    if (!userRole) return;
+    if (activePage === 'business') return;
+    const p = businessProfile;
+    const incomplete = !p
+      || !String(p.tin || '').trim()
+      || !String(p.taxpayerClassification || '').trim()
+      || !String(p.tradeName || '').trim()
+      || ![p.substreet, p.street, p.barangay, p.district, p.city].some(v => String(v || '').trim())
+      || !String(p.rdoCode || '').trim();
+    if (incomplete) navigateToPage('business');
+  }, [userRole, businessProfile, activePage, navigateToPage]);
 
   return (
     <div className="flex h-screen bg-slate-50 dark:bg-slate-900 justify-center overflow-hidden font-sans">
@@ -55,12 +71,12 @@ function AppLayout() {
             ) : (
               <div className="flex flex-col items-center justify-center py-20 px-4 text-center bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8">
                 <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100 mb-2">Welcome to your workspace</h2>
-                <p className="text-slate-500 dark:text-slate-400 max-w-md mb-8">Let's get started by creating your first {userRole === 'owner' ? 'business' : 'client'} profile to begin tracking transactions and generating reports.</p>
+                <p className="text-slate-500 dark:text-slate-400 max-w-md mb-8">Set up your business profile (TIN, Taxpayer Classification, Trade Name, Address and RDO Code) to begin tracking transactions and generating reports.</p>
                 <button 
-                   onClick={() => navigateToPage(userRole === 'owner' ? 'business' : 'clients')}
+                   onClick={() => navigateToPage('business')}
                    className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg shadow-blue-500/30 transition-all"
                 >
-                  {userRole === 'owner' ? 'Create Business Profile' : 'Create Client Profile'}
+                  Set up Business Profile
                 </button>
               </div>
             )
