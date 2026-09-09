@@ -4,7 +4,8 @@ import { PageHeader } from './ui/PageHeader';
 import { AttachmentViewer } from './AttachmentViewer';
 import { useAccounting } from '../context/AccountingContext';
 import { Search, Trash2, Receipt, ShoppingCart, FolderClock, History as HistoryIcon, FileDown, FileSpreadsheet, Download, Pencil, Columns3, ChevronDown, X, Eye } from 'lucide-react';
-import { cn, MONTHS, generateCSV, formatTIN, downloadAttachment } from '../lib/utils';
+import { cn, MONTHS, generateCSV, formatTIN } from '../lib/utils';
+import { getAttachmentViewUrl } from '../lib/supabaseUtils';
 import { supabase } from '../lib/supabase';
 import { DEFAULT_ACCOUNTS } from './ChartOfAccounts';
 import * as XLSX from 'xlsx';
@@ -225,6 +226,29 @@ export function History() {
   const [bulkAccountTitle, setBulkAccountTitle] = useState('');
   const [bulkSaving, setBulkSaving] = useState(false);
   const [viewingAttachment, setViewingAttachment] = useState<any>(null);
+
+  // Download resolves the stored file (Supabase signed URL, or restored
+  // gzip/re-encoded bytes) and saves it locally. downloadAttachment() only
+  // works on legacy `content` URLs, so storage-path attachments use this.
+  const handleDownloadAttachment = async (file: any) => {
+    if (!file) return;
+    try {
+      const resolved = await getAttachmentViewUrl(file);
+      const response = await fetch(resolved.url);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = file.name || 'attachment';
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      if (resolved.isObjectUrl) URL.revokeObjectURL(resolved.url);
+    } catch {
+      showToast('Unable to download the attachment.');
+    }
+  };
   // Account-title suggestions: the same Asset/Costs/Expense list the
   // Purchases screen uses for "Payment for", derived from the client's
   // Chart of Accounts (with the built-in defaults as a fallback).
@@ -1157,7 +1181,7 @@ export function History() {
                           )}
                           {p.attachment && (
                             <button 
-                              onClick={() => downloadAttachment(p.attachment)}
+                              onClick={() => handleDownloadAttachment(p.attachment)}
                               className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-950/20 text-indigo-500 hover:text-indigo-700 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 rounded-lg text-xs font-bold transition-all flex items-center gap-1"
                               title="Download attachment"
                             >
@@ -1337,7 +1361,7 @@ export function History() {
                                 {key === 'attachment' && p.attachment ? (
                                   <span className="inline-flex items-center gap-0.5">
                                     <button onClick={() => setViewingAttachment(p.attachment)} className="p-1.5 text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg" title="View attachment"><Eye className="w-4 h-4" /></button>
-                                    <button onClick={() => downloadAttachment(p.attachment)} className="p-1.5 text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg" title="Download attachment"><Download className="w-4 h-4" /></button>
+                                    <button onClick={() => handleDownloadAttachment(p.attachment)} className="p-1.5 text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg" title="Download attachment"><Download className="w-4 h-4" /></button>
                                   </span>
                                 ) : key === 'accountTitle' ? (
                                   editingAccountId === String(p.id) ? (
@@ -1383,7 +1407,7 @@ export function History() {
                                   <button onClick={() => setViewingAttachment(p.attachment)} className="p-1.5 text-slate-300 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg" title="View attachment"><Eye className="w-4 h-4" /></button>
                                 )}
                                 {p.attachment && !visibleExpenseColumns.includes('attachment') && (
-                                  <button onClick={() => downloadAttachment(p.attachment)} className="p-1.5 text-slate-300 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg" title="Download attachment"><Download className="w-4 h-4" /></button>
+                                  <button onClick={() => handleDownloadAttachment(p.attachment)} className="p-1.5 text-slate-300 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg" title="Download attachment"><Download className="w-4 h-4" /></button>
                                 )}
                                 <button onClick={() => handleEditExpense(p)} className="p-1.5 text-slate-300 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg" title="Edit Entry"><Pencil className="w-4 h-4" /></button>
                                 <button onClick={() => handleDeleteExpense(p.id)} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg" title="Delete Entry"><Trash2 className="w-4 h-4" /></button>
