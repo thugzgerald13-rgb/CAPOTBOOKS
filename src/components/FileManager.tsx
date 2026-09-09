@@ -7,8 +7,9 @@ import { supabase } from '../lib/supabase';
 import imageCompression from 'browser-image-compression';
 import { 
   Folder, FolderOpen, Upload, Trash2, Edit2, 
-  Check, X, FileText, Download, Plus, File, AlertTriangle 
+  Check, X, FileText, Download, Plus, File, AlertTriangle, Eye 
 } from 'lucide-react';
+import { AttachmentViewer } from './AttachmentViewer';
 
 export interface StagedFile {
   id: string;
@@ -29,6 +30,7 @@ export function FileManager() {
   const [isDragging, setIsDragging] = useState(false);
   const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [viewingFile, setViewingFile] = useState<AppFile | null>(null);
 
   if (!currentClient) return null;
 
@@ -611,9 +613,16 @@ export function FileManager() {
 
                     <div className="flex items-center gap-1.5 shrink-0">
                       <button
+                        onClick={() => setViewingFile(file)}
+                        className="p-2 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 rounded-xl text-emerald-600 dark:text-emerald-400 transition-colors"
+                        title="View document"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
+                      <button
                         onClick={() => handleDownloadFile(file)}
                         className="p-2 hover:bg-blue-50 dark:hover:bg-blue-950/20 rounded-xl text-blue-600 dark:text-blue-400 transition-colors"
-                        title="Download / View document"
+                        title="Download document"
                       >
                         <Download className="w-4 h-4" />
                       </button>
@@ -633,6 +642,7 @@ export function FileManager() {
         </div>
       </div>
       </div>
+      {viewingFile && <AttachmentViewer file={viewingFile} onClose={() => setViewingFile(null)} />}
     </div>
   );
 }

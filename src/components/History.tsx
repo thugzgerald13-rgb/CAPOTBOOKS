@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo, useRef, type PointerEvent as ReactPointerEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PageHeader } from './ui/PageHeader';
+import { AttachmentViewer } from './AttachmentViewer';
 import { useAccounting } from '../context/AccountingContext';
-import { Search, Trash2, Receipt, ShoppingCart, FolderClock, History as HistoryIcon, FileDown, FileSpreadsheet, Download, Pencil, Columns3, ChevronDown, X } from 'lucide-react';
+import { Search, Trash2, Receipt, ShoppingCart, FolderClock, History as HistoryIcon, FileDown, FileSpreadsheet, Download, Pencil, Columns3, ChevronDown, X, Eye } from 'lucide-react';
 import { cn, MONTHS, generateCSV, formatTIN, downloadAttachment } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import { DEFAULT_ACCOUNTS } from './ChartOfAccounts';
@@ -223,6 +224,7 @@ export function History() {
   const [selectedPurchaseIds, setSelectedPurchaseIds] = useState<Set<string>>(new Set());
   const [bulkAccountTitle, setBulkAccountTitle] = useState('');
   const [bulkSaving, setBulkSaving] = useState(false);
+  const [viewingAttachment, setViewingAttachment] = useState<any>(null);
   // Account-title suggestions: the same Asset/Costs/Expense list the
   // Purchases screen uses for "Payment for", derived from the client's
   // Chart of Accounts (with the built-in defaults as a fallback).
@@ -527,7 +529,7 @@ export function History() {
         accountTitle: p.account_title,
         transactionDetails: p.transaction_details,
         inputTax: Number(p.input_tax || 0),
-        attachment: p.attachment_storage_path ? { storagePath: p.attachment_storage_path, name: p.attachment_name, type: p.attachment_type } : undefined,
+        attachment: p.attachment_storage_path ? { storagePath: p.attachment_storage_path, name: p.attachment_name, type: p.attachment_type, originalType: p.attachment_original_type, compression: p.attachment_compression } : undefined,
         withholdingOption: p.withholding_option,
         atcCode: p.atc_code,
         whtRate: p.wht_rate == null ? undefined : Number(p.wht_rate),
@@ -1009,6 +1011,9 @@ export function History() {
                 {paymentAccountOptions.map(name => <option key={name} value={name} />)}
               </datalist>
 
+              {/* In-app preview of an uploaded attachment (image / PDF) */}
+              {viewingAttachment && <AttachmentViewer file={viewingAttachment} onClose={() => setViewingAttachment(null)} />}
+
               {/* Bulk action bar: appears when one or more expense rows are selected */}
               {activeTab === 'expenses' && selectedPurchaseIds.size > 0 && (
                 <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex flex-wrap items-center gap-3 bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800 shadow-2xl rounded-2xl px-4 py-3 max-w-[92vw]">
@@ -1141,6 +1146,15 @@ export function History() {
                         </div>
 
                         <div className="flex justify-end gap-2 pt-1">
+                          {p.attachment && (
+                            <button
+                              onClick={() => setViewingAttachment(p.attachment)}
+                              className="px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/40 rounded-lg text-xs font-bold transition-all flex items-center gap-1"
+                              title="View attachment"
+                            >
+                              <Eye className="w-3.5 h-3.5" /> View
+                            </button>
+                          )}
                           {p.attachment && (
                             <button 
                               onClick={() => downloadAttachment(p.attachment)}
@@ -1321,7 +1335,10 @@ export function History() {
                             {visibleExpenseColumns.map(key => (
                               <td key={key} data-col-key={key} style={{ minWidth: getExpenseColWidth(key) }} className={`px-3 py-3 text-xs align-top whitespace-nowrap ${key === 'transactionNo' ? 'text-center' : ['amount','netAmount','inputTax','exemptAmount','zeroRatedAmount','whtAmount'].includes(key) ? 'text-right font-semibold' : ''}`}>
                                 {key === 'attachment' && p.attachment ? (
-                                  <button onClick={() => downloadAttachment(p.attachment)} className="p-1.5 text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg" title="Download attachment"><Download className="w-4 h-4" /></button>
+                                  <span className="inline-flex items-center gap-0.5">
+                                    <button onClick={() => setViewingAttachment(p.attachment)} className="p-1.5 text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg" title="View attachment"><Eye className="w-4 h-4" /></button>
+                                    <button onClick={() => downloadAttachment(p.attachment)} className="p-1.5 text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg" title="Download attachment"><Download className="w-4 h-4" /></button>
+                                  </span>
                                 ) : key === 'accountTitle' ? (
                                   editingAccountId === String(p.id) ? (
                                     <input
@@ -1362,6 +1379,9 @@ export function History() {
                             ))}
                             <td className="px-3 py-3 text-center align-top sticky right-0 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/50 z-10 border-l border-slate-100 dark:border-slate-800">
                               <div className="flex items-center justify-center gap-1">
+                                {p.attachment && (
+                                  <button onClick={() => setViewingAttachment(p.attachment)} className="p-1.5 text-slate-300 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg" title="View attachment"><Eye className="w-4 h-4" /></button>
+                                )}
                                 {p.attachment && !visibleExpenseColumns.includes('attachment') && (
                                   <button onClick={() => downloadAttachment(p.attachment)} className="p-1.5 text-slate-300 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg" title="Download attachment"><Download className="w-4 h-4" /></button>
                                 )}
