@@ -7,7 +7,6 @@ import { AnimatePresence, motion } from 'motion/react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AuthContainer } from './components/AuthContainer';
 import { RoleSelection } from './components/RoleSelection';
-import { AccountUserSelection } from './components/AccountUserSelection';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 
 const Sales = lazy(() => import('./components/Sales').then(m => ({ default: m.Sales })));
@@ -156,7 +155,7 @@ function AppLayout() {
 
 
 function MainApp() {
-  const { user, loading, userRole, setUserRole, accountUserSelectionRequired } = useAuth();
+  const { user, loading, userRole, setUserRole } = useAuth();
 
   if (loading) {
     return (
@@ -178,9 +177,6 @@ function MainApp() {
     return <RoleSelection onSelect={handleRoleSelect} />;
   }
 
-  if (accountUserSelectionRequired) {
-    return <AccountUserSelection />;
-  }
 
   return (
     <AccountingProvider>
