@@ -27,7 +27,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     isSidebarCollapsed: isCollapsed,
     setSidebarCollapsed: setIsCollapsed,
   } = useAccounting();
-  const { user, isAdmin, userRole, signOut } = useAuth();
+  const { user, isAdmin, userRole, hasPermission, signOut } = useAuth();
   const navigate = useNavigate();
   const [isTransactionsOpen, setIsTransactionsOpen] = useState(false);
   const [isReportsOpen, setIsReportsOpen] = useState(false);
@@ -95,7 +95,19 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     setIsDevOpen(dropdown === 'dev' ? !isDevOpen : false);
   };
 
+  const permissionForPage: Record<string, string> = {
+    coa: 'coa_view', billing: 'billing_view', sales: 'sales_view', purchases: 'purchases_view', 'journal-voucher': 'journals_view',
+    journal: 'journals_view', ledger: 'journals_view', 'sales-journal': 'sales_view', 'purchase-journal': 'purchases_view',
+    'cash-disbursement': 'bank_view', 'cash-receipt': 'bank_view', files: 'files_view', inventory: 'inventory_view',
+    'compliance-tracker': 'tax_view', 'bir-forms': 'tax_view', trialbalance: 'reports_view', balancesheet: 'reports_view', pl: 'reports_view', assetlapsing: 'reports_view',
+    'afs-financial-position': 'reports_view', 'afs-income-statements': 'reports_view', cashflow: 'reports_view', 'afs-equity-retained-earnings': 'reports_view', 'afs-ppe': 'reports_view',
+  };
+  const can = (permission: string) => isAdmin || hasPermission(permission);
+  const canPage = (pageId: string) => !permissionForPage[pageId] || can(permissionForPage[pageId]);
+  const disabledNavClass = 'opacity-40 cursor-not-allowed';
+
   const handleNavClick = (pageId: string, historyType?: string) => {
+    if (!canPage(pageId)) return;
     if (historyType) {
       setHistoryTab(historyType);
     }
@@ -108,29 +120,29 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   };
 
   const navItems = [
-    { id: 'files', label: 'Upload Files', icon: FolderUp },
-    { id: 'inventory', label: 'Inventory', icon: Boxes },
+    { id: 'files', label: 'Upload Files', icon: FolderUp, permission: 'files_view' },
+    { id: 'inventory', label: 'Inventory', icon: Boxes, permission: 'inventory_view' },
   ];
 
   const historyItems = [
-    { id: 'expenses', label: 'Expense History', icon: ShoppingCart },
-    { id: 'income', label: 'Income History', icon: Receipt },
+    { id: 'expenses', label: 'Expense History', icon: ShoppingCart, permission: 'purchases_view' },
+    { id: 'income', label: 'Income History', icon: Receipt, permission: 'sales_view' },
   ];
 
   const reportItems = [
-    { id: 'trialbalance', label: 'Trial Balance', icon: Scale },
-    { id: 'balancesheet', label: 'Balance Sheet', icon: Landmark },
-    { id: 'pl', label: 'Profit & Loss', icon: TrendingUp },
-    { id: 'assetlapsing', label: 'Asset Lapsing', icon: Wrench },
+    { id: 'trialbalance', label: 'Trial Balance', icon: Scale, permission: 'reports_view' },
+    { id: 'balancesheet', label: 'Balance Sheet', icon: Landmark, permission: 'reports_view' },
+    { id: 'pl', label: 'Profit & Loss', icon: TrendingUp, permission: 'reports_view' },
+    { id: 'assetlapsing', label: 'Asset Lapsing', icon: Wrench, permission: 'reports_view' },
   ];
 
   const bookItems = [
-    { id: 'journal', label: 'General Journal', icon: BookText },
-    { id: 'ledger', label: 'General Ledger', icon: LineChart },
-    { id: 'sales-journal', label: 'Sales Journal', icon: Receipt },
-    { id: 'purchase-journal', label: 'Purchase Journal', icon: ShoppingCart },
-    { id: 'cash-disbursement', label: 'Cash Disbursement Book', icon: CreditCard },
-    { id: 'cash-receipt', label: 'Cash Receipt Journal', icon: Wallet },
+    { id: 'journal', label: 'General Journal', icon: BookText, permission: 'journals_view' },
+    { id: 'ledger', label: 'General Ledger', icon: LineChart, permission: 'journals_view' },
+    { id: 'sales-journal', label: 'Sales Journal', icon: Receipt, permission: 'sales_view' },
+    { id: 'purchase-journal', label: 'Purchase Journal', icon: ShoppingCart, permission: 'purchases_view' },
+    { id: 'cash-disbursement', label: 'Cash Disbursement Book', icon: CreditCard, permission: 'bank_view' },
+    { id: 'cash-receipt', label: 'Cash Receipt Journal', icon: Wallet, permission: 'bank_view' },
   ];
 
   return (
@@ -217,7 +229,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       handleNavClick('coa');
                       setIsOpen(false);
                     }}
-                    className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left"
+                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", !can(subItem.permission) && disabledNavClass)} disabled={!can(subItem.permission)} title={!can(subItem.permission) ? "No permission" : undefined}
                   >
                     <BookOpen className="w-4 h-4" />
                     Chart of Accounts
@@ -345,10 +357,12 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               <button
                 key={item.id}
                 onClick={() => handleNavClick(item.id)}
-                title={isCollapsed ? item.label : undefined}
+                disabled={!can(item.permission)}
+                title={isCollapsed ? item.label : (!can(item.permission) ? 'No permission' : undefined)}
                 className={cn(
                   "flex items-center gap-3 px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800 dark:hover:text-blue-400 transition-all w-full text-left group",
-                  isCollapsed && "md:justify-center md:px-2"
+                  isCollapsed && "md:justify-center md:px-2",
+                  !can(item.permission) && disabledNavClass
                 )}
               >
                 <Icon className="w-5 h-5 opacity-70 group-hover:opacity-100 transition-opacity shrink-0" />
@@ -390,7 +404,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       <button
                         key={subItem.id}
                         onClick={() => handleNavClick(subItem.id)}
-                        className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-amber-50 hover:text-amber-600 dark:hover:bg-slate-800 dark:hover:text-amber-400 transition-all w-full text-left"
+                        className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-amber-50 hover:text-amber-600 dark:hover:bg-slate-800 dark:hover:text-amber-400 transition-all w-full text-left", !can(subItem.permission) && disabledNavClass)} disabled={!can(subItem.permission)} title={!can(subItem.permission) ? "No permission" : undefined}
                       >
                         <SubIcon className="w-4 h-4" />
                         {subItem.label}
@@ -476,7 +490,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       <button
                         key={subItem.id}
                         onClick={() => handleNavClick(subItem.id)}
-                        className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-cyan-50 hover:text-cyan-600 dark:hover:bg-slate-800 dark:hover:text-cyan-400 transition-all w-full text-left"
+                        className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-cyan-50 hover:text-cyan-600 dark:hover:bg-slate-800 dark:hover:text-cyan-400 transition-all w-full text-left", !can(subItem.permission) && disabledNavClass)} disabled={!can(subItem.permission)} title={!can(subItem.permission) ? "No permission" : undefined}
                       >
                         <SubIcon className="w-4 h-4" />
                         {subItem.label}
