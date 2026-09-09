@@ -229,17 +229,17 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       handleNavClick('coa');
                       setIsOpen(false);
                     }}
-                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", !can(subItem.permission) && disabledNavClass)} disabled={!can(subItem.permission)} title={!can(subItem.permission) ? "No permission" : undefined}
+                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", !canPage('coa') && disabledNavClass)} disabled={!canPage('coa')} title={!canPage('coa') ? "No permission" : undefined}
                   >
                     <BookOpen className="w-4 h-4" />
                     Chart of Accounts
                   </button>
                   <button
                     onClick={() => {
-                      navigateToPage('billing');
+                      handleNavClick('billing');
                       setIsOpen(false);
                     }}
-                    className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left"
+                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", !canPage('billing') && disabledNavClass)} disabled={!canPage('billing')} title={!canPage('billing') ? "No permission" : undefined}
                   >
                     <CreditCard className="w-4 h-4" />
                     Billing
@@ -249,27 +249,27 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       handleNavClick('sales');
                       setIsOpen(false);
                     }}
-                    className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left"
+                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", !canPage('sales') && disabledNavClass)} disabled={!canPage('sales')} title={!canPage('sales') ? "No permission" : undefined}
                   >
                     <Receipt className="w-4 h-4" />
                     Income
                   </button>
                   <button
                     onClick={() => {
-                        navigateToPage('purchases');
+                        handleNavClick('purchases');
                         setIsOpen(false);
                     }}
-                    className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left"
+                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", !canPage('purchases') && disabledNavClass)} disabled={!canPage('purchases')} title={!canPage('purchases') ? "No permission" : undefined}
                   >
                     <ShoppingCart className="w-4 h-4" />
                     Purchases
                   </button>
                   <button
                     onClick={() => {
-                      navigateToPage('journal-voucher');
+                      handleNavClick('journal-voucher');
                       setIsOpen(false);
                     }}
-                    className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left"
+                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", !canPage('journal-voucher') && disabledNavClass)} disabled={!canPage('journal-voucher')} title={!canPage('journal-voucher') ? "No permission" : undefined}
                   >
                     <FileSignature className="w-4 h-4" />
                     Journal Voucher
@@ -327,10 +327,10 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               >
                 <button
                   onClick={() => {
-                    navigateToPage('compliance-tracker');
+                    handleNavClick('compliance-tracker');
                     setIsOpen(false);
                   }}
-                  className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-emerald-600 dark:text-emerald-400 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/10 border border-emerald-100/30 hover:bg-emerald-100/50 dark:hover:bg-emerald-900/20 transition-all w-full text-left"
+                  className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-emerald-600 dark:text-emerald-400 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/10 border border-emerald-100/30 hover:bg-emerald-100/50 dark:hover:bg-emerald-900/20 transition-all w-full text-left", !canPage('compliance-tracker') && disabledNavClass)} disabled={!canPage('compliance-tracker')} title={!canPage('compliance-tracker') ? "No permission" : undefined}
                 >
                   <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
                   Compliance Tracker
@@ -338,10 +338,10 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                 <button
                   onClick={() => {
                     setBirFormTab('2550Q');
-                    navigateToPage('bir-forms');
+                    handleNavClick('bir-forms');
                     setIsOpen(false);
                   }}
-                  className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left"
+                  className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", !canPage('bir-forms') && disabledNavClass)} disabled={!canPage('bir-forms')} title={!canPage('bir-forms') ? "No permission" : undefined}
                 >
                   <FileText className="w-4 h-4" />
                   Forms
