@@ -19,6 +19,7 @@ export function History() {
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
   const expenseColumnDefinitions = useMemo(() => [
+    { key: 'transactionNo', label: 'Transaction #' },
     { key: 'date', label: 'Transaction Date' },
     { key: 'paymentMethod', label: 'Payment Method' },
     { key: 'bankName', label: 'Bank Name' },
@@ -43,7 +44,7 @@ export function History() {
     { key: 'attachment', label: 'Attachment' },
   ], []);
 
-  const defaultExpenseColumns = ['date', 'invoiceNo', 'supplierName', 'supplierTin', 'paymentMethod', 'vatType', 'amount', 'netAmount', 'inputTax'];
+  const defaultExpenseColumns = ['transactionNo', 'date', 'invoiceNo', 'supplierName', 'supplierTin', 'paymentMethod', 'vatType', 'amount', 'netAmount', 'inputTax'];
   const [showExpenseColumns, setShowExpenseColumns] = useState(false);
   const [showExpenseExport, setShowExpenseExport] = useState(false);
   const [visibleExpenseColumns, setVisibleExpenseColumns] = useState<string[]>(defaultExpenseColumns);
@@ -78,6 +79,14 @@ export function History() {
       .map((a: any) => a.name)
       .filter(Boolean) as string[];
   }, [currentClient?.accounts]);
+  // Stable 1-based Transaction # per record within the loaded period
+  // (ordered by date). Stays consistent even when the search filter hides
+  // some rows, so it never renumbers on filter.
+  const transactionNoById = useMemo(() => {
+    const map = new Map<string, number>();
+    localHistoryPurchases.forEach((p, i) => map.set(String(p.id), i + 1));
+    return map;
+  }, [localHistoryPurchases]);
 
   // NEW: refreshKey to force re-fetch when "Load" is clicked or purchases change
   const [refreshKey, setRefreshKey] = useState(0);
@@ -125,6 +134,7 @@ export function History() {
 
   const getExpenseExportValue = (p: any, key: string) => {
     switch (key) {
+      case 'transactionNo': return transactionNoById.get(String(p.id)) ?? '';
       case 'date': return p.date || '';
       case 'paymentMethod': return p.paymentMethod || '';
       case 'bankName': return p.bankName || '';
@@ -194,6 +204,7 @@ export function History() {
   const formatExpenseColumnValue = (p: any, key: string) => {
     const money = (value: any) => `₱${(Number(value) || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}`;
     switch (key) {
+      case 'transactionNo': return String(transactionNoById.get(String(p.id)) ?? '—');
       case 'date': return p.date || '—';
       case 'paymentMethod': return p.paymentMethod || '—';
       case 'bankName': return p.bankName || '—';
@@ -1085,7 +1096,7 @@ export function History() {
                             {visibleExpenseColumns.map(key => {
                               const def = expenseColumnDefinitions.find(c => c.key === key);
                               return def ? (
-                                <th key={key} className={`px-3 py-3 border-b border-slate-200 dark:border-slate-700 whitespace-nowrap ${['amount','netAmount','inputTax','exemptAmount','zeroRatedAmount','whtAmount'].includes(key) ? 'text-right' : 'text-left'}`}>
+                                <th key={key} className={`px-3 py-3 border-b border-slate-200 dark:border-slate-700 whitespace-nowrap ${key === 'transactionNo' ? 'text-center w-16' : ['amount','netAmount','inputTax','exemptAmount','zeroRatedAmount','whtAmount'].includes(key) ? 'text-right' : 'text-left'}`}>
                                   {def.label}
                                 </th>
                               ) : null;
@@ -1121,7 +1132,7 @@ export function History() {
                               />
                             </td>
                             {visibleExpenseColumns.map(key => (
-                              <td key={key} className={`px-3 py-3 text-xs align-top whitespace-nowrap ${['amount','netAmount','inputTax','exemptAmount','zeroRatedAmount','whtAmount'].includes(key) ? 'text-right font-semibold' : ''}`}>
+                              <td key={key} className={`px-3 py-3 text-xs align-top whitespace-nowrap ${key === 'transactionNo' ? 'text-center' : ['amount','netAmount','inputTax','exemptAmount','zeroRatedAmount','whtAmount'].includes(key) ? 'text-right font-semibold' : ''}`}>
                                 {key === 'attachment' && p.attachment ? (
                                   <button onClick={() => downloadAttachment(p.attachment)} className="p-1.5 text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg" title="Download attachment"><Download className="w-4 h-4" /></button>
                                 ) : key === 'accountTitle' ? (
@@ -1158,7 +1169,7 @@ export function History() {
                                     </button>
                                   )
                                 ) : (
-                                  <span className={key === 'accountTitle' ? 'font-bold text-blue-700 dark:text-blue-300' : 'text-slate-700 dark:text-slate-300'}>{formatExpenseColumnValue(p, key)}</span>
+                                  <span className={key === 'transactionNo' ? 'font-mono text-slate-400 dark:text-slate-500' : key === 'accountTitle' ? 'font-bold text-blue-700 dark:text-blue-300' : 'text-slate-700 dark:text-slate-300'}>{formatExpenseColumnValue(p, key)}</span>
                                 )}
                               </td>
                             ))}
