@@ -13,14 +13,6 @@ type DashboardMetrics = {
   ap: number;
 };
 
-type RecentTransaction = {
-  id: string;
-  date: string;
-  description: string;
-  type: 'Sale' | 'Purchase';
-  amount: number;
-};
-
 const money = (value: number) => `₱${(Number(value) || 0).toLocaleString(undefined, {
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
@@ -41,8 +33,6 @@ const accountBalance = (account: GeneralLedgerAccount) => {
     return sum + toNumber(entry.debit) - toNumber(entry.credit);
   }, 0);
 };
-
-const entryDate = (entry: any) => String(entry?.dateDr || entry?.dateCr || '');
 
 const accountIsType = (account: GeneralLedgerAccount, ...types: string[]) => {
   const type = normalize(account.accountType);
@@ -65,50 +55,56 @@ const isApAccount = (account: GeneralLedgerAccount) => {
   return name === 'accounts payable' || name === 'account payable' || name.includes('accounts payable');
 };
 
+const inCurrentMonth = (dateStr: unknown, year: number, month: number) => {
+  const s = String(dateStr ?? '').trim();
+  if (!s) return false;
+  const d = new Date(`${s}T00:00:00`);
+  return !Number.isNaN(d.getTime()) && d.getFullYear() === year && d.getMonth() === month;
+};
+
+// Gross purchase amount, matching the Expense History "GROSS" column.
+const purchaseGross = (p: any) =>
+  toNumber(p?.amount) + toNumber(p?.inputTax) + toNumber(p?.exemptAmount) + toNumber(p?.zeroRatedAmount);
+
 export function Dashboard() {
-  const { currentClient } = useAccounting();
+  const { currentClient, navigateToPage, setHistoryTab, syncData } = useAccounting();
   const [refreshKey, setRefreshKey] = useState(0);
 
   const metrics = useMemo<DashboardMetrics>(() => {
     void refreshKey;
-
     if (!currentClient) {
       return { revenue: 0, expenses: 0, netIncome: 0, cash: 0, ar: 0, ap: 0 };
     }
-
     const now = new Date();
     const year = now.getFullYear();
     const month = now.getMonth();
+
+    // Revenue / expenses come from the normalized sales & purchases records
+    // (the source of truth in this app), filtered to the current month.
     let revenue = 0;
+    for (const sale of currentClient.sales || []) {
+      if (inCurrentMonth((sale as any).date, year, month)) {
+        revenue += toNumber((sale as any).amount);
+      }
+    }
     let expenses = 0;
+    for (const purchase of currentClient.purchases || []) {
+      if (inCurrentMonth((purchase as any).date, year, month)) {
+        expenses += purchaseGross(purchase);
+      }
+    }
+
+    // Cash / AR / AP are taken from the synchronized General Ledger when
+    // available; otherwise they remain 0 rather than guessing.
     let cash = 0;
     let ar = 0;
     let ap = 0;
-
     for (const account of currentClient.glAccounts || []) {
-      const type = normalize(account.accountType);
-      const periodEntries = (account.entries || []).filter(entry => {
-        const date = entryDate(entry);
-        if (!date) return false;
-        const parsed = new Date(`${date}T00:00:00`);
-        return !Number.isNaN(parsed.getTime()) && parsed.getFullYear() === year && parsed.getMonth() === month;
-      });
-
-      const periodDebit = periodEntries.reduce((sum, entry) => sum + toNumber(entry.debit), 0);
-      const periodCredit = periodEntries.reduce((sum, entry) => sum + toNumber(entry.credit), 0);
-
-      if (type === 'revenue' || type === 'income') {
-        revenue += periodCredit - periodDebit;
-      } else if (type === 'cost' || type === 'costs' || type === 'expense' || type === 'expenses') {
-        expenses += periodDebit - periodCredit;
-      }
-
       if (accountIsType(account, 'Asset')) {
         const balance = accountBalance(account);
         if (isCashAccount(account)) cash += balance;
         if (isArAccount(account)) ar += balance;
       }
-
       if (accountIsType(account, 'Liability')) {
         const balance = accountBalance(account);
         if (isApAccount(account)) ap -= balance;
@@ -125,41 +121,25 @@ export function Dashboard() {
     };
   }, [currentClient, refreshKey]);
 
-  const recent = useMemo<RecentTransaction[]>(() => {
-    void refreshKey;
-    if (!currentClient) return [];
-
-    const purchases: RecentTransaction[] = (currentClient.purchases || []).map((row: any) => ({
-      id: `purchase-${row.id}`,
-      date: row.date || row.purchaseDate || row.purchase_date || '',
-      description: row.supplierName || row.supplier || row.invoiceNo || row.invoice_no || 'Purchase',
-      type: 'Purchase',
-      amount: toNumber(row.amount ?? row.total),
-    }));
-
-    const sales: RecentTransaction[] = (currentClient.sales || []).map((row: any) => ({
-      id: `sale-${row.id}`,
-      date: row.date || '',
-      description: row.buyerName || row.customerName || row.ref || 'Sale',
-      type: 'Sale',
-      amount: toNumber(row.amount),
-    }));
-
-    return [...purchases, ...sales]
-      .sort((a, b) => String(b.date).localeCompare(String(a.date)))
-      .slice(0, 5);
-  }, [currentClient, refreshKey]);
-
   const cards = useMemo(() => [
-    { label: 'Revenue this month', value: metrics.revenue, icon: TrendingUp },
-    { label: 'Expenses this month', value: metrics.expenses, icon: ShoppingBag },
-    { label: metrics.netIncome >= 0 ? 'Net income' : 'Net loss', value: Math.abs(metrics.netIncome), icon: DollarSign },
-    { label: 'Cash balance', value: metrics.cash, icon: Wallet },
-    { label: 'Accounts receivable', value: metrics.ar, icon: ArrowDownLeft },
-    { label: 'Accounts payable', value: metrics.ap, icon: ArrowUpRight },
+    { label: 'Revenue this month', value: metrics.revenue, icon: TrendingUp, page: 'history', historyTab: 'income' as const },
+    { label: 'Expenses this month', value: metrics.expenses, icon: ShoppingBag, page: 'history', historyTab: 'expenses' as const },
+    { label: metrics.netIncome >= 0 ? 'Net income' : 'Net loss', value: Math.abs(metrics.netIncome), icon: DollarSign, page: 'pl' },
+    { label: 'Cash balance', value: metrics.cash, icon: Wallet, page: 'cashflow' },
+    { label: 'Accounts receivable', value: metrics.ar, icon: ArrowDownLeft, page: 'balancesheet' },
+    { label: 'Accounts payable', value: metrics.ap, icon: ArrowUpRight, page: 'balancesheet' },
   ], [metrics]);
 
-  const handleRefresh = () => setRefreshKey(value => value + 1);
+  const handleRefresh = () => {
+    setRefreshKey(value => value + 1);
+    try { void syncData?.(); } catch { /* ignore */ }
+  };
+
+  const handleCardClick = (card: { page?: string; historyTab?: 'income' | 'expenses' }) => {
+    if (!card.page) return;
+    if (card.historyTab) setHistoryTab(card.historyTab);
+    navigateToPage(card.page);
+  };
 
   return (
     <div className="space-y-6">
@@ -167,13 +147,13 @@ export function Dashboard() {
         <div>
           <h1 className="text-2xl font-extrabold text-slate-900 dark:text-white">Dashboard</h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            Live summaries from the selected client's synchronized General Ledger.
+            Live summaries from the selected client's sales and purchases. Click any card to open its details.
           </p>
         </div>
         <button
           type="button"
           onClick={handleRefresh}
-          className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-semibold text-slate-700 dark:text-slate-200"
+          className="inline-flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-sm font-semibold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
         >
           <RefreshCw className="w-4 h-4" />
           Refresh
@@ -181,13 +161,15 @@ export function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {cards.map(({ label, value, icon: Icon }, index) => (
+        {cards.map(({ label, value, icon: Icon, page, historyTab }, index) => (
           <motion.div
             key={label}
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: index * 0.04 }}
-            className="bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700"
+            onClick={() => handleCardClick({ page, historyTab })}
+            className={`bg-white dark:bg-slate-800 p-5 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 transition-all ${page ? 'cursor-pointer hover:shadow-md hover:border-blue-300 dark:hover:border-blue-700 hover:-translate-y-0.5' : ''}`}
+            title={page ? 'Click to view details' : undefined}
           >
             <div className="flex items-center gap-2 text-slate-500 dark:text-slate-400 font-semibold text-xs tracking-wider uppercase">
               <Icon className="w-4 h-4" />
@@ -198,33 +180,6 @@ export function Dashboard() {
             </div>
           </motion.div>
         ))}
-      </div>
-
-      <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-700">
-          <h2 className="font-bold text-slate-900 dark:text-white">Recent transactions</h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">Only the latest 5 records are shown.</p>
-        </div>
-
-        {recent.length === 0 ? (
-          <div className="p-6 text-sm text-slate-500 dark:text-slate-400">No recent transactions.</div>
-        ) : (
-          <div className="divide-y divide-slate-100 dark:divide-slate-700">
-            {recent.map((item) => (
-              <div key={item.id} className="px-5 py-3 flex items-center justify-between gap-4">
-                <div className="min-w-0">
-                  <div className="font-semibold text-sm text-slate-900 dark:text-white truncate">{item.description}</div>
-                  <div className="text-xs text-slate-500 dark:text-slate-400">
-                    {item.date || 'No date'} · {item.type}
-                  </div>
-                </div>
-                <div className="font-mono text-sm font-bold text-slate-900 dark:text-white whitespace-nowrap">
-                  {money(item.amount)}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );
