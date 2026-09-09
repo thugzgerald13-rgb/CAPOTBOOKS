@@ -5,6 +5,7 @@ import { useAccounting } from '../context/AccountingContext';
 import { Search, Trash2, Receipt, ShoppingCart, FolderClock, History as HistoryIcon, FileDown, FileSpreadsheet, Download, Pencil, Columns3, ChevronDown } from 'lucide-react';
 import { cn, MONTHS, generateCSV, formatTIN, downloadAttachment } from '../lib/utils';
 import { supabase } from '../lib/supabase';
+import { DEFAULT_ACCOUNTS } from './ChartOfAccounts';
 import * as XLSX from 'xlsx';
 
 type HistoryTab = 'expenses' | 'income' | 'slp' | 'sls';
@@ -48,6 +49,30 @@ export function History() {
   const [visibleExpenseColumns, setVisibleExpenseColumns] = useState<string[]>(defaultExpenseColumns);
   const expenseColumnsRef = useRef<HTMLDivElement>(null);
   const expenseExportRef = useRef<HTMLDivElement>(null);
+
+  // Inline editing of the Account Title column in Expense History.
+  // `editingAccountId` holds the purchase.id currently being edited (null
+  // means no cell is in edit mode); `accountDraft` is the live text value.
+  const [editingAccountId, setEditingAccountId] = useState<string | null>(null);
+  const [accountDraft, setAccountDraft] = useState('');
+  const [savingAccountId, setSavingAccountId] = useState<string | null>(null);
+  // Guard so Escape (cancel) does not also trigger a save via the input's
+  // onBlur that fires when the input is unmounted.
+  const cancelEditRef = useRef(false);
+  // Account-title suggestions: the same Asset/Costs/Expense list the
+  // Purchases screen uses for "Payment for", derived from the client's
+  // Chart of Accounts (with the built-in defaults as a fallback).
+  const paymentAccountOptions = useMemo(() => {
+    let accs = (currentClient?.accounts || []).filter((a: any) => !a.hidden);
+    if (accs.length === 0) accs = DEFAULT_ACCOUNTS;
+    return accs
+      .filter((a: any) => {
+        const at = String(a.type || '').toLowerCase();
+        return at === 'asset' || at === 'assets' || at === 'costs' || at === 'cost' || at === 'expense' || at === 'expenses';
+      })
+      .map((a: any) => a.name)
+      .filter(Boolean) as string[];
+  }, [currentClient?.accounts]);
 
   // NEW: refreshKey to force re-fetch when "Load" is clicked or purchases change
   const [refreshKey, setRefreshKey] = useState(0);
@@ -403,6 +428,41 @@ export function History() {
     navigate(path, { state: { editPurchaseId: String(purchase.id) } });
   };
 
+  // Persist an inline Account Title edit straight to the normalized purchases
+  // table and mirror it in local state so the table updates immediately.
+  const handleSaveAccountTitle = async (id: string | number, rawValue: string) => {
+    // Escape was pressed — discard the draft without persisting.
+    if (cancelEditRef.current) { cancelEditRef.current = false; return; }
+    const trimmed = rawValue.trim();
+    const idKey = String(id);
+    setEditingAccountId(null);
+    const purchase = localHistoryPurchases.find(p => String(p.id) === idKey);
+    if (!purchase) return;
+    // No-op if the value didn't actually change.
+    if (trimmed === (purchase.accountTitle || '')) return;
+    setSavingAccountId(idKey);
+    const { error } = await supabase
+      .from('purchases')
+      .update({ account_title: trimmed || null })
+      .eq('client_id', currentClientId)
+      .eq('id', id);
+    setSavingAccountId(null);
+    if (error) {
+      console.error('Account title update failed:', error);
+      showToast('Unable to update account title');
+      return;
+    }
+    setLocalHistoryPurchases(prev =>
+      prev.map(p => String(p.id) === idKey ? { ...p, accountTitle: trimmed || undefined } : p)
+    );
+    showToast(trimmed ? `Account title updated to “${trimmed}”` : 'Account title cleared');
+  };
+
+  const startEditingAccountTitle = (purchase: any) => {
+    setEditingAccountId(String(purchase.id));
+    setAccountDraft(purchase.accountTitle || '');
+  };
+
   const handleDeleteIncome = async (id: number) => {
     if (!currentClientId) return;
     const { error } = await supabase.from('sales').delete().eq('client_id', currentClientId).eq('id', id);
@@ -725,6 +785,11 @@ export function History() {
                 </div>
               </div>
 
+              {/* Shared suggestion list for inline Account Title editing (referenced by input[list]) */}
+              <datalist id="expense-account-title-suggestions">
+                {paymentAccountOptions.map(name => <option key={name} value={name} />)}
+              </datalist>
+
               {activeDevice === 'mobile' ? (
                 <div className="p-4 flex flex-col gap-4">
                   {activeTab === 'expenses' ? (
@@ -762,9 +827,33 @@ export function History() {
                           </div>
                           <div>
                             <span className="text-[10px] text-slate-400 block">Classification</span>
-                            <span className="font-semibold bg-blue-50 dark:bg-blue-900/30 px-2 py-0.5 rounded text-blue-700 dark:text-blue-300 block w-max mt-0.5 max-w-full truncate" title={p.accountTitle}>
-                              {p.accountTitle || 'General Expense'}
-                            </span>
+                            {editingAccountId === String(p.id) ? (
+                              <input
+                                autoFocus
+                                type="text"
+                                value={accountDraft}
+                                onChange={e => setAccountDraft(e.target.value)}
+                                onBlur={e => handleSaveAccountTitle(p.id, e.target.value)}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); }
+                                  if (e.key === 'Escape') { cancelEditRef.current = true; setEditingAccountId(null); }
+                                }}
+                                onFocus={e => e.target.select()}
+                                list="expense-account-title-suggestions"
+                                placeholder="Choose or type account…"
+                                className="mt-0.5 w-full px-2 py-1 text-xs font-bold text-blue-800 dark:text-blue-200 bg-blue-50 dark:bg-blue-900/20 border border-blue-300 dark:border-blue-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+                              />
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => startEditingAccountTitle(p)}
+                                disabled={savingAccountId === String(p.id)}
+                                title="Tap to edit account title"
+                                className="font-semibold bg-blue-50 dark:bg-blue-900/30 px-2 py-0.5 rounded text-blue-700 dark:text-blue-300 block w-max mt-0.5 max-w-full truncate disabled:opacity-60"
+                              >
+                                {p.accountTitle || 'General Expense'}
+                              </button>
+                            )}
                           </div>
                         </div>
 
@@ -918,6 +1007,39 @@ export function History() {
                               <td key={key} className={`px-3 py-3 text-xs align-top whitespace-nowrap ${['amount','netAmount','inputTax','exemptAmount','zeroRatedAmount','whtAmount'].includes(key) ? 'text-right font-semibold' : ''}`}>
                                 {key === 'attachment' && p.attachment ? (
                                   <button onClick={() => downloadAttachment(p.attachment)} className="p-1.5 text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg" title="Download attachment"><Download className="w-4 h-4" /></button>
+                                ) : key === 'accountTitle' ? (
+                                  editingAccountId === String(p.id) ? (
+                                    <input
+                                      autoFocus
+                                      type="text"
+                                      value={accountDraft}
+                                      onChange={e => setAccountDraft(e.target.value)}
+                                      onBlur={e => handleSaveAccountTitle(p.id, e.target.value)}
+                                      onKeyDown={e => {
+                                        if (e.key === 'Enter') { e.preventDefault(); (e.target as HTMLInputElement).blur(); }
+                                        if (e.key === 'Escape') { cancelEditRef.current = true; setEditingAccountId(null); }
+                                      }}
+                                      onFocus={e => e.target.select()}
+                                      list="expense-account-title-suggestions"
+                                      placeholder="Choose or type account…"
+                                      className="w-full min-w-[140px] px-2 py-1 text-xs font-bold text-blue-800 dark:text-blue-200 bg-blue-50 dark:bg-blue-900/20 border border-blue-300 dark:border-blue-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 dark:focus:ring-blue-500"
+                                    />
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => startEditingAccountTitle(p)}
+                                      disabled={savingAccountId === String(p.id)}
+                                      title="Click to edit account title"
+                                      className="group/acc inline-flex items-center gap-1.5 font-bold text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 px-2 py-1 rounded-lg transition-colors max-w-full disabled:opacity-60"
+                                    >
+                                      <span className="truncate max-w-[180px]">{p.accountTitle || '—'}</span>
+                                      {savingAccountId === String(p.id) ? (
+                                        <span className="inline-block w-3 h-3 border-2 border-blue-400 border-t-transparent rounded-full animate-spin shrink-0" />
+                                      ) : (
+                                        <Pencil className="w-3 h-3 opacity-0 group-hover/acc:opacity-60 shrink-0" />
+                                      )}
+                                    </button>
+                                  )
                                 ) : (
                                   <span className={key === 'accountTitle' ? 'font-bold text-blue-700 dark:text-blue-300' : 'text-slate-700 dark:text-slate-300'}>{formatExpenseColumnValue(p, key)}</span>
                                 )}
