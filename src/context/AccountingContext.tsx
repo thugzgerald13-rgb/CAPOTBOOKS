@@ -9,7 +9,7 @@ import { syncGeneralLedger, syncCashDisbursementsJournal, syncSalesJournal } fro
 import {
   getCachedCursor, setCachedCursor, putCachedRows, getCachedRows,
   applyCachedRowDelta, clearCachedRows, queueDirtyWrite, flushDirtyQueue,
-  pendingDirtyCount, recordCacheHit,
+  pendingDirtyCount, recordCacheHit, invalidateQueries,
 } from '../db/localDb';
 
 interface AccountingContextType {
@@ -1234,6 +1234,7 @@ export function AccountingProvider({
       const { error } = await supabase.from('sales').upsert(row, { onConflict: 'id' });
       if (error) throw error;
     });
+    invalidateQueries('sales', currentClientId).catch(() => {});
     const next = [...(clients[currentClientId]?.sales || []).filter((x: any) => String(x.id) !== String(id)), sale];
     updateClientState(currentClientId, { sales: next });
   };
@@ -1567,6 +1568,7 @@ export function AccountingProvider({
     };
     const { error } = await supabase.from('purchases').upsert(row, { onConflict: 'id' });
     if (error) throw error;
+    invalidateQueries('purchases', currentClientId).catch(() => {});
 
     // ======================================================================
     // AUTO-ADD SUPPLIER TO TIN LIBRARY
