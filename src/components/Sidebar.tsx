@@ -28,6 +28,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     setSidebarCollapsed: setIsCollapsed,
     showToast,
     activePage,
+    historyTab,
   } = useAccounting();
   const { user, isAdmin, userRole, signOut } = useAuth();
   const navigate = useNavigate();
@@ -287,7 +288,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                           handleNavClick('history', subItem.id);
                           setIsOpen(false);
                         }}
-                        className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'history' && activeIndigo)}
+                        className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'history' && historyTab === subItem.id && activeIndigo)}
                       >
                         <SubIcon className="w-4 h-4" />
                         {subItem.label}
