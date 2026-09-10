@@ -9,10 +9,26 @@
 }
 
 @layer base {
+  /* Native form controls (select dropdown popups, date/time pickers,
+     scrollbars, checkboxes, radio buttons) follow the active theme so
+     every dropdown selection and UI control is readable in both modes. */
+  :root {
+    color-scheme: light;
+  }
+  .dark {
+    color-scheme: dark;
+  }
   body {
     @apply bg-slate-50 text-slate-900 dark:bg-slate-900 dark:text-slate-100 transition-colors duration-300;
     font-family: var(--font-sans);
     -webkit-tap-highlight-color: transparent;
+  }
+  /* Dropdown <option>/<optgroup> lists: explicit readable contrast in both
+     modes. Browsers that render option lists natively still honor
+     color-scheme above; this reinforces contrast where supported. */
+  select option,
+  select optgroup {
+    @apply bg-white text-slate-900 dark:bg-slate-800 dark:text-white;
   }
 }
 
