@@ -565,7 +565,7 @@ export function Purchases() {
             {!isAP && (
 <div className="w-full md:w-2/3 flex flex-col justify-end">
                <label className="form-label">Payment Method</label>
-               <div className="flex items-center gap-6 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5">
+               <div className="flex flex-wrap items-center gap-6 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-xl px-4 py-2.5">
                   <label className="flex items-center gap-2 cursor-pointer font-medium text-sm">
                     <input type="radio" value="Cash" checked={paymentMethod === 'Cash'} onChange={() => setPaymentMethod('Cash')} className="w-4 h-4 text-amber-500" />
                     💵 Cash
@@ -573,6 +573,14 @@ export function Purchases() {
                   <label className="flex items-center gap-2 cursor-pointer font-medium text-sm">
                     <input type="radio" value="Check" checked={paymentMethod === 'Check'} onChange={() => setPaymentMethod('Check')} className="w-4 h-4 text-amber-500" />
                     📝 Check
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer font-medium text-sm">
+                    <input type="radio" value="E-payments" checked={paymentMethod === 'E-payments'} onChange={() => setPaymentMethod('E-payments')} className="w-4 h-4 text-amber-500" />
+                    💳 E-payments
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer font-medium text-sm">
+                    <input type="radio" value="On Account" checked={paymentMethod === 'On Account'} onChange={() => setPaymentMethod('On Account')} className="w-4 h-4 text-amber-500" />
+                    📋 On Account
                   </label>
                </div>
             </div>
