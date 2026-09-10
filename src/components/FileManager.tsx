@@ -4,6 +4,7 @@ import { useAccounting } from '../context/AccountingContext';
 import { AppFolder, AppFile } from '../types';
 import { parsePdf } from '../lib/pdfParser';
 import { supabase } from '../lib/supabase';
+import { downloadWithCache, evictCachedFile } from '../db/storageCache';
 import imageCompression from 'browser-image-compression';
 import { 
   Folder, FolderOpen, Upload, Trash2, Edit2, 
@@ -95,6 +96,7 @@ export function FileManager() {
     for (const file of filesInFolder) {
       if (file.storagePath) {
         const { error } = await supabase.storage.from('client-files').remove([file.storagePath]);
+        evictCachedFile(file.storagePath).catch(() => {});
         if (error) console.warn('Storage file deletion failed:', error);
       }
       await deleteFile(file.id);
@@ -194,7 +196,10 @@ export function FileManager() {
       const id = 'file_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
       const name = sf.name.trim() || sf.originalName;
       const safeName = name.replace(/[^a-zA-Z0-9._-]/g, '_');
-      const storagePath = `${currentClient.id}/${id}/${safeName}`;
+      // Immutable versioned path + long-lived CDN cache headers.
+      // Never reuse a path (would force a short TTL); timestamp makes each
+      // upload cacheable at the edge for a full year.
+      const storagePath = `${currentClient.id}/${id}/${Date.now().toString(36)}-${safeName}`;
       const comma = sf.content.indexOf(',');
       const base64 = comma >= 0 ? sf.content.slice(comma + 1) : sf.content;
       const binary = atob(base64);
@@ -203,6 +208,7 @@ export function FileManager() {
       const blob = new Blob([bytes], { type: sf.type || 'application/octet-stream' });
       const { error: uploadError } = await supabase.storage.from('client-files').upload(storagePath, blob, {
         contentType: sf.type || 'application/octet-stream',
+        cacheControl: 'public, max-age=31536000, immutable',
         upsert: false,
       });
       if (uploadError) throw uploadError;
@@ -250,10 +256,10 @@ export function FileManager() {
   const handleDownloadFile = async (file: AppFile) => {
     try {
       if (file.storagePath) {
-        const { data, error } = await supabase.storage.from('client-files').createSignedUrl(file.storagePath, 60);
-        if (error || !data?.signedUrl) throw error || new Error('Unable to create download URL');
-        const response = await fetch(data.signedUrl);
-        const blob = await response.blob();
+        // Dexie blob cache first; signed-URL fetch only on miss (signed URLs
+        // rotate per request, so CDN caching is near-useless for them — local
+        // cache makes repeat downloads free).
+        const blob = await downloadWithCache(file.storagePath, 60);
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url; link.download = file.name; document.body.appendChild(link); link.click();
@@ -273,6 +279,7 @@ export function FileManager() {
     const fileToDelete = files.find(f => f.id === fileId);
     if (fileToDelete?.storagePath) {
       const { error } = await supabase.storage.from('client-files').remove([fileToDelete.storagePath]);
+      evictCachedFile(fileToDelete.storagePath).catch(() => {});
       if (error) console.warn('Storage file deletion failed:', error);
     }
     await deleteFile(fileId);

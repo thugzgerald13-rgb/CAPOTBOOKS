@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { ShieldAlert, Download, Users, RefreshCw, Mail, Calendar, LineChart, CheckCircle2, XCircle, Copy, Check } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
+import { getEgressMetrics } from '../db/localDb';
 import { Client } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -170,6 +171,10 @@ function DiagnosticsTab() {
       `Screen: ${window.screen.width}x${window.screen.height}`,
       `Viewport: ${window.innerWidth}x${window.innerHeight}`,
       `Online: ${navigator.onLine}`,
+      `Local cache hit ratio: ${(getEgressMetrics().hitRatio * 100).toFixed(1)}%`,
+      `Bytes served locally (rows): ${(getEgressMetrics().cacheHitBytes / 1024).toFixed(0)} KB`,
+      `Bytes fetched from network: ${(getEgressMetrics().networkBytes / 1024).toFixed(0)} KB`,
+      `Blob cache hits (attachments): ${(getEgressMetrics().blobCacheHitBytes / 1024).toFixed(0)} KB`,
       `Supabase reachable: ${supabaseOk} (${supabaseLatencyMs ?? '—'} ms)`,
       `Database read OK: ${dbReadOk} (${dbLatencyMs ?? '—'} ms)`,
       `Loaded client data size: ${dataUsageKb} KB`,
