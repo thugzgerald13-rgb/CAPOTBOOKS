@@ -35,6 +35,11 @@ export function GeneralLedger() {
   const [beginningBalance, setBeginningBalance] = useState(0);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // The PostgreSQL ledger RPCs are an optional optimization. When they are
+  // not deployed (or unreachable), the GL falls back to the in-app computed
+  // glAccounts — that is a normal, fully-functional state, not an error, so
+  // it is surfaced as a quiet amber notice instead of a red error banner.
+  const [usingFallback, setUsingFallback] = useState(false);
   const [expandedAccounts, setExpandedAccounts] = useState<Record<string, boolean>>({});
 
   const coaAccounts = useMemo(() => {
@@ -71,6 +76,7 @@ export function GeneralLedger() {
 
       setLoading(true);
       setLoadError(null);
+      setUsingFallback(false);
       const { start, end } = dateRange(month, year);
 
       try {
@@ -113,6 +119,7 @@ export function GeneralLedger() {
 
         setBeginningBalance(prior);
         setLedgerEntries(mapped);
+        setUsingFallback(false);
       } catch (e:any) {
         // The PostgreSQL ledger RPC is authoritative when available. If the
         // deployed database function has a parameter/typing mismatch, keep the
@@ -143,11 +150,13 @@ export function GeneralLedger() {
 
             setBeginningBalance(opening + priorActivity);
             setLedgerEntries(periodRows);
-            setLoadError('Server ledger query is unavailable; showing the normalized local ledger for this account and period.');
+            setLoadError(null);
+            setUsingFallback(true);
           } else {
             setLedgerEntries([]);
             setBeginningBalance(0);
-            setLoadError(e?.message || 'Unable to load General Ledger data from the server.');
+            setUsingFallback(false);
+            setLoadError(e?.message || 'Unable to load General Ledger data.');
           }
         }
       } finally {
@@ -204,6 +213,7 @@ export function GeneralLedger() {
             {loading && <div className="flex items-center gap-2 text-sm text-slate-500 mt-5"><Loader2 className="w-4 h-4 animate-spin"/>Loading selected account…</div>}
           </div>
           <p className="text-sm text-slate-500 dark:text-slate-400">Only the selected account's General Ledger entries for <b>{MONTHS[month-1]} {year}</b> are retrieved from PostgreSQL.</p>
+          {usingFallback && !loadError && <div className="text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-lg px-3 py-2">Server ledger query unavailable — showing the in-app computed ledger (fully functional). Deploy the <code>get_server_general_ledger_entries</code>/<code>get_server_account_balances</code> PostgreSQL functions to enable server-side aggregation.</div>}
           {loadError && <div className="text-sm text-red-600 bg-red-50 dark:bg-red-950/30 rounded-lg p-3">{loadError}</div>}
         </div>
 

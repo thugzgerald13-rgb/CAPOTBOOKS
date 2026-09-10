@@ -1084,10 +1084,73 @@ export function Extras() {
              </div>
              <span className="text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity">Open →</span>
            </button>
-           
-           <div className="p-8 text-center bg-slate-50 dark:bg-slate-800/30 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700">
+           <button 
+             onClick={() => navigateToPage('sales-journal')}
+             className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:border-emerald-500 transition-all group"
+           >
+             <div className="flex items-center gap-4">
+               <div className="p-2 bg-emerald-50 dark:bg-emerald-900/30 rounded-lg">
+                 <Receipt className="text-emerald-600 w-5 h-5" />
+               </div>
+               <div className="text-left">
+                 <div className="font-bold text-slate-800 dark:text-slate-200">Sales Journal</div>
+                 <div className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Special Journal — Credit/On-Account Sales</div>
+               </div>
+             </div>
+             <span className="text-emerald-600 opacity-0 group-hover:opacity-100 transition-opacity">Open →</span>
+           </button>
+
+           <button 
+             onClick={() => navigateToPage('purchase-journal')}
+             className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:border-orange-500 transition-all group"
+           >
+             <div className="flex items-center gap-4">
+               <div className="p-2 bg-orange-50 dark:bg-orange-900/30 rounded-lg">
+                 <ShoppingCart className="text-orange-600 w-5 h-5" />
+               </div>
+               <div className="text-left">
+                 <div className="font-bold text-slate-800 dark:text-slate-200">Purchases Journal</div>
+                 <div className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Special Journal — Purchases on Account</div>
+               </div>
+             </div>
+             <span className="text-orange-600 opacity-0 group-hover:opacity-100 transition-opacity">Open →</span>
+           </button>
+
+           <button 
+             onClick={() => navigateToPage('cash-receipt')}
+             className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:border-blue-500 transition-all group"
+           >
+             <div className="flex items-center gap-4">
+               <div className="p-2 bg-blue-50 dark:bg-blue-900/30 rounded-lg">
+                 <Wallet className="text-blue-600 w-5 h-5" />
+               </div>
+               <div className="text-left">
+                 <div className="font-bold text-slate-800 dark:text-slate-200">Cash Receipts Journal</div>
+                 <div className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Special Journal — Cash Inflows</div>
+               </div>
+             </div>
+             <span className="text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity">Open →</span>
+           </button>
+
+           <button 
+             onClick={() => navigateToPage('cash-disbursement')}
+             className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:border-rose-500 transition-all group"
+           >
+             <div className="flex items-center gap-4">
+               <div className="p-2 bg-rose-50 dark:bg-rose-900/30 rounded-lg">
+                 <CreditCard className="text-rose-600 w-5 h-5" />
+               </div>
+               <div className="text-left">
+                 <div className="font-bold text-slate-800 dark:text-slate-200">Cash Disbursements Journal</div>
+                 <div className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Special Journal — Cash Outflows</div>
+               </div>
+             </div>
+             <span className="text-rose-600 opacity-0 group-hover:opacity-100 transition-opacity">Open →</span>
+           </button>
+
+           <div className="p-6 text-center bg-slate-50 dark:bg-slate-800/30 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700">
              <BookOpen className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-             <p className="text-xs text-slate-500 font-medium italic">Subsidiary ledgers and specialized journals will appear here as you expand your accounting system.</p>
+             <p className="text-xs text-slate-500 font-medium italic">Subsidiary ledgers (e.g. Accounts Receivable, Accounts Payable) will appear here as you expand your accounting system.</p>
            </div>
          </div>
       </div>

@@ -164,14 +164,6 @@ export function Sales() {
     };
     void persistSale();
 
-    if (CASH_RECEIPT_PAYMENT_TYPES.includes(paymentType)) {
-      showToast('Income entry added and posted to Cash Receipts Journal');
-    } else if (SALES_JOURNAL_PAYMENT_TYPES.includes(paymentType)) {
-      showToast('Income entry added and posted to Sales Journal');
-    } else {
-      showToast('Income entry added');
-    }
-    
     // Reset Form
     setRef('');
     setBuyerName('');
