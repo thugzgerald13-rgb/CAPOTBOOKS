@@ -1307,10 +1307,11 @@ export function computeAutoPostings(client: Client): Posting[] {
 }
 
 /**
- * Returns the client with its General Ledger (`glAccounts`) fully synced:
- * every account title is rebuilt from the books of original entry (CRJ, CDJ,
- * PJ, SJ and GJ), while any legacy manually-entered GL rows are retained only
- * for backward compatibility.
+ * Returns the client with its General Ledger (`glAccounts`) fully synced
+ * exclusively from the books of original entry (CRJ, CDJ, PJ, SJ and GJ).
+ * Manual entries typed directly into the GL are intentionally dropped — the
+ * General Ledger is a posting ledger, so all data must originate from a
+ * book of original entry.
  * Safe to call repeatedly — it's idempotent and cheap enough to run on
  * every save/read.
  *
@@ -1348,14 +1349,15 @@ export function syncGeneralLedger(client: Client): Client {
   touchedAccountIds.forEach(accountId => {
     const acct = accounts.find(a => a.id === accountId);
     const existingRecord = nextByAccount.get(accountId);
-    const manualEntries = (existingRecord?.entries || []).filter(e => !e.auto);
+    // General Ledger data comes ONLY from the books of original entry.
+    // Manual entries typed directly into the GL are intentionally dropped.
     const autoEntries = (autoByAccount.get(accountId) || []).sort((a, b) => dateSortKey(a) - dateSortKey(b));
     nextGlAccounts.push({
       id: accountId,
       accountTitle: acct?.name || existingRecord?.accountTitle || '',
       accountId,
       accountType: acct?.type || existingRecord?.accountType,
-      entries: [...autoEntries, ...manualEntries],
+      entries: autoEntries,
     });
   });
 
