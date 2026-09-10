@@ -6,6 +6,11 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 import { useAuth } from './AuthContext';
 import { handleSupabaseError, OperationType } from '../lib/supabaseUtils';
 import { syncGeneralLedger, syncCashDisbursementsJournal, syncSalesJournal } from '../lib/glPosting';
+import {
+  getCachedCursor, setCachedCursor, putCachedRows, getCachedRows,
+  applyCachedRowDelta, clearCachedRows, queueDirtyWrite, flushDirtyQueue,
+  pendingDirtyCount, recordCacheHit,
+} from '../db/localDb';
 
 interface AccountingContextType {
   clients: Record<string, Client>;
@@ -293,13 +298,54 @@ const upsertDeltaRows = (entry: DeltaCacheEntry, table: string, freshRows: any[]
 export const clearNormalizedClientCache = (clientId?: string) => {
   if (clientId) deltaSyncCache.delete(clientId);
   else deltaSyncCache.clear();
+  clearCachedRows(clientId).catch(() => {}); // best-effort
+};
+
+
+// Offline write queue: mutations that fail while offline are persisted to
+// IndexedDB and flushed (in order) when the browser fires `online`.
+const withOfflineQueue = async (
+  table: string,
+  clientId: string,
+  op: 'put' | 'delete',
+  row: unknown,
+  doWrite: () => Promise<void>
+): Promise<void> => {
+  try {
+    await doWrite();
+  } catch (e) {
+    if (!navigator.onLine) {
+      await queueDirtyWrite(table, clientId, op, row);
+      console.info('[localDb] queued offline write to', table);
+      return;
+    }
+    throw e;
+  }
 };
 
 const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> => {
   // Timestamp captured *before* any query fires, so the next delta sync's
   // `>=` filter can't miss a row that changes mid-request.
   const requestStartedAt = new Date().toISOString();
-  const cacheEntry = deltaSyncCache.get(clientId);
+  let cacheEntry = deltaSyncCache.get(clientId);
+
+  // Cold start (fresh tab): rebuild the in-memory delta cache from IndexedDB
+  // so we issue a tiny `updated_at >= cursor` delta query instead of a full
+  // re-download of every normalized table. This is what cuts PostgREST egress.
+  if (!cacheEntry) {
+    const persistedCursor = await getCachedCursor(clientId);
+    if (persistedCursor) {
+      const hydrated: DeltaCacheEntry = { cursor: persistedCursor, rows: new Map() };
+      let rowCount = 0;
+      for (const { table } of DELTA_SYNC_TABLES) {
+        const rows = await getCachedRows(table, clientId);
+        if (rows.length) { upsertDeltaRows(hydrated, table, rows); rowCount += rows.length; }
+      }
+      deltaSyncCache.set(clientId, hydrated);
+      cacheEntry = hydrated;
+      recordCacheHit(rowCount * 256);
+    }
+  }
 
   const deltaQueryPromises = DELTA_SYNC_TABLES.map(({ table, columns }) => {
     let query = supabase.from(table).select(`${columns},updated_at`).eq('client_id', clientId);
@@ -355,6 +401,17 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
   });
   activeEntry.cursor = requestStartedAt;
   deltaSyncCache.set(clientId, activeEntry);
+
+  // Persist fetched rows + watermark to IndexedDB so the next cold start is
+  // a delta pull. Fire-and-forget — never block the UI on IndexedDB writes.
+  (async () => {
+    try {
+      for (const { table } of DELTA_SYNC_TABLES) {
+        await putCachedRows(table, clientId, getDeltaRows(activeEntry, table));
+      }
+      await setCachedCursor(clientId, requestStartedAt);
+    } catch (e) { console.warn('[localDb] persist failed (non-fatal)', e); }
+  })();
 
   const pRows = getDeltaRows(activeEntry, 'purchases');
   const sRows = getDeltaRows(activeEntry, 'sales');
@@ -862,6 +919,17 @@ export function AccountingProvider({
               deltaEntry?.rows.get(table)?.delete(rowId);
             }
 
+            // Keep the persisted IndexedDB cache consistent with the
+            // in-memory delta cache so a later cold-start hydrate doesn't
+            // re-download this row or resurrect a deleted one.
+            if (normalizedRealtimeTables.includes(table) && clientId) {
+              applyCachedRowDelta(
+                table, clientId,
+                eventType === 'DELETE' ? 'delete' : 'put',
+                row
+              ).catch(() => {});
+            }
+
             const current: any = prev[clientId];
             const next: any = { ...current };
 
@@ -1162,8 +1230,10 @@ export function AccountingProvider({
       output_tax: Number(sale.outputTax || 0), income_type: sale.incomeType || null,
       description: sale.desc || null,
     };
-    const { error } = await supabase.from('sales').upsert(row, { onConflict: 'id' });
-    if (error) throw error;
+    await withOfflineQueue('sales', currentClientId, 'put', row, async () => {
+      const { error } = await supabase.from('sales').upsert(row, { onConflict: 'id' });
+      if (error) throw error;
+    });
     const next = [...(clients[currentClientId]?.sales || []).filter((x: any) => String(x.id) !== String(id)), sale];
     updateClientState(currentClientId, { sales: next });
   };
@@ -1676,6 +1746,27 @@ export function AccountingProvider({
     setToastMsg(msg);
     setTimeout(() => setToastMsg(null), 3000);
   };
+
+  // Flush queued offline writes when connectivity returns.
+  useEffect(() => {
+    const onOnline = async () => {
+      if ((await pendingDirtyCount()) === 0) return;
+      try {
+        const flushed = await flushDirtyQueue(async ({ table, op, row }) => {
+          if (op === 'delete') {
+            const { error } = await supabase.from(table).delete().eq('id', (row as any).id);
+            if (error) throw error;
+          } else {
+            const { error } = await supabase.from(table).upsert(row as any, { onConflict: 'id' });
+            if (error) throw error;
+          }
+        });
+        if (flushed > 0) showToast(`Flushed ${flushed} offline change(s)`);
+      } catch (e) { console.warn('[localDb] offline flush failed', e); }
+    };
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, []);
 
   const navigateToPage = (page: string | null) => {
     navigate(page ? `/${page}` : '/');
