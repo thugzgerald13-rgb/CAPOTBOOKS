@@ -1888,6 +1888,72 @@ export function AccountingProvider({
     };
   }, [user, rawCurrentClient, currentClient]);
 
+  // -----------------------------------------------------------------------
+  // Cleanup: remove legacy auto CDJ entries from excluded sources
+  // (Purchases, General Journal, Check Vouchers, Miscellaneous Payments)
+  // from the normalized journal_entries table. These entries were created
+  // by an older version of syncCashDisbursementsJournal and should no
+  // longer appear in the CDJ now that those sources are excluded.
+  // -----------------------------------------------------------------------
+  useEffect(() => {
+    if (!user || !rawCurrentClient) return;
+
+    const clientId = rawCurrentClient.id;
+    const EXCLUDED_AUTO_SOURCES = new Set([
+      'Purchases',
+      'General Journal',
+      'Check Voucher',
+      'Check Vouchers',
+      'Miscellaneous Payment',
+      'Miscellaneous Payments',
+    ]);
+    const EXCLUDED_ID_PREFIXES = [
+      'cdj-auto:purchase:',
+      'cdj-auto:gj:',
+      'cdj-auto:check-voucher:',
+      'cdj-auto:cv:',
+      'cdj-auto:misc-payment:',
+    ];
+
+    const toDelete = (rawCurrentClient.cdjEntries || [])
+      .filter((entry: any) => {
+        if (!entry.auto) return false;
+        const id = String(entry.id);
+        const source = String(entry.autoSource || '');
+        return (
+          EXCLUDED_AUTO_SOURCES.has(source) ||
+          EXCLUDED_ID_PREFIXES.some(prefix => id.startsWith(prefix))
+        );
+      })
+      .map((entry: any) => String(entry.id));
+
+    if (!toDelete.length) return;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { error } = await supabase
+          .from('journal_entries')
+          .delete()
+          .eq('client_id', clientId)
+          .eq('journal_type', 'CDJ')
+          .in('id', toDelete);
+
+        if (error) {
+          console.error('[CDJ Cleanup] Failed to remove legacy excluded entries:', error);
+          return;
+        }
+        if (!cancelled) {
+          console.info(`[CDJ Cleanup] Removed ${toDelete.length} legacy excluded auto entries from journal_entries`);
+        }
+      } catch (e) {
+        console.error('[CDJ Cleanup] Error:', e);
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [user, rawCurrentClient?.id]);
+
   if (syncError) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 px-6">
