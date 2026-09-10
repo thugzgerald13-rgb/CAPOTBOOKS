@@ -965,7 +965,10 @@ export function syncCashDisbursementsJournal(client: Client): Client {
 
   // Auto sources that are NO LONGER allowed to contribute to the CDJ
   // (legacy entries from these sources must be dropped, not preserved).
+  // 'Expenses' is the old client.expenses-based source; it has been replaced
+  // by 'Purchases' which reads the Expense History (client.purchases) table.
   const EXCLUDED_AUTO_SOURCES = new Set([
+    'Expenses',
     'General Journal',
     'Check Voucher',
     'Check Vouchers',
@@ -975,6 +978,7 @@ export function syncCashDisbursementsJournal(client: Client): Client {
 
   // Legacy ID prefixes from excluded sources.
   const EXCLUDED_ID_PREFIXES = [
+    'cdj-auto:expense:',
     'cdj-auto:gj:',
     'cdj-auto:check-voucher:',
     'cdj-auto:cv:',
@@ -982,8 +986,10 @@ export function syncCashDisbursementsJournal(client: Client): Client {
   ];
 
   // Refresh generated rows by ID. Persisted manual rows are preserved;
-  // persisted auto rows from excluded sources are DROPPED so the CDJ no
-  // longer shows purchase / GJ / check-voucher transactions.
+  // persisted auto rows from excluded sources (old Expenses, GJ, check
+  // vouchers, misc payments) are DROPPED so the CDJ only shows entries
+  // generated from the current source rules: Expense History (purchases)
+  // cash/check payments and cash-crediting Journal Vouchers.
   const generatedById = new Map(generatedEntries.map(entry => [String(entry.id), entry]));
   const generatedIds = new Set(generatedById.keys());
 
