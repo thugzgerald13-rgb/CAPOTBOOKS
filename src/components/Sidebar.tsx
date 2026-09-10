@@ -27,6 +27,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     isSidebarCollapsed: isCollapsed,
     setSidebarCollapsed: setIsCollapsed,
     showToast,
+    activePage,
   } = useAccounting();
   const { user, isAdmin, userRole, signOut } = useAuth();
   const navigate = useNavigate();
@@ -137,6 +138,14 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     { id: 'cash-receipt', label: 'Cash Receipt Journal', icon: Wallet },
   ];
 
+  // Persistent "selected" highlight — applied to the nav button whose page
+  // matches the current route, so the active selection stays highlighted.
+  const activeIndigo = "bg-indigo-100/70 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300";
+  const activeBlue = "bg-blue-100/70 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300";
+  const activeAmber = "bg-amber-100/70 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300";
+  const activeCyan = "bg-cyan-100/70 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300";
+  const activeEmerald = "bg-emerald-100/80 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 border-emerald-300 dark:border-emerald-800";
+
   return (
     <>
       {/* Mobile overlay */}
@@ -196,7 +205,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               title={isCollapsed ? "Transactions" : undefined}
               className={cn(
                 "flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl transition-all w-full text-left group",
-                isTransactionsOpen ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
+                (isTransactionsOpen || ['coa','billing','sales','journal-voucher','history'].includes(activePage) || activePage?.startsWith('purchases')) ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
                 isCollapsed && "md:justify-center md:px-2"
               )}
             >
@@ -221,7 +230,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       handleNavClick('coa');
                       setIsOpen(false);
                     }}
-                    className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left"
+                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'coa' && activeIndigo)}
                   >
                     <BookOpen className="w-4 h-4" />
                     Chart of Accounts
@@ -231,7 +240,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       navigateToPage('billing');
                       setIsOpen(false);
                     }}
-                    className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left"
+                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'billing' && activeIndigo)}
                   >
                     <CreditCard className="w-4 h-4" />
                     Billing
@@ -241,7 +250,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       handleNavClick('sales');
                       setIsOpen(false);
                     }}
-                    className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left"
+                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'sales' && activeIndigo)}
                   >
                     <Receipt className="w-4 h-4" />
                     Income
@@ -251,7 +260,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                         navigateToPage('purchases');
                         setIsOpen(false);
                     }}
-                    className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left"
+                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage?.startsWith('purchases') && activeIndigo)}
                   >
                     <ShoppingCart className="w-4 h-4" />
                     Purchases
@@ -261,7 +270,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       navigateToPage('journal-voucher');
                       setIsOpen(false);
                     }}
-                    className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left"
+                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'journal-voucher' && activeIndigo)}
                   >
                     <FileSignature className="w-4 h-4" />
                     Journal Voucher
@@ -278,7 +287,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                           handleNavClick('history', subItem.id);
                           setIsOpen(false);
                         }}
-                        className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left"
+                        className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'history' && activeIndigo)}
                       >
                         <SubIcon className="w-4 h-4" />
                         {subItem.label}
@@ -297,7 +306,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               title={isCollapsed ? "Compliance" : undefined}
               className={cn(
                 "flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl transition-all w-full text-left group",
-                isFormsOpen ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
+                (isFormsOpen || activePage === 'compliance-tracker' || activePage === 'bir-forms') ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
                 isCollapsed && "md:justify-center md:px-2"
               )}
             >
@@ -322,7 +331,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                     navigateToPage('compliance-tracker');
                     setIsOpen(false);
                   }}
-                  className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-emerald-600 dark:text-emerald-400 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/10 border border-emerald-100/30 hover:bg-emerald-100/50 dark:hover:bg-emerald-900/20 transition-all w-full text-left"
+                  className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-emerald-600 dark:text-emerald-400 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/10 border border-emerald-100/30 hover:bg-emerald-100/50 dark:hover:bg-emerald-900/20 transition-all w-full text-left", activePage === 'compliance-tracker' && activeEmerald)}
                 >
                   <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
                   Compliance Tracker
@@ -331,7 +340,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                 <div className="flex flex-col">
                   <button
                     onClick={() => setIsBirOpen(!isBirOpen)}
-                    className="flex items-center justify-between gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left"
+                    className={cn("flex items-center justify-between gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'bir-forms' && activeIndigo)}
                   >
                     <span className="flex items-center gap-3">
                       <Landmark className="w-4 h-4" />
@@ -354,7 +363,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                             navigateToPage('bir-forms');
                             setIsOpen(false);
                           }}
-                          className="flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left"
+                          className={cn("flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'bir-forms' && activeIndigo)}
                         >
                           <FileText className="w-3.5 h-3.5" />
                           Forms
@@ -388,6 +397,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                 title={isCollapsed ? item.label : undefined}
                 className={cn(
                   "flex items-center gap-3 px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800 dark:hover:text-blue-400 transition-all w-full text-left group",
+                  activePage === item.id && activeBlue,
                   isCollapsed && "md:justify-center md:px-2"
                 )}
               >
@@ -404,7 +414,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               title={isCollapsed ? "Reports" : undefined}
               className={cn(
                 "flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl transition-all w-full text-left group",
-                isReportsOpen ? "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
+                (isReportsOpen || ['trialbalance','balancesheet','pl','assetlapsing','cashflow','afs-financial-position','afs-income-statements','afs-equity-retained-earnings','afs-ppe'].includes(activePage)) ? "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
                 isCollapsed && "md:justify-center md:px-2"
               )}
             >
@@ -430,7 +440,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       <button
                         key={subItem.id}
                         onClick={() => handleNavClick(subItem.id)}
-                        className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-amber-50 hover:text-amber-600 dark:hover:bg-slate-800 dark:hover:text-amber-400 transition-all w-full text-left"
+                        className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-amber-50 hover:text-amber-600 dark:hover:bg-slate-800 dark:hover:text-amber-400 transition-all w-full text-left", activePage === subItem.id && activeAmber)}
                       >
                         <SubIcon className="w-4 h-4" />
                         {subItem.label}
@@ -490,7 +500,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               title={isCollapsed ? "Books" : undefined}
               className={cn(
                 "flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl transition-all w-full text-left group",
-                isBooksOpen ? "bg-cyan-50 text-cyan-700 dark:bg-cyan-900/20 dark:text-cyan-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
+                (isBooksOpen || ['journal','ledger','sales-journal','purchase-journal','cash-disbursement','cash-receipt'].includes(activePage)) ? "bg-cyan-50 text-cyan-700 dark:bg-cyan-900/20 dark:text-cyan-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
                 isCollapsed && "md:justify-center md:px-2"
               )}
             >
@@ -516,7 +526,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       <button
                         key={subItem.id}
                         onClick={() => handleNavClick(subItem.id)}
-                        className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-cyan-50 hover:text-cyan-600 dark:hover:bg-slate-800 dark:hover:text-cyan-400 transition-all w-full text-left"
+                        className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-cyan-50 hover:text-cyan-600 dark:hover:bg-slate-800 dark:hover:text-cyan-400 transition-all w-full text-left", activePage === subItem.id && activeCyan)}
                       >
                         <SubIcon className="w-4 h-4" />
                         {subItem.label}
@@ -535,7 +545,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               title={isCollapsed ? "Settings" : undefined}
               className={cn(
                 "flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl transition-all w-full text-left group",
-                isSettingsOpen ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
+                (isSettingsOpen || ['business','clients','tinlibrary','account-settings'].includes(activePage)) ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
                 isCollapsed && "md:justify-center md:px-2"
               )}
             >
