@@ -652,7 +652,7 @@ function purchaseCashDisbursementsToCdjEntries(client: Client, accounts: CoaAcco
 
   (client.purchases || []).forEach(p => {
     const paymentMethod = String(p.paymentMethod || '').trim().toLowerCase();
-    if (paymentMethod !== 'cash' && paymentMethod !== 'check') return;
+    if (paymentMethod !== 'cash' && paymentMethod !== 'check' && paymentMethod !== 'e-payments' && paymentMethod !== 'e-payment') return;
 
     // `amount` is the VATable net amount. Non-VAT/Exempt and 0-Rated values
     // live in their dedicated fields and must also participate in CDJ.
@@ -969,6 +969,86 @@ export function syncCashDisbursementsJournal(client: Client): Client {
   });
 
   return { ...client, cdjEntries: mergedEntries };
+}
+
+// ---------------------------------------------------------------------------
+// Source: Purchases (payment method = "On Account") → Purchases Journal
+//
+// Cash and Check purchases are recorded in the Cash Disbursements Journal
+// (credit Cash). "On Account" purchases, however, create a liability instead
+// of paying out immediately — so they belong in the Purchases Journal, where
+// they debit the expense/asset account + Input Tax and credit **Accounts
+// Payable** (less any withholding tax, which is credited separately).
+// ---------------------------------------------------------------------------
+function purchaseOnAccountToPjEntries(client: Client, accounts: CoaAccount[]): JournalEntry[] {
+  const entries: JournalEntry[] = [];
+
+  (client.purchases || []).forEach(p => {
+    const paymentMethod = String(p.paymentMethod || '').trim().toLowerCase();
+    if (paymentMethod !== 'on account' && paymentMethod !== 'on-account' && paymentMethod !== 'on_account') return;
+
+    const netAmount = Number(p.amount) || 0;
+    const exemptAmount = Number(p.exemptAmount) || 0;
+    const zeroRatedAmount = Number(p.zeroRatedAmount) || 0;
+    const inputTax = Number(p.inputTax) || 0;
+    const withholding = p.withholdingOption === 'with' ? (Number(p.whtAmount) || 0) : 0;
+
+    const expenseBase = netAmount + exemptAmount + zeroRatedAmount;
+    const accountsPayable = expenseBase + inputTax - withholding;
+
+    if (accountsPayable <= 0) return;
+
+    const accountTitle = String(p.accountTitle || '').trim();
+    const values: Record<string, any> = {
+      date: p.date || '',
+      supplier_name: p.supplierName || '',
+      supplier_tin: p.supplierTin || '',
+      invoice_no: p.invoiceNo || '',
+      description: p.transactionDetails || accountTitle || '',
+      net_purchase: two(netAmount),
+      exempt_zero_rated: two(exemptAmount + zeroRatedAmount),
+      input_tax: two(inputTax),
+      debit_account: accountTitle,
+      accounts_payable: two(accountsPayable),
+      withholding_tax: two(withholding),
+    };
+
+    entries.push({
+      id: `pj-auto:purchase:${p.id}`,
+      auto: true,
+      autoSource: 'Purchases',
+      values,
+    });
+  });
+
+  return entries;
+}
+
+/**
+ * Synchronizes the Purchases Journal (`pjEntries`) with "On Account"
+ * purchases recorded in the Purchases module. Generated rows are keyed by
+ * purchase id so they refresh cleanly on every edit. Manual PJ entries
+ * typed directly by the user are always preserved.
+ */
+export function syncPurchasesJournal(client: Client): Client {
+  const accounts = getCoaAccounts(client);
+  const generatedEntries = purchaseOnAccountToPjEntries(client, accounts);
+
+  const persistedEntries = client.pjEntries || [];
+  if (generatedEntries.length === 0) return client;
+
+  const generatedById = new Map(generatedEntries.map(entry => [String(entry.id), entry]));
+  const persistedIds = new Set(persistedEntries.map(entry => String(entry.id)));
+
+  const mergedEntries = persistedEntries.map(entry =>
+    generatedById.get(String(entry.id)) || entry
+  );
+
+  generatedEntries.forEach(entry => {
+    if (!persistedIds.has(String(entry.id))) mergedEntries.push(entry);
+  });
+
+  return { ...client, pjEntries: mergedEntries };
 }
 
 // ---------------------------------------------------------------------------
