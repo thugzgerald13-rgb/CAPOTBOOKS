@@ -660,10 +660,12 @@ function purchaseCashDisbursementsToCdjEntries(client: Client, accounts: CoaAcco
     const exemptAmount = Number(p.exemptAmount) || 0;
     const zeroRatedAmount = Number(p.zeroRatedAmount) || 0;
     const inputTax = Number(p.inputTax) || 0;
-    const withholding = p.withholdingOption === 'with' ? (Number(p.whtAmount) || 0) : 0;
 
     const expenseBase = netAmount + exemptAmount + zeroRatedAmount;
-    const cashDue = expenseBase + inputTax - withholding;
+    // Cash on Hand/Bank = GROSS column from Expense History:
+    //   VATable net (amount) + Exempt + 0-Rated + Input Tax
+    // Per user requirement: "CASH ON HAND / IN BANK SHOULD BE FROM THE GROSS COLUMN"
+    const cashDue = expenseBase + inputTax;
 
     // Keep genuinely empty source rows out of the CDJ, but do NOT treat
     // amount === 0 as empty when Exempt/0-Rated/Input Tax contains value.
@@ -942,14 +944,19 @@ function miscellaneousPaymentCashDisbursementsToCdjEntries(client: Client, _acco
 
 export function syncCashDisbursementsJournal(client: Client): Client {
   const accounts = getCoaAccounts(client);
-  // Cash Disbursements Journal data comes ONLY from:
-  //   1. Expense History (client.expenses)
+  // Cash Disbursements Journal data comes from:
+  //   1. Expense History (client.purchases) — cash/check/e-payment transactions
+  //      Column mapping per user requirement:
+  //        - PAYEES ← Supplier Name column
+  //        - CASH ON HAND / IN BANK ← GROSS column (Net of VAT + Exempt + 0-Rated + Input Tax)
+  //        - INPUT TAX ← Input Tax column
+  //        - Account columns / Sundries Amount ← SUM of Net of VAT + Exempt + 0-Rated,
+  //          matched by Account Title column
   //   2. Journal Vouchers that credit Cash
-  // Purchases, General Journal, Check Vouchers, and Miscellaneous Payments
-  // are intentionally excluded — they are recorded in their own respective
-  // books of original entry instead.
+  // General Journal, Check Vouchers, and Miscellaneous Payments are excluded
+  // — they are recorded in their own respective books of original entry.
   const generatedEntries = [
-    ...expenseCashDisbursementsToCdjEntries(client, accounts),
+    ...purchaseCashDisbursementsToCdjEntries(client, accounts),
     ...journalVoucherCashDisbursementsToCdjEntries(client, accounts),
   ];
 
@@ -959,7 +966,6 @@ export function syncCashDisbursementsJournal(client: Client): Client {
   // Auto sources that are NO LONGER allowed to contribute to the CDJ
   // (legacy entries from these sources must be dropped, not preserved).
   const EXCLUDED_AUTO_SOURCES = new Set([
-    'Purchases',
     'General Journal',
     'Check Voucher',
     'Check Vouchers',
@@ -969,7 +975,6 @@ export function syncCashDisbursementsJournal(client: Client): Client {
 
   // Legacy ID prefixes from excluded sources.
   const EXCLUDED_ID_PREFIXES = [
-    'cdj-auto:purchase:',
     'cdj-auto:gj:',
     'cdj-auto:check-voucher:',
     'cdj-auto:cv:',
