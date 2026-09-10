@@ -15,11 +15,26 @@ interface DraftLine {
 
 const newDraftLine = (): DraftLine => ({ id: crypto.randomUUID(), accountId: '', accountName: '', debit: '', credit: '' });
 
+/**
+ * Checks whether a journal voucher represents a cash payment.
+ * A cash payment voucher is one where any line credits a Cash account
+ * (account name contains "Cash", e.g. "Cash on Hand", "Cash in Bank").
+ * Cash payments belong in the Cash Disbursements Journal, not the General Journal.
+ */
+function isCashPaymentVoucher(voucher: { lines: Array<{ accountName?: string; credit?: number }> }): boolean {
+  const lines = voucher.lines || [];
+  return lines.some((line) => {
+    const accountName = (line.accountName || '').toLowerCase();
+    const isCashAccount = accountName.includes('cash');
+    const isCredit = Number(line.credit || 0) > 0;
+    return isCashAccount && isCredit;
+  });
+}
+
 export function JournalVoucher() {
   const { currentClient, currentClientId, saveJournalVoucher, deleteJournalVoucher, showToast } = useAccounting();
 
   const today = new Date().toISOString().split('T')[0];
-
   const [date, setDate] = useState(today);
   const [reference, setReference] = useState('');
   const [memo, setMemo] = useState('');
@@ -48,6 +63,12 @@ export function JournalVoucher() {
   };
 
   const buildGjEntries = (voucher: JournalVoucherType): JournalEntry[] => {
+    // CASH PAYMENT vouchers should NOT be recorded in the General Journal.
+    // They belong in the Cash Disbursements Journal instead.
+    if (isCashPaymentVoucher(voucher)) {
+      return [];
+    }
+
     const columns = currentClient.gjColumns || DEFAULT_GJ_COLUMNS;
     const colIds = new Set(columns.map(c => c.id));
     return voucher.lines.map(line => {
@@ -66,11 +87,13 @@ export function JournalVoucher() {
       alert('Date and Reference are required.');
       return;
     }
+
     const validLines = lines.filter(l => l.accountName && (parseFloat(l.debit) > 0 || parseFloat(l.credit) > 0));
     if (validLines.length < 2) {
       alert('Add at least two lines, each with an account and a debit or credit amount.');
       return;
     }
+
     if (!isBalanced) {
       alert(`Debits and credits must balance. Currently off by ₱${Math.abs(totalDebit - totalCredit).toLocaleString(undefined, { minimumFractionDigits: 2 })}.`);
       return;
@@ -97,6 +120,7 @@ export function JournalVoucher() {
     } catch {
       return;
     }
+
     setReference('');
     setMemo('');
     setLines([newDraftLine(), newDraftLine()]);
@@ -127,6 +151,10 @@ export function JournalVoucher() {
           <label className="form-label">Memo</label>
           <input type="text" value={memo} onChange={e => setMemo(e.target.value)} placeholder="Purpose of this voucher" className="form-input" />
         </div>
+      </div>
+
+      <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 rounded-xl p-3 mb-4 text-xs text-amber-800 dark:text-amber-300">
+        <strong>Note:</strong> Journal vouchers that credit a <strong>Cash</strong> account (cash payments) are recorded in the <strong>Cash Disbursements Journal</strong>, not in the General Journal. Only non-cash adjusting and transfer entries will appear in the General Journal.
       </div>
 
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden mb-4">
@@ -226,6 +254,7 @@ export function JournalVoucher() {
         {[...vouchers].reverse().map(v => {
           const vTotal = v.lines.reduce((s, l) => s + l.debit, 0);
           const isExpanded = expandedId === v.id;
+          const isCashPayment = isCashPaymentVoucher(v);
           return (
             <div key={v.id} className="bg-white dark:bg-slate-900/20 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
               <div className="flex items-center justify-between px-4 py-3 cursor-pointer" onClick={() => setExpandedId(isExpanded ? null : v.id)}>
@@ -233,6 +262,11 @@ export function JournalVoucher() {
                   <span className="text-xs font-mono font-bold text-slate-500">{v.date}</span>
                   <span className="text-xs font-bold text-slate-800 dark:text-slate-200">{v.reference}</span>
                   {v.memo && <span className="text-xs text-slate-400 italic">"{v.memo}"</span>}
+                  {isCashPayment && (
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
+                      Cash Payment · CDJ only
+                    </span>
+                  )}
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="text-xs font-black text-slate-700 dark:text-slate-300">₱{vTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>

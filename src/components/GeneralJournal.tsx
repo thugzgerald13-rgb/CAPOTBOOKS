@@ -13,6 +13,22 @@ export const DEFAULT_GJ_COLUMNS: JournalColumn[] = [
   { id: 'credit', name: 'CREDIT', type: 'number', category: 'Cr', isSystem: true },
 ];
 
+/**
+ * Checks whether a journal voucher represents a cash payment.
+ * A cash payment voucher is one where any line credits a Cash account
+ * (account name contains "Cash", e.g. "Cash on Hand", "Cash in Bank").
+ * Cash payments belong in the Cash Disbursements Journal, not the General Journal.
+ */
+function isCashPaymentVoucher(voucher: any): boolean {
+  const lines = voucher.lines || [];
+  return lines.some((line: any) => {
+    const accountName = (line.accountName || '').toLowerCase();
+    const isCashAccount = accountName.includes('cash');
+    const isCredit = Number(line.credit || 0) > 0;
+    return isCashAccount && isCredit;
+  });
+}
+
 export function GeneralJournal() {
   const { currentClient, currentClientId, saveJournalColumns, saveJournalEntry, deleteJournalEntry, activeDevice } = useAccounting();
   
@@ -37,12 +53,18 @@ export function GeneralJournal() {
     })),
     ...savedColumns.filter(c => !systemIds.has(c.id)),
   ];
+
   // General Journal entries are derived solely from saved Journal Vouchers.
   // Each voucher line becomes one GJ row. Add / edit / delete is done in the Journal Voucher page.
+  // CASH PAYMENT vouchers are EXCLUDED — they belong in the Cash Disbursements Journal instead.
   const vouchers = currentClient.journalVouchers || [];
   const gjColIds = new Set(columns.map(c => c.id));
   const derivedEntries: JournalEntry[] = [];
+
   for (const v of vouchers) {
+    // Skip cash payment vouchers — they should not appear in General Journal
+    if (isCashPaymentVoucher(v)) continue;
+
     for (const line of v.lines || []) {
       const values: Record<string, string> = {};
       if (gjColIds.has('date')) values['date'] = v.date || '';
@@ -53,8 +75,34 @@ export function GeneralJournal() {
       derivedEntries.push({ id: `${v.id}__${line.id}`, values });
     }
   }
+
   derivedEntries.sort((a, b) => String(a.values.date || '').localeCompare(String(b.values.date || '')));
   const entries = derivedEntries;
+
+  // Group entries by reference number: one same ref. no = one transaction.
+  // Build a display list that marks which entry is the first in its group
+  // and whether a blank separator row should appear before it.
+  const groupedDisplay: Array<{
+    entry: JournalEntry;
+    isFirstInGroup: boolean;
+    needsBlankRowBefore: boolean;
+  }> = [];
+
+  const seenRefs = new Set<string>();
+  let prevRef: string | null = null;
+
+  entries.forEach((entry) => {
+    const ref = String(entry.values.ref_no || '');
+    const isFirstInGroup = !seenRefs.has(ref);
+    const needsBlankRowBefore = isFirstInGroup && prevRef !== null && prevRef !== ref;
+
+    if (isFirstInGroup) {
+      seenRefs.add(ref);
+    }
+
+    groupedDisplay.push({ entry, isFirstInGroup, needsBlankRowBefore });
+    prevRef = ref;
+  });
 
   const filteredEntries = (periodFrom || periodTo)
     ? entries.filter(e => {
@@ -65,6 +113,29 @@ export function GeneralJournal() {
         return true;
       })
     : entries;
+
+  // Build grouped display also for filtered entries
+  const filteredGroupedDisplay: Array<{
+    entry: JournalEntry;
+    isFirstInGroup: boolean;
+    needsBlankRowBefore: boolean;
+  }> = [];
+
+  const filteredSeenRefs = new Set<string>();
+  let filteredPrevRef: string | null = null;
+
+  filteredEntries.forEach((entry) => {
+    const ref = String(entry.values.ref_no || '');
+    const isFirstInGroup = !filteredSeenRefs.has(ref);
+    const needsBlankRowBefore = isFirstInGroup && filteredPrevRef !== null && filteredPrevRef !== ref;
+
+    if (isFirstInGroup) {
+      filteredSeenRefs.add(ref);
+    }
+
+    filteredGroupedDisplay.push({ entry, isFirstInGroup, needsBlankRowBefore });
+    filteredPrevRef = ref;
+  });
 
   const handleSaveColumns = async (newCols: JournalColumn[]) => {
     await saveJournalColumns(currentClientId, 'GJ', newCols);
@@ -183,6 +254,22 @@ export function GeneralJournal() {
   const fullTotalCr = columns.filter(c => c.category === 'Cr').reduce((s, c) => s + (fullTotals[c.id] || 0), 0);
   const fullIsBalanced = Math.abs(fullTotalDr - fullTotalCr) < 0.01;
 
+  // Build flat rows for desktop table rendering, including blank separator rows.
+  // Each item is either { kind: 'entry', ... } or { kind: 'blank' }.
+  type TableRow =
+    | { kind: 'entry'; item: typeof filteredGroupedDisplay[number]; displayIdx: number }
+    | { kind: 'blank'; key: string };
+
+  const tableRows: TableRow[] = [];
+  let entryCounter = 0;
+  filteredGroupedDisplay.forEach((item) => {
+    if (item.needsBlankRowBefore) {
+      tableRows.push({ kind: 'blank', key: `blank__${item.entry.id}` });
+    }
+    entryCounter++;
+    tableRows.push({ kind: 'entry', item, displayIdx: entryCounter });
+  });
+
   return (
     <div className="w-full flex flex-col">
       <PageHeader title="General Journal" icon={<BookText />} />
@@ -226,7 +313,7 @@ export function GeneralJournal() {
             )}
           </div>
           <div className="ml-auto flex items-center gap-2">
-            <span className="text-[10px] uppercase font-bold text-slate-400 dark:text-slate-500 tracking-wider hidden md:block">From Journal Vouchers</span>
+            <span className="text-[10px] uppercase font-bold text-slate-400 dark:text-slate-500 tracking-wider hidden md:block">From Journal Vouchers (non-cash only)</span>
             <button
               onClick={() => setIsEditingHeaders(!isEditingHeaders)}
               className={cn("p-2 rounded-lg transition-colors", isEditingHeaders ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700")}
@@ -294,59 +381,65 @@ export function GeneralJournal() {
 
         {activeDevice === 'mobile' ? (
           <div className="flex flex-col gap-4">
-            {filteredEntries.map((entry, idx) => (
-              <div key={entry.id} className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 flex flex-col gap-3 relative shadow-sm">
-                <div className="flex justify-between items-center pb-2 border-b border-slate-200 dark:border-slate-700/60">
-                  <span className="font-mono text-xs text-slate-500 font-extrabold bg-slate-200 dark:bg-slate-700 px-2 py-0.5 rounded">Entry #{idx + 1}</span>
-                </div>
-                
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  {columns.filter(c => c.isSystem).map(col => (
-                    <div key={col.id} className="col-span-1">
-                      <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">{col.name}</label>
-                      <input 
-                        type="text"
-                        readOnly value={entry.values[col.id] || ''}
-                        onChange={e => updateEntry(entry.id, col.id, e.target.value)}
-                        className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl px-2.5 py-1.5 text-xs outline-none focus:border-cyan-500 text-slate-900 dark:text-white"
-                        placeholder={`Enter ${col.name.toLowerCase()}`}
-                      />
-                    </div>
-                  ))}
-                </div>
-
-                <div className="bg-white dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700/50 flex flex-col gap-2 mt-1">
-                  <span className="text-[10px] font-bold text-cyan-600 dark:text-cyan-400 uppercase tracking-widest block mb-1">Financial Figures (Dr/Cr)</span>
-                  <div className="grid grid-cols-1 gap-2">
-                    {columns.filter(c => !c.isSystem).map(col => (
-                      <div key={col.id} className="flex items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800/80 pb-1.5 last:border-0 last:pb-0">
-                        <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">{col.name} <span className="text-[10px] text-slate-400 uppercase font-mono">({col.category})</span></span>
+            {filteredGroupedDisplay.map(({ entry, isFirstInGroup, needsBlankRowBefore }, idx) => (
+              <React.Fragment key={entry.id}>
+                {needsBlankRowBefore && <div className="h-4" />}
+                <div className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 flex flex-col gap-3 relative shadow-sm">
+                  <div className="flex justify-between items-center pb-2 border-b border-slate-200 dark:border-slate-700/60">
+                    <span className="font-mono text-xs text-slate-500 font-extrabold bg-slate-200 dark:bg-slate-700 px-2 py-0.5 rounded">
+                      {isFirstInGroup ? `Transaction: ${entry.values.ref_no || '—'}` : `  └ line`}
+                    </span>
+                  </div>
+                  
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {columns.filter(c => c.isSystem).map(col => (
+                      <div key={col.id} className="col-span-1">
+                        <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">{col.name}</label>
                         <input 
                           type="text"
-                          readOnly value={entry.values[col.id] || ''}
-                          onChange={e => {
-                            let val = e.target.value;
-                            if (/^[0-9.,-]*$/.test(val)) {
-                              updateEntry(entry.id, col.id, val);
-                            }
-                          }}
-                          onBlur={e => {
-                            const raw = e.target.value.replace(/,/g, '');
-                            if (raw && !isNaN(parseFloat(raw))) {
-                              updateEntry(entry.id, col.id, parseFloat(raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
-                            }
-                          }}
-                          className="w-32 text-right bg-transparent border-b border-dashed border-slate-200 hover:border-slate-400 dark:border-slate-700/60 dark:hover:border-slate-500 focus:border-cyan-500 font-mono text-xs px-1/2 py-0.5 outline-none font-bold text-slate-800 dark:text-slate-200"
-                          placeholder="0.00"
+                          readOnly
+                          value={isFirstInGroup || (col.id !== 'date' && col.id !== 'ref_no') ? (entry.values[col.id] || '') : ''}
+                          onChange={e => updateEntry(entry.id, col.id, e.target.value)}
+                          className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl px-2.5 py-1.5 text-xs outline-none focus:border-cyan-500 text-slate-900 dark:text-white"
+                          placeholder={`Enter ${col.name.toLowerCase()}`}
                         />
                       </div>
                     ))}
                   </div>
+
+                  <div className="bg-white dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700/50 flex flex-col gap-2 mt-1">
+                    <span className="text-[10px] font-bold text-cyan-600 dark:text-cyan-400 uppercase tracking-widest block mb-1">Financial Figures (Dr/Cr)</span>
+                    <div className="grid grid-cols-1 gap-2">
+                      {columns.filter(c => !c.isSystem).map(col => (
+                        <div key={col.id} className="flex items-center justify-between gap-4 border-b border-slate-100 dark:border-slate-800/80 pb-1.5 last:border-0 last:pb-0">
+                          <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">{col.name} <span className="text-[10px] text-slate-400 uppercase font-mono">({col.category})</span></span>
+                          <input 
+                            type="text"
+                            readOnly value={entry.values[col.id] || ''}
+                            onChange={e => {
+                              let val = e.target.value;
+                              if (/^[0-9.,-]*$/.test(val)) {
+                                updateEntry(entry.id, col.id, val);
+                              }
+                            }}
+                            onBlur={e => {
+                              const raw = e.target.value.replace(/,/g, '');
+                              if (raw && !isNaN(parseFloat(raw))) {
+                                updateEntry(entry.id, col.id, parseFloat(raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+                              }
+                            }}
+                            className="w-32 text-right bg-transparent border-b border-dashed border-slate-200 hover:border-slate-400 dark:border-slate-700/60 dark:hover:border-slate-500 focus:border-cyan-500 font-mono text-xs px-1/2 py-0.5 outline-none font-bold text-slate-800 dark:text-slate-200"
+                            placeholder="0.00"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
-              </div>
+              </React.Fragment>
             ))}
             {filteredEntries.length === 0 && (
-              <div className="text-center py-8 text-slate-400 dark:text-slate-500">No entries yet. Save a Journal Voucher to populate the General Journal.</div>
+              <div className="text-center py-8 text-slate-400 dark:text-slate-500">No entries yet. Save a non-cash Journal Voucher to populate the General Journal. Cash payment vouchers are recorded in the Cash Disbursements Journal instead.</div>
             )}
           </div>
         ) : (
@@ -363,48 +456,67 @@ export function GeneralJournal() {
                   <th className="px-3 py-3 w-10 text-center"></th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
-                {filteredEntries.map((entry, idx) => (
-                  <tr key={entry.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 group">
-                    <td className="px-3 py-2 text-center text-slate-400 font-mono">{idx + 1}</td>
-                    {columns.map(col => (
-                      <td key={col.id} className="px-2 py-1">
-                        <input 
-                          type={col.type === 'number' ? 'text' : 'text'}
-                          readOnly value={entry.values[col.id] || ''}
-                          onChange={e => {
-                            let val = e.target.value;
-                            if (col.type === 'number') {
-                               if (/^[0-9.,-]*$/.test(val)) {
-                                 updateEntry(entry.id, col.id, val);
-                               }
-                            } else {
-                              updateEntry(entry.id, col.id, val);
-                            }
-                          }}
-                          onBlur={e => {
-                            if (col.type === 'number') {
-                              const raw = e.target.value.replace(/,/g, '');
-                              if (raw && !isNaN(parseFloat(raw))) {
-                                updateEntry(entry.id, col.id, parseFloat(raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
-                              }
-                            }
-                          }}
-                          className={cn(
-                            "w-full bg-transparent border border-transparent hover:border-slate-300 dark:hover:border-slate-600 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded px-2 py-1.5 transition-all outline-none",
-                            col.type === 'number' ? "text-right font-mono" : ""
-                          )}
-                          placeholder={col.type === 'number' ? '0.00' : ''}
-                        />
+              <tbody>
+                {tableRows.map((row) => {
+                  if (row.kind === 'blank') {
+                    // One blank line before another transaction / journal entry
+                    return (
+                      <tr key={row.key} className="h-6 border-0">
+                        <td colSpan={columns.length + 2} className="border-0"></td>
+                      </tr>
+                    );
+                  }
+                  const { entry, isFirstInGroup } = row.item;
+                  return (
+                    <tr key={entry.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 group border-b border-slate-100 dark:border-slate-800/50">
+                      <td className="px-3 py-2 text-center text-slate-400 font-mono">
+                        {isFirstInGroup ? row.displayIdx : ''}
                       </td>
-                    ))}
-                    <td className="px-3 py-2 text-center"></td>
-                  </tr>
-                ))}
+                      {columns.map(col => {
+                        // For DATE and REF_NO columns: only show the value on the
+                        // first line of each transaction group (same ref. no = one transaction).
+                        const shouldHideValue = !isFirstInGroup && (col.id === 'date' || col.id === 'ref_no');
+                        const displayValue = shouldHideValue ? '' : (entry.values[col.id] || '');
+                        return (
+                          <td key={col.id} className="px-2 py-1">
+                            <input 
+                              type={col.type === 'number' ? 'text' : 'text'}
+                              readOnly value={displayValue}
+                              onChange={e => {
+                                let val = e.target.value;
+                                if (col.type === 'number') {
+                                   if (/^[0-9.,-]*$/.test(val)) {
+                                     updateEntry(entry.id, col.id, val);
+                                   }
+                                } else {
+                                  updateEntry(entry.id, col.id, val);
+                                }
+                              }}
+                              onBlur={e => {
+                                if (col.type === 'number') {
+                                  const raw = e.target.value.replace(/,/g, '');
+                                  if (raw && !isNaN(parseFloat(raw))) {
+                                    updateEntry(entry.id, col.id, parseFloat(raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+                                  }
+                                }
+                              }}
+                              className={cn(
+                                "w-full bg-transparent border border-transparent hover:border-slate-300 dark:hover:border-slate-600 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 rounded px-2 py-1.5 transition-all outline-none",
+                                col.type === 'number' ? "text-right font-mono" : ""
+                              )}
+                              placeholder={col.type === 'number' ? '0.00' : ''}
+                            />
+                          </td>
+                        );
+                      })}
+                      <td className="px-3 py-2 text-center"></td>
+                    </tr>
+                  );
+                })}
                 {filteredEntries.length === 0 && (
                   <tr>
                     <td colSpan={columns.length + 2} className="px-6 py-8 text-center text-slate-500">
-                      No entries yet. Save a Journal Voucher to populate the General Journal.
+                      No entries yet. Save a non-cash Journal Voucher to populate the General Journal. Cash payment vouchers are recorded in the Cash Disbursements Journal instead.
                     </td>
                   </tr>
                 )}
@@ -471,4 +583,3 @@ export function GeneralJournal() {
     </div>
   );
 }
-
