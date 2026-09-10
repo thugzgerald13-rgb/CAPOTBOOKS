@@ -992,11 +992,11 @@ export function syncCashDisbursementsJournal(client: Client): Client {
     'cdj-auto:misc-payment:',
   ];
 
-  // Refresh generated rows by ID. Persisted manual rows are preserved;
-  // persisted auto rows from excluded sources (old Expenses, GJ, check
-  // vouchers, misc payments) are DROPPED so the CDJ only shows entries
-  // generated from the current source rules: Expense History (purchases)
-  // cash/check payments and cash-crediting Journal Vouchers.
+  // Refresh generated rows by ID. Persisted manual rows are preserved.
+  // IMPORTANT: every auto CDJ row is derived from a current source
+  // transaction (Expense History/purchases or Journal Vouchers). Therefore
+  // an auto row that is no longer regenerated is stale and MUST be dropped.
+  // This makes deleting a source transaction remove its CDJ row too.
   const generatedById = new Map(generatedEntries.map(entry => [String(entry.id), entry]));
   const generatedIds = new Set(generatedById.keys());
 
@@ -1007,12 +1007,9 @@ export function syncCashDisbursementsJournal(client: Client): Client {
       if (generatedIds.has(id)) return true;
       // Manual entries: always keep.
       if (!entry.auto) return true;
-      // Auto entries from excluded sources: DROP them.
-      if (entry.autoSource && EXCLUDED_AUTO_SOURCES.has(String(entry.autoSource))) return false;
-      // Auto entries whose ID starts with a legacy excluded prefix: drop them.
-      if (EXCLUDED_ID_PREFIXES.some(prefix => id.startsWith(prefix))) return false;
-      // Any other auto entries (safety): keep.
-      return true;
+      // Any auto row that is not regenerated from current source data
+      // is stale. Drop it so deleted source transactions cannot remain in CDJ.
+      return false;
     })
     .map(entry => generatedById.get(String(entry.id)) || entry);
 
