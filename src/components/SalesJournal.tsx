@@ -1,9 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Receipt, Plus, Trash2, Settings, X, Check } from 'lucide-react';
+import { Receipt, Plus, Trash2, Settings, X, Check, Calendar } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { JournalColumn, JournalEntry } from '../types';
-import { cn } from '../lib/utils';
+import { cn, parseDateToISO, periodPreset } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 
 export const DEFAULT_SJ_COLUMNS: JournalColumn[] = [
@@ -27,6 +27,8 @@ export function SalesJournal() {
   const [newColName, setNewColName] = useState('');
   const [newColCategory, setNewColCategory] = useState<'Dr' | 'Cr'>('Dr');
   const [journalSales, setJournalSales] = useState<any[]>([]);
+  const [periodFrom, setPeriodFrom] = useState('');
+  const [periodTo, setPeriodTo] = useState('');
 
   useEffect(() => {
     let cancelled = false;
@@ -129,6 +131,16 @@ export function SalesJournal() {
 
   const entries = [...autoEntries, ...manualEntries.filter((entry: any) => !entry.auto)];
 
+  const filteredEntries = (periodFrom || periodTo)
+    ? entries.filter(e => {
+        const d = parseDateToISO(e.values?.date ?? (e as any).date);
+        if (!d) return true;
+        if (periodFrom && d < periodFrom) return false;
+        if (periodTo && d > periodTo) return false;
+        return true;
+      })
+    : entries;
+
   const handleSaveColumns = async (newCols: JournalColumn[]) => {
     try {
       await saveJournalColumns(currentClientId, 'SJ', newCols);
@@ -211,7 +223,7 @@ export function SalesJournal() {
   const totals: Record<string, number> = {};
   columns.forEach(col => {
     if (col.type === 'number') {
-      totals[col.id] = entries.reduce((sum, entry) => {
+      totals[col.id] = filteredEntries.reduce((sum, entry) => {
         const raw = getEntryValue(entry, col.id);
         const value = parseFloat(String(raw || '').replace(/,/g, ''));
         return sum + (isNaN(value) ? 0 : value);
@@ -235,31 +247,61 @@ export function SalesJournal() {
 
       <div className="p-4 md:p-6 flex-1">
         <div className="p-2 md:p-4">
-          <div className="flex flex-wrap justify-between items-center gap-4 mb-6">
-            <p className="text-slate-500 dark:text-slate-400">
-              Credit Card and On Account sales are displayed here automatically. You can also add manual journal rows and custom columns.
-            </p>
-
-            <div className="flex gap-2">
+          <div className="flex flex-wrap items-center gap-3 mb-6 p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-700">
+            <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
+              <Calendar className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
+              <span className="text-xs font-bold uppercase tracking-wider">Period</span>
+            </div>
+            <input
+              type="date"
+              value={periodFrom}
+              onChange={e => setPeriodFrom(e.target.value)}
+              className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 text-xs outline-none focus:border-cyan-500 text-slate-900 dark:text-white"
+            />
+            <span className="text-slate-400 text-xs font-semibold">to</span>
+            <input
+              type="date"
+              value={periodTo}
+              onChange={e => setPeriodTo(e.target.value)}
+              className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 text-xs outline-none focus:border-cyan-500 text-slate-900 dark:text-white"
+            />
+            <div className="flex flex-wrap gap-1.5">
+              {(['this-month', 'last-month', 'this-quarter', 'this-year'] as const).map(p => (
+                <button
+                  key={p}
+                  onClick={() => { const [f, t] = periodPreset(p); setPeriodFrom(f); setPeriodTo(t); }}
+                  className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-cyan-50 hover:text-cyan-700 dark:hover:bg-cyan-900/20 dark:hover:text-cyan-400 transition-colors capitalize"
+                >
+                  {p.replace('-', ' ')}
+                </button>
+              ))}
+              {(periodFrom || periodTo) && (
+                <button
+                  onClick={() => { setPeriodFrom(''); setPeriodTo(''); }}
+                  className="px-2.5 py-1 text-[11px] font-bold rounded-lg bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors flex items-center gap-1"
+                >
+                  <X className="w-3 h-3" /> Clear
+                </button>
+              )}
+            </div>
+            <div className="ml-auto flex items-center gap-2">
               <button
                 onClick={() => setIsEditingHeaders(!isEditingHeaders)}
                 className={cn(
-                  'px-3 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5',
+                  'p-2 rounded-lg transition-colors',
                   isEditingHeaders
                     ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
-                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
                 )}
+                title="Customize Columns"
               >
-                <Settings className="w-3.5 h-3.5" />
-                Customize Columns
+                <Settings className="w-4 h-4" />
               </button>
-
               <button
                 onClick={addEntry}
-                className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold px-4 py-1.5 rounded-lg text-xs flex items-center gap-1.5"
+                className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5"
               >
-                <Plus className="w-4 h-4" />
-                Add Row
+                <Plus className="w-3.5 h-3.5" /> Add Row
               </button>
             </div>
           </div>
@@ -348,7 +390,7 @@ export function SalesJournal() {
               </thead>
 
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
-                {entries.map((entry, idx) => (
+                {filteredEntries.map((entry, idx) => (
                   <tr
                     key={entry.id}
                     className="hover:bg-slate-50/50 dark:hover:bg-slate-800/20 group"
@@ -411,7 +453,7 @@ export function SalesJournal() {
                   </tr>
                 ))}
 
-                {entries.length === 0 && (
+                {filteredEntries.length === 0 && (
                   <tr>
                     <td colSpan={columns.length + 2} className="px-6 py-10 text-center text-slate-500 dark:text-slate-400">
                       No Sales Journal entries yet. The required columns remain visible above.
