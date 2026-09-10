@@ -942,13 +942,15 @@ function miscellaneousPaymentCashDisbursementsToCdjEntries(client: Client, _acco
 
 export function syncCashDisbursementsJournal(client: Client): Client {
   const accounts = getCoaAccounts(client);
+  // Cash Disbursements Journal data comes ONLY from:
+  //   1. Expense History (client.expenses)
+  //   2. Journal Vouchers that credit Cash
+  // Purchases, General Journal, Check Vouchers, and Miscellaneous Payments
+  // are intentionally excluded — they are recorded in their own respective
+  // books of original entry instead.
   const generatedEntries = [
-    ...purchaseCashDisbursementsToCdjEntries(client, accounts),
-    ...journalVoucherCashDisbursementsToCdjEntries(client, accounts),
-    ...generalJournalCashDisbursementsToCdjEntries(client, accounts),
     ...expenseCashDisbursementsToCdjEntries(client, accounts),
-    ...checkVoucherCashDisbursementsToCdjEntries(client, accounts),
-    ...miscellaneousPaymentCashDisbursementsToCdjEntries(client, accounts),
+    ...journalVoucherCashDisbursementsToCdjEntries(client, accounts),
   ];
 
   const persistedEntries = client.cdjEntries || [];
