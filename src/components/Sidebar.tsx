@@ -26,6 +26,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     isSyncing,
     isSidebarCollapsed: isCollapsed,
     setSidebarCollapsed: setIsCollapsed,
+    showToast,
   } = useAccounting();
   const { user, isAdmin, userRole, signOut } = useAuth();
   const navigate = useNavigate();
@@ -33,6 +34,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   const [isReportsOpen, setIsReportsOpen] = useState(false);
   const [isAfsDraftOpen, setIsAfsDraftOpen] = useState(false);
   const [isFormsOpen, setIsFormsOpen] = useState(false);
+  const [isBirOpen, setIsBirOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isBooksOpen, setIsBooksOpen] = useState(false);
   const [isDevOpen, setIsDevOpen] = useState(false);
@@ -48,6 +50,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
       setIsReportsOpen(false);
       setIsAfsDraftOpen(false);
       setIsFormsOpen(false);
+      setIsBirOpen(false);
       setIsSettingsOpen(false);
       setIsBooksOpen(false);
       setIsDevOpen(false);
@@ -63,6 +66,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
         setIsReportsOpen(false);
         setIsAfsDraftOpen(false);
         setIsFormsOpen(false);
+      setIsBirOpen(false);
         setIsSettingsOpen(false);
         setIsBooksOpen(false);
         setIsDevOpen(false);
@@ -323,16 +327,52 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
                   Compliance Tracker
                 </button>
+                {/* BIR — nested collapsible; Forms lives under it */}
+                <div className="flex flex-col">
+                  <button
+                    onClick={() => setIsBirOpen(!isBirOpen)}
+                    className="flex items-center justify-between gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left"
+                  >
+                    <span className="flex items-center gap-3">
+                      <Landmark className="w-4 h-4" />
+                      BIR
+                    </span>
+                    <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", isBirOpen ? "rotate-180" : "")} />
+                  </button>
+                  <AnimatePresence>
+                    {isBirOpen && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.15 }}
+                        className="overflow-hidden flex flex-col gap-1 pl-4"
+                      >
+                        <button
+                          onClick={() => {
+                            setBirFormTab('2550Q');
+                            navigateToPage('bir-forms');
+                            setIsOpen(false);
+                          }}
+                          className="flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left"
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          Forms
+                        </button>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+                {/* SEC */}
                 <button
                   onClick={() => {
-                    setBirFormTab('2550Q');
-                    navigateToPage('bir-forms');
+                    showToast('SEC forms — coming soon');
                     setIsOpen(false);
                   }}
                   className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left"
                 >
-                  <FileText className="w-4 h-4" />
-                  Forms
+                  <Building2 className="w-4 h-4" />
+                  SEC
                 </button>
                 </motion.div>
               )}
