@@ -67,6 +67,10 @@ class CapotLocalDb extends Dexie {
       dirtyQueue: '++id, table, client_id, op, createdAt',
       blobs: '&storagePath, fetchedAt, size',
     });
+    // v2: read-through query-result cache for paginated / period-scoped views
+    this.version(2).stores({
+      queryCache: '&key, table, client_id, fetchedAt',
+    });
   }
 }
 
@@ -214,6 +218,51 @@ export async function evictBlob(storagePath: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// 5. Read-through query-result cache (Sales pages, History months, etc.)
+//    Keyed by an arbitrary string; invalidated by table on any mutation.
+// ---------------------------------------------------------------------------
+
+interface QueryCacheEntry {
+  key: string;
+  table: string;          // for invalidation, e.g. 'sales' | 'purchases'
+  client_id: string;
+  fetchedAt: number;
+  payload: unknown;       // { rows, total } or whatever the caller stores
+}
+
+/** Cache a query result under an arbitrary key (e.g. `sales:<client>:page:3`). */
+export async function cacheQuery(key: string, table: string, clientId: string, payload: unknown): Promise<void> {
+  await (localDb as any).queryCache.put({ key, table, client_id: clientId, fetchedAt: Date.now(), payload });
+}
+
+/** Retrieve a cached query; returns null on miss or if older than maxAgeMs. */
+export async function getCachedQuery<T = unknown>(key: string, maxAgeMs?: number): Promise<T | null> {
+  const entry = await (localDb as any).queryCache.get(key) as QueryCacheEntry | undefined;
+  if (!entry) return null;
+  if (maxAgeMs && Date.now() - entry.fetchedAt > maxAgeMs) return null;
+  recordCacheHit(estimatePayloadBytes(entry.payload));
+  return entry.payload as T;
+}
+
+/** Invalidate all cached queries for a table (and optionally one client). */
+export async function invalidateQueries(table: string, clientId?: string): Promise<void> {
+  let coll = (localDb as any).queryCache.where('table').equals(table);
+  if (clientId) {
+    // Dexie compound-ish filter: get keys then bulkDelete
+    const entries = await coll.toArray();
+    const keys = entries.filter((e: QueryCacheEntry) => e.client_id === clientId).map((e: QueryCacheEntry) => e.key);
+    await (localDb as any).queryCache.bulkDelete(keys);
+  } else {
+    await coll.delete();
+  }
+}
+
+function estimatePayloadBytes(p: unknown): number {
+  try { return JSON.stringify(p).length; } catch { return 0; }
+}
+
 // 4. Egress metrics (expose in Diagnostics tab)
 // ---------------------------------------------------------------------------
 
