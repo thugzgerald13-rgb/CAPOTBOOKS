@@ -954,18 +954,52 @@ export function syncCashDisbursementsJournal(client: Client): Client {
   ];
 
   const persistedEntries = client.cdjEntries || [];
-  if (generatedEntries.length === 0) return client;
+  if (generatedEntries.length === 0 && persistedEntries.length === 0) return client;
 
-  // Refresh generated rows by ID, but never delete persisted rows merely
-  // because the current source-to-CDJ generator does not recreate them.
+  // Auto sources that are NO LONGER allowed to contribute to the CDJ
+  // (legacy entries from these sources must be dropped, not preserved).
+  const EXCLUDED_AUTO_SOURCES = new Set([
+    'Purchases',
+    'General Journal',
+    'Check Voucher',
+    'Check Vouchers',
+    'Miscellaneous Payment',
+    'Miscellaneous Payments',
+  ]);
+
+  // Legacy ID prefixes from excluded sources.
+  const EXCLUDED_ID_PREFIXES = [
+    'cdj-auto:purchase:',
+    'cdj-auto:gj:',
+    'cdj-auto:check-voucher:',
+    'cdj-auto:cv:',
+    'cdj-auto:misc-payment:',
+  ];
+
+  // Refresh generated rows by ID. Persisted manual rows are preserved;
+  // persisted auto rows from excluded sources are DROPPED so the CDJ no
+  // longer shows purchase / GJ / check-voucher transactions.
   const generatedById = new Map(generatedEntries.map(entry => [String(entry.id), entry]));
-  const persistedIds = new Set(persistedEntries.map(entry => String(entry.id)));
+  const generatedIds = new Set(generatedById.keys());
 
-  const mergedEntries = persistedEntries.map(entry =>
-    generatedById.get(String(entry.id)) || entry
-  );
+  const mergedEntries = persistedEntries
+    .filter(entry => {
+      const id = String(entry.id);
+      // If this entry is currently being regenerated, keep it.
+      if (generatedIds.has(id)) return true;
+      // Manual entries: always keep.
+      if (!entry.auto) return true;
+      // Auto entries from excluded sources: DROP them.
+      if (entry.autoSource && EXCLUDED_AUTO_SOURCES.has(String(entry.autoSource))) return false;
+      // Auto entries whose ID starts with a legacy excluded prefix: drop them.
+      if (EXCLUDED_ID_PREFIXES.some(prefix => id.startsWith(prefix))) return false;
+      // Any other auto entries (safety): keep.
+      return true;
+    })
+    .map(entry => generatedById.get(String(entry.id)) || entry);
 
   // Append only generated rows that are not already persisted.
+  const persistedIds = new Set(persistedEntries.map(entry => String(entry.id)));
   generatedEntries.forEach(entry => {
     if (!persistedIds.has(String(entry.id))) mergedEntries.push(entry);
   });
