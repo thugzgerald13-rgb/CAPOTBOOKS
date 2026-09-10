@@ -1367,8 +1367,42 @@ export function AccountingProvider({
     updateClientState(clientId, { [key]: (((clients[clientId] as any)?.[key] || []).filter((e: any) => String(e.id) !== String(id))) } as any);
   };
 
+  /**
+   * Checks whether a journal voucher represents a cash payment.
+   * A cash payment voucher is one where any line credits a Cash account
+   * (account name contains "Cash", e.g. "Cash on Hand", "Cash in Bank").
+   * Cash payments belong in the Cash Disbursements Journal, not the General Journal.
+   */
+  const isCashPaymentVoucher = (voucher: any): boolean => {
+    const lines = voucher.lines || [];
+    return lines.some((line: any) => {
+      const accountName = (line.accountName || line.account_name || '').toLowerCase();
+      const isCashAccount = accountName.includes('cash');
+      const isCredit = Number(line.credit || 0) > 0;
+      return isCashAccount && isCredit;
+    });
+  };
+
   const saveJournalVoucher = async (clientId: string, voucher: any, gjEntries: any[] = []) => {
     if (!user || !clientId) return;
+
+    // CASH PAYMENT vouchers should NOT be recorded in the General Journal.
+    // If this is a cash payment, clear any GJ entries and remove any previously
+    // persisted GJ entries for this voucher (in case it was edited from non-cash).
+    const isCashPayment = isCashPaymentVoucher(voucher);
+    let effectiveGjEntries = gjEntries;
+    if (isCashPayment) {
+      effectiveGjEntries = [];
+      // Delete any existing GJ entries for this voucher from the database
+      const { error: clearGjError } = await supabase
+        .from('journal_entries')
+        .delete()
+        .eq('client_id', clientId)
+        .eq('journal_type', 'GJ')
+        .eq('auto_source', `journal_voucher:${voucher.id}`);
+      if (clearGjError) throw clearGjError;
+    }
+
     const voucherRow = { id: String(voucher.id), client_id: clientId, date: voucher.date || null, reference: voucher.reference || null, memo: voucher.memo || null };
     const { error: voucherError } = await supabase.from('journal_vouchers').upsert(voucherRow, { onConflict: 'id' });
     if (voucherError) throw voucherError;
@@ -1379,14 +1413,18 @@ export function AccountingProvider({
     const keep = new Set(lineRows.map((l: any) => l.id));
     const stale = (oldLines || []).map((l: any) => String(l.id)).filter((id: string) => !keep.has(id));
     if (stale.length) { const { error } = await supabase.from('journal_voucher_lines').delete().eq('client_id', clientId).in('id', stale); if (error) throw error; }
-    if (gjEntries.length) {
-      const gjRows = gjEntries.map(e => ({ ...journalEntryRow(clientId, 'GJ', e), auto: true, auto_source: `journal_voucher:${voucher.id}` }));
+    if (effectiveGjEntries.length) {
+      const gjRows = effectiveGjEntries.map(e => ({ ...journalEntryRow(clientId, 'GJ', e), auto: true, auto_source: `journal_voucher:${voucher.id}` }));
       const { error } = await supabase.from('journal_entries').upsert(gjRows, { onConflict: 'id' });
       if (error) throw error;
     }
     const vouchers = [...((clients[clientId]?.journalVouchers || []) as any[]).filter(v => String(v.id) !== String(voucher.id)), voucher];
     const gjExisting = (clients[clientId]?.gjEntries || []) as any[];
-    const nextGj = [...gjExisting.filter(e => !gjEntries.some(g => String(g.id) === String(e.id))), ...gjEntries.map(e => ({ ...e, auto: true, autoSource: `journal_voucher:${voucher.id}` }))];
+    // For cash payments: strip all GJ entries linked to this voucher from client state
+    // For non-cash: merge as before
+    const nextGj = isCashPayment
+      ? gjExisting.filter(e => e.autoSource !== `journal_voucher:${voucher.id}`)
+      : [...gjExisting.filter(e => !effectiveGjEntries.some(g => String(g.id) === String(e.id))), ...effectiveGjEntries.map(e => ({ ...e, auto: true, autoSource: `journal_voucher:${voucher.id}` }))];
     updateClientState(clientId, { journalVouchers: vouchers, gjEntries: nextGj });
   };
 
