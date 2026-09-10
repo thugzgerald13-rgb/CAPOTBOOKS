@@ -1849,14 +1849,31 @@ export function AccountingProvider({
   useEffect(() => {
     if (!user || !rawCurrentClient || !currentClient) return;
 
-    const persistedIds = new Set(
-      (rawCurrentClient.cdjEntries || []).map((entry: any) => String(entry.id))
-    );
-    const missingGenerated = (currentClient.cdjEntries || []).filter(
-      (entry: any) => entry.auto && !persistedIds.has(String(entry.id))
+    const persistedEntries = rawCurrentClient.cdjEntries || [];
+    const generatedEntries = (currentClient.cdjEntries || []).filter(
+      (entry: any) => entry.auto
     );
 
-    if (!missingGenerated.length) return;
+    const persistedIds = new Set(
+      persistedEntries.map((entry: any) => String(entry.id))
+    );
+
+    const missingGenerated = generatedEntries.filter(
+      (entry: any) => !persistedIds.has(String(entry.id))
+    );
+
+    // Auto CDJ rows are source-derived. If an auto row exists in Supabase but
+    // is no longer present in the freshly generated CDJ, its source transaction
+    // was deleted (or is no longer eligible for CDJ) and the journal_entries
+    // row must be deleted too. Manual CDJ rows are never touched here.
+    const currentGeneratedIds = new Set(
+      generatedEntries.map((entry: any) => String(entry.id))
+    );
+    const staleGeneratedIds = persistedEntries
+      .filter((entry: any) => entry.auto && !currentGeneratedIds.has(String(entry.id)))
+      .map((entry: any) => String(entry.id));
+
+    if (!missingGenerated.length && !staleGeneratedIds.length) return;
 
     let cancelled = false;
     const rows = missingGenerated.map((entry: any) =>
@@ -1865,17 +1882,26 @@ export function AccountingProvider({
 
     void (async () => {
       try {
-        // Upsert the complete missing set in one operation. We deliberately do
-        // not call saveJournalEntries() here because that function also mutates
-        // the React client aggregate; direct persistence prevents a render ->
-        // sync -> save loop while keeping journal_entries authoritative.
-        const { error } = await supabase
-          .from('journal_entries')
-          .upsert(rows, { onConflict: 'id' });
-        if (error) throw error;
+        if (rows.length) {
+          const { error } = await supabase
+            .from('journal_entries')
+            .upsert(rows, { onConflict: 'id' });
+          if (error) throw error;
+        }
+
+        if (staleGeneratedIds.length) {
+          const { error } = await supabase
+            .from('journal_entries')
+            .delete()
+            .eq('client_id', rawCurrentClient.id)
+            .eq('journal_type', 'CDJ')
+            .in('id', staleGeneratedIds);
+          if (error) throw error;
+        }
+
         if (!cancelled) {
           console.info(
-            `CDJ persistence sync: captured ${missingGenerated.length} missing transaction(s) in journal_entries.`
+            `CDJ persistence sync: added ${missingGenerated.length} generated transaction(s) and removed ${staleGeneratedIds.length} stale transaction(s).`
           );
         }
       } catch (error) {
