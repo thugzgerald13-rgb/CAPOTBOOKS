@@ -853,12 +853,102 @@ function generalJournalCashDisbursementsToCdjEntries(client: Client, accounts: C
  * used only to refresh an existing row with the same ID or append a genuinely
  * new source row that is not yet stored.
  */
+// ---------------------------------------------------------------------------
+// Additional cash-payment sources: Expenses, Check Vouchers, and Miscellaneous
+// Payments. Every cash outlay — no matter where it was recorded — must appear
+// in the Cash Disbursements Journal, so these are auto-posted alongside
+// cash Purchases and cash-out Journal Vouchers.
+// ---------------------------------------------------------------------------
+
+function expenseCashDisbursementsToCdjEntries(client: Client, _accounts: CoaAccount[]): JournalEntry[] {
+  const entries: JournalEntry[] = [];
+  (client.expenses || []).forEach(exp => {
+    const amount = Number(exp.amount) || 0;
+    if (amount <= 0) return;
+    const payee = String(exp.description || '').trim() || String(exp.category || 'Expense');
+    entries.push({
+      id: `cdj-auto:expense:${exp.id}`,
+      auto: true,
+      autoSource: 'Expenses',
+      values: {
+        date: exp.date || '',
+        payee,
+        folio_f: '',
+        [CDJ_CASH_ON_HAND_BANK_ID]: two(amount),
+        cash: two(amount),
+        account_title: String(exp.category || ''),
+        amount: two(amount),
+      },
+    });
+  });
+  return entries;
+}
+
+function checkVoucherCashDisbursementsToCdjEntries(client: Client, _accounts: CoaAccount[]): JournalEntry[] {
+  const entries: JournalEntry[] = [];
+  (client.checkVouchers || []).forEach(cv => {
+    if (cv.status === 'Reversed') return;
+    const amount = Number(cv.amount) || 0;
+    if (amount <= 0) return;
+    const accountTitle = cv.paymentType === 'Miscellaneous'
+      ? (cv.miscDetails || 'Miscellaneous')
+      : cv.invoiceNumber ? `Invoice ${cv.invoiceNumber}` : cv.paymentType;
+    const values: Record<string, any> = {
+      date: cv.date || '',
+      payee: cv.payeeName || '',
+      folio_f: cv.checkNumber || cv.invoiceNumber || '',
+      [CDJ_CASH_ON_HAND_BANK_ID]: two(amount),
+      cash: two(amount),
+      account_title: accountTitle,
+      amount: two(amount),
+    };
+    if (cv.checkNumber) values.check_number = cv.checkNumber;
+    if (cv.bankName) values.bank_name = cv.bankName;
+    entries.push({
+      id: `cdj-auto:check-voucher:${cv.id}`,
+      auto: true,
+      autoSource: 'Check Voucher',
+      values,
+    });
+  });
+  return entries;
+}
+
+function miscellaneousPaymentCashDisbursementsToCdjEntries(client: Client, _accounts: CoaAccount[]): JournalEntry[] {
+  const entries: JournalEntry[] = [];
+  (client.miscellaneousPayments || []).forEach(mp => {
+    const amount = Number(mp.amount) || 0;
+    if (amount <= 0) return;
+    const values: Record<string, any> = {
+      date: mp.date || '',
+      payee: mp.payeeName || '',
+      folio_f: mp.checkNumber || '',
+      [CDJ_CASH_ON_HAND_BANK_ID]: two(amount),
+      cash: two(amount),
+      account_title: mp.expenseCategory || mp.description || 'Miscellaneous',
+      amount: two(amount),
+    };
+    if (mp.checkNumber) values.check_number = mp.checkNumber;
+    if (mp.bankName) values.bank_name = mp.bankName;
+    entries.push({
+      id: `cdj-auto:misc-payment:${mp.id}`,
+      auto: true,
+      autoSource: 'Miscellaneous Payment',
+      values,
+    });
+  });
+  return entries;
+}
+
 export function syncCashDisbursementsJournal(client: Client): Client {
   const accounts = getCoaAccounts(client);
   const generatedEntries = [
     ...purchaseCashDisbursementsToCdjEntries(client, accounts),
     ...journalVoucherCashDisbursementsToCdjEntries(client, accounts),
     ...generalJournalCashDisbursementsToCdjEntries(client, accounts),
+    ...expenseCashDisbursementsToCdjEntries(client, accounts),
+    ...checkVoucherCashDisbursementsToCdjEntries(client, accounts),
+    ...miscellaneousPaymentCashDisbursementsToCdjEntries(client, accounts),
   ];
 
   const persistedEntries = client.cdjEntries || [];
