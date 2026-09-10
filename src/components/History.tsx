@@ -7,6 +7,7 @@ import { Search, Trash2, Receipt, ShoppingCart, FolderClock, History as HistoryI
 import { cn, MONTHS, generateCSV, formatTIN } from '../lib/utils';
 import { getAttachmentViewUrl } from '../lib/supabaseUtils';
 import { supabase } from '../lib/supabase';
+import { getCachedQuery, cacheQuery, invalidateQueries } from '../db/localDb';
 import { DEFAULT_ACCOUNTS } from './ChartOfAccounts';
 import * as XLSX from 'xlsx';
 
@@ -514,6 +515,16 @@ export function History() {
       const startDate = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01`;
       const endDate = new Date(selectedYear, selectedMonth, 1);
       const endDateString = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-01`;
+      const periodKey = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`;
+      const purCacheKey = `purchases:${currentClientId}:month:${periodKey}`;
+      const salCacheKey = `sales:${currentClientId}:month:${periodKey}`;
+      const purCached = await getCachedQuery<any[]>(purCacheKey);
+      const salCached = await getCachedQuery<any[]>(salCacheKey);
+      if (purCached && salCached) {
+        setLocalHistoryPurchases(purCached);
+        setLocalHistorySales(salCached);
+        return;
+      }
 
       const [purchaseResult, salesResult] = await Promise.all([
         supabase
@@ -579,8 +590,12 @@ export function History() {
         description: s.description,
       });
 
-      setLocalHistoryPurchases((purchaseResult.data || []).map(mapPurchase));
-      setLocalHistorySales((salesResult.data || []).map(mapSale));
+      const mappedPurchases = (purchaseResult.data || []).map(mapPurchase);
+      const mappedSales = (salesResult.data || []).map(mapSale);
+      setLocalHistoryPurchases(mappedPurchases);
+      setLocalHistorySales(mappedSales);
+      if (!purchaseResult.error) cacheQuery(purCacheKey, 'purchases', currentClientId, mappedPurchases).catch(() => {});
+      if (!salesResult.error) cacheQuery(salCacheKey, 'sales', currentClientId, mappedSales).catch(() => {});
     };
 
     loadHistoryPeriod();
@@ -620,6 +635,7 @@ export function History() {
     const { error } = await supabase.from('purchases').delete().eq('client_id', currentClientId).eq('id', id);
     if (error) { console.error(error); showToast('Unable to delete expense'); return; }
     setLocalHistoryPurchases(prev => prev.filter(p => String(p.id) !== String(id)));
+    invalidateQueries('purchases', currentClientId).catch(() => {});
     showToast('Expense deleted');
   };
 
@@ -658,6 +674,7 @@ export function History() {
     setLocalHistoryPurchases(prev =>
       prev.map(p => String(p.id) === idKey ? { ...p, accountTitle: trimmed || undefined } : p)
     );
+    invalidateQueries('purchases', currentClientId).catch(() => {});
     showToast(trimmed ? `Account title updated to “${trimmed}”` : 'Account title cleared');
   };
 
@@ -671,6 +688,7 @@ export function History() {
     const { error } = await supabase.from('sales').delete().eq('client_id', currentClientId).eq('id', id);
     if (error) { console.error(error); showToast('Unable to delete income'); return; }
     setLocalHistorySales(prev => prev.filter(s => s.id !== id));
+    invalidateQueries('sales', currentClientId).catch(() => {});
     showToast('Income deleted');
   };
 
