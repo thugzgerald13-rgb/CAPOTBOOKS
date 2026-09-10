@@ -861,7 +861,7 @@ export function AccountingProvider({
         // in loadNormalizedClient() can never drift apart - both need to agree
         // on exactly which tables are "live" for correctness (see the DELETE
         // eviction below).
-        const normalizedRealtimeTables = DELTA_SYNC_TABLES.map(t => t.table);
+        const normalizedRealtimeTables: string[] = DELTA_SYNC_TABLES.map(t => t.table);
 
         const updateRealtimeClient = (table: string, payload: any) => {
           const eventType = payload.eventType;
