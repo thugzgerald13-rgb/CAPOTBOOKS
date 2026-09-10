@@ -748,7 +748,7 @@ export function Inventory() {
                     type="text" 
                     value={itemCode} 
                     onChange={e => setItemCode(e.target.value.toUpperCase())}
-                    className="w-full text-sm bg-slate-50 border border-slate-200 p-2.5 rounded-xl font-mono uppercase focus:ring-1 focus:ring-blue-500 focus:bg-white transition"
+                    className="w-full text-sm bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 dark:text-white p-2.5 rounded-xl font-mono uppercase focus:ring-1 focus:ring-blue-500 focus:bg-white dark:focus:bg-slate-700 transition"
                     required
                   />
                 </div>
@@ -758,7 +758,7 @@ export function Inventory() {
                     type="text" 
                     value={itemSku} 
                     onChange={e => setItemSku(e.target.value.toUpperCase())}
-                    className="w-full text-sm bg-slate-50 border border-slate-200 p-2.5 rounded-xl font-mono focus:ring-1 focus:ring-blue-500 focus:bg-white transition"
+                    className="w-full text-sm bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-600 dark:text-white p-2.5 rounded-xl font-mono focus:ring-1 focus:ring-blue-500 focus:bg-white dark:focus:bg-slate-700 transition"
                   />
                 </div>
               </div>
@@ -770,7 +770,7 @@ export function Inventory() {
                   value={itemName} 
                   onChange={e => setItemName(e.target.value)}
                   placeholder="e.g. Ergonomic Office Desk Stand Pro"
-                  className="w-full text-sm border border-slate-200 p-2.5 rounded-xl focus:ring-1 focus:ring-blue-500 focus:bg-white transition"
+                  className="w-full text-sm border border-slate-200 dark:border-slate-600 dark:text-white p-2.5 rounded-xl focus:ring-1 focus:ring-blue-500 focus:bg-white dark:focus:bg-slate-700 transition"
                   required
                 />
               </div>
@@ -781,7 +781,7 @@ export function Inventory() {
                   <select 
                     value={itemCategory}
                     onChange={e => setItemCategory(e.target.value)}
-                    className="w-full text-sm border border-slate-200 p-2.5 rounded-xl font-semibold outline-none"
+                    className="w-full text-sm border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-white p-2.5 rounded-xl font-semibold outline-none"
                   >
                     {CATEGORIES.map(cat => <option key={cat} value={cat}>{cat}</option>)}
                   </select>
@@ -793,7 +793,7 @@ export function Inventory() {
                     value={itemUom} 
                     placeholder="e.g. pcs, box, kgs"
                     onChange={e => setItemUom(e.target.value)}
-                    className="w-full text-sm border border-slate-200 p-2.5 rounded-xl focus:ring-1 focus:ring-blue-500 focus:bg-white transition"
+                    className="w-full text-sm border border-slate-200 dark:border-slate-600 dark:text-white p-2.5 rounded-xl focus:ring-1 focus:ring-blue-500 focus:bg-white dark:focus:bg-slate-700 transition"
                   />
                 </div>
               </div>
@@ -807,7 +807,7 @@ export function Inventory() {
                     step="any"
                     value={itemCost} 
                     onChange={e => setItemCost(e.target.value)}
-                    className="w-full text-sm border border-slate-200 p-2.5 rounded-xl focus:ring-1 focus:ring-blue-500 focus:bg-white transition"
+                    className="w-full text-sm border border-slate-200 dark:border-slate-600 dark:text-white p-2.5 rounded-xl focus:ring-1 focus:ring-blue-500 focus:bg-white dark:focus:bg-slate-700 transition"
                   />
                 </div>
                 <div>
@@ -818,7 +818,7 @@ export function Inventory() {
                     step="any"
                     value={itemSelling} 
                     onChange={e => setItemSelling(e.target.value)}
-                    className="w-full text-sm border border-slate-200 p-2.5 rounded-xl focus:ring-1 focus:ring-blue-500 focus:bg-white transition"
+                    className="w-full text-sm border border-slate-200 dark:border-slate-600 dark:text-white p-2.5 rounded-xl focus:ring-1 focus:ring-blue-500 focus:bg-white dark:focus:bg-slate-700 transition"
                   />
                 </div>
               </div>
@@ -832,7 +832,7 @@ export function Inventory() {
                     value={itemLevel} 
                     disabled={!!editingItem} // stock level is updated only via Adjustments panel for integrity
                     onChange={e => setItemLevel(e.target.value)}
-                    className="w-full text-sm border border-slate-200 p-2.5 rounded-xl focus:ring-1 focus:ring-blue-500 focus:bg-white transition disabled:opacity-50"
+                    className="w-full text-sm border border-slate-200 dark:border-slate-600 dark:text-white p-2.5 rounded-xl focus:ring-1 focus:ring-blue-500 focus:bg-white dark:focus:bg-slate-700 transition disabled:opacity-50"
                   />
                 </div>
                 <div>
@@ -842,7 +842,7 @@ export function Inventory() {
                     min={0}
                     value={itemReorder} 
                     onChange={e => setItemReorder(e.target.value)}
-                    className="w-full text-sm border border-slate-200 p-2.5 rounded-xl focus:ring-1 focus:ring-blue-500 focus:bg-white transition animate-bounce-short"
+                    className="w-full text-sm border border-slate-200 dark:border-slate-600 dark:text-white p-2.5 rounded-xl focus:ring-1 focus:ring-blue-500 focus:bg-white dark:focus:bg-slate-700 transition animate-bounce-short"
                   />
                 </div>
               </div>
@@ -854,7 +854,7 @@ export function Inventory() {
                   value={itemLocation} 
                   placeholder="e.g. Aisle B, Bin 3"
                   onChange={e => setItemLocation(e.target.value)}
-                  className="w-full text-sm border border-slate-200 p-2.5 rounded-xl focus:ring-1 focus:ring-blue-500 focus:bg-white transition"
+                  className="w-full text-sm border border-slate-200 dark:border-slate-600 dark:text-white p-2.5 rounded-xl focus:ring-1 focus:ring-blue-500 focus:bg-white dark:focus:bg-slate-700 transition"
                 />
               </div>
 
@@ -865,7 +865,7 @@ export function Inventory() {
                   value={itemDesc} 
                   placeholder="Additional specifications, notes, or logistics comments..."
                   onChange={e => setItemDesc(e.target.value)}
-                  className="w-full text-sm border border-slate-200 p-2.5 rounded-xl focus:ring-1 focus:ring-blue-500 focus:bg-white transition resize-none"
+                  className="w-full text-sm border border-slate-200 dark:border-slate-600 dark:text-white p-2.5 rounded-xl focus:ring-1 focus:ring-blue-500 focus:bg-white dark:focus:bg-slate-700 transition resize-none"
                 />
               </div>
 
@@ -879,7 +879,7 @@ export function Inventory() {
                 <button 
                   type="button"
                   onClick={() => setIsFormOpen(false)}
-                  className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold p-3 rounded-xl uppercase tracking-wider text-xs transition"
+                  className="flex-1 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-bold p-3 rounded-xl uppercase tracking-wider text-xs transition"
                 >
                   Cancel
                 </button>
@@ -899,7 +899,7 @@ export function Inventory() {
               </h4>
               <button 
                 onClick={() => setIsAdjFormOpen(false)}
-                className="text-slate-400 hover:text-slate-600 rounded-lg p-1"
+                className="text-slate-400 hover:text-slate-600 dark:text-slate-300 dark:hover:text-white rounded-lg p-1"
               >
                 ✖
               </button>
@@ -911,7 +911,7 @@ export function Inventory() {
                 <select 
                   value={adjItemId}
                   onChange={e => setAdjItemId(e.target.value)}
-                  className="w-full text-sm border border-slate-200 p-2.5 rounded-xl font-semibold outline-none"
+                  className="w-full text-sm border border-slate-200 dark:border-slate-600 dark:bg-slate-800 dark:text-white p-2.5 rounded-xl font-semibold outline-none"
                   required
                 >
                   {inventoryItems.map(item => (
@@ -948,7 +948,7 @@ export function Inventory() {
                     min="1"
                     value={adjQty} 
                     onChange={e => setAdjQty(e.target.value)}
-                    className="w-full text-sm border border-slate-200 p-2.5 rounded-xl focus:ring-1 focus:ring-blue-500 focus:bg-white transition"
+                    className="w-full text-sm border border-slate-200 dark:border-slate-600 dark:text-white p-2.5 rounded-xl focus:ring-1 focus:ring-blue-500 focus:bg-white dark:focus:bg-slate-700 transition"
                     required
                   />
                 </div>
@@ -959,7 +959,7 @@ export function Inventory() {
                     value={adjRef} 
                     placeholder="e.g. INVOICE-4892"
                     onChange={e => setAdjRef(e.target.value)}
-                    className="w-full text-sm border border-slate-200 p-2.5 rounded-xl font-mono uppercase focus:ring-1 focus:ring-blue-500 focus:bg-white transition"
+                    className="w-full text-sm border border-slate-200 dark:border-slate-600 dark:text-white p-2.5 rounded-xl font-mono uppercase focus:ring-1 focus:ring-blue-500 focus:bg-white dark:focus:bg-slate-700 transition"
                   />
                 </div>
               </div>
@@ -971,7 +971,7 @@ export function Inventory() {
                   value={adjNotes} 
                   placeholder="e.g. Out of stock replenishment, physical damage correction..."
                   onChange={e => setAdjNotes(e.target.value)}
-                  className="w-full text-sm border border-slate-200 p-2.5 rounded-xl focus:ring-1 focus:ring-blue-500 focus:bg-white transition resize-none"
+                  className="w-full text-sm border border-slate-200 dark:border-slate-600 dark:text-white p-2.5 rounded-xl focus:ring-1 focus:ring-blue-500 focus:bg-white dark:focus:bg-slate-700 transition resize-none"
                 />
               </div>
 
@@ -985,7 +985,7 @@ export function Inventory() {
                 <button 
                   type="button"
                   onClick={() => setIsAdjFormOpen(false)}
-                  className="flex-1 bg-slate-200 hover:bg-slate-300 text-slate-700 font-bold p-3 rounded-xl uppercase tracking-wider text-xs transition"
+                  className="flex-1 bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-bold p-3 rounded-xl uppercase tracking-wider text-xs transition"
                 >
                   Close
                 </button>
