@@ -233,6 +233,52 @@ export async function downloadAttachment(file?: DownloadableAttachment | null) {
   }
 }
 
+/** Parse a free-text date (YYYY-MM-DD, MM/DD/YYYY, DD/MM/YYYY, M/D/YY, etc.) into ISO YYYY-MM-DD for range comparison. Returns null when unparseable. */
+export function parseDateToISO(input: string | undefined | null): string | null {
+  if (!input) return null;
+  const s = String(input).trim();
+  if (!s) return null;
+  // ISO-ish: YYYY-MM-DD or YYYY/MM/DD
+  let m = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})/);
+  if (m) {
+    const y = +m[1], mo = +m[2], d = +m[3];
+    if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) {
+      return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    }
+    return null;
+  }
+  // MM/DD/YYYY or DD/MM/YYYY or M/D/YY — disambiguate by which part > 12
+  m = s.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})/);
+  if (m) {
+    let a = +m[1], b = +m[2], y = +m[3];
+    if (y < 100) y += 2000; // 2-digit years → 20xx
+    let mo: number, d: number;
+    if (a > 12 && b <= 12) { mo = b; d = a; }       // DD/MM
+    else if (b > 12 && a <= 12) { mo = a; d = b; }  // MM/DD
+    else { mo = a; d = b; }                         // ambiguous → assume MM/DD (common in PH)
+    if (mo >= 1 && mo <= 12 && d >= 1 && d <= 31) {
+      return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    }
+    return null;
+  }
+  return null;
+}
+
+/** Returns [fromISO, toISO] for common period presets (based on today). */
+export function periodPreset(range: 'this-month' | 'last-month' | 'this-quarter' | 'this-year'): [string, string] {
+  const now = new Date();
+  const y = now.getFullYear();
+  const mo = now.getMonth();
+  const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  if (range === 'this-month') return [iso(new Date(y, mo, 1)), iso(new Date(y, mo + 1, 0))];
+  if (range === 'last-month') return [iso(new Date(y, mo - 1, 1)), iso(new Date(y, mo, 0))];
+  if (range === 'this-quarter') {
+    const q = Math.floor(mo / 3);
+    return [iso(new Date(y, q * 3, 1)), iso(new Date(y, q * 3 + 3, 0))];
+  }
+  return [iso(new Date(y, 0, 1)), iso(new Date(y, 11, 31))];
+}
+
 export function generateCSV(filename: string, rows: any[][]) {
   const csvContent = rows.map(r => 
     r.map(item => {
