@@ -652,6 +652,10 @@ function purchaseCashDisbursementsToCdjEntries(client: Client, accounts: CoaAcco
 
   (client.purchases || []).forEach(p => {
     const paymentMethod = String(p.paymentMethod || '').trim().toLowerCase();
+    // Only cash/check/e-payment purchases go to the Cash Disbursements Journal.
+    // "On Account" purchases are explicitly excluded — they belong in the
+    // Purchases Journal (debit expense/asset, credit Accounts Payable).
+    if (paymentMethod.includes('account')) return;
     if (paymentMethod !== 'cash' && paymentMethod !== 'check' && paymentMethod !== 'e-payments' && paymentMethod !== 'e-payment') return;
 
     // `amount` is the VATable net amount. Non-VAT/Exempt and 0-Rated values
@@ -946,15 +950,18 @@ export function syncCashDisbursementsJournal(client: Client): Client {
   const accounts = getCoaAccounts(client);
   // Cash Disbursements Journal data comes from:
   //   1. Expense History (client.purchases) — cash/check/e-payment transactions
+  //      (On Account purchases are excluded — they go to the Purchases Journal)
+  //
   //      Column mapping per user requirement:
   //        - PAYEES ← Supplier Name column
   //        - CASH ON HAND / IN BANK ← GROSS column (Net of VAT + Exempt + 0-Rated + Input Tax)
   //        - INPUT TAX ← Input Tax column
   //        - Account columns / Sundries Amount ← SUM of Net of VAT + Exempt + 0-Rated,
   //          matched by Account Title column
+  //
   //   2. Journal Vouchers that credit Cash
-  // General Journal, Check Vouchers, and Miscellaneous Payments are excluded
-  // — they are recorded in their own respective books of original entry.
+  //
+  // General Journal, Check Vouchers, and Miscellaneous Payments are excluded.
   const generatedEntries = [
     ...purchaseCashDisbursementsToCdjEntries(client, accounts),
     ...journalVoucherCashDisbursementsToCdjEntries(client, accounts),
