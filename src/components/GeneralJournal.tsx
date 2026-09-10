@@ -37,7 +37,24 @@ export function GeneralJournal() {
     })),
     ...savedColumns.filter(c => !systemIds.has(c.id)),
   ];
-  const entries = currentClient.gjEntries || [];
+  // General Journal entries are derived solely from saved Journal Vouchers.
+  // Each voucher line becomes one GJ row. Add / edit / delete is done in the Journal Voucher page.
+  const vouchers = currentClient.journalVouchers || [];
+  const gjColIds = new Set(columns.map(c => c.id));
+  const derivedEntries: JournalEntry[] = [];
+  for (const v of vouchers) {
+    for (const line of v.lines || []) {
+      const values: Record<string, string> = {};
+      if (gjColIds.has('date')) values['date'] = v.date || '';
+      if (gjColIds.has('particulars')) values['particulars'] = `${v.memo || ''}${line.accountName ? ` - ${line.accountName}` : ''}`;
+      if (gjColIds.has('ref_no')) values['ref_no'] = v.reference || '';
+      if (gjColIds.has('debit')) values['debit'] = line.debit > 0 ? Number(line.debit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
+      if (gjColIds.has('credit')) values['credit'] = line.credit > 0 ? Number(line.credit).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
+      derivedEntries.push({ id: `${v.id}__${line.id}`, values });
+    }
+  }
+  derivedEntries.sort((a, b) => String(a.values.date || '').localeCompare(String(b.values.date || '')));
+  const entries = derivedEntries;
 
   const filteredEntries = (periodFrom || periodTo)
     ? entries.filter(e => {
@@ -209,27 +226,13 @@ export function GeneralJournal() {
             )}
           </div>
           <div className="ml-auto flex items-center gap-2">
-            {!fullIsBalanced && entries.length > 0 && (
-              <button
-                onClick={balanceEntry}
-                className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5 shadow-sm"
-                title="Automatically add a row to balance debits and credits"
-              >
-                <Check className="w-3.5 h-3.5" /> Balance
-              </button>
-            )}
+            <span className="text-[10px] uppercase font-bold text-slate-400 dark:text-slate-500 tracking-wider hidden md:block">From Journal Vouchers</span>
             <button
               onClick={() => setIsEditingHeaders(!isEditingHeaders)}
               className={cn("p-2 rounded-lg transition-colors", isEditingHeaders ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" : "bg-slate-100 text-slate-600 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700")}
               title="Customize Columns"
             >
               <Settings className="w-4 h-4" />
-            </button>
-            <button
-              onClick={addEntry}
-              className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5"
-            >
-              <Plus className="w-3.5 h-3.5" /> Add Row
             </button>
           </div>
         </div>
@@ -295,12 +298,6 @@ export function GeneralJournal() {
               <div key={entry.id} className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-2xl p-4 flex flex-col gap-3 relative shadow-sm">
                 <div className="flex justify-between items-center pb-2 border-b border-slate-200 dark:border-slate-700/60">
                   <span className="font-mono text-xs text-slate-500 font-extrabold bg-slate-200 dark:bg-slate-700 px-2 py-0.5 rounded">Entry #{idx + 1}</span>
-                  <button 
-                    onClick={() => deleteEntry(entry.id)}
-                    className="p-1.5 bg-red-50 dark:bg-red-950/20 text-red-500 hover:text-red-700 text-xs font-bold rounded-lg transition-colors flex items-center gap-1"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" /> Delete
-                  </button>
                 </div>
                 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -309,7 +306,7 @@ export function GeneralJournal() {
                       <label className="block text-[10px] uppercase font-bold text-slate-400 mb-1">{col.name}</label>
                       <input 
                         type="text"
-                        value={entry.values[col.id] || ''}
+                        readOnly value={entry.values[col.id] || ''}
                         onChange={e => updateEntry(entry.id, col.id, e.target.value)}
                         className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-xl px-2.5 py-1.5 text-xs outline-none focus:border-cyan-500 text-slate-900 dark:text-white"
                         placeholder={`Enter ${col.name.toLowerCase()}`}
@@ -326,7 +323,7 @@ export function GeneralJournal() {
                         <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">{col.name} <span className="text-[10px] text-slate-400 uppercase font-mono">({col.category})</span></span>
                         <input 
                           type="text"
-                          value={entry.values[col.id] || ''}
+                          readOnly value={entry.values[col.id] || ''}
                           onChange={e => {
                             let val = e.target.value;
                             if (/^[0-9.,-]*$/.test(val)) {
@@ -349,7 +346,7 @@ export function GeneralJournal() {
               </div>
             ))}
             {filteredEntries.length === 0 && (
-              <div className="text-center py-8 text-slate-400 dark:text-slate-500">No entries yet. Click "Add Row" to start.</div>
+              <div className="text-center py-8 text-slate-400 dark:text-slate-500">No entries yet. Save a Journal Voucher to populate the General Journal.</div>
             )}
           </div>
         ) : (
@@ -363,7 +360,7 @@ export function GeneralJournal() {
                       {col.name} {col.category !== 'None' ? `(${col.category})` : ''}
                     </th>
                   ))}
-                  <th className="px-3 py-3 w-10 text-center">Action</th>
+                  <th className="px-3 py-3 w-10 text-center"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800/50">
@@ -374,7 +371,7 @@ export function GeneralJournal() {
                       <td key={col.id} className="px-2 py-1">
                         <input 
                           type={col.type === 'number' ? 'text' : 'text'}
-                          value={entry.values[col.id] || ''}
+                          readOnly value={entry.values[col.id] || ''}
                           onChange={e => {
                             let val = e.target.value;
                             if (col.type === 'number') {
@@ -401,20 +398,13 @@ export function GeneralJournal() {
                         />
                       </td>
                     ))}
-                    <td className="px-3 py-2 text-center">
-                      <button 
-                        onClick={() => deleteEntry(entry.id)}
-                        className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-all opacity-0 group-hover:opacity-100"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </td>
+                    <td className="px-3 py-2 text-center"></td>
                   </tr>
                 ))}
                 {filteredEntries.length === 0 && (
                   <tr>
                     <td colSpan={columns.length + 2} className="px-6 py-8 text-center text-slate-500">
-                      No entries yet. Click "Add Row" to start.
+                      No entries yet. Save a Journal Voucher to populate the General Journal.
                     </td>
                   </tr>
                 )}
@@ -473,15 +463,6 @@ export function GeneralJournal() {
                   </>
                 )}
               </div>
-              {!isBalanced && (
-                <button 
-                  onClick={balanceEntry}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-2 rounded-xl text-xs transition-colors shadow-sm flex items-center gap-1.5 cursor-pointer"
-                  title="Add automatic balancing row to balance debits and credits"
-                >
-                  <Plus className="w-3.5 h-3.5" /> Auto-Balance Entry
-                </button>
-              )}
             </div>
           </div>
         )}
