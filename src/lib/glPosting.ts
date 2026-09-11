@@ -1,7 +1,7 @@
 import { Client, CoaAccount, GeneralLedgerAccount, GeneralLedgerEntry, JournalColumn, JournalEntry } from '../types';
 import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide } from '../components/ChartOfAccounts';
 import { DEFAULT_CRJ_COLUMNS } from '../components/CashReceiptsJournal';
-import { DEFAULT_CDJ_COLUMNS } from '../components/CashDisbursementsJournal';
+import { DEFAULT_CDJ_COLUMNS, CDJ_SUNDRY_ACCOUNT_TITLE_ID, CDJ_SUNDRY_AMOUNT_ID } from '../components/CashDisbursementsJournal';
 import { DEFAULT_PJ_COLUMNS } from '../components/PurchasesJournal';
 import { DEFAULT_SJ_COLUMNS } from '../components/SalesJournal';
 
@@ -159,8 +159,6 @@ function postColumnarJournal(
     particularsCol: string;
     refCol?: string;
     overrides?: Record<string, string>;
-    accountTitleCol?: string; // when a numeric column's real account is named in another text column (CDJ)
-    accountTitleColMatchesId?: string; // which numeric column id uses accountTitleCol
   }
 ): Posting[] {
   const postings: Posting[] = [];
@@ -176,9 +174,7 @@ function postColumnarJournal(
       const amount = parseFloat(raw);
       if (!raw || isNaN(amount) || amount === 0) return;
 
-      const label = opts.accountTitleCol && col.id === opts.accountTitleColMatchesId
-        ? String(values[opts.accountTitleCol] || '')
-        : (opts.overrides?.[col.id] || col.name);
+      const label = opts.overrides?.[col.id] || col.name;
 
       const account = findAccountByLabel(label, accounts);
       if (!account) return;
@@ -195,6 +191,42 @@ function postColumnarJournal(
   return postings;
 }
 
+
+// ---------------------------------------------------------------------------
+// Source: Cash Disbursements Journal "Sundry" column pair — a free-text
+// Account Title plus a single Amount Dr/Cr column, used for accounts that
+// don't have their own dedicated CDJ column. Unlike every other CDJ column,
+// this pair's Dr/Cr side isn't fixed by a column category (its category is
+// 'None' precisely because either side is possible) — it's determined by the
+// sign of the amount instead, the same way the CDJ's own Dr/Cr column totals
+// are split. `postColumnarJournal` only posts columns with a fixed Dr/Cr
+// category, so this pair needs its own pass or it is silently dropped.
+// ---------------------------------------------------------------------------
+
+function postCdjSundry(entries: JournalEntry[], accounts: CoaAccount[]): Posting[] {
+  const postings: Posting[] = [];
+
+  entries.forEach(entry => {
+    const values = entry.values || {};
+    const date = String(values.date || '');
+    const particulars = String(values.payee || '');
+    const title = String(values[CDJ_SUNDRY_ACCOUNT_TITLE_ID] ?? '').trim();
+    const raw = String(values[CDJ_SUNDRY_AMOUNT_ID] ?? '').replace(/,/g, '');
+    const amount = parseFloat(raw);
+    if (!title || !raw || isNaN(amount) || amount === 0) return;
+
+    const account = findAccountByLabel(title, accounts);
+    if (!account) return;
+
+    const side: 'debit' | 'credit' = amount > 0 ? 'debit' : 'credit';
+    postings.push({
+      accountId: account.id,
+      entry: makeLeg(`cdj:${entry.id}:sundry`, side, Math.abs(amount), date, particulars, '', 'Cash Disbursements Journal'),
+    });
+  });
+
+  return postings;
+}
 
 // ---------------------------------------------------------------------------
 // Source: Income History (`client.sales`) -> CRJ / Sales Journal.
@@ -775,10 +807,12 @@ export function computeAutoPostings(client: Client): Posting[] {
       dateCol: 'date',
       particularsCol: 'payee',
       overrides: CDJ_LABEL_OVERRIDES,
-      accountTitleCol: 'account_title',
-      accountTitleColMatchesId: 'amount',
     }
   );
+  // The Sundry Account Title / Amount Dr(Cr) pair has no fixed Dr/Cr column
+  // category (its side depends on the amount's sign), so it's posted
+  // separately rather than through postColumnarJournal's per-column loop.
+  const cdjSundry = postCdjSundry(cdjManualEntries, accounts);
 
   const pj = postColumnarJournal(client.pjEntries || [], useColumns(client.pjColumns, DEFAULT_PJ_COLUMNS), accounts, {
     prefix: 'pj',
@@ -791,7 +825,7 @@ export function computeAutoPostings(client: Client): Posting[] {
   const jv = postJournalVouchers(client);
   const purchases = postPurchases(client, accounts);
 
-  return [...crj, ...sjPostings, ...cdj, ...pj, ...jv, ...purchases];
+  return [...crj, ...sjPostings, ...cdj, ...cdjSundry, ...pj, ...jv, ...purchases];
 }
 
 /**
