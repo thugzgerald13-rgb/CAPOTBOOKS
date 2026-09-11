@@ -1264,7 +1264,46 @@ export function AccountingProvider({
     const keep = new Set(rows.map(r => r.id));
     const stale = (existing || []).map((r: any) => String(r.id)).filter(id => !keep.has(id));
     if (rows.length) { const { error } = await supabase.from('coa_accounts').upsert(rows, { onConflict: 'id' }); if (error) throw error; }
-    if (stale.length) { const { error } = await supabase.from('coa_accounts').delete().eq('client_id', currentClientId).in('id', stale); if (error) throw error; }
+    if (stale.length) {
+      const { error } = await supabase
+        .from('coa_accounts')
+        .delete()
+        .eq('client_id', currentClientId)
+        .in('id', stale);
+      if (error) throw error;
+    }
+
+    // COA saves replace the client's complete account set. The normalized
+    // loader uses a delta cache, and a DELETE is not discoverable by an
+    // updated_at query. If Realtime is delayed/disabled, a deleted account
+    // can therefore survive in the cache and come back after refresh.
+    // Keep both cache layers in sync with the authoritative replacement.
+    try {
+      const cacheEntry = deltaSyncCache.get(currentClientId);
+      if (cacheEntry) {
+        cacheEntry.rows.set(
+          'coa_accounts',
+          new Map(rows.map((row: any) => [String(row.id), row]))
+        );
+      }
+
+      // IndexedDB is hydrated on a cold refresh. Explicitly remove stale
+      // account rows and write the replacement set so deleted COA entries
+      // cannot be resurrected from the browser cache.
+      await Promise.all([
+        ...stale.map((id: string) =>
+          applyCachedRowDelta('coa_accounts', currentClientId, 'delete', { id })
+        ),
+        ...rows.map((row: any) =>
+          applyCachedRowDelta('coa_accounts', currentClientId, 'put', row)
+        ),
+      ]);
+    } catch (cacheError) {
+      // Cache maintenance is best-effort; the Supabase write above already
+      // succeeded and the in-memory UI state can still be updated safely.
+      console.warn('Failed to update cached Chart of Accounts', cacheError);
+    }
+
     updateClientState(currentClientId, { accounts, ...(format ? { coaFormat: format } : {}) });
     if (format) {
       const { error } = await supabase.from('clients').update({ coa_format: format }).eq('id', currentClientId).eq('user_id', user.id);
