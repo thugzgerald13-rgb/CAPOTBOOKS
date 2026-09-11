@@ -124,6 +124,67 @@ export function nextAvailableCode(code: string, usedIds: string[]): string {
   return candidate;
 }
 
+// Shifts every account in the same numeric code series at or after an
+// insertion point by one code. This makes insertion work at ANY account
+// code, not just a particular code such as 2001. Example:
+// 2001, 2002, 2003 + new 2001 => new 2001, old 2001->2002,
+// old 2002->2003, old 2003->2004.
+// Parent IDs are updated at the same time so the account hierarchy remains intact.
+export function insertAccountWithCodeShift(
+  accountsList: CoaAccount[],
+  newCode: string
+): { accounts: CoaAccount[]; resolvedParentMap: Map<string, string> } {
+  const match = newCode.match(/^(.*?)(\d+)$/);
+  if (!match) {
+    return { accounts: [...accountsList], resolvedParentMap: new Map() };
+  }
+
+  const prefix = match[1];
+  const startNumber = parseInt(match[2], 10);
+  const width = match[2].length;
+
+  // Only shift codes belonging to the same prefix/series. This means an
+  // account such as ACP-2001 is handled independently from plain 2001.
+  const affected = accountsList
+    .filter(account => {
+      const accountMatch = account.id.match(/^(.*?)(\d+)$/);
+      return accountMatch &&
+        accountMatch[1] === prefix &&
+        parseInt(accountMatch[2], 10) >= startNumber;
+    })
+    .sort((a, b) => {
+      const aNum = parseInt(a.id.match(/(\d+)$/)![1], 10);
+      const bNum = parseInt(b.id.match(/(\d+)$/)![1], 10);
+      return bNum - aNum;
+    });
+
+  const resolvedParentMap = new Map<string, string>();
+  const shiftedIds = new Map<string, string>();
+
+  affected.forEach(account => {
+    const accountMatch = account.id.match(/^(.*?)(\d+)$/)!;
+    const number = parseInt(accountMatch[2], 10);
+    const shiftedCode = `${prefix}${String(number + 1).padStart(width, '0')}`;
+    shiftedIds.set(account.id, shiftedCode);
+  });
+
+  const shiftedAccounts = accountsList.map(account => {
+    const shiftedCode = shiftedIds.get(account.id);
+    const newId = shiftedCode || account.id;
+    const newParentId = account.parentId
+      ? (shiftedIds.get(account.parentId) || account.parentId)
+      : undefined;
+
+    if (shiftedCode) {
+      resolvedParentMap.set(account.id, shiftedCode);
+    }
+
+    return { ...account, id: newId, parentId: newParentId };
+  });
+
+  return { accounts: shiftedAccounts, resolvedParentMap };
+}
+
 export function resequenceAccounts(
   accountsList: CoaAccount[],
   coaFormat: 'numeric' | 'alphanumeric'
@@ -396,18 +457,17 @@ export function ChartOfAccounts() {
     let resolvedParentId = newParentId || undefined;
     const conflicting = accounts.find(a => a.id === newCode);
     if (conflicting) {
-      const shiftedCode = nextAvailableCode(newCode, accounts.map(a => a.id));
+      const shiftResult = insertAccountWithCodeShift(accounts, newCode);
+      const shiftedCode = shiftResult.resolvedParentMap.get(conflicting.id) || nextAvailableCode(newCode, accounts.map(a => a.id));
       const proceed = confirm(
         `Account code "${newCode}" is already used by "${conflicting.name}".\n\n` +
-        `Insert the new account at "${newCode}" and move "${conflicting.name}" to "${shiftedCode}"?`
+        `Insert the new account at "${newCode}" and shift "${conflicting.name}" to "${shiftedCode}" and all following accounts forward by one?`
       );
       if (!proceed) return;
-      workingAccounts = accounts.map(a => {
-        if (a.id === conflicting.id) return { ...a, id: shiftedCode };
-        if (a.parentId === conflicting.id) return { ...a, parentId: shiftedCode };
-        return a;
-      });
-      if (resolvedParentId === conflicting.id) resolvedParentId = shiftedCode;
+      workingAccounts = shiftResult.accounts;
+      if (resolvedParentId) {
+        resolvedParentId = shiftResult.resolvedParentMap.get(resolvedParentId) || resolvedParentId;
+      }
     }
 
     // Add custom fields
