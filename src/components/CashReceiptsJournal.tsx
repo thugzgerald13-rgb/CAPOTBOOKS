@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Wallet, Plus, Trash2, Settings, X, Edit, Loader, Check, Calendar } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { JournalColumn, CashReceipt } from '../types';
 import { cn, parseDateToISO, periodPreset } from '../lib/utils';
+import { supabase } from '../lib/supabase';
 
 export const DEFAULT_CRJ_COLUMNS: JournalColumn[] = [
   { id: 'date', name: 'Date', type: 'text', category: 'None', isSystem: true },
@@ -26,6 +27,37 @@ export function CashReceiptsJournal() {
   const [newColCategory, setNewColCategory] = useState<'Dr' | 'Cr'>('Dr');
   const [periodFrom, setPeriodFrom] = useState('');
   const [periodTo, setPeriodTo] = useState('');
+  const [incomeRows, setIncomeRows] = useState<any[]>([]);
+
+  // CRJ is sourced from Income History (normalized sales table).
+  // All payment types except Credit Card and On Account belong here.
+  useEffect(() => {
+    let cancelled = false;
+    const loadIncomeForCRJ = async () => {
+      if (!currentClientId) {
+        setIncomeRows([]);
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from('sales')
+        .select('id,date,ref,payment_type,buyer_tin,buyer_name,buyer_address,vat_type,amount,net_of_vat,output_tax,income_type,description')
+        .eq('client_id', currentClientId)
+        .not('payment_type', 'in', '(Credit Card,On Account)')
+        .order('date', { ascending: true });
+
+      if (cancelled) return;
+      if (error) {
+        console.error('Failed to load Income History for Cash Receipts Journal:', error);
+        setIncomeRows([]);
+        return;
+      }
+      setIncomeRows(data || []);
+    };
+
+    void loadIncomeForCRJ();
+    return () => { cancelled = true; };
+  }, [currentClientId]);
 
   if (!currentClient || !currentClientId) return null;
 
@@ -40,7 +72,30 @@ export function CashReceiptsJournal() {
   const columns = hasCurrentRequiredColumns && savedColumns.length
     ? savedColumns
     : [...DEFAULT_CRJ_COLUMNS, ...legacyCustomColumns];
-  const entries = currentClient.crjEntries || [];
+  // Keep manually-entered CRJ rows, but derive all Income History rows automatically.
+  // Old auto-generated rows are intentionally ignored to prevent duplicates.
+  const manualEntries = (currentClient.crjEntries || []).filter((entry: any) => !entry.auto);
+  const autoEntries: CashReceipt[] = incomeRows.map((sale: any) => {
+    const gross = Number(sale.amount) || 0;
+    const net = Number(sale.net_of_vat ?? gross) || 0;
+    const vat = Number(sale.output_tax ?? 0) || 0;
+    const isExemptOrZero = sale.vat_type === 'VAT Exempt' || sale.vat_type === 'Zero-Rated';
+    const values: Record<string, string> = {
+      date: sale.date || '',
+      reference: sale.ref || '',
+      payor: sale.buyer_name || '',
+      description: sale.income_type || sale.description || 'Sales',
+      post_ref: sale.buyer_tin || '',
+      cash: gross ? gross.toFixed(2) : '',
+      sales_disc: '',
+      ar: '',
+      sales: isExemptOrZero ? gross.toFixed(2) : (net ? net.toFixed(2) : ''),
+      sundry: !isExemptOrZero && vat > 0 ? vat.toFixed(2) : '',
+    };
+    return { id: `income_${sale.id}`, values, auto: true } as CashReceipt;
+  });
+
+  const entries: CashReceipt[] = [...autoEntries, ...manualEntries];
 
   const filteredEntries = (periodFrom || periodTo)
     ? entries.filter(e => {
@@ -278,8 +333,10 @@ export function CashReceiptsJournal() {
                         <span className="text-xs font-semibold text-slate-600 dark:text-slate-300">{col.name} <span className="text-[10px] text-slate-400 uppercase font-mono">({col.category})</span></span>
                         <input 
                           type="text"
+                          readOnly={Boolean((entry as any).auto)}
                           value={entry.values[col.id] || ''}
                           onChange={e => {
+                            if ((entry as any).auto) return;
                             let val = e.target.value;
                             if (/^[0-9.,-]*$/.test(val)) {
                               updateEntry(entry.id, col.id, val);
@@ -326,8 +383,10 @@ export function CashReceiptsJournal() {
                       <td key={col.id} className="px-2 py-1">
                         <input 
                           type={col.type === 'number' ? 'text' : 'text'}
+                          readOnly={Boolean((entry as any).auto)}
                           value={entry.values[col.id] || ''}
                           onChange={e => {
+                            if ((entry as any).auto) return;
                             let val = e.target.value;
                             if (col.type === 'number') {
                                if (/^[0-9.,-]*$/.test(val)) {
@@ -354,12 +413,14 @@ export function CashReceiptsJournal() {
                       </td>
                     ))}
                     <td className="px-3 py-2 text-center">
+                      {!(entry as any).auto && (
                       <button 
                         onClick={() => deleteEntry(entry.id)}
                         className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors opacity-0 group-hover:opacity-100"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
+                      )}
                     </td>
                   </tr>
                 ))}

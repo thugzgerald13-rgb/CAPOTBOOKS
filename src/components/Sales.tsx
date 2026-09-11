@@ -3,8 +3,6 @@ import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { formatTIN, MONTHS, getMonthName } from '../lib/utils';
 import { Receipt, Plus } from 'lucide-react';
-import { DEFAULT_CRJ_COLUMNS } from './CashReceiptsJournal';
-import { JournalEntry } from '../types';
 import { supabase } from '../lib/supabase';
 
 const CASH_RECEIPT_PAYMENT_TYPES = ['Cash', 'Check', 'E-Payment', 'Bank Transfer'];
@@ -82,21 +80,6 @@ export function Sales() {
   const netOfVat = isVatable ? grossAmount / 1.12 : grossAmount;
   const outputTax = isVatable ? grossAmount - netOfVat : 0;
 
-  // Builds a Cash Receipts Journal row from this sale, matching whatever columns currently exist
-  const buildCashReceiptEntry = (): JournalEntry => {
-    const columns = currentClient?.crjColumns || DEFAULT_CRJ_COLUMNS;
-    const colIds = new Set(columns.map(c => c.id));
-    const values: Record<string, string> = {};
-    if (colIds.has('date')) values['date'] = date;
-    if (colIds.has('reference')) values['reference'] = ref;
-    if (colIds.has('description')) values['description'] = `${incomeType} - ${buyerName}${desc ? ` (${desc})` : ''}`;
-    if (colIds.has('post_ref')) values['post_ref'] = buyerTin;
-    if (colIds.has('cash')) values['cash'] = grossAmount.toFixed(2);
-    if (colIds.has('sales')) values['sales'] = netOfVat.toFixed(2);
-    if (colIds.has('sundry') && outputTax > 0) values['sundry'] = outputTax.toFixed(2);
-    return { id: crypto.randomUUID(), values };
-  };
-
   const handleAddSale = () => {
     if (!currentClient || !currentClientId) return;
     if (!date || !amount) {
@@ -133,27 +116,13 @@ export function Sales() {
       try {
         await saveSale(String(newSale.id), newSale);
 
-        // Cash-like sales are posted directly to the normalized CRJ journal table.
-        // Credit Card / On Account sales remain available to the Sales Journal view
-        // through the normalized sales table and its payment_type filter.
-        if (CASH_RECEIPT_PAYMENT_TYPES.includes(paymentType)) {
-          const crjEntry = buildCashReceiptEntry();
-          const { error } = await supabase.from('journal_entries').upsert({
-            id: crjEntry.id,
-            client_id: currentClientId,
-            journal_type: 'CRJ',
-            values: crjEntry.values,
-            auto: true,
-            auto_source: 'sales',
-          }, { onConflict: 'id' });
-          if (error) throw error;
-        }
-
+        // Income History is the single source of truth for both subsidiary journals.
+        // CRJ/SJ read the saved sale by payment type, so no separate journal copy is created here.
         setSalesRefresh(v => v + 1);
         if (CASH_RECEIPT_PAYMENT_TYPES.includes(paymentType)) {
-          showToast('Income entry added and posted to Cash Receipts Journal');
+          showToast('Income entry added and will appear in Cash Receipts Journal');
         } else if (SALES_JOURNAL_PAYMENT_TYPES.includes(paymentType)) {
-          showToast('Income entry added and posted to Sales Journal');
+          showToast('Income entry added and will appear in Sales Journal');
         } else {
           showToast('Income entry added');
         }
@@ -209,7 +178,7 @@ export function Sales() {
             type="text" 
             value={buyerTin} 
             onChange={e => setBuyerTin(formatTIN(e.target.value))} 
-            placeholder="000-000-000" 
+            placeholder="000-000-000"
             className="form-input font-mono" 
             maxLength={11}
           />
@@ -228,8 +197,8 @@ export function Sales() {
           <input type="text" value={buyerAddress} onChange={e => setBuyerAddress(e.target.value)} placeholder="Business / Residential Address" className="form-input" />
         </div>
         <div>
-          <label className="form-label text-red-500">VAT Type *</label>
-          <select value={vatType} onChange={e => setVatType(e.target.value)} className="form-input bg-slate-100 dark:bg-slate-900 border-slate-300">
+          <label className="form-label">VAT / Exempt / 0-Rated</label>
+          <select value={vatType} onChange={e => setVatType(e.target.value)} className="form-input">
             <option value="VATable">VATable</option>
             <option value="VAT Exempt">VAT Exempt</option>
             <option value="Zero-Rated">Zero-Rated</option>
