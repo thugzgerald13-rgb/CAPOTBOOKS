@@ -217,10 +217,16 @@ const glAmount = (value: unknown) => {
  * Returns a General Ledger account's running balance from its opening
  * balance plus every entry dated strictly before `cutoffDateExclusive`
  * (format `YYYY-MM-DD`). This mirrors the General Ledger page's own
- * beginning/ending balance math exactly.
+ * beginning/ending balance math exactly. The opening balance is placed on
+ * its normal side (a credit-normal account's opening balance is entered as
+ * a plain positive amount but represents a credit, so it is applied as
+ * negative here) — matching the sign convention used by the General
+ * Ledger's own balance formatting and the Chart of Accounts' Running
+ * Balance column.
  */
 export function glAccountBalanceBefore(account: GeneralLedgerAccount, cutoffDateExclusive: string): number {
-  const opening = glAmount(account.openingBalance);
+  const openingRaw = glAmount(account.openingBalance);
+  const opening = account.normalSide === 'credit' ? -openingRaw : openingRaw;
   return (account.entries || []).reduce((total, entry) => {
     const d = entryDateKey(entry);
     if (!(d && d < cutoffDateExclusive)) return total;
