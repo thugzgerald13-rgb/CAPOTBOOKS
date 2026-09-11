@@ -598,6 +598,23 @@ export function syncSalesJournal(client: Client): Client {
   return { ...client, sjEntries: [...autoEntries, ...manualEntries] };
 }
 
+// Mirrors syncSalesJournal for the Cash Receipts Journal: regenerate
+// auto-posted CRJ entries from cash-basis Income History sales (every sale
+// that is neither Credit Card nor On Account), then merge with the user's
+// manual CRJ entries (auto entries never overwrite manual ones). Without
+// this sync, cash receipts exist only on the CRJ screen — they never reach
+// client.crjEntries and therefore never post to the General Ledger.
+export function syncCashReceiptsJournal(client: Client): Client {
+  const autoEntries = incomeSalesToCrjEntries(client);
+  const manualEntries = (client.crjEntries || []).filter((e: any) => !e.auto);
+
+  if (autoEntries.length === 0 && manualEntries.length === (client.crjEntries || []).length) {
+    return client; // nothing auto-generated, nothing to strip — avoid needless churn
+  }
+
+  return { ...client, crjEntries: [...autoEntries, ...manualEntries] };
+}
+
 // Purchases on account belong in the Purchases Journal. There is no separate
 // auto-posting builder today (cash purchases are posted to the CDJ via
 // cashPurchasesToCdjEntries), so this keeps the merge contract: strip any
