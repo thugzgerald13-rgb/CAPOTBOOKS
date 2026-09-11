@@ -326,10 +326,17 @@ export function ChartOfAccounts() {
 
   const hiddenCount = accounts.filter(a => a.hidden).length;
 
-  const handleSaveAccounts = (updatedAccounts: CoaAccount[], coaFormat?: 'numeric' | 'alphanumeric') => {
+  const handleSaveAccounts = async (updatedAccounts: CoaAccount[], coaFormat?: 'numeric' | 'alphanumeric'): Promise<boolean> => {
     const format = coaFormat || currentClient.coaFormat || 'numeric';
     const resequenced = resequenceAccounts(updatedAccounts, format);
-    saveCoaAccounts(resequenced, format);
+    try {
+      await saveCoaAccounts(resequenced, format);
+      return true;
+    } catch (err: any) {
+      console.error('Failed to save Chart of Accounts', err);
+      alert(`Couldn't save the Chart of Accounts: ${err?.message || 'Please check your connection and try again.'}`);
+      return false;
+    }
   };
 
   const handleToggleHidden = (id: string) => {
@@ -348,7 +355,7 @@ export function ChartOfAccounts() {
     setShowPresets(false);
   };
 
-  const handleAddAccount = () => {
+  const handleAddAccount = async () => {
     if (!newCode || !newName || !newType) {
       alert("Please fill out Account Code and Name.");
       return;
@@ -372,7 +379,12 @@ export function ChartOfAccounts() {
       parentId: newParentId || undefined,
       ...customFields
     }];
-    handleSaveAccounts(updatedAccounts);
+    // Only close the dialog and clear the form once the account has actually
+    // been persisted — previously this happened unconditionally, so a failed
+    // save (network issue, auth not ready, RLS, etc.) looked like the account
+    // was added when nothing had actually been saved.
+    const saved = await handleSaveAccounts(updatedAccounts);
+    if (!saved) return;
     setIsAdding(false);
     setNewCode('');
     setNewName('');
