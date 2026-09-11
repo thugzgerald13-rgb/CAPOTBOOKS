@@ -227,7 +227,7 @@ export function GeneralLedger() {
             return <div key={account.id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
               <div className="bg-slate-100 dark:bg-slate-800 px-4 py-3 flex justify-between items-center cursor-pointer border-b border-slate-200 dark:border-slate-700" onClick={()=>toggleAccount(account.id)}>
                 <div className="flex items-center gap-2"><h3 className="font-bold text-slate-800 dark:text-slate-200 tracking-wider uppercase text-sm">{account.accountTitle}</h3>{account.accountType&&<span className="text-[10px] font-bold px-2 py-0.5 bg-cyan-100 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300 rounded uppercase tracking-wide">{account.accountType}</span>}</div>
-                <div className="flex items-center gap-4"><span className="text-xs font-bold px-2 py-1 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded">Bal: ₱ {Math.abs(balance).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}{balance<0?' Cr':' Dr'}</span>{isExpanded?<ChevronUp className="w-5 h-5 text-slate-400"/>:<ChevronDown className="w-5 h-5 text-slate-400"/>}</div>
+                <div className="flex items-center gap-4">{isExpanded?<ChevronUp className="w-5 h-5 text-slate-400"/>:<ChevronDown className="w-5 h-5 text-slate-400"/>}</div>
               </div>
               {isExpanded&&<div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="text-left text-xs uppercase text-slate-500 bg-slate-50 dark:bg-slate-950"><th className="px-4 py-2">Date</th><th className="px-4 py-2">Particulars</th><th className="px-4 py-2">PR</th><th className="px-4 py-2 text-right">Debit</th><th className="px-4 py-2 text-right">Credit</th><th className="px-4 py-2 text-right whitespace-nowrap">Balance</th></tr></thead><tbody>
                 {(() => {
@@ -236,11 +236,11 @@ export function GeneralLedger() {
                     const debit = parseFloat(String(e.debit || '').replace(/,/g, '')) || 0;
                     const credit = parseFloat(String(e.credit || '').replace(/,/g, '')) || 0;
                     runningBalance += debit - credit;
-                    const runningLabel = `${formatAmount(runningBalance)}${runningBalance < 0 ? ' Cr' : ' Dr'}`;
-                    return <tr key={e.id} className="border-t border-slate-100 dark:border-slate-800"><td className="px-4 py-2">{e.dateDr||e.dateCr}</td><td className="px-4 py-2">{e.particularsDr||e.particularsCr}</td><td className="px-4 py-2">{e.refDr||e.refCr}</td><td className="px-4 py-2 text-right">{e.debit||''}</td><td className="px-4 py-2 text-right">{e.credit||''}</td><td className="px-4 py-2 text-right font-semibold whitespace-nowrap">{runningLabel}</td></tr>;
+                    return <tr key={e.id} className="border-t border-slate-100 dark:border-slate-800"><td className="px-4 py-2">{e.dateDr||e.dateCr}</td><td className="px-4 py-2">{e.particularsDr||e.particularsCr}</td><td className="px-4 py-2">{e.refDr||e.refCr}</td><td className="px-4 py-2 text-right">{e.debit||''}</td><td className="px-4 py-2 text-right">{e.credit||''}</td><td className="px-4 py-2 text-right font-semibold whitespace-nowrap">{runningBalance.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td></tr>;
                   });
                 })()}
-                {!account.entries.length&&<tr><td colSpan={7} className="px-4 py-8 text-center text-slate-400">No ledger entries for this period.</td></tr>}
+                {!account.entries.length&&<tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">No ledger entries for this period.</td></tr>}
+                <tr className="border-t-2 border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"><td colSpan={5} className="px-4 py-3 text-right font-bold">Ending Balance</td><td className="px-4 py-3 text-right font-bold whitespace-nowrap">{balance.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td></tr>
               </tbody></table></div>}
             </div>;
           })}
