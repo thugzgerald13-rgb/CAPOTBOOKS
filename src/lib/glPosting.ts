@@ -138,9 +138,8 @@ function makeLeg(
   _ref: string,
   sourceLabel: string
 ): GeneralLedgerEntry {
-  // The General Ledger PR is a Posting Reference to the Book of Original
-  // Entry, not the source transaction/invoice/reference number. Every
-  // automatically posted line therefore receives the same BOE acronym.
+  // General Ledger Posting Ref / PR is always the journal acronym.
+  // The source row's reference/folio is intentionally not shown here.
   const pr = sourceBookAcronym(sourceLabel);
 
   return {
