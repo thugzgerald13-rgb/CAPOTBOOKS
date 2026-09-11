@@ -95,6 +95,35 @@ function findColumnKey(row: Record<string, any>, aliases: string[]): string | un
   return Object.keys(row).find(key => aliases.includes(key.toLowerCase().replace(/[^a-z]/g, '')));
 }
 
+// Given a code that's already taken, finds the next unused code by incrementing its
+// trailing numeric portion (e.g. "2001" -> "2002", "ACP-2000" -> "ACP-2001"), cascading
+// past any further codes that are also already in use. If the code has no trailing
+// digits, a numeric suffix is appended instead (e.g. "MISC" -> "MISC-1").
+// Used to "bump" an existing account aside so a newly inserted account can take its code.
+export function nextAvailableCode(code: string, usedIds: string[]): string {
+  const used = new Set(usedIds);
+  const match = code.match(/^(.*?)(\d+)$/);
+  if (match) {
+    const prefix = match[1];
+    const digits = match[2];
+    const width = digits.length;
+    let num = parseInt(digits, 10);
+    let candidate: string;
+    do {
+      num += 1;
+      candidate = `${prefix}${String(num).padStart(width, '0')}`;
+    } while (used.has(candidate));
+    return candidate;
+  }
+  let n = 1;
+  let candidate = `${code}-${n}`;
+  while (used.has(candidate)) {
+    n += 1;
+    candidate = `${code}-${n}`;
+  }
+  return candidate;
+}
+
 export function resequenceAccounts(
   accountsList: CoaAccount[],
   coaFormat: 'numeric' | 'alphanumeric'
@@ -360,23 +389,39 @@ export function ChartOfAccounts() {
       alert("Please fill out Account Code and Name.");
       return;
     }
-    if (accounts.some(a => a.id === newCode)) {
-      alert("An account with this code already exists!");
-      return;
+    // Instead of blocking the save outright, offer to insert the new account at this
+    // code and bump the existing occupant to the next free code, so both end up
+    // sitting next to each other in the list rather than losing the new entry.
+    let workingAccounts = accounts;
+    let resolvedParentId = newParentId || undefined;
+    const conflicting = accounts.find(a => a.id === newCode);
+    if (conflicting) {
+      const shiftedCode = nextAvailableCode(newCode, accounts.map(a => a.id));
+      const proceed = confirm(
+        `Account code "${newCode}" is already used by "${conflicting.name}".\n\n` +
+        `Insert the new account at "${newCode}" and move "${conflicting.name}" to "${shiftedCode}"?`
+      );
+      if (!proceed) return;
+      workingAccounts = accounts.map(a => {
+        if (a.id === conflicting.id) return { ...a, id: shiftedCode };
+        if (a.parentId === conflicting.id) return { ...a, parentId: shiftedCode };
+        return a;
+      });
+      if (resolvedParentId === conflicting.id) resolvedParentId = shiftedCode;
     }
-    
+
     // Add custom fields
     const customFields: Record<string, any> = {};
     Object.keys(newCustomValues).forEach(key => {
       customFields[key] = newCustomValues[key];
     });
 
-    const updatedAccounts = [...accounts, { 
+    const updatedAccounts = [...workingAccounts, { 
       id: newCode, 
       name: newName, 
       type: newType, 
       normalSide: newNormalSide,
-      parentId: newParentId || undefined,
+      parentId: resolvedParentId,
       ...customFields
     }];
     // Only close the dialog and clear the form once the account has actually
@@ -599,12 +644,29 @@ export function ChartOfAccounts() {
       return;
     }
     
-    if (editCode !== oldId && accounts.some(a => a.id === editCode)) {
-      alert("An account with this code already exists!");
-      return;
+    // As with adding a new account, a taken code doesn't have to block the save —
+    // offer to bump the existing occupant to the next free code instead.
+    let workingAccounts = accounts;
+    let resolvedParentId = editParentId || undefined;
+    if (editCode !== oldId) {
+      const conflicting = accounts.find(a => a.id === editCode && a.id !== oldId);
+      if (conflicting) {
+        const shiftedCode = nextAvailableCode(editCode, accounts.map(a => a.id));
+        const proceed = confirm(
+          `Account code "${editCode}" is already used by "${conflicting.name}".\n\n` +
+          `Move this account to "${editCode}" and shift "${conflicting.name}" to "${shiftedCode}"?`
+        );
+        if (!proceed) return;
+        workingAccounts = accounts.map(a => {
+          if (a.id === conflicting.id) return { ...a, id: shiftedCode };
+          if (a.parentId === conflicting.id) return { ...a, parentId: shiftedCode };
+          return a;
+        });
+        if (resolvedParentId === conflicting.id) resolvedParentId = shiftedCode;
+      }
     }
 
-    const updatedAccounts = accounts.map(a => {
+    const updatedAccounts = workingAccounts.map(a => {
       if (a.id === oldId) {
         // Collect custom fields
         const customFields: Record<string, any> = {};
@@ -618,7 +680,7 @@ export function ChartOfAccounts() {
           name: editName,
           type: editType,
           normalSide: editNormalSide,
-          parentId: editParentId || undefined,
+          parentId: resolvedParentId,
           openingBalance: editOpeningBalance !== '' ? parseFloat(editOpeningBalance) || 0 : undefined,
           ...customFields
         };
