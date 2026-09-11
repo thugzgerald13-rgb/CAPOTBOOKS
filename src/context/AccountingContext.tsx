@@ -7,9 +7,9 @@ import { useAuth } from './AuthContext';
 import { handleSupabaseError, OperationType } from '../lib/supabaseUtils';
 import { syncGeneralLedger, syncCashDisbursementsJournal, syncSalesJournal, syncPurchasesJournal } from '../lib/glPosting';
 import {
-  getCachedCursor, setCachedCursor, putCachedRows, getCachedRows,
+  getCachedCursor, setCachedCursor, clearCachedCursor, putCachedRows, getCachedRows,
   applyCachedRowDelta, clearCachedRows, queueDirtyWrite, flushDirtyQueue,
-  pendingDirtyCount, recordCacheHit, invalidateQueries,
+  pendingDirtyCount, recordCacheHit, invalidateQueries, validateCacheSchema,
 } from '../db/localDb';
 
 interface AccountingContextType {
@@ -523,6 +523,17 @@ const persistNormalizedClient = async (client: Client, userId: string) => {
         .eq('client_id', clientId)
         .in('id', part);
       if (error) throw error;
+    }
+
+    // Keep the delta-sync cache consistent with this write. A DELETE is
+    // invisible to the `updated_at >= cursor` delta query (the row is simply
+    // gone), so any stale id left in IndexedDB would resurrect on the next
+    // refresh. Evict them here; best-effort, never fail the save on cache
+    // trouble.
+    if (staleIds.length) {
+      for (const id of staleIds) {
+        applyCachedRowDelta(table, clientId, 'delete', { id }).catch(() => {});
+      }
     }
   };
   await syncMany('purchases',(client.purchases||[]).map((p:any)=>({id:strId(p.id),dat_month_year:p.datMonthYear||null,date:p.date,payment_method:p.paymentMethod||'',check_number:p.checkNumber||null,bank_name:p.bankName||null,invoice_no:p.invoiceNo||null,supplier_name:p.supplierName||'',supplier_address:p.supplierAddress||null,supplier_tin:p.supplierTin||null,amount:Number(p.amount||0),vat_type:p.vatType||null,expense_type:p.expenseType||null,account_title:p.accountTitle||null,transaction_details:p.transactionDetails||null,input_tax:Number(p.inputTax||0),attachment_name:p.attachment?.name||null,attachment_type:p.attachment?.type||null,attachment_original_type:p.attachment?.originalType||null,attachment_size:p.attachment?.size||null,attachment_original_size:p.attachment?.originalSize||null,attachment_compression:p.attachment?.compression||null,attachment_storage_path:p.attachment?.storagePath||null,withholding_option:p.withholdingOption||null,atc_code:p.atcCode||null,wht_rate:p.whtRate??null,wht_amount:p.whtAmount??null})));
@@ -1128,8 +1139,17 @@ export function AccountingProvider({
         .subscribe();
     };
 
-    initClients();
-    initBizProfile();
+    // One-time cache schema check. Deleted rows (e.g. a duplicate account
+    // title) can never be discovered by the `updated_at >= cursor` delta
+    // query, so a stale IndexedDB copy resurrects them on every refresh.
+    // validateCacheSchema() wipes the local delta cache once on version bump,
+    // forcing one clean full re-sync from the authoritative tables. It runs
+    // in milliseconds, so awaiting it before initClients is safe.
+    (async () => {
+      await validateCacheSchema();
+      initClients();
+      initBizProfile();
+    })();
 
     return () => {
       clearTimeout(timeout);
@@ -1298,6 +1318,15 @@ export function AccountingProvider({
           applyCachedRowDelta('coa_accounts', currentClientId, 'put', row)
         ),
       ]);
+
+      // If any account was actually removed, drop this client's watermark so
+      // the next refresh performs a full re-sync instead of trusting the delta
+      // cache. A DELETE has no `updated_at`, so a `gte(cursor)` query can never
+      // confirm the removal — resetting the cursor is the only bulletproof way
+      // to keep a deleted title from resurrecting from IndexedDB.
+      if (stale.length) {
+        await clearCachedCursor(currentClientId);
+      }
     } catch (cacheError) {
       // Cache maintenance is best-effort; the Supabase write above already
       // succeeded and the in-memory UI state can still be updated safely.
