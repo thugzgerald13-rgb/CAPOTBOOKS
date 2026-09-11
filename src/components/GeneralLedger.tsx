@@ -66,139 +66,53 @@ export function GeneralLedger() {
   }, [coaAccounts, accountFilter]);
 
   useEffect(() => {
-    let cancelled = false;
-    const loadLedger = async () => {
-      if (!currentClientId || !accountFilter) {
-        setLedgerEntries([]);
-        setBeginningBalance(0);
-        return;
-      }
-
-      setLoading(true);
+    // The General Ledger must agree exactly with the books of original entry
+    // shown in the UI. In particular, cash disbursements must come from the
+    // synchronized CDJ rows — not from a broader/legacy server-side join that
+    // can include transactions which are no longer present in the CDJ.
+    // `currentClient.glAccounts` is already rebuilt by syncGeneralLedger from
+    // CRJ/CDJ/PJ/SJ/GJ, with CDJ source rows synchronized first.
+    if (!currentClientId || !accountFilter) {
+      setLedgerEntries([]);
+      setBeginningBalance(0);
       setLoadError(null);
       setUsingFallback(false);
-      const { start, end } = dateRange(month, year);
+      return;
+    }
 
-      try {
-        const [entriesRes, balancesRes] = await Promise.all([
-          supabase.rpc('get_server_general_ledger_entries', {
-            p_client_id: currentClientId,
-            p_account_id: accountFilter,
-            p_start_date: start,
-            p_end_date: end,
-          }),
-          supabase.rpc('get_server_account_balances', {
-            p_client_id: currentClientId,
-            p_start_date: start,
-            p_end_date: end,
-          }),
-        ]);
+    const { start, end } = dateRange(month, year);
+    const selected = (currentClient.glAccounts || []).find((account: GeneralLedgerAccount) =>
+      String(account.accountId) === String(accountFilter)
+    );
 
-        if (entriesRes.error) throw entriesRes.error;
-        if (balancesRes.error) throw balancesRes.error;
-        if (cancelled) return;
+    if (!selected) {
+      setLedgerEntries([]);
+      setBeginningBalance(0);
+      setLoadError(null);
+      setUsingFallback(false);
+      return;
+    }
 
-        const balanceRow = (balancesRes.data || []).find((r:any) => String(r.account_id) === String(accountFilter));
-        const rows = entriesRes.data || [];
-        const prior = rows.length ? Number(rows[0].beginning_balance || 0) :
-          balanceRow ? Number(balanceRow.balance || 0) - Number(balanceRow.period_balance || 0) : 0;
+    const allEntries = selected.entries || [];
+    const periodRows = allEntries.filter((entry: GeneralLedgerEntry) => {
+      const d = entryDate(entry);
+      return d >= start && d < end;
+    });
+    const priorRows = allEntries.filter((entry: GeneralLedgerEntry) => {
+      const d = entryDate(entry);
+      return Boolean(d) && d < start;
+    });
 
-        // The server RPC's `pr` can reflect the originating transaction
-        // (for example a Purchases record) rather than the Book of Original
-        // Entry that actually posted the transaction to the GL.  For cash/check
-        // purchases, the transaction is posted through the Cash Disbursements
-        // Journal, so its PR must be CDJ, not PJ. Prefer the normalized local
-        // GL posting reference when an exact transaction match is available.
-        const localEntries = (currentClient?.glAccounts || [])
-          .find((account: GeneralLedgerAccount) => String(account.accountId) === String(accountFilter))
-          ?.entries || [];
+    const opening = numberValue(selected.openingBalance);
+    const priorActivity = priorRows.reduce((total, entry) =>
+      total + numberValue(entry.debit) - numberValue(entry.credit), 0
+    );
 
-        const normalized = (value: unknown) => String(value ?? '').trim().toLowerCase();
-        const findLocalPostingRef = (r: any): string => {
-          const date = String(r.entry_date || '').slice(0, 10);
-          const particulars = normalized(r.particulars);
-          const debit = Number(r.debit || 0);
-          const credit = Number(r.credit || 0);
-          const match = localEntries.find((entry: GeneralLedgerEntry) => {
-            const matchedDate = entryDate(entry);
-            if (matchedDate !== date) return false;
-            const entryParticulars = normalized(entry.particularsDr || entry.particularsCr);
-            if (entryParticulars !== particulars) return false;
-            const entryDebit = numberValue(entry.debit);
-            const entryCredit = numberValue(entry.credit);
-            return Math.abs(entryDebit - debit) < 0.005 && Math.abs(entryCredit - credit) < 0.005;
-          });
-          return match ? String(match.refDr || match.refCr || '') : '';
-        };
-
-        const mapped: GeneralLedgerEntry[] = rows.map((r:any) => {
-          const serverPr = String(r.pr || '');
-          const localPr = findLocalPostingRef(r);
-          const pr = localPr || serverPr;
-          return {
-            id: String(r.entry_id),
-            dateDr: Number(r.debit || 0) > 0 ? String(r.entry_date || '') : '',
-            particularsDr: Number(r.debit || 0) > 0 ? String(r.particulars || '') : '',
-            refDr: Number(r.debit || 0) > 0 ? pr : '',
-            debit: Number(r.debit || 0) > 0 ? formatAmount(Number(r.debit || 0)) : '',
-            dateCr: Number(r.credit || 0) > 0 ? String(r.entry_date || '') : '',
-            particularsCr: Number(r.credit || 0) > 0 ? String(r.particulars || '') : '',
-            refCr: Number(r.credit || 0) > 0 ? pr : '',
-            credit: Number(r.credit || 0) > 0 ? formatAmount(Number(r.credit || 0)) : '',
-            auto: true,
-            autoSource: String(r.source || ''),
-          };
-        });
-
-        setBeginningBalance(prior);
-        setLedgerEntries(mapped);
-        setUsingFallback(false);
-      } catch (e:any) {
-        // The PostgreSQL ledger RPC is authoritative when available. If the
-        // deployed database function has a parameter/typing mismatch, keep the
-        // GL usable by falling back to the already-normalized client GL that
-        // AccountingContext derives from the same tenant-scoped source rows.
-        // This is intentionally read-only: no fallback data is written back to
-        // Supabase and no legacy clients.data payload is consulted.
-        console.error('General Ledger server load failed; using normalized local fallback', e);
-        if (!cancelled) {
-          const selected = (currentClient?.glAccounts || []).find((account: GeneralLedgerAccount) =>
-            String(account.accountId) === String(accountFilter)
-          );
-          if (selected) {
-            const periodRows = (selected.entries || []).filter((entry: GeneralLedgerEntry) => {
-              const d = entryDate(entry);
-              return d >= start && d < end;
-            });
-
-            const priorRows = (selected.entries || []).filter((entry: GeneralLedgerEntry) => {
-              const d = entryDate(entry);
-              return Boolean(d) && d < start;
-            });
-
-            const opening = numberValue(selected.openingBalance);
-            const priorActivity = priorRows.reduce((total, entry) =>
-              total + numberValue(entry.debit) - numberValue(entry.credit), 0
-            );
-
-            setBeginningBalance(opening + priorActivity);
-            setLedgerEntries(periodRows);
-            setLoadError(null);
-            setUsingFallback(true);
-          } else {
-            setLedgerEntries([]);
-            setBeginningBalance(0);
-            setUsingFallback(false);
-            setLoadError(e?.message || 'Unable to load General Ledger data.');
-          }
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-
-    loadLedger();
-    return () => { cancelled = true; };
+    setBeginningBalance(opening + priorActivity);
+    setLedgerEntries(periodRows);
+    setLoadError(null);
+    setUsingFallback(false);
+    setLoading(false);
   }, [currentClientId, currentClient, accountFilter, month, year]);
 
   if (!currentClient || !currentClientId) return null;
@@ -245,8 +159,7 @@ export function GeneralLedger() {
             {availableTypes.length>1 && <div><label className="block text-xs font-semibold text-slate-500 mb-1">Type</label><select value={typeFilter} onChange={e=>setTypeFilter(e.target.value)} className="form-input text-sm py-2"><option value="All">All Types</option>{availableTypes.map(t=><option key={t} value={t}>{t}</option>)}</select></div>}
             {loading && <div className="flex items-center gap-2 text-sm text-slate-500 mt-5"><Loader2 className="w-4 h-4 animate-spin"/>Loading selected account…</div>}
           </div>
-          <p className="text-sm text-slate-500 dark:text-slate-400">Only the selected account's General Ledger entries for <b>{MONTHS[month-1]} {year}</b> are retrieved from PostgreSQL.</p>
-          {usingFallback && !loadError && <div className="text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-lg px-3 py-2">Server ledger query unavailable — showing the in-app computed ledger (fully functional). Deploy the <code>get_server_general_ledger_entries</code>/<code>get_server_account_balances</code> PostgreSQL functions to enable server-side aggregation.</div>}
+          <p className="text-sm text-slate-500 dark:text-slate-400">Only the selected account's General Ledger entries for <b>{MONTHS[month-1]} {year}</b> are shown from the synchronized books of original entry.</p>
           {loadError && <div className="text-sm text-red-600 bg-red-50 dark:bg-red-950/30 rounded-lg p-3">{loadError}</div>}
         </div>
 
@@ -260,7 +173,7 @@ export function GeneralLedger() {
             return <div key={account.id} className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
               <div className="bg-slate-100 dark:bg-slate-800 px-4 py-3 flex justify-between items-center cursor-pointer border-b border-slate-200 dark:border-slate-700" onClick={()=>toggleAccount(account.id)}>
                 <div className="flex items-center gap-2"><h3 className="font-bold text-slate-800 dark:text-slate-200 tracking-wider uppercase text-sm">{account.accountTitle}</h3>{account.accountType&&<span className="text-[10px] font-bold px-2 py-0.5 bg-cyan-100 dark:bg-cyan-900/40 text-cyan-700 dark:text-cyan-300 rounded uppercase tracking-wide">{account.accountType}</span>}</div>
-                <div className="flex items-center gap-4">{isExpanded?<ChevronUp className="w-5 h-5 text-slate-400"/>:<ChevronDown className="w-5 h-5 text-slate-400"/>}</div>
+                <div className="flex items-center gap-4"><span className="text-xs font-bold px-2 py-1 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300 rounded">Bal: ₱ {Math.abs(balance).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}{balance<0?' Cr':' Dr'}</span>{isExpanded?<ChevronUp className="w-5 h-5 text-slate-400"/>:<ChevronDown className="w-5 h-5 text-slate-400"/>}</div>
               </div>
               {isExpanded&&<div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="text-left text-xs uppercase text-slate-500 bg-slate-50 dark:bg-slate-950"><th className="px-4 py-2">Date</th><th className="px-4 py-2">Particulars</th><th className="px-4 py-2">PR</th><th className="px-4 py-2 text-right">Debit</th><th className="px-4 py-2 text-right">Credit</th><th className="px-4 py-2 text-right whitespace-nowrap">Balance</th></tr></thead><tbody>
                 {(() => {
@@ -269,11 +182,11 @@ export function GeneralLedger() {
                     const debit = parseFloat(String(e.debit || '').replace(/,/g, '')) || 0;
                     const credit = parseFloat(String(e.credit || '').replace(/,/g, '')) || 0;
                     runningBalance += debit - credit;
-                    return <tr key={e.id} className="border-t border-slate-100 dark:border-slate-800"><td className="px-4 py-2">{e.dateDr||e.dateCr}</td><td className="px-4 py-2">{e.particularsDr||e.particularsCr}</td><td className="px-4 py-2">{e.refDr||e.refCr}</td><td className="px-4 py-2 text-right">{e.debit||''}</td><td className="px-4 py-2 text-right">{e.credit||''}</td><td className="px-4 py-2 text-right font-semibold whitespace-nowrap">{runningBalance.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td></tr>;
+                    const runningLabel = `${formatAmount(runningBalance)}${runningBalance < 0 ? ' Cr' : ' Dr'}`;
+                    return <tr key={e.id} className="border-t border-slate-100 dark:border-slate-800"><td className="px-4 py-2">{e.dateDr||e.dateCr}</td><td className="px-4 py-2">{e.particularsDr||e.particularsCr}</td><td className="px-4 py-2">{e.refDr||e.refCr}</td><td className="px-4 py-2 text-right">{e.debit||''}</td><td className="px-4 py-2 text-right">{e.credit||''}</td><td className="px-4 py-2 text-right font-semibold whitespace-nowrap">{runningLabel}</td></tr>;
                   });
                 })()}
-                {!account.entries.length&&<tr><td colSpan={6} className="px-4 py-8 text-center text-slate-400">No ledger entries for this period.</td></tr>}
-                <tr className="border-t-2 border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-950"><td colSpan={5} className="px-4 py-3 text-right font-bold">Ending Balance</td><td className="px-4 py-3 text-right font-bold whitespace-nowrap">{balance.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})}</td></tr>
+                {!account.entries.length&&<tr><td colSpan={7} className="px-4 py-8 text-center text-slate-400">No ledger entries for this period.</td></tr>}
               </tbody></table></div>}
             </div>;
           })}
