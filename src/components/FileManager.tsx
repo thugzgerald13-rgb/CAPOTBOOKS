@@ -8,7 +8,7 @@ import { downloadWithCache, evictCachedFile } from '../db/storageCache';
 import imageCompression from 'browser-image-compression';
 import { 
   Folder, FolderOpen, Upload, Trash2, Edit2, 
-  Check, X, FileText, Download, Plus, File, AlertTriangle, Eye 
+  Check, X, FileText, Download, Plus, File, AlertTriangle, Eye, Camera 
 } from 'lucide-react';
 import { AttachmentViewer } from './AttachmentViewer';
 
@@ -31,6 +31,7 @@ export function FileManager() {
   const [isDragging, setIsDragging] = useState(false);
   const [stagedFiles, setStagedFiles] = useState<StagedFile[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
   const [viewingFile, setViewingFile] = useState<AppFile | null>(null);
 
   if (!currentClient) return null;
@@ -554,6 +555,15 @@ export function FileManager() {
                 multiple 
                 className="hidden" 
               />
+              {/* On supported mobile browsers, capture="environment" opens the rear camera directly. */}
+              <input 
+                type="file" 
+                ref={cameraInputRef} 
+                onChange={handleFileChange} 
+                accept="image/*" 
+                capture="environment" 
+                className="hidden" 
+              />
               <div className="p-4 bg-blue-50/80 dark:bg-blue-950/40 text-blue-600 rounded-2xl shrink-0">
                 <Upload className="w-6 h-6" />
               </div>
@@ -563,6 +573,22 @@ export function FileManager() {
                 </span>
                 <span className="text-[11px] text-slate-400 dark:text-slate-500 block mt-1">
                   Upload image, PDF, or text files up to 800KB for real-time document synchronization.
+                </span>
+              </div>
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    cameraInputRef.current?.click();
+                  }}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all"
+                >
+                  <Camera className="w-4 h-4" />
+                  Take Photo
+                </button>
+                <span className="text-[10px] text-slate-400 dark:text-slate-500">
+                  Use your phone camera for receipts and documents
                 </span>
               </div>
             </div>
