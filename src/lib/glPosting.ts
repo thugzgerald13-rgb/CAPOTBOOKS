@@ -228,6 +228,40 @@ function postCdjSundry(entries: JournalEntry[], accounts: CoaAccount[]): Posting
   return postings;
 }
 
+function postCdjAutoInputTax(entries: JournalEntry[], accounts: CoaAccount[]): Posting[] {
+  const postings: Posting[] = [];
+  const inputTaxAccount = findAccountByLabel('Input Tax', accounts)
+    || findAccountByLabel('VAT Input Receivable', accounts)
+    || findAccountByLabel('Input VAT', accounts)
+    || findAccountByLabel('VAT Input', accounts);
+
+  if (!inputTaxAccount) return postings;
+
+  entries.filter(e => e.auto).forEach(entry => {
+    const raw = String(entry.values?.input_tax ?? entry.values?.inputTax ?? '').replace(/,/g, '');
+    const amount = parseFloat(raw);
+    if (!Number.isFinite(amount) || amount === 0) return;
+
+    const date = String(entry.values?.date || '');
+    const particulars = String(entry.values?.payee || '');
+    postings.push({
+      accountId: inputTaxAccount.id,
+      entry: makeLeg(
+        `cdj:${entry.id}:input-tax`,
+        'debit',
+        Math.abs(amount),
+        date,
+        particulars,
+        '',
+        'Cash Disbursements Journal'
+      ),
+    });
+  });
+
+  return postings;
+}
+
+
 // ---------------------------------------------------------------------------
 // Source: Income History (`client.sales`) -> CRJ / Sales Journal.
 //
@@ -794,11 +828,14 @@ export function computeAutoPostings(client: Client): Posting[] {
       });
   });
 
-  // Keep the existing CDJ, Purchases Journal, Journal Voucher and Purchases
-  // posting behavior unchanged.
-  const cdjManualEntries = (client.cdjEntries || []).filter(e => !e.auto);
+  // Post every CDJ row, including source-derived auto rows. Auto CDJ rows
+  // are the bridge for cash-basis Purchases, cash Journal Vouchers, Check
+  // Vouchers, and Miscellaneous Payments. Filtering them out here meant the
+  // CDJ screen could show the transaction while the General Ledger captured
+  // none of it.
+  const cdjEntries = client.cdjEntries || [];
   const cdj = postColumnarJournal(
-    cdjManualEntries,
+    cdjEntries,
     useColumns(client.cdjColumns, DEFAULT_CDJ_COLUMNS),
     accounts,
     {
@@ -812,7 +849,12 @@ export function computeAutoPostings(client: Client): Posting[] {
   // The Sundry Account Title / Amount Dr(Cr) pair has no fixed Dr/Cr column
   // category (its side depends on the amount's sign), so it's posted
   // separately rather than through postColumnarJournal's per-column loop.
-  const cdjSundry = postCdjSundry(cdjManualEntries, accounts);
+  // Manual CDJ sundries use the normal journal values. Auto CDJ rows also use
+  // the legacy account_title/amount pair, so include those rows here as well.
+  // Their values are read-only/source-derived and are not present in the
+  // normalized account-column ids.
+  const cdjSundry = postCdjSundry(cdjEntries, accounts);
+  const cdjInputTax = postCdjAutoInputTax(cdjEntries, accounts);
 
   const pj = postColumnarJournal(client.pjEntries || [], useColumns(client.pjColumns, DEFAULT_PJ_COLUMNS), accounts, {
     prefix: 'pj',
@@ -825,7 +867,7 @@ export function computeAutoPostings(client: Client): Posting[] {
   const jv = postJournalVouchers(client);
   const purchases = postPurchases(client, accounts);
 
-  return [...crj, ...sjPostings, ...cdj, ...cdjSundry, ...pj, ...jv, ...purchases];
+  return [...crj, ...sjPostings, ...cdj, ...cdjSundry, ...cdjInputTax, ...pj, ...jv, ...purchases];
 }
 
 /**
