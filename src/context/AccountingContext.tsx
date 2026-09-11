@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { useAuth } from './AuthContext';
 import { handleSupabaseError, OperationType } from '../lib/supabaseUtils';
-import { syncGeneralLedger, syncCashDisbursementsJournal, syncSalesJournal, syncPurchasesJournal } from '../lib/glPosting';
+import { syncGeneralLedger, syncCashDisbursementsJournal, syncSalesJournal, syncCashReceiptsJournal, syncPurchasesJournal } from '../lib/glPosting';
 import {
   getCachedCursor, setCachedCursor, clearCachedCursor, putCachedRows, getCachedRows,
   applyCachedRowDelta, clearCachedRows, queueDirtyWrite, flushDirtyQueue,
@@ -1905,7 +1905,7 @@ export function AccountingProvider({
   const rawCurrentClient = currentClientId ? clients[currentClientId] : null;
   const currentClient = useMemo(
     () => (rawCurrentClient
-      ? syncGeneralLedger(syncSalesJournal(syncCashDisbursementsJournal(syncPurchasesJournal(rawCurrentClient))))
+      ? syncGeneralLedger(syncSalesJournal(syncCashReceiptsJournal(syncCashDisbursementsJournal(syncPurchasesJournal(rawCurrentClient)))))
       : null),
     [rawCurrentClient]
   );
