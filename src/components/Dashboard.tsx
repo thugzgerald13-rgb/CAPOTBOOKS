@@ -62,10 +62,6 @@ const inCurrentMonth = (dateStr: unknown, year: number, month: number) => {
   return !Number.isNaN(d.getTime()) && d.getFullYear() === year && d.getMonth() === month;
 };
 
-// Gross purchase amount, matching the Expense History "GROSS" column.
-const purchaseGross = (p: any) =>
-  toNumber(p?.amount) + toNumber(p?.inputTax) + toNumber(p?.exemptAmount) + toNumber(p?.zeroRatedAmount);
-
 export function Dashboard() {
   const { currentClient, navigateToPage, setHistoryTab, syncData } = useAccounting();
   const [refreshKey, setRefreshKey] = useState(0);
@@ -79,20 +75,33 @@ export function Dashboard() {
     const year = now.getFullYear();
     const month = now.getMonth();
 
-    // Revenue / expenses come from the normalized sales & purchases records
-    // (the source of truth in this app), filtered to the current month.
+    // Profit & Loss figures (revenue / expenses / net income) come from the
+    // synchronized General Ledger — exactly like the Profit & Loss report —
+    // not from raw sales/purchases records, so the dashboard always agrees
+    // with the books. Each income/expense account's current-month activity
+    // is summed on its normal side, matching the P&L report's calculation.
     let revenue = 0;
-    for (const sale of currentClient.sales || []) {
-      if (inCurrentMonth((sale as any).date, year, month)) {
-        revenue += toNumber((sale as any).amount);
+    let costTotal = 0;
+    let expenseTotal = 0;
+    for (const account of currentClient.glAccounts || []) {
+      const type = normalize(account.accountType);
+      const isRevenue = type === 'revenue';
+      const isCost = type === 'cost' || type === 'costs';
+      const isExpense = type === 'expense' || type === 'expenses';
+      if (!isRevenue && !isCost && !isExpense) continue;
+      let monthDebit = 0;
+      let monthCredit = 0;
+      for (const entry of account.entries || []) {
+        const dateStr = entry.dateDr || entry.dateCr || '';
+        if (!inCurrentMonth(dateStr, year, month)) continue;
+        monthDebit += toNumber(entry.debit);
+        monthCredit += toNumber(entry.credit);
       }
+      if (isRevenue) revenue += Math.max(0, monthCredit - monthDebit);
+      if (isCost) costTotal += Math.max(0, monthDebit - monthCredit);
+      if (isExpense) expenseTotal += Math.max(0, monthDebit - monthCredit);
     }
-    let expenses = 0;
-    for (const purchase of currentClient.purchases || []) {
-      if (inCurrentMonth((purchase as any).date, year, month)) {
-        expenses += purchaseGross(purchase);
-      }
-    }
+    const expenses = costTotal + expenseTotal;
 
     // Cash / AR / AP are taken from the synchronized General Ledger when
     // available; otherwise they remain 0 rather than guessing.
@@ -147,7 +156,7 @@ export function Dashboard() {
         <div>
           <h1 className="text-2xl font-extrabold text-slate-900 dark:text-white">Dashboard</h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            Live summaries from the selected client's sales and purchases. Click any card to open its details.
+            Live summaries from the selected client's General Ledger. Click any card to open its details.
           </p>
         </div>
         <button
