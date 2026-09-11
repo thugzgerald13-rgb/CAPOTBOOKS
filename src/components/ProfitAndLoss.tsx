@@ -1,62 +1,31 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { TrendingUp } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
-import { formatAccountAmount, getCurrentYear } from '../lib/accountingBalances';
+import { formatAccountAmount, getCurrentYear, getProfitAndLossTotals } from '../lib/accountingBalances';
 
 export function ProfitAndLoss() {
   const { currentClient, currentClientId, saveFinancialReportSnapshot } = useAccounting();
   const year = getCurrentYear(currentClient || ({ glAccounts: [] } as any));
-  const [balances, setBalances] = useState<any[]>([]);
   const [reportError, setReportError] = useState<string | null>(null);
+
+  const totals = useMemo(
+    () => getProfitAndLossTotals(currentClient || ({ glAccounts: [] } as any), year),
+    [currentClient, year]
+  );
+  const balances = totals.balances;
 
   useEffect(() => {
     if (!currentClientId) {
-      setBalances([]);
       setReportError(null);
       return;
     }
-
-    const start = `${year}-01-01`;
-    const end = `${year + 1}-01-01`;
-
-    const fallback = (currentClient.glAccounts || []).map((account: any) => {
-      const entries = Array.isArray(account.entries) ? account.entries : [];
-      const periodEntries = entries.filter((entry: any) => {
-        const d = String(entry.date || entry.dateDr || entry.dateCr || '').slice(0, 10);
-        return d >= start && d < end;
-      });
-      const period_debit = periodEntries.reduce((n: number, entry: any) => n + Number(String(entry.debit ?? '').replace(/,/g, '') || 0), 0);
-      const period_credit = periodEntries.reduce((n: number, entry: any) => n + Number(String(entry.credit ?? '').replace(/,/g, '') || 0), 0);
-      const allEntries = entries.filter((entry: any) => String(entry.date || entry.dateDr || entry.dateCr || '').slice(0, 10) < end);
-      const totalDebit = allEntries.reduce((n: number, entry: any) => n + Number(String(entry.debit ?? '').replace(/,/g, '') || 0), 0);
-      const totalCredit = allEntries.reduce((n: number, entry: any) => n + Number(String(entry.credit ?? '').replace(/,/g, '') || 0), 0);
-      return {
-        account_id: String(account.accountId || account.id),
-        account_name: String(account.accountTitle || ''),
-        account_type: String(account.accountType || ''),
-        period_debit,
-        period_credit,
-        period_balance: period_debit - period_credit,
-        balance: totalDebit - totalCredit,
-      };
-    });
-
-    setBalances(fallback);
-    setReportError(fallback.length ? null : 'No accounts found.');
-  }, [currentClientId, currentClient, year]);
+    setReportError(balances.length ? null : 'No accounts found.');
+  }, [currentClientId, balances]);
 
   if (!currentClient || !currentClientId) return null;
 
-  const revenue = balances.filter(x => (x.account_type || '').toLowerCase() === 'revenue');
-  const costs = balances.filter(x => ['cost', 'costs'].includes((x.account_type || '').toLowerCase()));
-  const expenses = balances.filter(x => ['expense', 'expenses'].includes((x.account_type || '').toLowerCase()));
-
-  const revenueTotal = revenue.reduce((n, x) => n + Math.max(0, Number(x.period_credit || 0) - Number(x.period_debit || 0)), 0);
-  const costTotal = costs.reduce((n, x) => n + Math.max(0, Number(x.period_debit || 0) - Number(x.period_credit || 0)), 0);
-  const expenseTotal = expenses.reduce((n, x) => n + Math.max(0, Number(x.period_debit || 0) - Number(x.period_credit || 0)), 0);
-  const grossIncome = revenueTotal - costTotal;
-  const netIncome = grossIncome - expenseTotal;
+  const { revenue, costs, expenses, revenueTotal, costTotal, expenseTotal, grossIncome, netIncome } = totals;
 
   const data = currentClient.plData || {
     companyName: currentClient.tradeName || currentClient.name || '',

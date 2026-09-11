@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { TrendingUp, ShoppingBag, DollarSign, Wallet, ArrowDownLeft, ArrowUpRight, RefreshCw } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
 import type { GeneralLedgerAccount } from '../types';
+import { getProfitAndLossTotals, glAccountCurrentBalance } from '../lib/accountingBalances';
 
 type DashboardMetrics = {
   revenue: number;
@@ -11,6 +12,7 @@ type DashboardMetrics = {
   cash: number;
   ar: number;
   ap: number;
+  year: number;
 };
 
 const money = (value: number) => `₱${(Number(value) || 0).toLocaleString(undefined, {
@@ -20,19 +22,6 @@ const money = (value: number) => `₱${(Number(value) || 0).toLocaleString(undef
 
 const normalize = (value: unknown) =>
   String(value ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ');
-
-const toNumber = (value: unknown) => {
-  const n = Number(String(value ?? '').replace(/,/g, ''));
-  return Number.isFinite(n) ? n : 0;
-};
-
-const accountBalance = (account: GeneralLedgerAccount) => {
-  const opening = toNumber(account.openingBalance);
-  const openingSigned = account.normalSide === 'credit' ? -opening : opening;
-  return openingSigned + (account.entries || []).reduce((sum, entry) => {
-    return sum + toNumber(entry.debit) - toNumber(entry.credit);
-  }, 0);
-};
 
 const accountIsType = (account: GeneralLedgerAccount, ...types: string[]) => {
   const type = normalize(account.accountType);
@@ -55,67 +44,37 @@ const isApAccount = (account: GeneralLedgerAccount) => {
   return name === 'accounts payable' || name === 'account payable' || name.includes('accounts payable');
 };
 
-const inCurrentMonth = (dateStr: unknown, year: number, month: number) => {
-  const s = String(dateStr ?? '').trim();
-  if (!s) return false;
-  const d = new Date(`${s}T00:00:00`);
-  return !Number.isNaN(d.getTime()) && d.getFullYear() === year && d.getMonth() === month;
-};
-
 export function Dashboard() {
   const { currentClient, navigateToPage, setHistoryTab, syncData } = useAccounting();
   const [refreshKey, setRefreshKey] = useState(0);
 
   const metrics = useMemo<DashboardMetrics>(() => {
     void refreshKey;
+    const year = new Date().getFullYear();
     if (!currentClient) {
-      return { revenue: 0, expenses: 0, netIncome: 0, cash: 0, ar: 0, ap: 0 };
+      return { revenue: 0, expenses: 0, netIncome: 0, cash: 0, ar: 0, ap: 0, year };
     }
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth();
 
-    // Profit & Loss figures (revenue / expenses / net income) come from the
-    // synchronized General Ledger — exactly like the Profit & Loss report —
-    // not from raw sales/purchases records, so the dashboard always agrees
-    // with the books. Each income/expense account's current-month activity
-    // is summed on its normal side, matching the P&L report's calculation.
-    let revenue = 0;
-    let costTotal = 0;
-    let expenseTotal = 0;
-    for (const account of currentClient.glAccounts || []) {
-      const type = normalize(account.accountType);
-      const isRevenue = type === 'revenue';
-      const isCost = type === 'cost' || type === 'costs';
-      const isExpense = type === 'expense' || type === 'expenses';
-      if (!isRevenue && !isCost && !isExpense) continue;
-      let monthDebit = 0;
-      let monthCredit = 0;
-      for (const entry of account.entries || []) {
-        const dateStr = entry.dateDr || entry.dateCr || '';
-        if (!inCurrentMonth(dateStr, year, month)) continue;
-        monthDebit += toNumber(entry.debit);
-        monthCredit += toNumber(entry.credit);
-      }
-      if (isRevenue) revenue += Math.max(0, monthCredit - monthDebit);
-      if (isCost) costTotal += Math.max(0, monthDebit - monthCredit);
-      if (isExpense) expenseTotal += Math.max(0, monthDebit - monthCredit);
-    }
-    const expenses = costTotal + expenseTotal;
+    // Revenue / expenses / net income come from the exact same calculation
+    // as the Profit & Loss report, so the dashboard always agrees with it.
+    const pl = getProfitAndLossTotals(currentClient);
+    const revenue = pl.revenueTotal;
+    const expenses = pl.costTotal + pl.expenseTotal;
+    const netIncome = pl.netIncome;
 
-    // Cash / AR / AP are taken from the synchronized General Ledger when
-    // available; otherwise they remain 0 rather than guessing.
+    // Cash / AR / AP balances come from the exact same running-balance
+    // formula as the General Ledger page, so they always agree with it.
     let cash = 0;
     let ar = 0;
     let ap = 0;
     for (const account of currentClient.glAccounts || []) {
       if (accountIsType(account, 'Asset')) {
-        const balance = accountBalance(account);
+        const balance = glAccountCurrentBalance(account);
         if (isCashAccount(account)) cash += balance;
         if (isArAccount(account)) ar += balance;
       }
       if (accountIsType(account, 'Liability')) {
-        const balance = accountBalance(account);
+        const balance = glAccountCurrentBalance(account);
         if (isApAccount(account)) ap -= balance;
       }
     }
@@ -123,16 +82,17 @@ export function Dashboard() {
     return {
       revenue: Math.max(0, revenue),
       expenses: Math.max(0, expenses),
-      netIncome: revenue - expenses,
+      netIncome,
       cash: Math.max(0, cash),
       ar: Math.max(0, ar),
       ap: Math.max(0, ap),
+      year: pl.year,
     };
   }, [currentClient, refreshKey]);
 
   const cards = useMemo(() => [
-    { label: 'Revenue this month', value: metrics.revenue, icon: TrendingUp, page: 'history', historyTab: 'income' as const },
-    { label: 'Expenses this month', value: metrics.expenses, icon: ShoppingBag, page: 'history', historyTab: 'expenses' as const },
+    { label: `Revenue (YTD ${metrics.year})`, value: metrics.revenue, icon: TrendingUp, page: 'history', historyTab: 'income' as const },
+    { label: `Expenses (YTD ${metrics.year})`, value: metrics.expenses, icon: ShoppingBag, page: 'history', historyTab: 'expenses' as const },
     { label: metrics.netIncome >= 0 ? 'Net income' : 'Net loss', value: Math.abs(metrics.netIncome), icon: DollarSign, page: 'pl' },
     { label: 'Cash balance', value: metrics.cash, icon: Wallet, page: 'cashflow' },
     { label: 'Accounts receivable', value: metrics.ar, icon: ArrowDownLeft, page: 'balancesheet' },
@@ -156,7 +116,7 @@ export function Dashboard() {
         <div>
           <h1 className="text-2xl font-extrabold text-slate-900 dark:text-white">Dashboard</h1>
           <p className="text-sm text-slate-500 dark:text-slate-400">
-            Live summaries from the selected client's General Ledger. Click any card to open its details.
+            Revenue, expenses, and net income come from the Profit &amp; Loss report; cash, accounts receivable, and accounts payable come from the General Ledger. Click any card to open its details.
           </p>
         </div>
         <button

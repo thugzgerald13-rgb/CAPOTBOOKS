@@ -6,6 +6,7 @@ import { useAccounting } from '../context/AccountingContext';
 import { GeneralLedgerAccount, GeneralLedgerEntry } from '../types';
 import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide } from './ChartOfAccounts';
 import { supabase } from '../lib/supabase';
+import { glAccountBalanceBefore } from '../lib/accountingBalances';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
@@ -25,11 +26,6 @@ const formatBalance = (n: number) => {
 };
 
 const entryDate = (entry: GeneralLedgerEntry) => String(entry.dateDr || entry.dateCr || '').slice(0, 10);
-
-const numberValue = (value: unknown) => {
-  const n = parseFloat(String(value ?? '').replace(/,/g, ''));
-  return Number.isFinite(n) ? n : 0;
-};
 
 export function GeneralLedger() {
   const { currentClient, currentClientId } = useAccounting();
@@ -104,17 +100,10 @@ export function GeneralLedger() {
       const d = entryDate(entry);
       return d >= start && d < end;
     });
-    const priorRows = allEntries.filter((entry: GeneralLedgerEntry) => {
-      const d = entryDate(entry);
-      return Boolean(d) && d < start;
-    });
 
-    const opening = numberValue(selected.openingBalance);
-    const priorActivity = priorRows.reduce((total, entry) =>
-      total + numberValue(entry.debit) - numberValue(entry.credit), 0
-    );
-
-    setBeginningBalance(opening + priorActivity);
+    // Shared with the Profit & Loss report / Dashboard so every page agrees
+    // on the exact same account balance formula.
+    setBeginningBalance(glAccountBalanceBefore(selected, start));
     setLedgerEntries(periodRows);
     setLoadError(null);
     setUsingFallback(false);
