@@ -1252,7 +1252,9 @@ export function AccountingProvider({
   };
 
   const saveCoaAccounts = async (accounts: any[], format?: 'numeric' | 'alphanumeric') => {
-    if (!user || !currentClientId) return;
+    if (!user || !currentClientId) {
+      throw new Error('Not signed in or no client selected — please sign in and try again.');
+    }
     const rows = accounts.map(a => {
       const { id, name, type, normalSide, parentId, hidden, openingBalance, ...custom } = a;
       return { id: String(id), client_id: currentClientId, name: name || '', type: type || '', normal_side: normalSide || null, parent_id: parentId || null, hidden: !!hidden, opening_balance: Number(openingBalance || 0), custom_values: custom };
