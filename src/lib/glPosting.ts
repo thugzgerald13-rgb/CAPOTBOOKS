@@ -1,5 +1,5 @@
 import { Client, CoaAccount, GeneralLedgerAccount, GeneralLedgerEntry, JournalColumn, JournalEntry } from '../types';
-import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA } from '../components/ChartOfAccounts';
+import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide } from '../components/ChartOfAccounts';
 import { DEFAULT_CRJ_COLUMNS } from '../components/CashReceiptsJournal';
 import { DEFAULT_CDJ_COLUMNS } from '../components/CashDisbursementsJournal';
 import { DEFAULT_PJ_COLUMNS } from '../components/PurchasesJournal';
@@ -835,6 +835,11 @@ export function syncGeneralLedger(client: Client): Client {
       accountId,
       accountType: acct?.type || existingRecord?.accountType,
       entries: [...autoEntries, ...manualEntries],
+      // Sourced live from the matching Chart of Accounts entry so the
+      // General Ledger's beginning balance always reflects the opening
+      // balance set on the Chart of Accounts, not just $0.
+      openingBalance: acct?.openingBalance ?? existingRecord?.openingBalance ?? 0,
+      normalSide: acct?.normalSide || existingRecord?.normalSide || getNormalSide(acct?.type || ''),
     });
   });
 
