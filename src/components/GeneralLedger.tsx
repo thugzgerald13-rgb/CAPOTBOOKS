@@ -103,19 +103,52 @@ export function GeneralLedger() {
         const prior = rows.length ? Number(rows[0].beginning_balance || 0) :
           balanceRow ? Number(balanceRow.balance || 0) - Number(balanceRow.period_balance || 0) : 0;
 
-        const mapped: GeneralLedgerEntry[] = rows.map((r:any) => ({
-          id: String(r.entry_id),
-          dateDr: Number(r.debit || 0) > 0 ? String(r.entry_date || '') : '',
-          particularsDr: Number(r.debit || 0) > 0 ? String(r.particulars || '') : '',
-          refDr: Number(r.debit || 0) > 0 ? String(r.pr || '') : '',
-          debit: Number(r.debit || 0) > 0 ? formatAmount(Number(r.debit || 0)) : '',
-          dateCr: Number(r.credit || 0) > 0 ? String(r.entry_date || '') : '',
-          particularsCr: Number(r.credit || 0) > 0 ? String(r.particulars || '') : '',
-          refCr: Number(r.credit || 0) > 0 ? String(r.pr || '') : '',
-          credit: Number(r.credit || 0) > 0 ? formatAmount(Number(r.credit || 0)) : '',
-          auto: true,
-          autoSource: String(r.source || ''),
-        }));
+        // The server RPC's `pr` can reflect the originating transaction
+        // (for example a Purchases record) rather than the Book of Original
+        // Entry that actually posted the transaction to the GL.  For cash/check
+        // purchases, the transaction is posted through the Cash Disbursements
+        // Journal, so its PR must be CDJ, not PJ. Prefer the normalized local
+        // GL posting reference when an exact transaction match is available.
+        const localEntries = (currentClient?.glAccounts || [])
+          .find((account: GeneralLedgerAccount) => String(account.accountId) === String(accountFilter))
+          ?.entries || [];
+
+        const normalized = (value: unknown) => String(value ?? '').trim().toLowerCase();
+        const findLocalPostingRef = (r: any): string => {
+          const date = String(r.entry_date || '').slice(0, 10);
+          const particulars = normalized(r.particulars);
+          const debit = Number(r.debit || 0);
+          const credit = Number(r.credit || 0);
+          const match = localEntries.find((entry: GeneralLedgerEntry) => {
+            const matchedDate = entryDate(entry);
+            if (matchedDate !== date) return false;
+            const entryParticulars = normalized(entry.particularsDr || entry.particularsCr);
+            if (entryParticulars !== particulars) return false;
+            const entryDebit = numberValue(entry.debit);
+            const entryCredit = numberValue(entry.credit);
+            return Math.abs(entryDebit - debit) < 0.005 && Math.abs(entryCredit - credit) < 0.005;
+          });
+          return match ? String(match.refDr || match.refCr || '') : '';
+        };
+
+        const mapped: GeneralLedgerEntry[] = rows.map((r:any) => {
+          const serverPr = String(r.pr || '');
+          const localPr = findLocalPostingRef(r);
+          const pr = localPr || serverPr;
+          return {
+            id: String(r.entry_id),
+            dateDr: Number(r.debit || 0) > 0 ? String(r.entry_date || '') : '',
+            particularsDr: Number(r.debit || 0) > 0 ? String(r.particulars || '') : '',
+            refDr: Number(r.debit || 0) > 0 ? pr : '',
+            debit: Number(r.debit || 0) > 0 ? formatAmount(Number(r.debit || 0)) : '',
+            dateCr: Number(r.credit || 0) > 0 ? String(r.entry_date || '') : '',
+            particularsCr: Number(r.credit || 0) > 0 ? String(r.particulars || '') : '',
+            refCr: Number(r.credit || 0) > 0 ? pr : '',
+            credit: Number(r.credit || 0) > 0 ? formatAmount(Number(r.credit || 0)) : '',
+            auto: true,
+            autoSource: String(r.source || ''),
+          };
+        });
 
         setBeginningBalance(prior);
         setLedgerEntries(mapped);
