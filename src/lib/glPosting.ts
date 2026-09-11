@@ -1406,6 +1406,12 @@ export function syncGeneralLedger(client: Client): Client {
       accountId,
       accountType: acct?.type || existingRecord?.accountType,
       entries: autoEntries,
+      // Always re-sourced live from the current Chart of Accounts entry so
+      // edits to the opening balance (or normal side) there are reflected
+      // in the General Ledger immediately, rather than being dropped on
+      // every resync.
+      openingBalance: acct?.openingBalance ?? existingRecord?.openingBalance,
+      normalSide: acct?.normalSide || existingRecord?.normalSide,
     });
   });
 
