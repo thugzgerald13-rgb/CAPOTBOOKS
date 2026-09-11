@@ -77,6 +77,37 @@ class CapotLocalDb extends Dexie {
 export const localDb = new CapotLocalDb();
 
 // ---------------------------------------------------------------------------
+// Cache schema versioning. The delta-sync cache stores full rows in
+// IndexedDB keyed by [table+id]. A row that is DELETED from Supabase has no
+// `updated_at`, so a `gte(cursor)` delta query can never discover its removal
+// — the stale copy survives in IndexedDB forever and "comes back" on every
+// refresh (this is exactly the duplicated-account-title bug). Bump this
+// constant whenever the cache shape changes or a stale-cache bug is fixed;
+// validateCacheSchema() will then wipe every cached row + every watermark
+// cursor once, forcing one clean full re-sync from the authoritative tables.
+// ---------------------------------------------------------------------------
+export const CACHE_SCHEMA_VERSION = '2';
+const VERSION_KEY = 'cache_schema_version';
+
+export async function validateCacheSchema(): Promise<boolean> {
+  try {
+    const entry = await localDb.meta.get(VERSION_KEY);
+    const stored = entry?.value as string | undefined;
+    if (stored === CACHE_SCHEMA_VERSION) return false;
+    // Wipe everything cached: rows (all tables/clients) and watermark cursors.
+    await localDb.cachedRows.clear();
+    await localDb.meta.where('key').startsWith('watermark:').delete();
+    // Also drop the read-through query cache if present (best-effort).
+    try { await (localDb as any).queryCache?.clear(); } catch { /* older schema */ }
+    await localDb.meta.put({ key: VERSION_KEY, value: CACHE_SCHEMA_VERSION });
+    return true;
+  } catch (e) {
+    console.warn('[localDb] validateCacheSchema failed (non-fatal)', e);
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 1. Delta-cache persistence (the egress win)
 // ---------------------------------------------------------------------------
 
@@ -90,6 +121,11 @@ export async function getCachedCursor(clientId: string): Promise<string | null> 
 
 export async function setCachedCursor(clientId: string, cursorIso: string): Promise<void> {
   await localDb.meta.put({ key: cursorKey(clientId), value: cursorIso });
+}
+
+/** Remove the watermark for a client so the next load is a full re-sync. */
+export async function clearCachedCursor(clientId: string): Promise<void> {
+  await localDb.meta.delete(cursorKey(clientId));
 }
 
 /** Bulk-insert/replace cached rows for one table of one client. */
