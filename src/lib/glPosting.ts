@@ -27,6 +27,14 @@ const two = (n: number) => n.toFixed(2).replace(/\B(?=(\d{3})+(?!\d)\.)/g, ',');
 
 const fmt = (n: number) => Number.isFinite(n) && Math.abs(n) > 0.004 ? two(Math.abs(n)) : '';
 
+// An empty saved-columns array is truthy in JavaScript, so writing
+// `useColumns(client.crjColumns, DEFAULT_CRJ_COLUMNS)` silently selects [] when a
+// client has never persisted that journal's columns — and posting against
+// zero number columns produces zero ledger entries. Always fall back to the
+// default column set when nothing has been persisted for that journal.
+const useColumns = (saved: JournalColumn[] | undefined, fallback: JournalColumn[]): JournalColumn[] =>
+  saved && saved.length > 0 ? saved : fallback;
+
 // ---------------------------------------------------------------------------
 // Account name matching
 // ---------------------------------------------------------------------------
@@ -232,7 +240,7 @@ function incomeSalesToCrjEntries(client: Client): JournalEntry[] {
 }
 
 function incomeSalesToSjEntries(client: Client): JournalEntry[] {
-  const columns = client.sjColumns || DEFAULT_SJ_COLUMNS;
+  const columns = useColumns(client.sjColumns, DEFAULT_SJ_COLUMNS);
 
   return (client.sales || [])
     .filter((sale: any) => {
@@ -281,7 +289,7 @@ function postIncomeHistory(client: Client, accounts: CoaAccount[]): Posting[] {
   ];
   const crj = postColumnarJournal(
     crjEntries,
-    client.crjColumns || DEFAULT_CRJ_COLUMNS,
+    useColumns(client.crjColumns, DEFAULT_CRJ_COLUMNS),
     accounts,
     {
       prefix: 'crj',
@@ -300,7 +308,7 @@ function postIncomeHistory(client: Client, accounts: CoaAccount[]): Posting[] {
   ];
 
   const sjPostings: Posting[] = [];
-  const sjColumns = client.sjColumns || DEFAULT_SJ_COLUMNS;
+  const sjColumns = useColumns(client.sjColumns, DEFAULT_SJ_COLUMNS);
   sjEntries.forEach(entry => {
     const v = entry.values || {};
     const date = String(v.date || '');
@@ -654,7 +662,7 @@ export function computeAutoPostings(client: Client): Posting[] {
   // GL posts that journal entry — exactly as it appears in the journal.
   const crj = postColumnarJournal(
     client.crjEntries || [],
-    client.crjColumns || DEFAULT_CRJ_COLUMNS,
+    useColumns(client.crjColumns, DEFAULT_CRJ_COLUMNS),
     accounts,
     {
       prefix: 'crj',
@@ -670,7 +678,7 @@ export function computeAutoPostings(client: Client): Posting[] {
   // debit columns and Output VAT/Revenue credit columns. Post the actual
   // journal rows rather than rebuilding them from Income History.
   const sjPostings: Posting[] = [];
-  const sjColumns = client.sjColumns || DEFAULT_SJ_COLUMNS;
+  const sjColumns = useColumns(client.sjColumns, DEFAULT_SJ_COLUMNS);
 
   (client.sjEntries || []).forEach(entry => {
     const v = entry.values || {};
@@ -759,7 +767,7 @@ export function computeAutoPostings(client: Client): Posting[] {
   const cdjManualEntries = (client.cdjEntries || []).filter(e => !e.auto);
   const cdj = postColumnarJournal(
     cdjManualEntries,
-    client.cdjColumns || DEFAULT_CDJ_COLUMNS,
+    useColumns(client.cdjColumns, DEFAULT_CDJ_COLUMNS),
     accounts,
     {
       prefix: 'cdj',
@@ -772,7 +780,7 @@ export function computeAutoPostings(client: Client): Posting[] {
     }
   );
 
-  const pj = postColumnarJournal(client.pjEntries || [], client.pjColumns || DEFAULT_PJ_COLUMNS, accounts, {
+  const pj = postColumnarJournal(client.pjEntries || [], useColumns(client.pjColumns, DEFAULT_PJ_COLUMNS), accounts, {
     prefix: 'pj',
     sourceLabel: 'Purchases Journal',
     dateCol: 'date',
