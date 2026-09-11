@@ -95,11 +95,12 @@ function findColumnKey(row: Record<string, any>, aliases: string[]): string | un
   return Object.keys(row).find(key => aliases.includes(key.toLowerCase().replace(/[^a-z]/g, '')));
 }
 
-// Given a code that's already taken, finds the next unused code by incrementing its
-// trailing numeric portion (e.g. "2001" -> "2002", "ACP-2000" -> "ACP-2001"), cascading
-// past any further codes that are also already in use. If the code has no trailing
-// digits, a numeric suffix is appended instead (e.g. "MISC" -> "MISC-1").
-// Used to "bump" an existing account aside so a newly inserted account can take its code.
+// Shifts an entire account-code sequence forward by one position when a new
+// account is inserted at an already-used code. For example, inserting at 2001
+// changes 2001 -> 2002, 2002 -> 2003, 2003 -> 2004, and so on. Parent references
+// are updated using the same old-code -> new-code mapping so the hierarchy stays intact.
+// Legacy helper retained for edit-account collision handling. New-account insertion
+// uses shiftAccountsForInsertion above so the entire following sequence moves together.
 export function nextAvailableCode(code: string, usedIds: string[]): string {
   const used = new Set(usedIds);
   const match = code.match(/^(.*?)(\d+)$/);
@@ -124,65 +125,51 @@ export function nextAvailableCode(code: string, usedIds: string[]): string {
   return candidate;
 }
 
-// Shifts every account in the same numeric code series at or after an
-// insertion point by one code. This makes insertion work at ANY account
-// code, not just a particular code such as 2001. Example:
-// 2001, 2002, 2003 + new 2001 => new 2001, old 2001->2002,
-// old 2002->2003, old 2003->2004.
-// Parent IDs are updated at the same time so the account hierarchy remains intact.
-export function insertAccountWithCodeShift(
+export function shiftAccountsForInsertion(
   accountsList: CoaAccount[],
-  newCode: string
-): { accounts: CoaAccount[]; resolvedParentMap: Map<string, string> } {
-  const match = newCode.match(/^(.*?)(\d+)$/);
-  if (!match) {
-    return { accounts: [...accountsList], resolvedParentMap: new Map() };
-  }
+  insertCode: string,
+  accountType?: string
+): { accounts: CoaAccount[]; shiftedCount: number; mapping: Map<string, string> } {
+  const match = String(insertCode).match(/^(.*?)(\d+)$/);
+  if (!match) return { accounts: accountsList, shiftedCount: 0, mapping: new Map() };
 
   const prefix = match[1];
-  const startNumber = parseInt(match[2], 10);
-  const width = match[2].length;
+  const insertNumber = parseInt(match[2], 10);
+  const codePattern = new RegExp(`^${prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(\\d+)$`);
 
-  // Only shift codes belonging to the same prefix/series. This means an
-  // account such as ACP-2001 is handled independently from plain 2001.
-  const affected = accountsList
-    .filter(account => {
-      const accountMatch = account.id.match(/^(.*?)(\d+)$/);
-      return accountMatch &&
-        accountMatch[1] === prefix &&
-        parseInt(accountMatch[2], 10) >= startNumber;
-    })
-    .sort((a, b) => {
-      const aNum = parseInt(a.id.match(/(\d+)$/)![1], 10);
-      const bNum = parseInt(b.id.match(/(\d+)$/)![1], 10);
-      return bNum - aNum;
-    });
+  // IMPORTANT: insertion/resequencing is limited to the Account Type where the
+  // new account belongs. Inserting a Liability account must never renumber
+  // Assets, Equity, Revenue, Costs, or Expenses.
+  const targetType = (accountType || '').trim().toLowerCase();
+  const mapping = new Map<string, string>();
+  let shiftedCount = 0;
 
-  const resolvedParentMap = new Map<string, string>();
-  const shiftedIds = new Map<string, string>();
+  for (const account of accountsList) {
+    if (targetType && String(account.type || '').trim().toLowerCase() !== targetType) continue;
 
-  affected.forEach(account => {
-    const accountMatch = account.id.match(/^(.*?)(\d+)$/)!;
-    const number = parseInt(accountMatch[2], 10);
-    const shiftedCode = `${prefix}${String(number + 1).padStart(width, '0')}`;
-    shiftedIds.set(account.id, shiftedCode);
-  });
+    const accountCode = String(account.id);
+    const accountMatch = accountCode.match(codePattern);
+    if (!accountMatch) continue;
 
-  const shiftedAccounts = accountsList.map(account => {
-    const shiftedCode = shiftedIds.get(account.id);
-    const newId = shiftedCode || account.id;
-    const newParentId = account.parentId
-      ? (shiftedIds.get(account.parentId) || account.parentId)
-      : undefined;
+    const number = parseInt(accountMatch[1], 10);
+    if (number < insertNumber) continue;
 
-    if (shiftedCode) {
-      resolvedParentMap.set(account.id, shiftedCode);
-    }
+    const width = accountMatch[1].length;
+    const newNumber = number + 1;
+    const newCode = `${prefix}${String(newNumber).padStart(width, '0')}`;
+    mapping.set(accountCode, newCode);
+    shiftedCount += 1;
+  }
 
-    return { ...account, id: newId, parentId: newParentId };
-  });
+  if (mapping.size === 0) return { accounts: accountsList, shiftedCount: 0, mapping };
 
-  return { accounts: shiftedAccounts, resolvedParentMap };
+  const shiftedAccounts = accountsList.map(account => ({
+    ...account,
+    id: mapping.get(account.id) || account.id,
+    parentId: account.parentId ? (mapping.get(account.parentId) || account.parentId) : account.parentId,
+  }));
+
+  return { accounts: shiftedAccounts, shiftedCount, mapping };
 }
 
 export function resequenceAccounts(
@@ -450,24 +437,23 @@ export function ChartOfAccounts() {
       alert("Please fill out Account Code and Name.");
       return;
     }
-    // Instead of blocking the save outright, offer to insert the new account at this
-    // code and bump the existing occupant to the next free code, so both end up
-    // sitting next to each other in the list rather than losing the new entry.
+    // If the requested code already exists, insert the new account at that exact
+    // position and move every following account in the same code sequence forward
+    // by one. This applies to any account code, not just 2001, and preserves all
+    // parent/sub-account relationships while the codes move.
     let workingAccounts = accounts;
     let resolvedParentId = newParentId || undefined;
     const conflicting = accounts.find(a => a.id === newCode);
     if (conflicting) {
-      const shiftResult = insertAccountWithCodeShift(accounts, newCode);
-      const shiftedCode = shiftResult.resolvedParentMap.get(conflicting.id) || nextAvailableCode(newCode, accounts.map(a => a.id));
+      const preview = shiftAccountsForInsertion(accounts, newCode, newType);
       const proceed = confirm(
         `Account code "${newCode}" is already used by "${conflicting.name}".\n\n` +
-        `Insert the new account at "${newCode}" and shift "${conflicting.name}" to "${shiftedCode}" and all following accounts forward by one?`
+        `Insert the new account at "${newCode}" and move ${preview.shiftedCount} existing account${preview.shiftedCount === 1 ? '' : 's'} forward by one code?`
       );
       if (!proceed) return;
-      workingAccounts = shiftResult.accounts;
-      if (resolvedParentId) {
-        resolvedParentId = shiftResult.resolvedParentMap.get(resolvedParentId) || resolvedParentId;
-      }
+
+      workingAccounts = preview.accounts;
+      if (resolvedParentId) resolvedParentId = preview.mapping.get(resolvedParentId) || resolvedParentId;
     }
 
     // Add custom fields
