@@ -103,8 +103,8 @@ export function Sales() {
       alert('Enter date and amount');
       return;
     }
-    if (!ref.trim() || !buyerTin.trim() || !buyerName.trim() || !buyerAddress.trim()) {
-      alert('Invoice #, Customer TIN, Customer Name, and Customer Address are all required.');
+    if (!ref.trim() || !buyerName.trim()) {
+      alert('Invoice # and Customer Name are required.');
       return;
     }
 
@@ -204,13 +204,12 @@ export function Sales() {
           <input type="text" value={ref} onChange={e => setRef(e.target.value)} placeholder="INV-001" required className="form-input" />
         </div>
         <div className="relative">
-          <label className="form-label">Customer TIN <span className="text-rose-500">*</span></label>
+          <label className="form-label">Customer TIN</label>
           <input 
             type="text" 
             value={buyerTin} 
             onChange={e => setBuyerTin(formatTIN(e.target.value))} 
             placeholder="000-000-000" 
-            required
             className="form-input font-mono" 
             maxLength={11}
           />
@@ -225,12 +224,12 @@ export function Sales() {
           <input type="text" value={buyerName} onChange={e => setBuyerName(e.target.value)} placeholder="Company / Full Name" required className="form-input" />
         </div>
         <div className="lg:col-span-2">
-          <label className="form-label">Customer Address <span className="text-rose-500">*</span></label>
-          <input type="text" value={buyerAddress} onChange={e => setBuyerAddress(e.target.value)} placeholder="Business / Residential Address" required className="form-input" />
+          <label className="form-label">Customer Address</label>
+          <input type="text" value={buyerAddress} onChange={e => setBuyerAddress(e.target.value)} placeholder="Business / Residential Address" className="form-input" />
         </div>
         <div>
-          <label className="form-label">VAT / Exempt / 0-Rated</label>
-          <select value={vatType} onChange={e => setVatType(e.target.value)} className="form-input">
+          <label className="form-label text-red-500">VAT Type *</label>
+          <select value={vatType} onChange={e => setVatType(e.target.value)} className="form-input bg-slate-100 dark:bg-slate-900 border-slate-300">
             <option value="VATable">VATable</option>
             <option value="VAT Exempt">VAT Exempt</option>
             <option value="Zero-Rated">Zero-Rated</option>
