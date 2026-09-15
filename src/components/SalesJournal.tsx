@@ -297,12 +297,6 @@ export function SalesJournal() {
               >
                 <Settings className="w-4 h-4" />
               </button>
-              <button
-                onClick={addEntry}
-                className="bg-cyan-600 hover:bg-cyan-700 text-white font-bold px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5"
-              >
-                <Plus className="w-3.5 h-3.5" /> Add Row
-              </button>
             </div>
           </div>
 
