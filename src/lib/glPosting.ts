@@ -522,7 +522,12 @@ function postPurchases(client: Client, accounts: CoaAccount[]): Posting[] {
 
 function cashPurchasesToCdjEntries(client: Client): JournalEntry[] {
   return (client.purchases || [])
-    .filter(p => p.paymentMethod === 'Cash' || p.paymentMethod === 'Check')
+    // Mirror the Cash Receipts Journal rule: every purchase paid by any
+    // cash-like method (Cash, Check, E-payments, …) is a cash disbursement.
+    // Only "On Account" (accounts payable — not yet paid) and the empty
+    // payment method used by the AP tab are excluded; those post to the CDJ
+    // later, when they are settled via a check voucher or journal voucher.
+    .filter(p => !!p.paymentMethod && p.paymentMethod !== 'On Account')
     .map(p => {
       // "Other Payments" stores its actual payment amount in exemptAmount
       // (amount is intentionally 0 there). Use that field so those cash
@@ -690,18 +695,63 @@ export function syncCashReceiptsJournal(client: Client): Client {
   return { ...client, crjEntries: [...autoEntries, ...manualEntries] };
 }
 
-// Purchases on account belong in the Purchases Journal. There is no separate
-// auto-posting builder today (cash purchases are posted to the CDJ via
-// cashPurchasesToCdjEntries), so this keeps the merge contract: strip any
-// orphaned auto entries and keep everything the user typed manually.
+// ---------------------------------------------------------------------------
+// Source: Purchases Journal auto-entries — every purchase made on account
+// (payment method other than Cash/Check, i.e. On Account or Accounts Payable)
+// is a credit purchase and belongs in the Purchases Journal. Cash/Check
+// purchases are posted to the CDJ via cashPurchasesToCdjEntries instead.
+// Auto PJ rows display in the journal but are excluded from GL posting below
+// (postPurchases already carries every purchase to the ledger), mirroring how
+// CDJ auto rows are handled.
+// ---------------------------------------------------------------------------
+
+function purchasesToPjEntries(client: Client): JournalEntry[] {
+  return (client.purchases || [])
+    .filter(p => p.paymentMethod !== 'Cash' && p.paymentMethod !== 'Check')
+    .map(p => {
+      const net = Number(p.amount) || 0;
+      const exemptZero = (Number(p.exemptAmount) || 0) + (Number(p.zeroRatedAmount) || 0);
+      const tax = Number(p.inputTax) || 0;
+      const wht = p.withholdingOption === 'with' ? (Number(p.whtAmount) || 0) : 0;
+      const totalOwed = net + exemptZero + tax;
+      if (totalOwed <= 0) return null;
+      const accountsPayable = totalOwed - wht;
+
+      const entry: JournalEntry = {
+        id: `pj-auto:purchase:${p.id}`,
+        auto: true,
+        autoSource: 'Purchases',
+        values: {
+          date: p.date,
+          supplier_name: p.supplierName || '',
+          supplier_tin: p.supplierTin || '',
+          invoice_no: p.invoiceNo || '',
+          description: p.transactionDetails || p.expenseType || p.accountTitle || '',
+          net_purchase: net > 0 ? two(net) : '',
+          exempt_zero_rated: exemptZero > 0 ? two(exemptZero) : '',
+          input_tax: tax > 0 ? two(tax) : '',
+          debit_account: p.accountTitle || p.expenseType || 'Purchases',
+          accounts_payable: accountsPayable > 0 ? two(accountsPayable) : '',
+          withholding_tax: wht > 0 ? two(wht) : '',
+        },
+      };
+      return entry;
+    })
+    .filter((e): e is JournalEntry => e !== null);
+}
+
+// Purchases on account belong in the Purchases Journal. Regenerate auto-posted
+// rows from on-account purchases, then merge with the user's manual entries
+// (auto entries never overwrite manual ones).
 export function syncPurchasesJournal(client: Client): Client {
+  const autoEntries = purchasesToPjEntries(client);
   const manualEntries = (client.pjEntries || []).filter((e: any) => !e.auto);
 
-  if (manualEntries.length === (client.pjEntries || []).length) {
-    return client; // no auto entries to strip — avoid needless churn
+  if (autoEntries.length === 0 && manualEntries.length === (client.pjEntries || []).length) {
+    return client; // nothing auto-generated, nothing to strip — avoid needless churn
   }
 
-  return { ...client, pjEntries: manualEntries };
+  return { ...client, pjEntries: [...autoEntries, ...manualEntries] };
 }
 
 // ---------------------------------------------------------------------------
@@ -857,7 +907,9 @@ export function computeAutoPostings(client: Client): Posting[] {
   const cdjSundry = postCdjSundry(cdjEntries, accounts);
   const cdjInputTax = postCdjAutoInputTax(cdjEntries, accounts);
 
-  const pj = postColumnarJournal(client.pjEntries || [], useColumns(client.pjColumns, DEFAULT_PJ_COLUMNS), accounts, {
+  // Auto PJ rows are display-only (on-account purchases already reach the
+  // ledger via postPurchases); only manually-typed PJ rows post here.
+  const pj = postColumnarJournal((client.pjEntries || []).filter(e => !e.auto), useColumns(client.pjColumns, DEFAULT_PJ_COLUMNS), accounts, {
     prefix: 'pj',
     sourceLabel: 'Purchases Journal',
     dateCol: 'date',
