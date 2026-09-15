@@ -547,6 +547,7 @@ function cashPurchasesToCdjEntries(client: Client): JournalEntry[] {
           amount: net > 0 ? two(net) : '',
           cash: two(cashDue),
           input_tax: tax > 0 ? two(tax) : '',
+          wht: wht > 0 ? two(wht) : '',
         },
       };
       return entry;
