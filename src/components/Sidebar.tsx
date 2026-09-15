@@ -37,7 +37,6 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   const [isAfsDraftOpen, setIsAfsDraftOpen] = useState(false);
   const [isFormsOpen, setIsFormsOpen] = useState(false);
   const [isBirOpen, setIsBirOpen] = useState(false);
-  const [isSecOpen, setIsSecOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isBooksOpen, setIsBooksOpen] = useState(false);
   const [isDevOpen, setIsDevOpen] = useState(false);
@@ -70,7 +69,6 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
         setIsAfsDraftOpen(false);
         setIsFormsOpen(false);
       setIsBirOpen(false);
-        setIsSecOpen(false);
         setIsSettingsOpen(false);
         setIsBooksOpen(false);
         setIsDevOpen(false);
@@ -309,7 +307,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               title={isCollapsed ? "Compliance" : undefined}
               className={cn(
                 "flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl transition-all w-full text-left group",
-                (isFormsOpen || activePage === 'compliance-tracker' || activePage === 'bir-forms') ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
+                (isFormsOpen || activePage === 'compliance-tracker' || activePage === 'bir-forms' || ['afs-financial-position','afs-income-statements','afs-equity-retained-earnings','afs-ppe','cashflow'].includes(activePage)) ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
                 isCollapsed && "md:justify-center md:px-2"
               )}
             >
@@ -371,24 +369,61 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                           <FileText className="w-3.5 h-3.5" />
                           Forms
                         </button>
-                        <button onClick={() => handleNavClick('afs-financial-position')} className="flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left">
-                          <FileText className="w-3.5 h-3.5" /> AFS Draft
-                        </button>
                       </motion.div>
                     )}
                   </AnimatePresence>
                 </div>
                 {/* SEC */}
+                <button
+                  onClick={() => {
+                    showToast('SEC forms — coming soon');
+                    setIsOpen(false);
+                  }}
+                  className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left"
+                >
+                  <Building2 className="w-4 h-4" />
+                  SEC
+                </button>
+
+                {/* AFS Draft - separate financial statement drafts (filed with BIR & SEC) */}
                 <div className="flex flex-col">
-                  <button onClick={() => setIsSecOpen(!isSecOpen)} className="flex items-center justify-between gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left">
-                    <span className="flex items-center gap-3"><Building2 className="w-4 h-4" /> SEC</span>
-                    <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", isSecOpen ? "rotate-180" : "")} />
+                  <button
+                    onClick={() => setIsAfsDraftOpen(!isAfsDraftOpen)}
+                    className={cn("flex items-center justify-between gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", ['afs-financial-position','afs-income-statements','afs-equity-retained-earnings','afs-ppe','cashflow'].includes(activePage) && activeIndigo)}
+                  >
+                    <span className="flex items-center gap-3">
+                      <FileText className="w-4 h-4" />
+                      AFS Draft
+                    </span>
+                    <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", isAfsDraftOpen ? "rotate-180" : "")} />
                   </button>
-                  {isSecOpen && (
-                    <div className="flex flex-col gap-1 pl-4">
-                      <button onClick={() => handleNavClick('afs-financial-position')} className="flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left"><FileText className="w-3.5 h-3.5" /> AFS Draft</button>
-                    </div>
-                  )}
+                  <AnimatePresence>
+                    {isAfsDraftOpen && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.15 }}
+                        className="overflow-hidden flex flex-col gap-1 pl-4"
+                      >
+                        <button onClick={() => handleNavClick('afs-financial-position')} className="flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left">
+                          <Landmark className="w-3.5 h-3.5" /> Financial Position
+                        </button>
+                        <button onClick={() => handleNavClick('afs-income-statements')} className="flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left">
+                          <TrendingUp className="w-3.5 h-3.5" /> Income Statements
+                        </button>
+                        <button onClick={() => handleNavClick('cashflow')} className="flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left">
+                          <ArrowLeftRight className="w-3.5 h-3.5" /> Cash Flow
+                        </button>
+                        <button onClick={() => handleNavClick('afs-equity-retained-earnings')} className="flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left">
+                          <Scale className="w-3.5 h-3.5" /> Equity & Retained Earnings
+                        </button>
+                        <button onClick={() => handleNavClick('afs-ppe')} className="flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left">
+                          <Wrench className="w-3.5 h-3.5" /> PPE
+                        </button>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
                 </motion.div>
               )}
@@ -421,7 +456,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               title={isCollapsed ? "Reports" : undefined}
               className={cn(
                 "flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl transition-all w-full text-left group",
-                (isReportsOpen || ['trialbalance','balancesheet','pl','assetlapsing','cashflow','afs-financial-position','afs-income-statements','afs-equity-retained-earnings','afs-ppe'].includes(activePage)) ? "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
+                (isReportsOpen || ['trialbalance','balancesheet','pl','assetlapsing'].includes(activePage)) ? "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
                 isCollapsed && "md:justify-center md:px-2"
               )}
             >
@@ -454,7 +489,6 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       </button>
                     );
                   })}
-
                 </motion.div>
               )}
             </AnimatePresence>
