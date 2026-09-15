@@ -44,6 +44,16 @@ function getInputTaxAccount(accounts: CoaAccount[]): CoaAccount | undefined {
     || accounts.find(a => normalized(a.name) === 'vat input');
 }
 
+function getWithholdingTaxAccount(accounts: CoaAccount[]): CoaAccount | undefined {
+  // CDJ credit column for expanded withholding tax withheld on cash purchases.
+  // Prefer the "Expanded" payable title used by the GL posting logic, then
+  // fall back to the plain payable account in the client's COA.
+  const normalized = (s: string) => s.trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  return accounts.find(a => normalized(a.name) === 'withholding tax payable expanded')
+    || accounts.find(a => normalized(a.name) === 'expanded withholding tax payable')
+    || accounts.find(a => normalized(a.name) === 'withholding tax payable');
+}
+
 function normalizeCdjColumns(columns: JournalColumn[] | undefined, accounts: CoaAccount[]): JournalColumn[] {
   const base = DEFAULT_CDJ_COLUMNS.slice(0, 4); // Date, Payees, Folio/F, Cash on Hand/Bank
   const sundries = DEFAULT_CDJ_COLUMNS.slice(4); // Account Title, Amount Dr/Cr
@@ -56,21 +66,34 @@ function normalizeCdjColumns(columns: JournalColumn[] | undefined, accounts: Coa
     category: 'Dr',
     isSystem: true,
   } : undefined;
+  const whtAccount = getWithholdingTaxAccount(accounts);
+  const whtColumn: JournalColumn | undefined = whtAccount ? {
+    id: accountColumnId(whtAccount.id),
+    name: whtAccount.name,
+    type: 'number',
+    category: 'Cr',
+    isSystem: true,
+  } : undefined;
+  const systemAccountColumns = [inputTaxColumn, whtColumn].filter((c): c is JournalColumn => !!c);
 
   if (!columns || columns.length === 0) {
-    return inputTaxColumn
-      ? [...base, inputTaxColumn, ...sundries]
+    return systemAccountColumns.length > 0
+      ? [...base, ...systemAccountColumns, ...sundries]
       : [...base, ...sundries];
   }
 
   const accountCols: JournalColumn[] = [];
   const used = new Set<string>();
 
-  // Input Tax is a fixed default account column immediately after Cash on Hand/Bank.
-  if (inputTaxAccount) {
-    used.add(inputTaxAccount.id);
-    accountCols.push(inputTaxColumn!);
-  }
+  // Input Tax and Withholding Tax Payable are fixed default account columns
+  // immediately after Cash on Hand/Bank.
+  systemAccountColumns.forEach(c => {
+    const accountId = accountIdFromColumn(c);
+    if (accountId) {
+      used.add(accountId);
+      accountCols.push(c);
+    }
+  });
 
   // Preserve existing CDJ account columns, but never allow more than 9.
   columns.forEach(c => {
@@ -161,6 +184,25 @@ function getInputTaxValue(entry: JournalEntry): string {
   return '';
 }
 
+function getWithholdingTaxValue(entry: JournalEntry): string {
+  const values = entry.values || {};
+  const candidates = [
+    values.wht,
+    values.withholding_tax,
+    values.whtAmount,
+    values['Withholding Tax'],
+  ];
+  for (const candidate of candidates) {
+    if (candidate !== undefined && candidate !== null && String(candidate).trim() !== '') {
+      const n = Number(String(candidate).replace(/,/g, ''));
+      if (Number.isFinite(n) && n > 0) {
+        return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      }
+    }
+  }
+  return '';
+}
+
 function getCreditedCashValue(entry: JournalEntry): string {
   const values = entry.values || {};
   const candidates = [
@@ -193,6 +235,11 @@ function getCdjDisplayValue(entry: JournalEntry, column: JournalColumn, columns:
     const inputTaxAccount = getInputTaxAccount(accounts);
     if (inputTaxAccount && accountIdFromColumn(column) === inputTaxAccount.id) {
       return getInputTaxValue(entry);
+    }
+
+    const whtAccount = getWithholdingTaxAccount(accounts);
+    if (whtAccount && accountIdFromColumn(column) === whtAccount.id) {
+      return getWithholdingTaxValue(entry);
     }
 
     const allocation = getDebitAllocation(entry, columns, accounts);
@@ -305,6 +352,13 @@ export function CashDisbursementsJournal() {
           : undefined;
         const inputTaxValue = getInputTaxValue(entry);
         if (inputTaxColumn && inputTaxValue) next[inputTaxColumn.id] = inputTaxValue;
+
+        const whtAccount = getWithholdingTaxAccount(accounts);
+        const whtColumn = whtAccount
+          ? normalized.find(c => accountIdFromColumn(c) === whtAccount.id)
+          : undefined;
+        const whtValue = getWithholdingTaxValue(entry);
+        if (whtColumn && whtValue) next[whtColumn.id] = whtValue;
       }
 
       const cashValue = getCreditedCashValue(entry);
