@@ -232,16 +232,20 @@ function getCdjDisplayValue(entry: JournalEntry, column: JournalColumn, columns:
 
     // Withholding Tax Payable is carried in the Sundry columns (no dedicated
     // column). When a purchase was made "With Withholdings", the credit side
-    // splits between Cash on Hand/Bank and Withholding Tax Payable.
+    // splits between Cash on Hand/Bank and Withholding Tax Payable. The sundry
+    // amount is signed: negative for a credit account, positive for a debit.
     const whtValue = getWithholdingTaxValue(entry);
-    const whtTitle = getWithholdingTaxAccount(accounts)?.name || 'Withholding Tax Payable';
+    const whtAccount = getWithholdingTaxAccount(accounts);
+    const whtTitle = whtAccount?.name || 'Withholding Tax Payable';
+    const whtIsCredit = !whtAccount || whtAccount.normalSide === 'credit';
+    const whtSigned = whtValue && whtIsCredit ? `-${whtValue}` : whtValue;
 
     if (column.id === CDJ_SUNDRY_ACCOUNT_TITLE_ID) {
       if (whtValue) return whtTitle;
       return allocation.matchedColumnId ? '' : allocation.title;
     }
     if (column.id === CDJ_SUNDRY_AMOUNT_ID) {
-      if (whtValue) return whtValue;
+      if (whtValue) return whtSigned;
       return allocation.matchedColumnId ? '' : allocation.amount;
     }
   }
@@ -347,8 +351,10 @@ export function CashDisbursementsJournal() {
 
         const whtValue = getWithholdingTaxValue(entry);
         if (whtValue) {
-          next[CDJ_SUNDRY_ACCOUNT_TITLE_ID] = getWithholdingTaxAccount(accounts)?.name || 'Withholding Tax Payable';
-          next[CDJ_SUNDRY_AMOUNT_ID] = whtValue;
+          const whtAcct = getWithholdingTaxAccount(accounts);
+          const whtIsCredit = !whtAcct || whtAcct.normalSide === 'credit';
+          next[CDJ_SUNDRY_ACCOUNT_TITLE_ID] = whtAcct?.name || 'Withholding Tax Payable';
+          next[CDJ_SUNDRY_AMOUNT_ID] = whtIsCredit ? `-${whtValue}` : whtValue;
         }
       }
 
