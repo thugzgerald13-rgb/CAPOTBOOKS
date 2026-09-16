@@ -308,15 +308,6 @@ export interface ProfitAndLossData {
   costOfRevenue: ProfitAndLossLine[];
   operatingExpenses: ProfitAndLossLine[];
   provisionForIncomeTax: string;
-  /** Excel-style spreadsheet grid snapshot (cells, dimensions, year headers) */
-  grid?: {
-    version: number;
-    colCount: number;
-    rowCount: number;
-    colWidths: number[];
-    yearHeaders: string[];
-    cells: Record<string, any>;
-  };
 }
 
 export interface BalanceSheetLine {
