@@ -50,6 +50,23 @@ export function ProfitAndLoss() {
     );
   }) : <tr><td colSpan={2} className="pl-6 py-2 text-slate-400">No accounts in this category.</td></tr>;
 
+  // --- Cost of Revenue presented in manufacturing-style format:
+  //     Raw Materials Used / Direct Labor / Factory Overhead, with underlined
+  //     subtotals and a peso-prefixed grand total (double-underlined). ---
+  type CostLine = (typeof costs)[number];
+  const costAmt = (x: CostLine) => Math.max(0, Number(x.period_debit || 0) - Number(x.period_credit || 0));
+  const sumCost = (g: CostLine[]) => g.reduce((n, x) => n + costAmt(x), 0);
+  const peso = (n: number) => `₱ ${formatAccountAmount(n)}`;
+  const rawMaterials = costs.filter(x => /purchase|raw.?material|materials? used/i.test(x.account_name));
+  const directLabor = costs.filter(x => /direct.?labor|wages|salaries|payroll|labor/i.test(x.account_name));
+  const factoryOverhead = costs.filter(x => !rawMaterials.includes(x) && !directLabor.includes(x));
+  const firstCostGroup: 'raw' | 'labor' | 'oh' | null = rawMaterials.length ? 'raw' : directLabor.length ? 'labor' : factoryOverhead.length ? 'oh' : null;
+  const costItemRow = (x: CostLine, showPeso: boolean) => (
+    <tr key={x.account_id}>
+      <td className="pl-6 py-1.5">{x.account_id} — {x.account_name}</td>
+      <td className="w-40 py-1.5 text-right font-mono pr-2">{showPeso ? peso(costAmt(x)) : formatAccountAmount(costAmt(x))}</td>
+    </tr>
+  );
   return (
     <div className="w-full flex flex-col">
       <PageHeader title="Profit & Loss" icon={<TrendingUp className="text-emerald-500" />} centered />
@@ -79,8 +96,39 @@ export function ProfitAndLoss() {
 
             <section>
               <div className="uppercase mb-2 font-bold">COST OF REVENUE</div>
-              <table className="w-full"><tbody>{renderAccounts(costs, 'debit')}
-                <tr className="font-bold border-t"><td className="pl-6 py-2"></td><td className="text-right font-mono pr-2">{formatAccountAmount(costTotal)}</td></tr>
+              <table className="w-full"><tbody>
+                {rawMaterials.length > 0 && (
+                  <>
+                    <tr><td colSpan={2} className="py-1.5 font-bold uppercase">Raw Materials Used:</td></tr>
+                    {rawMaterials.map((x, i) => costItemRow(x, firstCostGroup === 'raw' && i === 0))}
+                    {rawMaterials.length > 1 && (
+                      <tr className="font-bold border-t"><td className="pl-6 py-2"></td><td className="w-40 text-right font-mono pr-2">{formatAccountAmount(sumCost(rawMaterials))}</td></tr>
+                    )}
+                  </>
+                )}
+                {directLabor.length > 0 && directLabor.length === 1 && (
+                  <tr className="font-bold"><td className="py-2 uppercase">Direct Labor</td><td className="w-40 text-right font-mono pr-2">{firstCostGroup === 'labor' ? peso(sumCost(directLabor)) : formatAccountAmount(sumCost(directLabor))}</td></tr>
+                )}
+                {directLabor.length > 1 && (
+                  <>
+                    <tr><td colSpan={2} className="py-1.5 font-bold uppercase">Direct Labor:</td></tr>
+                    {directLabor.map((x, i) => costItemRow(x, firstCostGroup === 'labor' && i === 0))}
+                    <tr className="font-bold border-t"><td className="pl-6 py-2"></td><td className="w-40 text-right font-mono pr-2">{formatAccountAmount(sumCost(directLabor))}</td></tr>
+                  </>
+                )}
+                {factoryOverhead.length > 0 && (
+                  <>
+                    <tr><td colSpan={2} className="py-1.5 font-bold uppercase">Factory Overhead:</td></tr>
+                    {factoryOverhead.map((x, i) => costItemRow(x, firstCostGroup === 'oh' && i === 0))}
+                    {factoryOverhead.length > 1 && (
+                      <tr className="font-bold border-t"><td className="pl-6 py-2"></td><td className="w-40 text-right font-mono pr-2">{formatAccountAmount(sumCost(factoryOverhead))}</td></tr>
+                    )}
+                  </>
+                )}
+                {costs.length === 0 && <tr><td colSpan={2} className="pl-6 py-2 text-slate-400">No accounts in this category.</td></tr>}
+                {costs.length > 0 && (
+                  <tr className="font-bold border-t-2" style={{ borderBottom: '3px double currentColor' }}><td className="pl-6 py-2"></td><td className="w-40 text-right font-mono pr-2">{peso(costTotal)}</td></tr>
+                )}
               </tbody></table>
             </section>
 
