@@ -73,14 +73,14 @@ export function ProfitAndLoss() {
             <section>
               <div className="uppercase mb-2 font-bold">REVENUE</div>
               <table className="w-full"><tbody>{renderAccounts(revenue, 'revenue')}
-                <tr className="font-bold border-t"><td className="pl-6 py-2">TOTAL REVENUE</td><td className="text-right font-mono pr-2">{formatAccountAmount(revenueTotal)}</td></tr>
+                <tr className="font-bold border-t"><td className="pl-6 py-2"></td><td className="text-right font-mono pr-2">{formatAccountAmount(revenueTotal)}</td></tr>
               </tbody></table>
             </section>
 
             <section>
               <div className="uppercase mb-2 font-bold">COST OF REVENUE</div>
               <table className="w-full"><tbody>{renderAccounts(costs, 'debit')}
-                <tr className="font-bold border-t"><td className="pl-6 py-2">TOTAL COST OF REVENUE</td><td className="text-right font-mono pr-2">{formatAccountAmount(costTotal)}</td></tr>
+                <tr className="font-bold border-t"><td className="pl-6 py-2"></td><td className="text-right font-mono pr-2">{formatAccountAmount(costTotal)}</td></tr>
               </tbody></table>
             </section>
 
@@ -91,7 +91,7 @@ export function ProfitAndLoss() {
             <section>
               <div className="uppercase mb-2 font-bold">OPERATING EXPENSES</div>
               <table className="w-full"><tbody>{renderAccounts(expenses, 'debit')}
-                <tr className="font-bold border-t"><td className="pl-6 py-2">TOTAL OPERATING EXPENSES</td><td className="text-right font-mono pr-2">{formatAccountAmount(expenseTotal)}</td></tr>
+                <tr className="font-bold border-t"><td className="pl-6 py-2"></td><td className="text-right font-mono pr-2">{formatAccountAmount(expenseTotal)}</td></tr>
               </tbody></table>
             </section>
 
