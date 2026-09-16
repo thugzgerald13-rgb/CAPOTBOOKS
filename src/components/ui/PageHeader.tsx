@@ -1,32 +1,26 @@
-import { ReactNode } from 'react';
+import React from 'react';
 
-interface PageHeaderProps {
-  title: ReactNode;
-  icon?: ReactNode;
-  badge?: ReactNode;
+export interface PageHeaderProps {
+  title: string;
+  icon?: React.ReactNode;
   centered?: boolean;
-  actions?: ReactNode;
+  subtitle?: string;
+  actions?: React.ReactNode;
 }
 
-/** Standard header for a full page (icon + title). Each page renders this
- * directly rather than being wrapped by a shared page component -
- * navigation/mounting is handled by the router in App.tsx, and the sidebar
- * is always visible for navigating elsewhere (no back button needed).
- * Pass `centered` for report-style pages (Trial Balance, Balance Sheet,
- * Profit & Loss, Cash Flow, Asset Lapsing) where the title reads like a
- * document heading rather than app chrome. Pass `actions` for controls
- * (e.g. an "Add" button) that should sit at the far right of the header. */
-export function PageHeader({ title, icon, badge, centered = false, actions }: PageHeaderProps) {
+export function PageHeader({ title, icon, centered, subtitle, actions }: PageHeaderProps) {
   return (
-    <div className={`flex items-center px-5 py-4 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 z-10 shrink-0 ${centered ? 'justify-center' : 'justify-between'}`}>
-      <div className="flex items-center gap-3">
-        {icon && <span className="text-xl">{icon}</span>}
-        <h3 className="text-base md:text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
-          {title}
-          {badge}
-        </h3>
+    <div className={`flex items-center gap-3 px-4 md:px-6 py-4 border-b border-slate-200 dark:border-slate-700/60 bg-white/70 dark:bg-slate-900/40 backdrop-blur ${centered ? 'justify-center' : 'justify-between'}`}>
+      <div className={`flex items-center gap-3 ${centered ? 'text-center' : ''}`}>
+        {icon && <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-slate-100 dark:bg-slate-800">{icon}</div>}
+        <div>
+          <h1 className="text-lg md:text-xl font-bold text-slate-800 dark:text-slate-100 tracking-tight">{title}</h1>
+          {subtitle && <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{subtitle}</p>}
+        </div>
       </div>
-      {actions && <div className="flex items-center gap-3">{actions}</div>}
+      {actions && <div className="flex items-center gap-2">{actions}</div>}
     </div>
   );
 }
+
+export default PageHeader;
