@@ -30,7 +30,7 @@ function accountIdFromColumn(column: JournalColumn): string | undefined {
 }
 
 function getClientAccounts(client: any): CoaAccount[] {
-  return (client?.accounts || []).filter((a: CoaAccount) => !a.hidden);
+  return (client.accounts || []).filter((a: CoaAccount) => !a.hidden);
 }
 
 function getInputTaxAccount(accounts: CoaAccount[]): CoaAccount | undefined {
@@ -57,7 +57,6 @@ function getWithholdingTaxAccount(accounts: CoaAccount[]): CoaAccount | undefine
 function normalizeCdjColumns(columns: JournalColumn[] | undefined, accounts: CoaAccount[]): JournalColumn[] {
   const base = DEFAULT_CDJ_COLUMNS.slice(0, 4); // Date, Payees, Folio/F, Cash on Hand/Bank
   const sundries = DEFAULT_CDJ_COLUMNS.slice(4); // Account Title, Amount Dr/Cr
-  const systemIds = new Set(DEFAULT_CDJ_COLUMNS.map(c => c.id));
 
   const inputTaxAccount = getInputTaxAccount(accounts);
   const inputTaxColumn: JournalColumn | undefined = inputTaxAccount ? {
@@ -85,64 +84,37 @@ function normalizeCdjColumns(columns: JournalColumn[] | undefined, accounts: Coa
     accountCols.push(inputTaxColumn!);
   }
 
-  // Preserve EVERY existing CDJ account column.  Earlier builds dropped a
-  // column whenever its COA account was hidden, deleted, not yet loaded, or
-  // beyond the 9-column cap — and the mount-time migration then deleted that
-  // row from the database permanently.  We now keep the column (falling back
-  // to its stored name/category) so no user configuration or entry data is
-  // ever lost silently.  The 9-column cap only restricts ADDING new columns
-  // in the UI; existing columns are never truncated.
+  // Preserve existing CDJ account columns, but never allow more than 9.
   columns.forEach(c => {
-    if (systemIds.has(c.id)) return; // base + sundries are always re-added below
     const accountId = accountIdFromColumn(c);
-    if (accountId) {
-      // Prefixed account column (current format).  Never drop it.
-      if (accountId === whtAccountId || used.has(accountId)) return;
-      used.add(accountId);
-      const account = accounts.find(a => a.id === accountId);
-      accountCols.push(account
-        ? {
-            id: accountColumnId(account.id),
-            name: account.name,
-            type: 'number',
-            category: account.normalSide === 'credit' ? 'Cr' : 'Dr',
-            isSystem: false,
-          }
-        : {
-            id: c.id,
-            name: c.name || accountId,
-            type: c.type || 'number',
-            category: c.category || 'Dr',
-            isSystem: false,
-          });
-      return;
-    }
-    // Legacy user-created numeric column (no cdj_coa_ prefix).  Migrate it to
-    // the prefixed id when it matches a COA account; otherwise preserve it
-    // as-is so its stored entry values remain visible.
-    if (c.type === 'number' && !c.isSystem) {
-      const match = accounts.find(a =>
-        a.id === c.id || a.name.trim().toLowerCase() === c.name.trim().toLowerCase()
-      );
-      if (match && match.id !== whtAccountId && !used.has(match.id)) {
-        used.add(match.id);
-        accountCols.push({
-          id: accountColumnId(match.id),
-          name: match.name,
-          type: 'number',
-          category: match.normalSide === 'credit' ? 'Cr' : 'Dr',
-          isSystem: false,
-        });
-      } else if (!match) {
-        accountCols.push({
-          id: c.id,
-          name: c.name || c.id,
-          type: 'number',
-          category: c.category || 'Dr',
-          isSystem: false,
-        });
-      }
-    }
+    if (!accountId || accountId === whtAccountId || accountCols.length >= MAX_CDJ_ACCOUNT_COLUMNS || used.has(accountId)) return;
+    const account = accounts.find(a => a.id === accountId);
+    if (!account) return;
+    used.add(account.id);
+    accountCols.push({
+      id: accountColumnId(account.id),
+      name: account.name,
+      type: 'number',
+      category: account.normalSide === 'credit' ? 'Cr' : 'Dr',
+      isSystem: false,
+    });
+  });
+
+  // Migrate older user-created numeric columns that were named after a COA account.
+  columns.filter(c => c.type === 'number' && !c.isSystem).forEach(c => {
+    if (accountCols.length >= MAX_CDJ_ACCOUNT_COLUMNS) return;
+    const match = accounts.find(a =>
+      a.id === c.id || a.name.trim().toLowerCase() === c.name.trim().toLowerCase()
+    );
+    if (!match || match.id === whtAccountId || used.has(match.id)) return;
+    used.add(match.id);
+    accountCols.push({
+      id: accountColumnId(match.id),
+      name: match.name,
+      type: 'number',
+      category: match.normalSide === 'credit' ? 'Cr' : 'Dr',
+      isSystem: false,
+    });
   });
 
   return [...base, ...accountCols, ...sundries];
@@ -293,14 +265,9 @@ export function CashDisbursementsJournal() {
   const [periodFrom, setPeriodFrom] = useState('');
   const [periodTo, setPeriodTo] = useState('');
 
-  // allAccounts includes hidden accounts — used to resolve/preserve existing
-  // CDJ columns so hiding an account in the COA never drops its journal column.
-  // `accounts` (visible, non-hidden) is used by the add-column picker and
-  // entry matching.
-  const allAccounts = ((currentClient?.accounts) || []) as CoaAccount[];
   const accounts = getClientAccounts(currentClient);
   const rawColumns = currentClient.cdjColumns;
-  const columns = localColumns || normalizeCdjColumns(rawColumns, allAccounts);
+  const columns = localColumns || normalizeCdjColumns(rawColumns, accounts);
   const entries = localEntries || currentClient.cdjEntries || [];
 
   const filteredEntries = (periodFrom || periodTo)
@@ -321,52 +288,28 @@ export function CashDisbursementsJournal() {
   // legacy column migration.
   const migrationClientRef = React.useRef<string | null>(null);
 
-  // Reset the in-memory edit buffer when switching clients so a previous
-  // client's columns/entries are never displayed or saved for the new one.
-  useEffect(() => {
-    setLocalColumns(null);
-    setLocalEntries(null);
-  }, [currentClientId]);
-
   useEffect(() => {
     if (!currentClient || !currentClientId) return;
     if (migrationClientRef.current === currentClientId) return;
-    migrationClientRef.current = currentClientId;
 
-    // If the COA hasn't loaded yet (empty account list), normalizing would
-    // treat every saved account column as orphaned.  A previous build ran the
-    // migration in this state and permanently deleted the columns via the
-    // full-replace save.  Never migrate until accounts are present.
-    if (allAccounts.length === 0) return;
+    // Do not run the one-time migration until the client's Chart of Accounts
+    // has actually been loaded. On an initial render the client can briefly
+    // have an empty `accounts` array; normalizing at that point would see none
+    // of the previously selected CDJ account-title columns and overwrite them
+    // with only the fixed columns.
+    if (accounts.length === 0) return;
 
     const raw = currentClient.cdjColumns || [];
-    const normalized = normalizeCdjColumns(raw, allAccounts);
+    const normalized = normalizeCdjColumns(raw, accounts);
+    const rawSignature = JSON.stringify(raw);
+    const normalizedSignature = JSON.stringify(normalized);
 
-    // Additive column migration only: upsert columns that are missing or whose
-    // name/category changed.  Never delete — a normalization bug must never be
-    // able to erase user-configured columns.
-    const rawById = new Map<string, JournalColumn>(raw.map(c => [c.id, c] as [string, JournalColumn]));
-    const changedColumns = normalized.filter(c => {
-      const existing = rawById.get(c.id);
-      return !existing
-        || existing.name !== c.name
-        || existing.type !== c.type
-        || existing.category !== c.category
-        || !!existing.isSystem !== !!c.isSystem;
-    });
-    if (changedColumns.length) {
-      void Promise.all(changedColumns.map(c => saveJournalColumn('CDJ', c)))
-        .catch(e => console.error('CDJ column migration save failed:', e));
-    }
+    // Mark this client as inspected before any async/state update. This
+    // prevents navigation or a context refresh from starting the migration
+    // repeatedly.
+    migrationClientRef.current = currentClientId;
 
-    // Entry-value migration (old Account Title/Amount -> Sundries) is only
-    // needed for the pre-normalized legacy format.  Skip it otherwise.
-    const isLegacy = raw.some(c =>
-      c.id === 'account_title'
-      || c.id === 'amount'
-      || (c.type === 'number' && !c.isSystem && !String(c.id).startsWith(CDJ_ACCOUNT_PREFIX))
-    );
-    if (!isLegacy) return;
+    if (rawSignature === normalizedSignature) return;
 
     // Preserve old Account Title/Amount values as Sundries during migration.
     const oldAccountTitle = raw.find(c => c.id === 'account_title');
@@ -384,7 +327,7 @@ export function CashDisbursementsJournal() {
       }
 
       normalized.filter(c => accountIdFromColumn(c)).forEach(c => {
-        const account = allAccounts.find(a => a.id === accountIdFromColumn(c));
+        const account = accounts.find(a => a.id === accountIdFromColumn(c));
         const old = account && oldAccountColumns.find(
           x => x.name.trim().toLowerCase() === account.name.trim().toLowerCase()
         );
@@ -406,7 +349,7 @@ export function CashDisbursementsJournal() {
           next[CDJ_SUNDRY_AMOUNT_ID] = allocation.amount;
         }
 
-        const inputTaxAccount = getInputTaxAccount(allAccounts);
+        const inputTaxAccount = getInputTaxAccount(accounts);
         const inputTaxColumn = inputTaxAccount
           ? normalized.find(c => accountIdFromColumn(c) === inputTaxAccount.id)
           : undefined;
@@ -430,23 +373,21 @@ export function CashDisbursementsJournal() {
         : { ...entry, values: next };
     });
 
-    // Legacy entry migration only — columns were already upserted additively
-    // above.  saveJournalEntries keeps every existing entry id (its stale
-    // delete only targets ids absent from the passed list, which is none).
-    void saveJournalEntries('CDJ', migratedEntries)
-      .catch(e => console.error('CDJ entry migration save failed:', e));
+    // One save only, for legacy/default column migration. No dependency on
+    // Persist the normalized CDJ columns and entries directly; do not rewrite the client aggregate.
+    void Promise.all([saveJournalColumns('CDJ', normalized), saveJournalEntries('CDJ', migratedEntries)]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentClientId]);
+  }, [currentClientId, accounts.length]);
 
   if (!currentClient || !currentClientId) return null;
 
   const handleSaveColumns = async (newCols: JournalColumn[]) => {
+    const previous = columns;
     try {
-      // Full replace is intentional here: the user explicitly added/removed a
-      // column.  Atomic save avoids the previous concurrent upsert+delete
-      // race, where both reads of clients[clientId] were stale and the last
-      // write won (silently dropping the just-added column from local state).
-      await saveJournalColumns('CDJ', newCols);
+      const previousIds = new Set(previous.map(c => c.id));
+      const nextIds = new Set(newCols.map(c => c.id));
+      await Promise.all(newCols.filter(c => !previousIds.has(c.id) || JSON.stringify(c) !== JSON.stringify(previous.find(p => p.id === c.id))).map(c => saveJournalColumn('CDJ', c)));
+      await Promise.all(previous.filter(c => !nextIds.has(c.id)).map(c => deleteJournalColumn('CDJ', c.id)));
       setLocalColumns(newCols);
     } catch (error) {
       console.error('CDJ column save failed:', error);
