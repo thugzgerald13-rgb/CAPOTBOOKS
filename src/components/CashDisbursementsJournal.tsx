@@ -18,7 +18,7 @@ export const DEFAULT_CDJ_COLUMNS: JournalColumn[] = [
   { id: CDJ_SUNDRY_AMOUNT_ID, name: 'Amount Dr/Cr', type: 'number', category: 'None', isSystem: true },
 ];
 
-const MAX_CDJ_ACCOUNT_COLUMNS = 9;
+const MAX_CDJ_ACCOUNT_COLUMNS = 9; // user-selectable COA columns; Input Tax is a fixed default column
 const CDJ_ACCOUNT_PREFIX = 'cdj_coa_';
 
 function accountColumnId(accountId: string) {
@@ -87,7 +87,7 @@ function normalizeCdjColumns(columns: JournalColumn[] | undefined, accounts: Coa
   // Preserve existing CDJ account columns, but never allow more than 9.
   columns.forEach(c => {
     const accountId = accountIdFromColumn(c);
-    if (!accountId || accountId === whtAccountId || accountCols.length >= MAX_CDJ_ACCOUNT_COLUMNS || used.has(accountId)) return;
+    if (!accountId || accountId === whtAccountId || accountCols.filter(c => !c.isSystem).length >= MAX_CDJ_ACCOUNT_COLUMNS || used.has(accountId)) return;
     const account = accounts.find(a => a.id === accountId);
     if (!account) return;
     used.add(account.id);
@@ -102,7 +102,7 @@ function normalizeCdjColumns(columns: JournalColumn[] | undefined, accounts: Coa
 
   // Migrate older user-created numeric columns that were named after a COA account.
   columns.filter(c => c.type === 'number' && !c.isSystem).forEach(c => {
-    if (accountCols.length >= MAX_CDJ_ACCOUNT_COLUMNS) return;
+    if (accountCols.filter(c => !c.isSystem).length >= MAX_CDJ_ACCOUNT_COLUMNS) return;
     const match = accounts.find(a =>
       a.id === c.id || a.name.trim().toLowerCase() === c.name.trim().toLowerCase()
     );
@@ -410,7 +410,7 @@ export function CashDisbursementsJournal() {
 
   const addColumn = () => {
     if (!selectedAccountId) return;
-    if (columns.filter(c => accountIdFromColumn(c)).length >= MAX_CDJ_ACCOUNT_COLUMNS) return;
+    if (columns.filter(c => accountIdFromColumn(c) && !c.isSystem).length >= MAX_CDJ_ACCOUNT_COLUMNS) return;
     if (columns.some(c => accountIdFromColumn(c) === selectedAccountId)) return;
     const account = accounts.find(a => a.id === selectedAccountId);
     if (!account) return;
@@ -539,7 +539,7 @@ export function CashDisbursementsJournal() {
         {isEditingHeaders && (
           <div className="no-print mb-6 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
             <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Cash Disbursements Journal Columns</h4>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">Up to 9 account columns are selected directly from the Chart of Accounts. Sundries is fixed after those account columns.</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">Input Tax is a fixed default column. Up to 9 additional account columns can be selected directly from the Chart of Accounts. Sundries is fixed after those account columns.</p>
             <div className="flex flex-wrap gap-2 mb-4">
               {columns.map((col, index) => {
                 const accountId = accountIdFromColumn(col);
@@ -549,22 +549,22 @@ export function CashDisbursementsJournal() {
                     accountId ? "bg-cyan-50 dark:bg-cyan-900/20 text-cyan-700 dark:text-cyan-400 border-cyan-200 dark:border-cyan-800" : "bg-white dark:bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-200 dark:border-slate-700"
                   )}>
                     <span>{accountId ? `${columns.filter(c => accountIdFromColumn(c)).indexOf(col) + 1}. ${col.name}` : `${index >= 3 ? index + 1 : ''} ${col.name}`}</span>
-                    {accountId && <button onClick={() => removeColumn(col.id)} className="text-red-400 hover:text-red-600"><X className="w-3.5 h-3.5" /></button>}
+                    {accountId && !col.isSystem && <button onClick={() => removeColumn(col.id)} className="text-red-400 hover:text-red-600"><X className="w-3.5 h-3.5" /></button>}
                   </div>
                 );
               })}
             </div>
             <div className="flex flex-wrap items-end gap-3">
               <div>
-                <label className="block text-xs font-bold text-slate-500 mb-1">Add Chart of Accounts Column ({columns.filter(c => accountIdFromColumn(c)).length}/{MAX_CDJ_ACCOUNT_COLUMNS})</label>
-                <select value={selectedAccountId} onChange={e => setSelectedAccountId(e.target.value)} className="form-input text-sm py-1.5 min-w-[260px]" disabled={columns.filter(c => accountIdFromColumn(c)).length >= MAX_CDJ_ACCOUNT_COLUMNS}>
+                <label className="block text-xs font-bold text-slate-500 mb-1">Add Chart of Accounts Column ({columns.filter(c => accountIdFromColumn(c) && !c.isSystem).length}/{MAX_CDJ_ACCOUNT_COLUMNS})</label>
+                <select value={selectedAccountId} onChange={e => setSelectedAccountId(e.target.value)} className="form-input text-sm py-1.5 min-w-[260px]" disabled={columns.filter(c => accountIdFromColumn(c) && !c.isSystem).length >= MAX_CDJ_ACCOUNT_COLUMNS}>
                   <option value="">Select an account...</option>
                   {accounts.filter(a => !columns.some(c => accountIdFromColumn(c) === a.id)).map(a => (
                     <option key={a.id} value={a.id}>{a.id} — {a.name}</option>
                   ))}
                 </select>
               </div>
-              <button onClick={addColumn} disabled={!selectedAccountId || columns.filter(c => accountIdFromColumn(c)).length >= MAX_CDJ_ACCOUNT_COLUMNS} className="bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white font-bold px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1">
+              <button onClick={addColumn} disabled={!selectedAccountId || columns.filter(c => accountIdFromColumn(c) && !c.isSystem).length >= MAX_CDJ_ACCOUNT_COLUMNS} className="bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white font-bold px-3 py-1.5 rounded-lg transition-colors flex items-center gap-1">
                 <Plus className="w-4 h-4" /> Add Account Column
               </button>
             </div>
