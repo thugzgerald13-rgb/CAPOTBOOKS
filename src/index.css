@@ -123,3 +123,28 @@
   max-height: none !important;
   overflow-y: visible !important;
 }
+
+/* Accounting books print layout */
+@media print {
+  body * { visibility: hidden !important; }
+  .print-area, .print-area * { visibility: visible !important; }
+  .print-area {
+    position: absolute !important;
+    inset: 0 !important;
+    width: 100% !important;
+    max-width: none !important;
+    overflow: visible !important;
+    background: white !important;
+    color: black !important;
+  }
+  .no-print { display: none !important; }
+  .print-area input, .print-area select {
+    border: 0 !important;
+    background: transparent !important;
+    color: black !important;
+    box-shadow: none !important;
+  }
+  .print-area table { width: 100% !important; min-width: 0 !important; }
+  .print-area th, .print-area td { color: black !important; border-color: #999 !important; }
+  .print-area button { display: none !important; }
+}
