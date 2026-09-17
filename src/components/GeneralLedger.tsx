@@ -1,6 +1,6 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { LineChart, ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
+import { LineChart, ChevronDown, ChevronUp, Loader2, Printer } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { GeneralLedgerAccount, GeneralLedgerEntry } from '../types';
@@ -133,10 +133,14 @@ export function GeneralLedger() {
   const toggleAccount=(id:string)=>setExpandedAccounts(p=>({...p,[id]:!p[id]}));
 
   return (
-    <div className="w-full flex flex-col">
-      <PageHeader title="General Ledger" icon={<LineChart />} />
+    <div className="w-full flex flex-col print-area">
+      <PageHeader title="General Ledger" icon={<LineChart />} actions={
+        <button type="button" onClick={() => window.print()} className="no-print inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-xs font-bold hover:opacity-90 transition-opacity" title="Print General Ledger">
+          <Printer className="w-4 h-4" /> Print
+        </button>
+      } />
       <div className="p-4 md:p-6 flex-1">
-        <div className="flex flex-col gap-4 mb-6">
+        <div className="no-print flex flex-col gap-4 mb-6">
           <div className="flex flex-col md:flex-row md:items-center gap-3">
             <div>
               <label className="block text-xs font-semibold text-slate-500 mb-1">Period</label>

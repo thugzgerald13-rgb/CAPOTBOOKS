@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Wallet, Plus, Trash2, Settings, X, Edit, Loader, Check, Calendar } from 'lucide-react';
+import { Wallet, Plus, Trash2, Settings, X, Edit, Loader, Check, Calendar, Printer } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { JournalColumn, CashReceipt } from '../types';
@@ -184,11 +184,15 @@ export function CashReceiptsJournal() {
   const isBalanced = Math.abs(totalDr - totalCr) < 0.01;
 
   return (
-    <div className="w-full flex flex-col">
-      <PageHeader title="Cash Receipts Journal" icon={<Wallet />} />
+    <div className="w-full flex flex-col print-area">
+      <PageHeader title="Cash Receipts Journal" icon={<Wallet />} actions={
+        <button type="button" onClick={() => window.print()} className="no-print inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-xs font-bold hover:opacity-90 transition-opacity" title="Print Cash Receipts Journal">
+          <Printer className="w-4 h-4" /> Print
+        </button>
+      } />
       <div className="p-4 md:p-6 flex-1">
       <div className="p-6">
-        <div className="flex flex-wrap items-center gap-3 mb-6 p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-700">
+        <div className="no-print flex flex-wrap items-center gap-3 mb-6 p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-700">
           <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
             <Calendar className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
             <span className="text-xs font-bold uppercase tracking-wider">Period</span>
@@ -237,7 +241,7 @@ export function CashReceiptsJournal() {
         </div>
 
         {isEditingHeaders && (
-          <div className="mb-6 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
+          <div className="no-print mb-6 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
             <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-4">Manage Custom Columns</h4>
             <div className="flex flex-wrap gap-2 mb-4">
               {columns.map(col => (

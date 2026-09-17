@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Wallet, Plus, Trash2, Settings, X, Check, Calendar } from 'lucide-react';
+import { Wallet, Plus, Trash2, Settings, X, Check, Calendar, Printer } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { JournalColumn, JournalEntry, CoaAccount } from '../types';
@@ -292,13 +292,6 @@ export function CashDisbursementsJournal() {
     if (!currentClient || !currentClientId) return;
     if (migrationClientRef.current === currentClientId) return;
 
-    // Do not run the one-time migration until the client's Chart of Accounts
-    // has actually been loaded. On an initial render the client can briefly
-    // have an empty `accounts` array; normalizing at that point would see none
-    // of the previously selected CDJ account-title columns and overwrite them
-    // with only the fixed columns.
-    if (accounts.length === 0) return;
-
     const raw = currentClient.cdjColumns || [];
     const normalized = normalizeCdjColumns(raw, accounts);
     const rawSignature = JSON.stringify(raw);
@@ -377,7 +370,7 @@ export function CashDisbursementsJournal() {
     // Persist the normalized CDJ columns and entries directly; do not rewrite the client aggregate.
     void Promise.all([saveJournalColumns('CDJ', normalized), saveJournalEntries('CDJ', migratedEntries)]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentClientId, accounts.length]);
+  }, [currentClientId]);
 
   if (!currentClient || !currentClientId) return null;
 
@@ -487,11 +480,15 @@ export function CashDisbursementsJournal() {
   const isBalanced = Math.abs(totalDr - totalCr) < 0.01;
 
   return (
-    <div className="w-full flex flex-col">
-      <PageHeader title="Cash Disbursements Journal" icon={<Wallet />} />
+    <div className="w-full flex flex-col print-area">
+      <PageHeader title="Cash Disbursements Journal" icon={<Wallet />} actions={
+        <button type="button" onClick={() => window.print()} className="no-print inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-xs font-bold hover:opacity-90 transition-opacity" title="Print Cash Disbursements Journal">
+          <Printer className="w-4 h-4" /> Print
+        </button>
+      } />
       <div className="p-4 md:p-6 flex-1">
       <div className="p-6">
-        <div className="flex flex-wrap items-center gap-3 mb-6 p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-700">
+        <div className="no-print flex flex-wrap items-center gap-3 mb-6 p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-700">
           <div className="flex items-center gap-2 text-slate-600 dark:text-slate-300">
             <Calendar className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
             <span className="text-xs font-bold uppercase tracking-wider">Period</span>
@@ -540,7 +537,7 @@ export function CashDisbursementsJournal() {
         </div>
 
         {isEditingHeaders && (
-          <div className="mb-6 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
+          <div className="no-print mb-6 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
             <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Cash Disbursements Journal Columns</h4>
             <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">Up to 9 account columns are selected directly from the Chart of Accounts. Sundries is fixed after those account columns.</p>
             <div className="flex flex-wrap gap-2 mb-4">
