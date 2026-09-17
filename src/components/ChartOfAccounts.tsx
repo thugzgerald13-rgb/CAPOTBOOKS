@@ -3,6 +3,7 @@ import { BookOpen, Plus, Trash2, RefreshCcw, Edit2, ClipboardList, Check, X, Col
 import * as XLSX from 'xlsx';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
+import { supabase } from '../lib/supabase';
 import { CoaAccount } from '../types';
 import { cn } from '../lib/utils';
 import { balanceFor } from '../lib/accountingBalances';
@@ -204,6 +205,66 @@ export function resequenceAccounts(
   return arranged;
 }
 
+// Closes gaps ("leaps") in numeric account codes after a deletion. Within each
+// (account type, code-prefix) group — e.g. all pure-numeric Asset codes, or all
+// "COH-..." codes — accounts are sorted by their numeric suffix and renumbered
+// to anchor + i*step, where step is the smallest gap present in that group
+// (preserves the user's chosen spacing: 1, 10, 100, ...). Accounts that are
+// already contiguous are left untouched. Returns the remapped list plus an
+// old->new code map (empty when there was nothing to close). Every rename here
+// must also be cascaded to journal_voucher_lines.account_id by the caller.
+export function closeCodeGaps(
+  accountsList: CoaAccount[]
+): { accounts: CoaAccount[]; renames: Map<string, string> } {
+  const renames = new Map<string, string>();
+
+  // Group by (account type, non-numeric code prefix) so we never renumber
+  // across types or across different alphanumeric prefixes.
+  const groups = new Map<string, Array<{ account: CoaAccount; prefix: string; num: number; width: number }>>();
+  for (const account of accountsList) {
+    const match = String(account.id).match(/^(.*?)(\d+)$/);
+    if (!match) continue; // purely non-numeric codes can't be gap-closed
+    const key = `${String(account.type || '').trim().toLowerCase()}||${match[1]}`;
+    const entry = { account, prefix: match[1], num: parseInt(match[2], 10), width: match[2].length };
+    const g = groups.get(key) || [];
+    g.push(entry);
+    groups.set(key, g);
+  }
+
+  for (const [, group] of groups) {
+    if (group.length < 2) continue;
+    group.sort((x, y) => x.num - y.num);
+
+    // Natural spacing = smallest gap between any two consecutive codes.
+    let step = Infinity;
+    for (let i = 1; i < group.length; i++) {
+      step = Math.min(step, group[i].num - group[i - 1].num);
+    }
+    if (!Number.isFinite(step) || step < 1) step = 1;
+
+    const anchor = group[0].num;
+    const prefix = group[0].prefix;
+    const width = group[0].width;
+
+    for (let i = 1; i < group.length; i++) {
+      const expected = anchor + i * step;
+      if (group[i].num !== expected) {
+        const newCode = `${prefix}${String(expected).padStart(width, '0')}`;
+        renames.set(group[i].account.id, newCode);
+      }
+    }
+  }
+
+  if (renames.size === 0) return { accounts: accountsList, renames };
+
+  const remapped = accountsList.map(account => ({
+    ...account,
+    id: renames.get(account.id) || account.id,
+    parentId: account.parentId ? (renames.get(account.parentId) || account.parentId) : account.parentId,
+  }));
+  return { accounts: remapped, renames };
+}
+
 export function ChartOfAccounts() {
   const { currentClient, currentClientId, saveCoaAccounts, saveCoaColumns, showToast } = useAccounting();
   const [isAdding, setIsAdding] = useState(false);
@@ -275,7 +336,7 @@ export function ChartOfAccounts() {
       { id: 'id', name: 'Code', isSystem: true },
       { id: 'name', name: 'Account Title', isSystem: true },
       { id: 'type', name: 'Account Type', isSystem: true },
-      { id: 'normalSide', name: 'Normal Entry', isSystem: false }
+      { id: 'normalSide', name: 'Normal Entry', isSystem: true }
     ];
     // Guard against an empty array here, not just `undefined`/`null` — an
     // empty array is truthy in JS, so `|| defaultColumns` alone would leave
@@ -416,9 +477,131 @@ export function ChartOfAccounts() {
     }
   };
 
-  const handleToggleHidden = (id: string) => {
+  // An account's code (id) is stored as `account_id` on every journal-voucher
+  // line, and General Ledger posting is keyed by it. Renaming/swapping a code
+  // without updating those references orphans the postings (they are silently
+  // dropped by syncGeneralLedger). These helpers cascade the rename into the
+  // voucher lines so running balances survive a code change. (CRJ/CDJ/SJ/PJ
+  // journals match accounts by *name*, so they need no cascade; GL is derived
+  // and recomputed on every sync.)
+  const renameVoucherLinesAccountId = async (oldId: string, newId: string) => {
+    if (oldId === newId || !currentClientId) return;
+    const { error } = await supabase
+      .from('journal_voucher_lines')
+      .update({ account_id: newId })
+      .eq('client_id', currentClientId)
+      .eq('account_id', oldId);
+    if (error) console.warn('Failed to cascade account-code rename to voucher lines:', error);
+  };
+
+  const swapVoucherLinesAccountId = async (idA: string, idB: string) => {
+    if (idA === idB || !currentClientId) return;
+    const tmp = `__swap_${Date.now().toString(36)}`;
+    // A -> tmp, then B -> A, then tmp -> B (avoids a unique-constraint clash).
+    for (const [from, to] of [[idA, tmp], [idB, idA], [tmp, idB]] as const) {
+      const { error } = await supabase
+        .from('journal_voucher_lines')
+        .update({ account_id: to })
+        .eq('client_id', currentClientId)
+        .eq('account_id', from);
+      if (error) { console.warn('Swap cascade step failed:', from, '->', to, error); break; }
+    }
+  };
+
+  // True if `ancestorId` is anywhere above `descendantId` in the parent chain.
+  // Used to refuse a Move Up/Down swap between an account and its own ancestor —
+  // swapping overlapping families corrupts the ID mapping.
+  const isAncestorOf = (ancestorId: string, descendantId: string): boolean => {
+    let cur = accounts.find(a => a.id === descendantId);
+    let guard = 0;
+    while (cur && cur.parentId && guard++ <= accounts.length) {
+      if (cur.parentId === ancestorId) return true;
+      cur = accounts.find(a => a.id === cur.parentId);
+    }
+    return false;
+  };
+
+  // When an account is deleted, auto-close the gap in its code sequence: if the
+  // deleted account sat exactly between two evenly-spaced neighbors, shift every
+  // later account in the same code group down by one step. Only adjusts when it
+  // is unambiguous (even spacing, same account type + code prefix); uneven
+  // sequences or first/last deletions are left untouched. Returns the shifted
+  // account list and a map of oldCode -> newCode (each rename must be cascaded
+  // to journal_voucher_lines so GL postings stay linked).
+  const shiftDownAfterDeletion = (
+    accountsList: CoaAccount[],
+    deletedId: string
+  ): { accounts: CoaAccount[]; renames: Map<string, string> } => {
+    const deleted = accountsList.find(a => a.id === deletedId);
+    if (!deleted) return { accounts: accountsList, renames: new Map() };
+    const match = String(deleted.id).match(/^(.*?)(\d+)$/);
+    if (!match) return { accounts: accountsList, renames: new Map() };
+    const prefix = match[1];
+    const width = match[2].length;
+    const deletedNum = parseInt(match[2], 10);
+
+    // Same group = same account type + same code prefix, so a deletion in Assets
+    // never renumbers Liabilities, and alphanumeric codes (COH-1000) stay within
+    // their own prefix family.
+    const deletedType = String(deleted.type || '').toLowerCase();
+    const group = accountsList
+      .filter(a =>
+        String(a.type || '').toLowerCase() === deletedType &&
+        String(a.id).startsWith(prefix) &&
+        /\d+$/.test(String(a.id))
+      )
+      .map(a => ({ a, num: parseInt(String(a.id).match(/(\d+)$/)![1], 10) }))
+      .sort((x, y) => x.num - y.num);
+
+    const idx = group.findIndex(g => g.a.id === deletedId);
+    // Nothing to shift if the deleted account is first or last in its group
+    // (no interior gap to close below it).
+    if (idx <= 0 || idx >= group.length - 1) return { accounts: accountsList, renames: new Map() };
+    const step = deletedNum - group[idx - 1].num;
+    if (step <= 0) return { accounts: accountsList, renames: new Map() };
+    // NOTE: we deliberately do NOT require group[idx+1].num - deletedNum === step.
+    // Previously that uneven-spacing check aborted the shift whenever the
+    // following codes used a different spacing (a "leap"), leaving the gap
+    // wide open. Shifting every following code down by `step` (the spacing
+    // before the deleted account) closes the gap and preserves any larger
+    // intentional gaps further down the sequence.
+
+    const renames = new Map<string, string>();
+    for (let i = idx + 1; i < group.length; i++) {
+      const oldCode = group[i].a.id;
+      const newCode = `${prefix}${String(group[i].num - step).padStart(width, '0')}`;
+      if (newCode !== oldCode) renames.set(oldCode, newCode);
+    }
+    if (renames.size === 0) return { accounts: accountsList, renames: new Map() };
+
+    // Safety: never create a duplicate code. Numeric codes share one space
+    // across account types, so shifting an Asset code down could collide with a
+    // Liabilities code (e.g. 2200 -> 2100). If any new code is occupied by an
+    // account that is NOT itself being renamed away, abort the renumber.
+    const beingRenamedAway = new Set(renames.keys());
+    for (const newCode of renames.values()) {
+      const occupant = accountsList.find(a => String(a.id) === newCode);
+      if (occupant && !beingRenamedAway.has(String(occupant.id))) {
+        return { accounts: accountsList, renames: new Map() };
+      }
+    }
+
+    const shifted = accountsList
+      .filter(a => a.id !== deletedId)
+      .map(a => {
+        const newId = renames.get(a.id) || a.id;
+        let parentId = a.parentId;
+        if (parentId && renames.has(parentId)) parentId = renames.get(parentId);
+        // Children of the deleted account become top-level.
+        if (parentId === deletedId) parentId = undefined;
+        return { ...a, id: newId, parentId };
+      });
+    return { accounts: shifted, renames };
+  };
+
+  const handleToggleHidden = async (id: string) => {
     const updatedAccounts = accounts.map(a => a.id === id ? { ...a, hidden: !a.hidden } : a);
-    handleSaveAccounts(updatedAccounts);
+    await handleSaveAccounts(updatedAccounts);
   };
 
   const applyPreset = (format: 'numeric' | 'alphanumeric') => {
@@ -561,7 +744,7 @@ export function ChartOfAccounts() {
   };
 
   // Applies the parsed upload once the user has chosen Override or Merge in the modal.
-  const applyPendingUpload = (overwrite: boolean) => {
+  const applyPendingUpload = async (overwrite: boolean) => {
     const rows = pendingUploadRows;
     const keys = pendingUploadKeys;
     setShowUploadChoice(false);
@@ -662,7 +845,8 @@ export function ChartOfAccounts() {
     // Imported opening balances are source data. Do not create a balancing plug or
     // silently alter any account. The source file may itself be unbalanced; preserve
     // those amounts exactly and let the reconciliation/B/S report expose the difference.
-    handleSaveAccounts([...baseAccounts, ...newAccounts]);
+    const saved = await handleSaveAccounts([...baseAccounts, ...newAccounts]);
+    if (!saved) return;
     showToast(
       overwrite
         ? `Chart of Accounts overridden with ${newAccounts.length} account${newAccounts.length === 1 ? '' : 's'}${skipped > 0 ? ` (${skipped} skipped)` : ''}.`
@@ -670,31 +854,54 @@ export function ChartOfAccounts() {
     );
   };
 
-  const handleDelete = (id: string) => {
+  const handleDelete = async (id: string) => {
     const hasChildren = accounts.some(a => a.parentId === id);
+    // Auto-close the gap: if this account sat evenly between two neighbors, shift
+    // every later code in its group down by one step (safe — collisions abort).
+    const { accounts: shiftedAccounts, renames } = shiftDownAfterDeletion(accounts, id);
+
     let question = "Are you sure you want to delete this account?";
     if (hasChildren) {
       question = "Warning: This account has sub-accounts! Deleting this main account will make its sub-accounts top-level main accounts. Are you sure you want to proceed?";
     }
-    if (confirm(question)) {
-      const updatedAccounts = accounts
-        .filter(a => a.id !== id)
-        .map(a => a.parentId === id ? { ...a, parentId: undefined } : a);
-      handleSaveAccounts(updatedAccounts);
+    if (renames.size > 0) {
+      question += `\n\nDeleting it will also renumber ${renames.size} following account code(s) to close the gap — linked journal voucher lines will be updated automatically.`;
+    }
+    if (!confirm(question)) return;
+
+    const saved = await handleSaveAccounts(shiftedAccounts);
+    if (!saved) return;
+
+    // Cascade every renumbered code into the journal voucher lines so GL
+    // postings stay linked to the right account.
+    for (const [from, to] of renames) {
+      await renameVoucherLinesAccountId(from, to);
+    }
+    if (renames.size > 0) {
+      showToast(`Deleted account and renumbered ${renames.size} code(s) to close the gap.`);
     }
   };
 
-  const handleSaveEdit = (oldId: string) => {
+  const handleSaveEdit = async (oldId: string) => {
     if (!editCode || !editName) {
       alert("Please fill out Account Code and Name.");
       return;
     }
-    
+
     // As with adding a new account, a taken code doesn't have to block the save —
     // offer to bump the existing occupant to the next free code instead.
     let workingAccounts = accounts;
     let resolvedParentId = editParentId || undefined;
+    // Every code that changes during this edit must be cascaded to
+    // journal_voucher_lines.account_id or those postings get orphaned.
+    const renames: Array<[string, string]> = [];
     if (editCode !== oldId) {
+      const codeChangeOk = confirm(
+        `Changing the account code from "${oldId}" to "${editCode}" will also update every journal voucher line that references "${oldId}".\n\nProceed?`
+      );
+      if (!codeChangeOk) return;
+      renames.push([oldId, editCode]);
+
       const conflicting = accounts.find(a => a.id === editCode && a.id !== oldId);
       if (conflicting) {
         const shiftedCode = nextAvailableCode(editCode, accounts.map(a => a.id));
@@ -703,6 +910,7 @@ export function ChartOfAccounts() {
           `Move this account to "${editCode}" and shift "${conflicting.name}" to "${shiftedCode}"?`
         );
         if (!proceed) return;
+        renames.push([conflicting.id, shiftedCode]);
         workingAccounts = accounts.map(a => {
           if (a.id === conflicting.id) return { ...a, id: shiftedCode };
           if (a.parentId === conflicting.id) return { ...a, parentId: shiftedCode };
@@ -711,6 +919,11 @@ export function ChartOfAccounts() {
         if (resolvedParentId === conflicting.id) resolvedParentId = shiftedCode;
       }
     }
+
+    const parsedOpening = parseFloat(editOpeningBalance);
+    const openingBalance = editOpeningBalance !== ''
+      ? (Number.isFinite(parsedOpening) ? parsedOpening : 0)
+      : undefined;
 
     const updatedAccounts = workingAccounts.map(a => {
       if (a.id === oldId) {
@@ -727,7 +940,7 @@ export function ChartOfAccounts() {
           type: editType,
           normalSide: editNormalSide,
           parentId: resolvedParentId,
-          openingBalance: editOpeningBalance !== '' ? parseFloat(editOpeningBalance) || 0 : undefined,
+          openingBalance,
           ...customFields
         };
       } else if (a.parentId === oldId) {
@@ -739,7 +952,15 @@ export function ChartOfAccounts() {
       return a;
     });
 
-    handleSaveAccounts(updatedAccounts);
+    const saved = await handleSaveAccounts(updatedAccounts);
+    if (!saved) return;
+
+    // Cascade every code rename into the journal voucher lines so GL postings
+    // stay linked. Done after a successful save; failures are logged (non-fatal).
+    for (const [from, to] of renames) {
+      await renameVoucherLinesAccountId(from, to);
+    }
+
     setEditingId(null);
     setEditParentId('');
     setEditCustomValues({});
@@ -751,6 +972,13 @@ export function ChartOfAccounts() {
   // Returns the swapped account names on success, or null if the swap couldn't be performed.
   const performAccountSwap = (idA: string, idB: string): { nameA: string; nameB: string } | null => {
     if (idA === idB) return null;
+
+    // Swapping an account with its own ancestor makes the two families overlap
+    // and corrupts the ID mapping (duplicate / lost codes). Refuse it.
+    if (isAncestorOf(idA, idB) || isAncestorOf(idB, idA)) {
+      showToast("Cannot move: one account is an ancestor of the other.");
+      return null;
+    }
 
     const accountA = accounts.find(a => a.id === idA);
     const accountB = accounts.find(a => a.id === idB);
@@ -839,7 +1067,7 @@ export function ChartOfAccounts() {
       if (index < descB.length) {
         newIdsMapA[a.id] = descB[index].id;
       } else {
-        const oldParentId = a.parentId!;
+        const oldParentId = a.parentId || idA;
         const newParentId = newIdsMapA[oldParentId] || idB;
         let candidate = getSwappedCode(a.id, oldParentId, newParentId);
         candidate = makeUniqueCode(candidate, occupiedInThisSwap);
@@ -853,7 +1081,7 @@ export function ChartOfAccounts() {
       if (index < descA.length) {
         newIdsMapB[b.id] = descA[index].id;
       } else {
-        const oldParentId = b.parentId!;
+        const oldParentId = b.parentId || idB;
         const newParentId = newIdsMapB[oldParentId] || idA;
         let candidate = getSwappedCode(b.id, oldParentId, newParentId);
         candidate = makeUniqueCode(candidate, occupiedInThisSwap);
@@ -921,7 +1149,11 @@ export function ChartOfAccounts() {
     if (idx <= 0) return; // already at the top or not found
     const neighbor = filteredAccounts[idx - 1];
     const result = performAccountSwap(id, neighbor.id);
-    if (result) showToast(`Moved "${result.nameA}" up.`);
+    if (result) {
+      showToast(`Moved "${result.nameA}" up.`);
+      // The swap trades two account codes; mirror it on the voucher lines.
+      void swapVoucherLinesAccountId(id, neighbor.id);
+    }
   };
 
   // Moves an account down one position by swapping codes with the account directly below it
@@ -931,7 +1163,10 @@ export function ChartOfAccounts() {
     if (idx === -1 || idx >= filteredAccounts.length - 1) return; // already at the bottom or not found
     const neighbor = filteredAccounts[idx + 1];
     const result = performAccountSwap(id, neighbor.id);
-    if (result) showToast(`Moved "${result.nameA}" down.`);
+    if (result) {
+      showToast(`Moved "${result.nameA}" down.`);
+      void swapVoucherLinesAccountId(id, neighbor.id);
+    }
   };
 
   // Single source of truth: opening balance + all General Ledger activity.
@@ -1566,7 +1801,9 @@ export function ChartOfAccounts() {
                           }
                           return (
                             <td key={col.id} className="px-4 py-3.5 text-slate-800 dark:text-slate-100 text-sm sm:text-[15px] font-medium">
-                              {account[col.id] || <span className="text-slate-400 dark:text-slate-600">—</span>}
+                              {account[col.id] != null && account[col.id] !== ''
+                                ? account[col.id]
+                                : <span className="text-slate-400 dark:text-slate-600">—</span>}
                             </td>
                           );
                         })}
