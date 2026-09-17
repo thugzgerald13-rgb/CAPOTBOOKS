@@ -70,6 +70,14 @@ interface AccountingContextType {
   deleteFolder: (folderId: string) => Promise<void>;
   saveFile: (file: any) => Promise<void>;
   deleteFile: (fileId: string) => Promise<void>;
+  // Editable report snapshots (P&L / Balance Sheet / Cash Flow), the Asset
+  // Lapsing schedule, and Tax Compliance deadlines are each persisted to
+  // their own normalized table. These save helpers were referenced by the
+  // report/compliance pages but were never implemented on the context, so
+  // calling them threw "saveX is not a function" and crashed the page.
+  saveFinancialReportSnapshot: (reportType: string, data: any) => Promise<void>;
+  saveAssetLapsingSchedule: (entries: any[]) => Promise<void>;
+  saveTaxDeadlines: (deadlines: any[]) => Promise<void>;
   showToast: (msg: string) => void;
 
   // Device adaptations support
@@ -1852,6 +1860,105 @@ export function AccountingProvider({
     }
   };
 
+  // -------------------------------------------------------------------------
+  // Editable report snapshots (P&L / Balance Sheet / Cash Flow). Each report
+  // type is one row in `financial_report_snapshots`, keyed by client + report
+  // type, so editing a field on the report page upserts that single row
+  // instead of re-persisting the whole client aggregate.
+  // -------------------------------------------------------------------------
+  const saveFinancialReportSnapshot = async (reportType: string, data: any) => {
+    if (!user || !currentClientId) return;
+    const slug = reportType === 'P&L' ? 'pl' : reportType === 'Balance Sheet' ? 'bs' : 'cf';
+    const dataKey = reportType === 'P&L' ? 'plData' : reportType === 'Balance Sheet' ? 'bsData' : 'cfData';
+    const row = {
+      id: `${currentClientId}:${slug}`,
+      client_id: currentClientId,
+      report_type: reportType,
+      period_key: data?.period || data?.asOfDate || 'current',
+      data,
+    };
+    const { error } = await supabase.from('financial_report_snapshots').upsert(row, { onConflict: 'id' });
+    if (error) throw error;
+    updateClientState(currentClientId, { [dataKey]: data } as any);
+    showToast('Report saved');
+  };
+
+  // -------------------------------------------------------------------------
+  // Asset Lapsing / PPE schedule — full replace of the client's rows in
+  // `asset_lapsing_schedule` (same delete-stale-then-upsert pattern as
+  // saveCoaAccounts so removed rows actually disappear).
+  // -------------------------------------------------------------------------
+  const saveAssetLapsingSchedule = async (entries: any[] = []) => {
+    if (!user || !currentClientId) return;
+    const rows = entries.map((e: any) => ({
+      id: strId(e.id),
+      client_id: currentClientId,
+      date_purchased: e.datePurchased || null,
+      invoice_no: e.invoiceNo || null,
+      description: e.description || '',
+      cost: Number(e.cost || 0),
+      useful_life_years: Number(e.usefulLifeYears || 0),
+      salvage_value: Number(e.salvageValue || 0),
+    }));
+    const { data: existing, error: readError } = await supabase
+      .from('asset_lapsing_schedule').select('id').eq('client_id', currentClientId);
+    if (readError) throw readError;
+    const keep = new Set(rows.map(r => r.id));
+    const stale = (existing || []).map((r: any) => String(r.id)).filter(id => !keep.has(id));
+    if (rows.length) {
+      const { error } = await supabase.from('asset_lapsing_schedule').upsert(rows, { onConflict: 'id' });
+      if (error) throw error;
+    }
+    if (stale.length) {
+      const { error } = await supabase
+        .from('asset_lapsing_schedule').delete().eq('client_id', currentClientId).in('id', stale);
+      if (error) throw error;
+    }
+    updateClientState(currentClientId, { assetLapsingSchedule: entries });
+    showToast('Asset lapsing schedule saved');
+  };
+
+  // -------------------------------------------------------------------------
+  // Tax Compliance deadlines — full replace of the client's rows in
+  // `tax_deadlines` (filed/paid status, amount due, etc. are edited on the
+  // Compliance Tracker and must persist).
+  // -------------------------------------------------------------------------
+  const saveTaxDeadlines = async (deadlines: any[] = []) => {
+    if (!user || !currentClientId) return;
+    const rows = deadlines.map((t: any) => ({
+      id: strId(t.id),
+      client_id: currentClientId,
+      form_type: t.formType || null,
+      title: t.title || '',
+      period: t.period || null,
+      due_date: t.dueDate || null,
+      status: t.status || null,
+      tax_status: t.taxStatus ?? null,
+      amount_due: t.amountDue ?? null,
+      date_filed: t.dateFiled || null,
+      date_paid: t.datePaid || null,
+      reference_no: t.referenceNo || null,
+      confirmation_no: t.confirmationNo || null,
+      notes: t.notes || null,
+    }));
+    const { data: existing, error: readError } = await supabase
+      .from('tax_deadlines').select('id').eq('client_id', currentClientId);
+    if (readError) throw readError;
+    const keep = new Set(rows.map(r => r.id));
+    const stale = (existing || []).map((r: any) => String(r.id)).filter(id => !keep.has(id));
+    if (rows.length) {
+      const { error } = await supabase.from('tax_deadlines').upsert(rows, { onConflict: 'id' });
+      if (error) throw error;
+    }
+    if (stale.length) {
+      const { error } = await supabase
+        .from('tax_deadlines').delete().eq('client_id', currentClientId).in('id', stale);
+      if (error) throw error;
+    }
+    updateClientState(currentClientId, { taxDeadlines: deadlines });
+    showToast('Compliance deadlines saved');
+  };
+
   const showToast = (msg: string) => {
     setToastMsg(msg);
     setTimeout(() => setToastMsg(null), 3000);
@@ -2172,6 +2279,9 @@ export function AccountingProvider({
         deleteFolder,
         saveFile,
         deleteFile,
+        saveFinancialReportSnapshot,
+        saveAssetLapsingSchedule,
+        saveTaxDeadlines,
         showToast,
         activeDevice,
       }}
