@@ -1,5 +1,12 @@
 import { PDFDocument } from 'pdf-lib';
-import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
+import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist/legacy/build/pdf.mjs';
+// pdfjs-dist v4 requires an explicit worker URL; without it, getDocument()
+// falls back to a broken fake-worker path and PDF text extraction throws at
+// runtime ("Setting up fake worker failed"). Vite's `?url` suffix emits the
+// worker as a hashed asset and returns its URL, matching the legacy build.
+import pdfjsWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url';
+
+GlobalWorkerOptions.workerSrc = pdfjsWorkerUrl;
 
 export interface ParsedPdf {
   pageCount: number;
