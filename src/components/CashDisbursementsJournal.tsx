@@ -18,7 +18,7 @@ export const DEFAULT_CDJ_COLUMNS: JournalColumn[] = [
   { id: CDJ_SUNDRY_AMOUNT_ID, name: 'Amount Dr/Cr', type: 'number', category: 'None', isSystem: true },
 ];
 
-const MAX_CDJ_ACCOUNT_COLUMNS = 9; // user-selectable COA columns; Input Tax is a fixed default column
+const MAX_CDJ_ACCOUNT_COLUMNS = 10; // user-selectable COA columns; Input Tax is a fixed default column
 const CDJ_ACCOUNT_PREFIX = 'cdj_coa_';
 
 function accountColumnId(accountId: string) {
@@ -554,7 +554,7 @@ export function CashDisbursementsJournal() {
         {isEditingHeaders && (
           <div className="no-print mb-6 p-4 bg-slate-50 dark:bg-slate-800/50 rounded-xl border border-slate-200 dark:border-slate-700">
             <h4 className="text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">Cash Disbursements Journal Columns</h4>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">Input Tax is a fixed default column. Up to 9 additional account columns can be selected directly from the Chart of Accounts. Sundries is fixed after those account columns.</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">Input Tax is a fixed default column. Up to 10 additional account columns can be selected directly from the Chart of Accounts. Sundries is fixed after those account columns.</p>
             <div className="flex flex-wrap gap-2 mb-4">
               {columns.map((col, index) => {
                 const accountId = accountIdFromColumn(col);
