@@ -33,6 +33,16 @@ function getClientAccounts(client: any): CoaAccount[] {
   return (client.accounts || []).filter((a: CoaAccount) => !a.hidden);
 }
 
+// Unlike getClientAccounts, this does NOT filter out hidden accounts. It must
+// be used anywhere a previously-configured CDJ column is matched back to its
+// account (normalization, migration, display, totals). Using the hidden-
+// filtered list there would make a column vanish — and then get permanently
+// deleted by the one-time column migration effect — the moment its linked
+// account is archived, even though the user never removed the column.
+function getAllClientAccounts(client: any): CoaAccount[] {
+  return client.accounts || [];
+}
+
 function getInputTaxAccount(accounts: CoaAccount[]): CoaAccount | undefined {
   // The CDJ default column is linked to the actual Chart of Accounts account.
   // Prefer an exact "Input Tax" title; also recognize the app's VAT input
@@ -265,7 +275,12 @@ export function CashDisbursementsJournal() {
   const [periodFrom, setPeriodFrom] = useState('');
   const [periodTo, setPeriodTo] = useState('');
 
-  const accounts = getClientAccounts(currentClient);
+  // `accounts` includes hidden accounts so existing CDJ columns keep matching
+  // their account (and keep their data/header) even after the account is
+  // archived. `visibleAccounts` is the unhidden subset offered when adding a
+  // brand-new column.
+  const accounts = getAllClientAccounts(currentClient);
+  const visibleAccounts = accounts.filter(a => !a.hidden);
   const rawColumns = currentClient.cdjColumns;
   const columns = localColumns || normalizeCdjColumns(rawColumns, accounts);
   const entries = localEntries || currentClient.cdjEntries || [];
@@ -559,7 +574,7 @@ export function CashDisbursementsJournal() {
                 <label className="block text-xs font-bold text-slate-500 mb-1">Add Chart of Accounts Column ({columns.filter(c => accountIdFromColumn(c) && !c.isSystem).length}/{MAX_CDJ_ACCOUNT_COLUMNS})</label>
                 <select value={selectedAccountId} onChange={e => setSelectedAccountId(e.target.value)} className="form-input text-sm py-1.5 min-w-[260px]" disabled={columns.filter(c => accountIdFromColumn(c) && !c.isSystem).length >= MAX_CDJ_ACCOUNT_COLUMNS}>
                   <option value="">Select an account...</option>
-                  {accounts.filter(a => !columns.some(c => accountIdFromColumn(c) === a.id)).map(a => (
+                  {visibleAccounts.filter(a => !columns.some(c => accountIdFromColumn(c) === a.id)).map(a => (
                     <option key={a.id} value={a.id}>{a.id} — {a.name}</option>
                   ))}
                 </select>
