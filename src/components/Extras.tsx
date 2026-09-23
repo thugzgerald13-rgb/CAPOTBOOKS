@@ -6,7 +6,8 @@ import { Users, TrendingUp, Key, Lightbulb, BookOpen, BookText, LineChart, Scale
 import { Client, BusinessProfile } from '../types';
 import { RDO_CODES } from '../lib/utils';
 import { supabase } from '../lib/supabase';
-import { formatAccountAmount, getCoaAccounts } from '../lib/accountingBalances';
+import { formatAccountAmount } from '../lib/accountingBalances';
+import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA } from './ChartOfAccounts';
 
 export function Extras() {
   const { 
@@ -1185,7 +1186,12 @@ export function Extras() {
               // Chart of Accounts is the single source of truth for the account
               // title and the opening (beginning) balance — the server RPC
               // doesn't reliably return the title, so look both up locally.
-              const coaAccounts = getCoaAccounts(currentClient);
+              // Use the full, unfiltered account list (not getCoaAccounts, which
+              // drops hidden accounts) so every account's opening balance is
+              // found even if it's since been hidden in the Chart of Accounts.
+              const coaAccounts = currentClient.accounts && currentClient.accounts.length > 0
+                ? currentClient.accounts
+                : (currentClient.coaFormat === 'alphanumeric' ? DEFAULT_ACCOUNTS_ALPHA : DEFAULT_ACCOUNTS);
               const coaById = new Map(coaAccounts.map(a => [String(a.id), a]));
               const totalDebit = balances.reduce((n, x) => n + Math.max(0, x.balance), 0);
               const totalCredit = balances.reduce((n, x) => n + Math.max(0, -x.balance), 0);
@@ -1205,7 +1211,6 @@ export function Extras() {
                         <tr className="bg-slate-50 dark:bg-slate-800/60 font-bold">
                           <th className="px-4 py-3 text-left">Account</th>
                           <th className="px-4 py-3 text-right">Beginning Balance</th>
-                          <th className="px-4 py-3 text-left">Type</th>
                           <th className="px-4 py-3 text-right">Debit</th>
                           <th className="px-4 py-3 text-right">Credit</th>
                           <th className="px-4 py-3 text-right">Ending Balance</th>
@@ -1222,7 +1227,6 @@ export function Extras() {
                             <tr key={x.account_id} className="border-t border-slate-100 dark:border-slate-800">
                               <td className="px-4 py-2">{x.account_id} — {accountTitle}</td>
                               <td className="px-4 py-2 text-right font-mono">{beginningBalance ? formatAccountAmount(beginningBalance) : ''}</td>
-                              <td className="px-4 py-2">{x.account_type}</td>
                               <td className="px-4 py-2 text-right font-mono">{debit ? formatAccountAmount(debit) : ''}</td>
                               <td className="px-4 py-2 text-right font-mono">{credit ? formatAccountAmount(credit) : ''}</td>
                               <td className="px-4 py-2 text-right font-mono">{x.balance ? formatAccountAmount(x.balance) : ''}</td>
@@ -1234,7 +1238,6 @@ export function Extras() {
                         <tr className="bg-slate-100 dark:bg-slate-800 font-bold border-t-2">
                           <td className="px-4 py-3">TOTAL</td>
                           <td className="px-4 py-3 text-right font-mono">{formatAccountAmount(totalBeginning)}</td>
-                          <td className="px-4 py-3"></td>
                           <td className="px-4 py-3 text-right font-mono">{formatAccountAmount(totalDebit)}</td>
                           <td className="px-4 py-3 text-right font-mono">{formatAccountAmount(totalCredit)}</td>
                           <td className="px-4 py-3 text-right font-mono">{formatAccountAmount(totalEnding)}</td>
