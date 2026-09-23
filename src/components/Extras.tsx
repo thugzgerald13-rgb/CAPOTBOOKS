@@ -6,7 +6,7 @@ import { Users, TrendingUp, Key, Lightbulb, BookOpen, BookText, LineChart, Scale
 import { Client, BusinessProfile } from '../types';
 import { RDO_CODES } from '../lib/utils';
 import { supabase } from '../lib/supabase';
-import { formatAccountAmount } from '../lib/accountingBalances';
+import { formatAccountAmount, getCoaAccounts } from '../lib/accountingBalances';
 
 export function Extras() {
   const { 
@@ -1181,23 +1181,16 @@ export function Extras() {
           <PageHeader title="Trial Balance" icon={<Scale />} centered />
           <div className="p-4 md:p-6 flex-1">
             {currentClient ? (() => {
-              const coaAccounts = currentClient.accounts || [];
-              const balances = trialBalances.map(x => {
-                const coaAccount = coaAccounts.find((a:any) => String(a.id) === String(x.account_id));
-                const beginningBalance = Number(coaAccount?.openingBalance || 0);
-                const endingBalance = beginningBalance + Number(x.period_debit || 0) - Number(x.period_credit || 0);
-                return {
-                  ...x,
-                  account_name: String(coaAccount?.name || x.account_name || x.account_id),
-                  account_type: String(coaAccount?.type || x.account_type || ''),
-                  beginning_balance: beginningBalance,
-                  ending_balance: endingBalance,
-                };
-              });
-              const totalBeginning = balances.reduce((n, x) => n + x.beginning_balance, 0);
-              const totalDebit = balances.reduce((n, x) => n + Number(x.period_debit || 0), 0);
-              const totalCredit = balances.reduce((n, x) => n + Number(x.period_credit || 0), 0);
-              const totalEnding = balances.reduce((n, x) => n + x.ending_balance, 0);
+              const balances = trialBalances;
+              // Chart of Accounts is the single source of truth for the account
+              // title and the opening (beginning) balance — the server RPC
+              // doesn't reliably return the title, so look both up locally.
+              const coaAccounts = getCoaAccounts(currentClient);
+              const coaById = new Map(coaAccounts.map(a => [String(a.id), a]));
+              const totalDebit = balances.reduce((n, x) => n + Math.max(0, x.balance), 0);
+              const totalCredit = balances.reduce((n, x) => n + Math.max(0, -x.balance), 0);
+              const totalBeginning = balances.reduce((n, x) => n + (Number(coaById.get(x.account_id)?.openingBalance) || 0), 0);
+              const totalEnding = balances.reduce((n, x) => n + x.balance, 0);
               return (
                 <div className="max-w-4xl mx-auto">
                   {trialBalanceError && <div className="mb-4 p-3 rounded-lg bg-red-50 text-red-700 text-sm">{trialBalanceError}</div>}
@@ -1210,7 +1203,7 @@ export function Extras() {
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="bg-slate-50 dark:bg-slate-800/60 font-bold">
-                          <th className="px-4 py-3 text-left">Account Title</th>
+                          <th className="px-4 py-3 text-left">Account</th>
                           <th className="px-4 py-3 text-right">Beginning Balance</th>
                           <th className="px-4 py-3 text-left">Type</th>
                           <th className="px-4 py-3 text-right">Debit</th>
@@ -1222,14 +1215,17 @@ export function Extras() {
                         {balances.map(x => {
                           const debit = Math.max(0, x.balance);
                           const credit = Math.max(0, -x.balance);
+                          const coaAccount = coaById.get(x.account_id);
+                          const accountTitle = coaAccount?.name || x.account_name;
+                          const beginningBalance = Number(coaAccount?.openingBalance) || 0;
                           return (
                             <tr key={x.account_id} className="border-t border-slate-100 dark:border-slate-800">
-                              <td className="px-4 py-2">{x.account_name}</td>
-                              <td className="px-4 py-2 text-right font-mono">{x.beginning_balance ? formatAccountAmount(x.beginning_balance) : ''}</td>
+                              <td className="px-4 py-2">{x.account_id} — {accountTitle}</td>
+                              <td className="px-4 py-2 text-right font-mono">{beginningBalance ? formatAccountAmount(beginningBalance) : ''}</td>
                               <td className="px-4 py-2">{x.account_type}</td>
-                              <td className="px-4 py-2 text-right font-mono">{x.period_debit ? formatAccountAmount(x.period_debit) : ''}</td>
-                              <td className="px-4 py-2 text-right font-mono">{x.period_credit ? formatAccountAmount(x.period_credit) : ''}</td>
-                              <td className="px-4 py-2 text-right font-mono">{x.ending_balance ? formatAccountAmount(x.ending_balance) : ''}</td>
+                              <td className="px-4 py-2 text-right font-mono">{debit ? formatAccountAmount(debit) : ''}</td>
+                              <td className="px-4 py-2 text-right font-mono">{credit ? formatAccountAmount(credit) : ''}</td>
+                              <td className="px-4 py-2 text-right font-mono">{x.balance ? formatAccountAmount(x.balance) : ''}</td>
                             </tr>
                           );
                         })}
