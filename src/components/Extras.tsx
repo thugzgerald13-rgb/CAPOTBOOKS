@@ -6,8 +6,8 @@ import { Users, TrendingUp, Key, Lightbulb, BookOpen, BookText, LineChart, Scale
 import { Client, BusinessProfile } from '../types';
 import { RDO_CODES } from '../lib/utils';
 import { supabase } from '../lib/supabase';
-import { formatAccountAmount } from '../lib/accountingBalances';
-import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA } from './ChartOfAccounts';
+import { formatAccountAmount, glAccountBalanceBefore } from '../lib/accountingBalances';
+import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide } from './ChartOfAccounts';
 
 export function Extras() {
   const { 
@@ -1193,9 +1193,27 @@ export function Extras() {
                 ? currentClient.accounts
                 : (currentClient.coaFormat === 'alphanumeric' ? DEFAULT_ACCOUNTS_ALPHA : DEFAULT_ACCOUNTS);
               const coaById = new Map(coaAccounts.map(a => [String(a.id), a]));
+              // The General Ledger is the recorded source for each account's
+              // beginning balance: its opening balance (from the Chart of
+              // Accounts) rolled forward through every entry posted before
+              // the trial balance year — the same formula the General Ledger
+              // page itself uses for its "Beginning Balance" row.
+              const glById = new Map((currentClient.glAccounts || []).map(g => [String(g.accountId ?? g.id), g]));
+              const yearStart = `${trialBalanceYear}-01-01`;
+              const getBeginningBalance = (accountId: string) => {
+                const coaAccount = coaById.get(accountId);
+                const glAccount = glById.get(accountId);
+                return glAccountBalanceBefore({
+                  id: accountId,
+                  accountTitle: coaAccount?.name || '',
+                  entries: glAccount?.entries || [],
+                  openingBalance: coaAccount?.openingBalance ?? glAccount?.openingBalance ?? 0,
+                  normalSide: coaAccount?.normalSide || glAccount?.normalSide || getNormalSide(coaAccount?.type || ''),
+                }, yearStart);
+              };
               const totalDebit = balances.reduce((n, x) => n + Math.max(0, x.balance), 0);
               const totalCredit = balances.reduce((n, x) => n + Math.max(0, -x.balance), 0);
-              const totalBeginning = balances.reduce((n, x) => n + (Number(coaById.get(x.account_id)?.openingBalance) || 0), 0);
+              const totalBeginning = balances.reduce((n, x) => n + getBeginningBalance(x.account_id), 0);
               const totalEnding = balances.reduce((n, x) => n + x.balance, 0);
               return (
                 <div className="max-w-4xl mx-auto">
@@ -1222,7 +1240,7 @@ export function Extras() {
                           const credit = Math.max(0, -x.balance);
                           const coaAccount = coaById.get(x.account_id);
                           const accountTitle = coaAccount?.name || x.account_name;
-                          const beginningBalance = Number(coaAccount?.openingBalance) || 0;
+                          const beginningBalance = getBeginningBalance(x.account_id);
                           return (
                             <tr key={x.account_id} className="border-t border-slate-100 dark:border-slate-800">
                               <td className="px-4 py-2">{x.account_id} — {accountTitle}</td>
