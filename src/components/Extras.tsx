@@ -1235,24 +1235,7 @@ export function Extras() {
                   normalSide: coaAccount?.normalSide || glAccount?.normalSide || getNormalSide(coaAccount?.type || ''),
                 }, yearStart);
               };
-              // Accounts that carry an opening balance but have no current-year
-              // postings are absent from the server RPC result entirely. Merge
-              // them in so their beginning (and ending) balance appears.
-              const representedIds = new Set(balances.map(x => String(resolveCoaAccount(x)?.id ?? x.account_id)));
-              coaAccounts.forEach(a => {
-                const opening = Number(a.openingBalance) || 0;
-                if (opening === 0 || representedIds.has(String(a.id))) return;
-                const normal = a.normalSide || getNormalSide(a.type || '');
-                balances.push({
-                  account_id: String(a.id),
-                  account_name: a.name,
-                  account_type: a.type,
-                  balance: normal === 'credit' ? -Math.abs(opening) : Math.abs(opening),
-                  period_debit: 0,
-                  period_credit: 0,
-                  period_balance: 0,
-                });
-              });
+              // (Missing-account merge happens below, after yearBalances is built.)
               // Debit & Credit columns come straight from the General Ledger:
               // each account's ledger Debit / Credit entries for the trial
               // balance year. The beginning balance is stored on the ledger
@@ -1261,6 +1244,40 @@ export function Extras() {
               const yearBalances = new Map(
                 getAccountBalances(glClient, trialBalanceYear).map(b => [String(b.account.id), b])
               );
+              // Per-account year Debit / Credit, summed from the General
+              // Ledger (beginning balance excluded — it is not an entry).
+              // Used by both the row cells and the TOTAL row so they agree.
+              const rowYearDebit = (x: any) => {
+                const yb = yearBalances.get(String(resolveCoaAccount(x)?.id ?? x.account_id));
+                return yb ? yb.currentYearDebit : Number(x.period_debit || 0);
+              };
+              const rowYearCredit = (x: any) => {
+                const yb = yearBalances.get(String(resolveCoaAccount(x)?.id ?? x.account_id));
+                return yb ? yb.currentYearCredit : Number(x.period_credit || 0);
+              };
+              // Merge in any CoA account missing from the server RPC result —
+              // including revenue/expense accounts (Sales, Expenses), which
+              // usually have zero opening balance but carry year activity.
+              const representedIds = new Set(balances.map(x => String(resolveCoaAccount(x)?.id ?? x.account_id)));
+              coaAccounts.forEach(a => {
+                if (representedIds.has(String(a.id))) return;
+                const opening = Number(a.openingBalance) || 0;
+                const yb = yearBalances.get(String(a.id));
+                const yearDr = yb?.currentYearDebit || 0;
+                const yearCr = yb?.currentYearCredit || 0;
+                if (opening === 0 && yearDr === 0 && yearCr === 0) return;
+                const normal = a.normalSide || getNormalSide(a.type || '');
+                const signedOpening = normal === 'credit' ? -Math.abs(opening) : Math.abs(opening);
+                balances.push({
+                  account_id: String(a.id),
+                  account_name: a.name,
+                  account_type: a.type,
+                  balance: signedOpening + yearDr - yearCr,
+                  period_debit: yearDr,
+                  period_credit: yearCr,
+                  period_balance: yearDr - yearCr,
+                });
+              });
               // Sort by account code (natural order, so 1010 < 1020 < 10100
               // and sub-accounts stay under their parent) using the resolved
               // Chart of Accounts code, falling back to the RPC account_id.
@@ -1271,12 +1288,8 @@ export function Extras() {
                 const codeB = String(cb?.id ?? b.account_id ?? '');
                 return codeA.localeCompare(codeB, undefined, { numeric: true, sensitivity: 'base' });
               });
-              // Debit & Credit columns show the period (current-year)
-              // transactions only — never the beginning balance. The server
-              // RPC returns these as period_debit / period_credit for the
-              // requested year window.
-              const totalDebit = balances.reduce((n, x) => n + Number(x.period_debit || 0), 0);
-              const totalCredit = balances.reduce((n, x) => n + Number(x.period_credit || 0), 0);
+              const totalDebit = balances.reduce((n, x) => n + rowYearDebit(x), 0);
+              const totalCredit = balances.reduce((n, x) => n + rowYearCredit(x), 0);
               const totalBeginning = balances.reduce((n, x) => n + getBeginningBalance(x), 0);
               const totalEnding = totalBeginning + totalDebit - totalCredit;
               return (
@@ -1304,9 +1317,8 @@ export function Extras() {
                           const accountCode = coaAccount?.id || x.account_id;
                           const accountTitle = coaAccount?.name || x.account_name;
                           const beginningBalance = getBeginningBalance(x);
-                          const yb = yearBalances.get(String(coaAccount?.id ?? x.account_id));
-                          const debit = yb ? yb.currentYearDebit : Number(x.period_debit || 0);
-                          const credit = yb ? yb.currentYearCredit : Number(x.period_credit || 0);
+                          const debit = rowYearDebit(x);
+                          const credit = rowYearCredit(x);
                           // Ending Balance = Beginning + period Debits − period Credits
                           // (beginning is signed: debit-normal positive, credit-normal negative)
                           const endingBalance = beginningBalance + debit - credit;
