@@ -1246,10 +1246,24 @@ export function Extras() {
                   period_balance: 0,
                 });
               });
-              const totalDebit = balances.reduce((n, x) => n + Math.max(0, x.balance), 0);
-              const totalCredit = balances.reduce((n, x) => n + Math.max(0, -x.balance), 0);
+              // Sort by account code (natural order, so 1010 < 1020 < 10100
+              // and sub-accounts stay under their parent) using the resolved
+              // Chart of Accounts code, falling back to the RPC account_id.
+              balances.sort((a, b) => {
+                const ca = resolveCoaAccount(a);
+                const cb = resolveCoaAccount(b);
+                const codeA = String(ca?.id ?? a.account_id ?? '');
+                const codeB = String(cb?.id ?? b.account_id ?? '');
+                return codeA.localeCompare(codeB, undefined, { numeric: true, sensitivity: 'base' });
+              });
+              // Debit & Credit columns show the period (current-year)
+              // transactions only — never the beginning balance. The server
+              // RPC returns these as period_debit / period_credit for the
+              // requested year window.
+              const totalDebit = balances.reduce((n, x) => n + Number(x.period_debit || 0), 0);
+              const totalCredit = balances.reduce((n, x) => n + Number(x.period_credit || 0), 0);
               const totalBeginning = balances.reduce((n, x) => n + getBeginningBalance(x), 0);
-              const totalEnding = balances.reduce((n, x) => n + x.balance, 0);
+              const totalEnding = balances.reduce((n, x) => n + Number(x.balance || 0), 0);
               return (
                 <div className="max-w-4xl mx-auto">
                   {trialBalanceError && <div className="mb-4 p-3 rounded-lg bg-red-50 text-red-700 text-sm">{trialBalanceError}</div>}
@@ -1271,14 +1285,15 @@ export function Extras() {
                       </thead>
                       <tbody>
                         {balances.map(x => {
-                          const debit = Math.max(0, x.balance);
-                          const credit = Math.max(0, -x.balance);
+                          const debit = Number(x.period_debit || 0);
+                          const credit = Number(x.period_credit || 0);
                           const coaAccount = resolveCoaAccount(x);
+                          const accountCode = coaAccount?.id || x.account_id;
                           const accountTitle = coaAccount?.name || x.account_name;
                           const beginningBalance = getBeginningBalance(x);
                           return (
                             <tr key={x.account_id} className="border-t border-slate-100 dark:border-slate-800">
-                              <td className="px-4 py-2">{x.account_id} — {accountTitle}</td>
+                              <td className="px-4 py-2">{accountCode} — {accountTitle}</td>
                               <td className="px-4 py-2 text-right font-mono">{beginningBalance ? formatAccountAmount(beginningBalance) : ''}</td>
                               <td className="px-4 py-2 text-right font-mono">{debit ? formatAccountAmount(debit) : ''}</td>
                               <td className="px-4 py-2 text-right font-mono">{credit ? formatAccountAmount(credit) : ''}</td>
