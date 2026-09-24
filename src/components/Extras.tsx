@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { useAuth } from '../context/AuthContext';
@@ -6,8 +6,8 @@ import { Users, TrendingUp, Key, Lightbulb, BookOpen, BookText, LineChart, Scale
 import { Client, BusinessProfile } from '../types';
 import { RDO_CODES } from '../lib/utils';
 import { supabase } from '../lib/supabase';
-import { formatAccountAmount, glAccountBalanceBefore } from '../lib/accountingBalances';
-import { findAccountByLabel } from '../lib/glPosting';
+import { formatAccountAmount, glAccountBalanceBefore, getAccountBalances } from '../lib/accountingBalances';
+import { findAccountByLabel, syncGeneralLedger } from '../lib/glPosting';
 import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide } from './ChartOfAccounts';
 
 export function Extras() {
@@ -32,6 +32,13 @@ export function Extras() {
   const [trialBalances, setTrialBalances] = useState<any[]>([]);
   const [trialBalanceError, setTrialBalanceError] = useState<string | null>(null);
   const trialBalanceYear = new Date().getFullYear();
+  // Rebuild the General Ledger (auto-postings from all journals) once per
+  // client so the Trial Balance's Debit/Credit columns can be summed from the
+  // ledger entries instead of trusting the server RPC's period totals.
+  const glClientTb = useMemo(
+    () => (currentClient ? syncGeneralLedger(currentClient) : null),
+    [currentClient]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -1246,6 +1253,14 @@ export function Extras() {
                   period_balance: 0,
                 });
               });
+              // Debit & Credit columns come straight from the General Ledger:
+              // each account's ledger Debit / Credit entries for the trial
+              // balance year. The beginning balance is stored on the ledger
+              // account (not as an entry), so summing entries excludes it.
+              const glClient = glClientTb ?? currentClient;
+              const yearBalances = new Map(
+                getAccountBalances(glClient, trialBalanceYear).map(b => [String(b.account.id), b])
+              );
               // Sort by account code (natural order, so 1010 < 1020 < 10100
               // and sub-accounts stay under their parent) using the resolved
               // Chart of Accounts code, falling back to the RPC account_id.
@@ -1285,12 +1300,13 @@ export function Extras() {
                       </thead>
                       <tbody>
                         {balances.map(x => {
-                          const debit = Number(x.period_debit || 0);
-                          const credit = Number(x.period_credit || 0);
                           const coaAccount = resolveCoaAccount(x);
                           const accountCode = coaAccount?.id || x.account_id;
                           const accountTitle = coaAccount?.name || x.account_name;
                           const beginningBalance = getBeginningBalance(x);
+                          const yb = yearBalances.get(String(coaAccount?.id ?? x.account_id));
+                          const debit = yb ? yb.currentYearDebit : Number(x.period_debit || 0);
+                          const credit = yb ? yb.currentYearCredit : Number(x.period_credit || 0);
                           // Ending Balance = Beginning + period Debits − period Credits
                           // (beginning is signed: debit-normal positive, credit-normal negative)
                           const endingBalance = beginningBalance + debit - credit;
