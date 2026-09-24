@@ -7,6 +7,7 @@ import { Client, BusinessProfile } from '../types';
 import { RDO_CODES } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import { formatAccountAmount, glAccountBalanceBefore } from '../lib/accountingBalances';
+import { findAccountByLabel } from '../lib/glPosting';
 import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide } from './ChartOfAccounts';
 
 export function Extras() {
@@ -1182,7 +1183,7 @@ export function Extras() {
           <PageHeader title="Trial Balance" icon={<Scale />} centered />
           <div className="p-4 md:p-6 flex-1">
             {currentClient ? (() => {
-              const balances = trialBalances;
+              const balances = [...trialBalances];
               // Chart of Accounts is the single source of truth for the account
               // title and the opening (beginning) balance — the server RPC
               // doesn't reliably return the title, so look both up locally.
@@ -1193,6 +1194,22 @@ export function Extras() {
                 ? currentClient.accounts
                 : (currentClient.coaFormat === 'alphanumeric' ? DEFAULT_ACCOUNTS_ALPHA : DEFAULT_ACCOUNTS);
               const coaById = new Map(coaAccounts.map(a => [String(a.id), a]));
+              // The server RPC groups special-journal postings by account name
+              // (stored inside journal_entries.values jsonb), so its
+              // account_id often does not match a coa_accounts.id. Resolve
+              // each row's Chart of Accounts entry by id first, then by name,
+              // so the opening (beginning) balance — which lives only on the
+              // CoA entry — is always found instead of silently falling back
+              // to 0.
+              const resolveCoaAccount = (row: { account_id: string; account_name?: string }) => {
+                const byId = coaById.get(String(row.account_id));
+                if (byId) return byId;
+                if (row.account_name) {
+                  const byName = findAccountByLabel(String(row.account_name), coaAccounts);
+                  if (byName) return byName;
+                }
+                return undefined;
+              };
               // The General Ledger is the recorded source for each account's
               // beginning balance: its opening balance (from the Chart of
               // Accounts) rolled forward through every entry posted before
@@ -1200,20 +1217,38 @@ export function Extras() {
               // page itself uses for its "Beginning Balance" row.
               const glById = new Map((currentClient.glAccounts || []).map(g => [String(g.accountId ?? g.id), g]));
               const yearStart = `${trialBalanceYear}-01-01`;
-              const getBeginningBalance = (accountId: string) => {
-                const coaAccount = coaById.get(accountId);
-                const glAccount = glById.get(accountId);
+              const getBeginningBalance = (row: { account_id: string; account_name?: string }) => {
+                const coaAccount = resolveCoaAccount(row);
+                const glAccount = glById.get(String(row.account_id));
                 return glAccountBalanceBefore({
-                  id: accountId,
+                  id: String(row.account_id),
                   accountTitle: coaAccount?.name || '',
                   entries: glAccount?.entries || [],
                   openingBalance: coaAccount?.openingBalance ?? glAccount?.openingBalance ?? 0,
                   normalSide: coaAccount?.normalSide || glAccount?.normalSide || getNormalSide(coaAccount?.type || ''),
                 }, yearStart);
               };
+              // Accounts that carry an opening balance but have no current-year
+              // postings are absent from the server RPC result entirely. Merge
+              // them in so their beginning (and ending) balance appears.
+              const representedIds = new Set(balances.map(x => String(resolveCoaAccount(x)?.id ?? x.account_id)));
+              coaAccounts.forEach(a => {
+                const opening = Number(a.openingBalance) || 0;
+                if (opening === 0 || representedIds.has(String(a.id))) return;
+                const normal = a.normalSide || getNormalSide(a.type || '');
+                balances.push({
+                  account_id: String(a.id),
+                  account_name: a.name,
+                  account_type: a.type,
+                  balance: normal === 'credit' ? -Math.abs(opening) : Math.abs(opening),
+                  period_debit: 0,
+                  period_credit: 0,
+                  period_balance: 0,
+                });
+              });
               const totalDebit = balances.reduce((n, x) => n + Math.max(0, x.balance), 0);
               const totalCredit = balances.reduce((n, x) => n + Math.max(0, -x.balance), 0);
-              const totalBeginning = balances.reduce((n, x) => n + getBeginningBalance(x.account_id), 0);
+              const totalBeginning = balances.reduce((n, x) => n + getBeginningBalance(x), 0);
               const totalEnding = balances.reduce((n, x) => n + x.balance, 0);
               return (
                 <div className="max-w-4xl mx-auto">
@@ -1238,9 +1273,9 @@ export function Extras() {
                         {balances.map(x => {
                           const debit = Math.max(0, x.balance);
                           const credit = Math.max(0, -x.balance);
-                          const coaAccount = coaById.get(x.account_id);
+                          const coaAccount = resolveCoaAccount(x);
                           const accountTitle = coaAccount?.name || x.account_name;
-                          const beginningBalance = getBeginningBalance(x.account_id);
+                          const beginningBalance = getBeginningBalance(x);
                           return (
                             <tr key={x.account_id} className="border-t border-slate-100 dark:border-slate-800">
                               <td className="px-4 py-2">{x.account_id} — {accountTitle}</td>
