@@ -1263,7 +1263,7 @@ export function Extras() {
               const totalDebit = balances.reduce((n, x) => n + Number(x.period_debit || 0), 0);
               const totalCredit = balances.reduce((n, x) => n + Number(x.period_credit || 0), 0);
               const totalBeginning = balances.reduce((n, x) => n + getBeginningBalance(x), 0);
-              const totalEnding = balances.reduce((n, x) => n + Number(x.balance || 0), 0);
+              const totalEnding = totalBeginning + totalDebit - totalCredit;
               return (
                 <div className="max-w-4xl mx-auto">
                   {trialBalanceError && <div className="mb-4 p-3 rounded-lg bg-red-50 text-red-700 text-sm">{trialBalanceError}</div>}
@@ -1291,13 +1291,16 @@ export function Extras() {
                           const accountCode = coaAccount?.id || x.account_id;
                           const accountTitle = coaAccount?.name || x.account_name;
                           const beginningBalance = getBeginningBalance(x);
+                          // Ending Balance = Beginning + period Debits − period Credits
+                          // (beginning is signed: debit-normal positive, credit-normal negative)
+                          const endingBalance = beginningBalance + debit - credit;
                           return (
                             <tr key={x.account_id} className="border-t border-slate-100 dark:border-slate-800">
                               <td className="px-4 py-2">{accountCode} — {accountTitle}</td>
                               <td className="px-4 py-2 text-right font-mono">{beginningBalance ? formatAccountAmount(beginningBalance) : ''}</td>
                               <td className="px-4 py-2 text-right font-mono">{debit ? formatAccountAmount(debit) : ''}</td>
                               <td className="px-4 py-2 text-right font-mono">{credit ? formatAccountAmount(credit) : ''}</td>
-                              <td className="px-4 py-2 text-right font-mono">{x.balance ? formatAccountAmount(x.balance) : ''}</td>
+                              <td className="px-4 py-2 text-right font-mono">{endingBalance ? formatAccountAmount(endingBalance) : ''}</td>
                             </tr>
                           );
                         })}
