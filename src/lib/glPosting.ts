@@ -113,6 +113,15 @@ function getCoaAccounts(client: Client): CoaAccount[] {
 // account is typed into the companion "Account Title" field).
 const CRJ_LABEL_OVERRIDES: Record<string, string> = { sundry: 'Output Tax' };
 const CDJ_LABEL_OVERRIDES: Record<string, string> = { cash: 'Cash', input_tax: 'Input Tax' };
+// PJ columns whose fixed account is known. "Net of VAT" and "Exempt / 0-Rated"
+// both debit the Purchases account.
+const PJ_LABEL_OVERRIDES: Record<string, string> = {
+  net_purchase: 'Purchases',
+  exempt_zero_rated: 'Purchases',
+  input_tax: 'Input Tax',
+  accounts_payable: 'Accounts Payable',
+  withholding_tax: 'Withholding Tax Payable',
+};
 
 interface Posting {
   accountId: string;
@@ -485,7 +494,11 @@ function postPurchases(client: Client, accounts: CoaAccount[]): Posting[] {
     const cashDue = total - wht;
 
     if (cashDue > 0) {
-      const creditAcct = findAccountByLabel('Cash', accounts);
+      // On-account (credit) purchases credit Accounts Payable; cash/check
+      // purchases credit Cash.
+      const isOnAccount = p.paymentMethod !== 'Cash' && p.paymentMethod !== 'Check';
+      const creditLabel = isOnAccount ? 'Accounts Payable' : 'Cash';
+      const creditAcct = findAccountByLabel(creditLabel, accounts);
       if (creditAcct) {
         postings.push({
           accountId: creditAcct.id,
@@ -909,12 +922,14 @@ export function computeAutoPostings(client: Client): Posting[] {
 
   // Auto PJ rows are display-only (on-account purchases already reach the
   // ledger via postPurchases); only manually-typed PJ rows post here.
-  const pj = postColumnarJournal((client.pjEntries || []).filter(e => !e.auto), useColumns(client.pjColumns, DEFAULT_PJ_COLUMNS), accounts, {
+  const manualPj = (client.pjEntries || []).filter(e => !e.auto);
+  const pj = postColumnarJournal(manualPj, useColumns(client.pjColumns, DEFAULT_PJ_COLUMNS), accounts, {
     prefix: 'pj',
     sourceLabel: 'Purchases Journal',
     dateCol: 'date',
     particularsCol: 'supplier_name',
     refCol: 'invoice_no',
+    overrides: PJ_LABEL_OVERRIDES,
   });
 
   const jv = postJournalVouchers(client);
