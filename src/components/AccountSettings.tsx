@@ -107,13 +107,11 @@ export function AccountSettings() {
               <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${twoFaEnabled ? 'left-[22px]' : 'left-0.5'}`} />
             </button>
           </div>
-          {isGoogleUser && (
             <form onSubmit={saveCredentials} className="space-y-4 pt-2 border-t border-slate-200 dark:border-slate-700">
               <div className="pt-3"><div className="text-sm font-bold text-slate-800 dark:text-slate-100">CAPOT Login Credentials</div><p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Update the password used for CAPOT email/password login.</p></div>
               <div className="grid md:grid-cols-2 gap-4"><input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} autoComplete="new-password" className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-sm" placeholder="New password" /><input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required minLength={6} autoComplete="new-password" className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-sm" placeholder="Confirm password" /></div>
               <button type="submit" disabled={loading} className="px-6 py-2.5 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl font-bold text-sm disabled:opacity-50">{loading ? 'Saving...' : needsAccountSetup ? 'Create Password' : 'Update Password'}</button>
             </form>
-          )}
         </div>
       ))}
 

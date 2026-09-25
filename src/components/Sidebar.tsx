@@ -646,7 +646,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               title={isCollapsed ? "Settings" : undefined}
               className={cn(
                 "flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl transition-all w-full text-left group",
-                (isSettingsOpen || ['business','clients','tinlibrary','account-settings'].includes(activePage)) ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
+                (isSettingsOpen || ['business','clients','tinlibrary','account-settings','team'].includes(activePage)) ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
                 isCollapsed && "md:justify-center md:px-2"
               )}
             >
@@ -705,6 +705,13 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   >
                     <UserCircle className="w-4 h-4" />
                     Account Settings
+                  </button>
+                  <button
+                    onClick={() => handleNavClick('team')}
+                    className={`flex items-center gap-3 px-4 py-2 text-xs font-bold rounded-lg transition-all w-full text-left ${activePage === 'team' ? 'bg-cyan-50 text-cyan-700 dark:bg-cyan-900/20 dark:text-cyan-400' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200'}`}
+                  >
+                    <Users className="w-4 h-4" />
+                    Team &amp; Subusers
                   </button>
                   <button
                     onClick={() => {
