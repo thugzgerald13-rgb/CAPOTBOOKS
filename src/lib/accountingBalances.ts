@@ -199,6 +199,54 @@ export function getProfitAndLossTotals(client: Client, year = getCurrentYear(cli
 }
 
 // ---------------------------------------------------------------------------
+// Period-filtered P&L (Run 004 / T004) — arbitrary date range + monthly series
+// ---------------------------------------------------------------------------
+// Same exact math as getProfitAndLossTotals but over any [start, endExclusive)
+// ISO date window. Powers the Dashboard's period selector, period-over-period
+// deltas, and monthly sparklines. Figures always agree with the P&L report.
+export interface PeriodPnL {
+  revenueTotal: number;
+  costTotal: number;
+  expenseTotal: number;
+  netIncome: number;
+}
+
+export function getProfitAndLossForPeriod(client: Client, startISO: string, endExclusiveISO: string): PeriodPnL {
+  const balances = (client.glAccounts || []).map((account: any) => {
+    const entries = Array.isArray(account.entries) ? account.entries : [];
+    const periodEntries = entries.filter((entry: any) => {
+      const d = String(entry.date || entry.dateDr || entry.dateCr || '').slice(0, 10);
+      return d >= startISO && d < endExclusiveISO;
+    });
+    const period_debit = periodEntries.reduce((n: number, e: any) => n + Number(String(e.debit ?? '').replace(/,/g, '') || 0), 0);
+    const period_credit = periodEntries.reduce((n: number, e: any) => n + Number(String(e.credit ?? '').replace(/,/g, '') || 0), 0);
+    return { account_type: String(account.accountType || ''), period_debit, period_credit };
+  });
+  const revenueTotal = balances.filter(x => x.account_type.toLowerCase() === 'revenue')
+    .reduce((n, x) => n + Math.max(0, x.period_credit - x.period_debit), 0);
+  const costTotal = balances.filter(x => ['cost', 'costs'].includes(x.account_type.toLowerCase()))
+    .reduce((n, x) => n + Math.max(0, x.period_debit - x.period_credit), 0);
+  const expenseTotal = balances.filter(x => ['expense', 'expenses'].includes(x.account_type.toLowerCase()))
+    .reduce((n, x) => n + Math.max(0, x.period_debit - x.period_credit), 0);
+  return { revenueTotal, costTotal, expenseTotal, netIncome: revenueTotal - costTotal - expenseTotal };
+}
+
+/** Monthly revenue/expenses for the last `monthsBack` months (oldest first) —
+ *  used for Dashboard sparklines. End month is the current (partial) month. */
+export function getMonthlyPnL(client: Client, monthsBack = 6): { label: string; revenue: number; expenses: number }[] {
+  const now = new Date();
+  const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const out: { label: string; revenue: number; expenses: number }[] = [];
+  for (let i = monthsBack - 1; i >= 0; i--) {
+    const start = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const end = new Date(now.getFullYear(), now.getMonth() - i + 1, 1);
+    const p = getProfitAndLossForPeriod(client, iso(start), iso(end));
+    out.push({ label: start.toLocaleString('en-US', { month: 'short' }), revenue: p.revenueTotal, expenses: p.costTotal + p.expenseTotal });
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
 // General Ledger — single source of truth for account running balances
 // ---------------------------------------------------------------------------
 // The General Ledger page and anywhere else that needs a live account

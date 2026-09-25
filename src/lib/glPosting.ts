@@ -113,15 +113,6 @@ function getCoaAccounts(client: Client): CoaAccount[] {
 // account is typed into the companion "Account Title" field).
 const CRJ_LABEL_OVERRIDES: Record<string, string> = { sundry: 'Output Tax' };
 const CDJ_LABEL_OVERRIDES: Record<string, string> = { cash: 'Cash', input_tax: 'Input Tax' };
-// PJ columns whose fixed account is known. "Net of VAT" and "Exempt / 0-Rated"
-// both debit the Purchases account.
-const PJ_LABEL_OVERRIDES: Record<string, string> = {
-  net_purchase: 'Purchases',
-  exempt_zero_rated: 'Purchases',
-  input_tax: 'Input Tax',
-  accounts_payable: 'Accounts Payable',
-  withholding_tax: 'Withholding Tax Payable',
-};
 
 interface Posting {
   accountId: string;
@@ -494,11 +485,7 @@ function postPurchases(client: Client, accounts: CoaAccount[]): Posting[] {
     const cashDue = total - wht;
 
     if (cashDue > 0) {
-      // On-account (credit) purchases credit Accounts Payable; cash/check
-      // purchases credit Cash.
-      const isOnAccount = p.paymentMethod !== 'Cash' && p.paymentMethod !== 'Check';
-      const creditLabel = isOnAccount ? 'Accounts Payable' : 'Cash';
-      const creditAcct = findAccountByLabel(creditLabel, accounts);
+      const creditAcct = findAccountByLabel('Cash', accounts);
       if (creditAcct) {
         postings.push({
           accountId: creditAcct.id,
@@ -922,14 +909,12 @@ export function computeAutoPostings(client: Client): Posting[] {
 
   // Auto PJ rows are display-only (on-account purchases already reach the
   // ledger via postPurchases); only manually-typed PJ rows post here.
-  const manualPj = (client.pjEntries || []).filter(e => !e.auto);
-  const pj = postColumnarJournal(manualPj, useColumns(client.pjColumns, DEFAULT_PJ_COLUMNS), accounts, {
+  const pj = postColumnarJournal((client.pjEntries || []).filter(e => !e.auto), useColumns(client.pjColumns, DEFAULT_PJ_COLUMNS), accounts, {
     prefix: 'pj',
     sourceLabel: 'Purchases Journal',
     dateCol: 'date',
     particularsCol: 'supplier_name',
     refCol: 'invoice_no',
-    overrides: PJ_LABEL_OVERRIDES,
   });
 
   const jv = postJournalVouchers(client);
@@ -991,4 +976,45 @@ export function syncGeneralLedger(client: Client): Client {
   if (nextGlAccounts.length === 0 && existing.length === 0) return client;
 
   return { ...client, glAccounts: nextGlAccounts };
+}
+
+// ---- Run 010 / T010: recurring JE + JV templates + attachments ----
+
+export type RecurrenceFrequency = 'Monthly' | 'Quarterly' | 'Annually';
+
+export function addIntervalISO(dateStr: string, frequency: RecurrenceFrequency): string {
+  const d = new Date(dateStr + 'T00:00:00');
+  if (frequency === 'Monthly') d.setMonth(d.getMonth() + 1);
+  else if (frequency === 'Quarterly') d.setMonth(d.getMonth() + 3);
+  else d.setFullYear(d.getFullYear() + 1);
+  return d.toISOString().split('T')[0];
+}
+
+export interface JVTemplateLine { accountId: string; accountName: string; debit: number; credit: number; }
+export interface JVTemplate { id: string; name: string; memo: string; lines: JVTemplateLine[]; createdAt: string; }
+
+const jvTemplateKey = (clientId: string) => `capot.jvTemplates.${clientId}`;
+
+export function loadJVTemplates(clientId: string): JVTemplate[] {
+  try { return JSON.parse(localStorage.getItem(jvTemplateKey(clientId)) || '[]'); } catch { return []; }
+}
+
+export function persistJVTemplates(clientId: string, templates: JVTemplate[]) {
+  try { localStorage.setItem(jvTemplateKey(clientId), JSON.stringify(templates)); } catch { /* ignore quota */ }
+}
+
+export interface JVAttachment { name: string; size: number; type: string; dataUrl?: string; }
+
+/** Read an uploaded file into an attachment record. Files under 500KB are stored as data URLs on the voucher; larger files keep metadata only. */
+export async function readJVAttachment(file: File): Promise<JVAttachment> {
+  const base: JVAttachment = { name: file.name, size: file.size, type: file.type };
+  if (file.size <= 500 * 1024) {
+    base.dataUrl = await new Promise<string>((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result));
+      r.onerror = reject;
+      r.readAsDataURL(file);
+    });
+  }
+  return base;
 }

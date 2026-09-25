@@ -111,3 +111,30 @@ export const complianceFormsDirectory: FormReference[] = [
   { code: 'Inventory List', description: 'Annual BIR Inventory List and Schedules', frequency: 'Annually', deadlineRule: 'January 30 of the following year' },
   { code: 'Business Permit', description: "Annual LGU Business & Mayor's Permit Renewal", frequency: 'Annually', deadlineRule: 'January 20 of each year' },
 ];
+
+// ---- T012: BIR penalty estimator + compliance risk score ----
+
+export interface PenaltyEstimate { surcharge: number; interest: number; compromise: number; total: number; daysLate: number; }
+
+/** Estimate BIR penalties for an unpaid tax amount past due: 25% surcharge + 20%/yr interest + compromise. */
+export function estimateBirPenalty(unpaidTax: number, dueDateISO: string, todayISO: string = new Date().toISOString().split('T')[0]): PenaltyEstimate {
+  const daysLate = Math.max(0, Math.floor((new Date(todayISO + 'T00:00:00').getTime() - new Date(dueDateISO.slice(0, 10) + 'T00:00:00').getTime()) / 86400000));
+  const surcharge = unpaidTax * 0.25;
+  const interest = unpaidTax * 0.20 * (daysLate / 365);
+  const compromise = unpaidTax > 0 ? Math.min(20000, Math.max(500, unpaidTax * 0.02)) : 0;
+  return { surcharge, interest, compromise, total: surcharge + interest + compromise, daysLate };
+}
+
+export interface RiskScore { score: number; level: 'Low' | 'Medium' | 'High'; overdue: number; pending: number; }
+
+/** 0–100 compliance risk score from deadline statuses. Higher = lower risk. */
+export function computeComplianceRiskScore(deadlines: Array<{ status?: string }>): RiskScore {
+  const overdue = deadlines.filter(d => d.status === 'Overdue').length;
+  const pending = deadlines.filter(d => d.status === 'Pending' || d.status === 'Processing').length;
+  const filed = deadlines.filter(d => d.status === 'Filed' || d.status === 'Paid').length;
+  const total = deadlines.length || 1;
+  const raw = Math.round(100 * (filed / total) - 3 * overdue);
+  const score = Math.max(0, Math.min(100, raw));
+  const level: RiskScore['level'] = score >= 80 ? 'Low' : score >= 50 ? 'Medium' : 'High';
+  return { score, level, overdue, pending };
+}
