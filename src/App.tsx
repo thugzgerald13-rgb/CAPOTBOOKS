@@ -8,6 +8,11 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { AuthContainer } from './components/AuthContainer';
 import { RoleSelection } from './components/RoleSelection';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { ToastContainer } from './components/ui/Toast';
+import { AIAssistant } from './components/AIAssistant';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { PageSkeleton, EmptyState, Button } from './components/ui';
+import { Wallet } from 'lucide-react';
 
 const Sales = lazy(() => import('./components/Sales').then(m => ({ default: m.Sales })));
 const Billing = lazy(() => import('./components/Billing').then(m => ({ default: m.Billing })));
@@ -37,7 +42,7 @@ const AccountSettings = lazy(() => import('./components/AccountSettings').then(m
 
 function AppLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const { toastMsg, clients, navigateToPage, activePage, businessProfile } = useAccounting();
+  const { clients, navigateToPage, activePage, businessProfile } = useAccounting();
   const { userRole } = useAuth();
 
   const hasClients = Object.keys(clients).length > 0;
@@ -64,49 +69,35 @@ function AppLayout() {
       
       <main className="app-main flex-1 flex flex-col h-screen overflow-y-auto w-full relative">
         <Header onMenuClick={() => setIsSidebarOpen(true)} />
+        <ErrorBoundary>
         <div className="app-content px-4 md:px-8 pt-[1.5px] pb-1 md:pb-2 max-w-[1400px] mx-auto w-full">
           {!activePage && (
             hasClients ? (
               <Dashboard />
             ) : (
-              <div className="flex flex-col items-center justify-center py-20 px-4 text-center bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm mt-8">
-                <h2 className="text-2xl font-bold text-slate-800 dark:text-slate-100 mb-2">Welcome to your workspace</h2>
-                <p className="text-slate-500 dark:text-slate-400 max-w-md mb-8">Set up your business profile (TIN, Taxpayer Classification, Trade Name, Address and RDO Code) to begin tracking transactions and generating reports.</p>
-                <button 
-                   onClick={() => navigateToPage('business')}
-                   className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold shadow-lg shadow-blue-500/30 transition-all"
-                >
-                  Set up Business Profile
-                </button>
+              <div className="mt-8 card-surface">
+                <EmptyState
+                  icon={<Wallet className="w-7 h-7" />}
+                  title="Welcome to your workspace"
+                  description="Set up your business profile (TIN, Taxpayer Classification, Trade Name, Address and RDO Code) to begin tracking transactions and generating reports."
+                  action={<Button size="lg" onClick={() => navigateToPage('business')}>Set up Business Profile</Button>}
+                />
               </div>
             )
           )}
         </div>
 
-        {/* Global Toast */}
-        <AnimatePresence>
-          {toastMsg && (
-            <motion.div
-              initial={{ opacity: 0, y: 50, x: '-50%' }}
-              animate={{ opacity: 1, y: 0, x: '-50%' }}
-              exit={{ opacity: 0, scale: 0.9, x: '-50%' }}
-              className="fixed bottom-6 left-1/2 bg-emerald-500 text-white px-6 py-3 rounded-full font-semibold shadow-xl shadow-emerald-500/20 z-50 flex items-center gap-2"
-            >
-              ✓ {toastMsg}
-            </motion.div>
-          )}
-        </AnimatePresence>
+        </ErrorBoundary>
+        {/* Global stacked toasts (Run 003 / T003) — imperative API via `toast` */}
+        <ToastContainer />
+        <AIAssistant />
 
         {/* Pages: React Router only mounts the component matching the current
             route, so navigating away actually unmounts the previous page
             (fresh state each visit) instead of keeping ~20 components alive
             and toggling visibility. */}
         <div className="app-content transaction-page-content px-4 md:px-8 pt-[1.5px] pb-4 md:pb-8 max-w-[1400px] mx-auto w-full">
-          <Suspense fallback={
-            <div className="flex min-h-[240px] items-center justify-center">
-              <div className="h-8 w-8 animate-spin rounded-full border-2 border-slate-300 border-t-cyan-600" aria-label="Loading page" />
-            </div>
-          }>
+          <Suspense fallback={<PageSkeleton />}>
           <Routes>
             {/* HashRouter starts at "/" when the app is opened without a hash.
                 Keep an explicit root route so React Router does not report
