@@ -1,82 +1,48 @@
-// src/services/clientService.ts
-import { supabase } from '@/lib/supabase';
+// Multi-entity client service (Run 022 / T022): per-client branding + tax-setup
+// helpers. Branding persisted per client in localStorage; tax defaults from BIR utils.
 
-// ---------- Client Shell ----------
-export async function fetchClientShell(clientId: string) {
-  const { data, error } = await supabase
-    .from('clients')
-    .select('id, name, address, tax_id, accounting_type, fiscal_year_start')
-    .eq('id', clientId)
-    .single();
-  if (error) throw error;
-  return data;
+export interface ClientBranding {
+  logoUrl: string;
+  accentColor: string;
+  invoiceFooter: string;
 }
 
-// ---------- Journal Entries (paginated) ----------
-export async function fetchJournalEntries(clientId: string, page: number, pageSize: number) {
-  const from = (page - 1) * pageSize;
-  const to = from + pageSize - 1;
-  const { data, error, count } = await supabase
-    .from('journal_entries')
-    .select('id, entry_date, description, total_debit, total_credit, journal_type', { count: 'exact' })
-    .eq('client_id', clientId)
-    .order('entry_date', { ascending: false })
-    .range(from, to);
-  if (error) throw error;
-  return { data, count };
+export const DEFAULT_BRANDING: ClientBranding = { logoUrl: '', accentColor: '#0891b2', invoiceFooter: 'Thank you for your business.' };
+
+const brandingKey = (clientId: string) => `capot.branding.${clientId}`;
+
+export function getClientBranding(clientId: string): ClientBranding {
+  try { return { ...DEFAULT_BRANDING, ...JSON.parse(localStorage.getItem(brandingKey(clientId)) || '{}') }; }
+  catch { return DEFAULT_BRANDING; }
 }
 
-// Fetch a single entry detail (full row, including `values`)
-export async function fetchJournalEntryDetail(entryId: string) {
-  const { data, error } = await supabase
-    .from('journal_entries')
-    .select('*')
-    .eq('id', entryId)
-    .single();
-  if (error) throw error;
-  return data;
+export function saveClientBranding(clientId: string, branding: Partial<ClientBranding>): ClientBranding {
+  const next = { ...getClientBranding(clientId), ...branding };
+  try { localStorage.setItem(brandingKey(clientId), JSON.stringify(next)); } catch { /* ignore quota */ }
+  return next;
 }
 
-// ---------- Purchases (paginated) ----------
-export async function fetchPurchases(clientId: string, page: number, pageSize: number) {
-  const from = (page - 1) * pageSize;
-  const to = from + pageSize - 1;
-  const { data, error, count } = await supabase
-    .from('purchases')
-    .select('id, vendor, purchase_date, total, status', { count: 'exact' })
-    .eq('client_id', clientId)
-    .order('purchase_date', { ascending: false })
-    .range(from, to);
-  if (error) throw error;
-  return { data, count };
+/** BIR tax-setup defaults for a new entity (PH). */
+export const TAX_SETUP_DEFAULTS = {
+  taxType: 'VAT Registered',
+  vatRate: 0.12,
+  withholding: true,
+  fiscalYearEnd: 'December',
+  rdoCode: '',
+  tin: '',
+};
+
+export type TaxSetup = typeof TAX_SETUP_DEFAULTS;
+
+const taxKey = (clientId: string) => `capot.taxSetup.${clientId}`;
+
+export function getTaxSetup(clientId: string): TaxSetup {
+  try { return { ...TAX_SETUP_DEFAULTS, ...JSON.parse(localStorage.getItem(taxKey(clientId)) || '{}') }; }
+  catch { return TAX_SETUP_DEFAULTS; }
 }
 
-// ---------- Invoices (AP) ----------
-export async function fetchInvoices(clientId: string, page: number, pageSize: number) {
-  const from = (page - 1) * pageSize;
-  const to = from + pageSize - 1;
-  const { data, error, count } = await supabase
-    .from('payable_invoices')
-    .select('id, vendor, invoice_date, total, status', { count: 'exact' })
-    .eq('client_id', clientId)
-    .order('invoice_date', { ascending: false })
-    .range(from, to);
-  if (error) throw error;
-  return { data, count };
+export function saveTaxSetup(clientId: string, setup: Partial<TaxSetup>): TaxSetup {
+  const next = { ...getTaxSetup(clientId), ...setup };
+  try { localStorage.setItem(taxKey(clientId), JSON.stringify(next)); } catch { /* ignore */ }
+  return next;
 }
-
-// ---------- Mutations (granular) ----------
-export async function upsertJournalEntry(entry: any) {
-  const { error } = await supabase
-    .from('journal_entries')
-    .upsert(entry)
-    .eq('client_id', entry.client_id);
-  if (error) throw error;
-}
-
-export async function deleteJournalEntry(id: string) {
-  const { error } = await supabase.from('journal_entries').delete().eq('id', id);
-  if (error) throw error;
-}
-
-// ... similar for purchases, invoices, etc.
