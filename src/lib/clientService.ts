@@ -7,7 +7,7 @@ export interface ClientBranding {
   invoiceFooter: string;
 }
 
-const DEFAULT_BRANDING: ClientBranding = { logoUrl: '', accentColor: '#0891b2', invoiceFooter: 'Thank you for your business.' };
+export const DEFAULT_BRANDING: ClientBranding = { logoUrl: '', accentColor: '#0891b2', invoiceFooter: 'Thank you for your business.' };
 
 const brandingKey = (clientId: string) => `capot.branding.${clientId}`;
 
