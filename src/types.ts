@@ -555,3 +555,36 @@ export interface MiscellaneousPayment {
   expenseCategory: string; // e.g., Utilities, Rent, Office Supplies
   description: string;
 }
+
+
+// ============================================================================
+// TEAM / SUBUSERS (account members)
+// ============================================================================
+export type MemberRole = 'accountant' | 'bookkeeper' | 'staff' | 'viewer';
+export type MemberStatus = 'invited' | 'active' | 'disabled';
+
+export interface TeamMember {
+  id: string;
+  userId: string;
+  email: string;
+  displayName?: string | null;
+  memberRole: MemberRole;
+  status: MemberStatus;
+  lastLogin?: string | null;
+  createdAt?: string | null;
+}
+
+export interface AccountMembership {
+  isSubuser: boolean;
+  ownerId?: string | null;
+  ownerEmail?: string | null;
+  memberRole?: MemberRole | null;
+  status?: MemberStatus | null;
+}
+
+export interface InviteResult {
+  userId: string;
+  email: string;
+  temporaryPassword: string | null;
+  existingUser: boolean;
+}
