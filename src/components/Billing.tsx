@@ -2,10 +2,13 @@ import { useState } from 'react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { formatTIN } from '../lib/utils';
-import { CreditCard, Plus, Trash2, RefreshCw, CheckCircle2 } from 'lucide-react';
+import { CreditCard, Plus, Trash2, RefreshCw, CheckCircle2, FileDown, Link2, Bell } from 'lucide-react';
+import { EmptyState } from './ui/EmptyState';
 import { DEFAULT_CRJ_COLUMNS } from './CashReceiptsJournal';
 import { BillingInvoice, JournalEntry } from '../types';
 import { supabase } from '../lib/supabase';
+import { downloadInvoicePdf, copyPaymentMessage, openPaymentReminderEmail } from '../lib/invoicePdf';
+import { toast } from './ui/Toast';
 
 const CASH_RECEIPT_PAYMENT_TYPES = ['Cash', 'Check', 'E-Payment', 'Bank Transfer'];
 
@@ -18,7 +21,7 @@ function addInterval(dateStr: string, frequency: 'Monthly' | 'Quarterly' | 'Annu
 }
 
 export function Billing() {
-  const { currentClient, currentClientId, saveBillingInvoice, deleteBillingInvoice, saveSale, showToast } = useAccounting();
+  const { currentClient, currentClientId, saveBillingInvoice, deleteBillingInvoice, saveSale, showToast, businessProfile } = useAccounting();
 
   const today = new Date().toISOString().split('T')[0];
 
@@ -194,6 +197,19 @@ export function Billing() {
   const handleDelete = (id: string) => {
     deleteBillingInvoice(id).catch((e) => { console.error(e); showToast('Failed to delete invoice'); });
   };
+  // Run 007 / T007 — PDF export, payment link copy, email reminder
+  const handleDownloadPdf = (inv: BillingInvoice) => {
+    try { downloadInvoicePdf(inv, businessProfile); showToast('Invoice PDF downloaded'); }
+    catch { showToast('Failed to generate PDF'); }
+  };
+  const handleCopyPaymentLink = async (inv: BillingInvoice) => {
+    const ok = await copyPaymentMessage(inv, businessProfile);
+    showToast(ok ? 'Payment details copied — paste to your customer' : 'Could not copy payment details');
+  };
+  const handleSendReminder = (inv: BillingInvoice) => {
+    openPaymentReminderEmail(inv, businessProfile);
+    toast.info(`Payment reminder drafted for ${inv.invoiceNo}`);
+  };
 
   const statusBadge = (status: 'Outstanding' | 'Overdue' | 'Paid') => {
     if (status === 'Paid') return 'text-emerald-700 bg-emerald-50 border-emerald-200 dark:text-emerald-300 dark:bg-emerald-950/30 dark:border-emerald-900';
@@ -293,7 +309,7 @@ export function Billing() {
 
       <div className="space-y-3">
         {filteredInvoices.length === 0 && (
-          <div className="text-center py-12 text-slate-400">No invoices yet.</div>
+          <div className="py-8"><EmptyState compact icon={<CreditCard className="w-7 h-7" />} title="No invoices yet" description="Create your first invoice to start tracking receivables and payments." /></div>
         )}
         {filteredInvoices.map(inv => {
           const status = getStatus(inv);
@@ -346,6 +362,19 @@ export function Billing() {
                   {canGenerateNext && (
                     <button onClick={() => handleGenerateNext(inv)} className="text-xs text-cyan-700 dark:text-cyan-400 font-bold border border-cyan-200 dark:border-cyan-800 rounded-lg px-3 py-1.5 hover:bg-cyan-50 dark:hover:bg-cyan-950/20 transition flex items-center gap-1.5">
                       <RefreshCw className="w-3.5 h-3.5" /> Generate Next Invoice
+                    </button>
+                  )}
+                  <button onClick={() => handleDownloadPdf(inv)} className="text-xs text-slate-600 dark:text-slate-300 font-bold border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 transition flex items-center gap-1.5">
+                    <FileDown className="w-3.5 h-3.5" /> PDF
+                  </button>
+                  {inv.status !== 'Paid' && (
+                    <button onClick={() => handleCopyPaymentLink(inv)} className="text-xs text-indigo-600 dark:text-indigo-400 font-bold border border-indigo-200 dark:border-indigo-800 rounded-lg px-3 py-1.5 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 transition flex items-center gap-1.5">
+                      <Link2 className="w-3.5 h-3.5" /> Copy Payment Link
+                    </button>
+                  )}
+                  {inv.status !== 'Paid' && (
+                    <button onClick={() => handleSendReminder(inv)} className="text-xs text-amber-600 dark:text-amber-400 font-bold border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-1.5 hover:bg-amber-50 dark:hover:bg-amber-950/20 transition flex items-center gap-1.5">
+                      <Bell className="w-3.5 h-3.5" /> Remind
                     </button>
                   )}
                   {inv.status !== 'Paid' && (

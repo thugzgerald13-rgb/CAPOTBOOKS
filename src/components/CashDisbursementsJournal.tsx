@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Wallet, Plus, Trash2, Settings, X, Check, Calendar, Printer } from 'lucide-react';
+import { EmptyState } from './ui/EmptyState';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { JournalColumn, JournalEntry, CoaAccount } from '../types';
@@ -666,7 +667,7 @@ export function CashDisbursementsJournal() {
               );
             })}
             {filteredEntries.length === 0 && (
-              <div className="text-center py-8 text-slate-400 dark:text-slate-500">No entries yet.</div>
+              <div className="py-8"><EmptyState compact icon={<Wallet className="w-7 h-7" />} title="No cash disbursements yet" description="Record cash payment transactions to populate this journal." /></div>
             )}
           </div>
         ) : (

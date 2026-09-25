@@ -5,7 +5,7 @@ import {
   FileText, Printer, Sparkles, CheckCircle2, AlertCircle, Calendar
 } from 'lucide-react';
 import { TaxDeadline, Client } from '../types';
-import { getComplianceStatusInfo } from '../lib/complianceUtils';
+import { getComplianceStatusInfo, estimateBirPenalty, computeComplianceRiskScore } from '../lib/complianceUtils';
 import { generateStandardDeadlines } from './BIRForms';
 import { supabase } from '../lib/supabase';
 
@@ -325,11 +325,27 @@ export function ComplianceTracker() {
   };
 
   const yearsList = [2026, 2025, 2024, 2023];
+  const riskScore = computeComplianceRiskScore(computedDeadlines);
+  const riskColor = riskScore.level === 'Low' ? 'text-emerald-600 bg-emerald-50 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-800 dark:text-emerald-400' : riskScore.level === 'Medium' ? 'text-amber-600 bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:border-amber-800 dark:text-amber-400' : 'text-rose-600 bg-rose-50 border-rose-200 dark:bg-rose-950/30 dark:border-rose-800 dark:text-rose-400';
 
   return (
     <div className="w-full flex flex-col">
       <PageHeader title="Philippine BIR Tax Declarations" icon={<FileText className="text-blue-600 w-5 h-5" />} />
       <div className="p-4 md:p-6 flex-1">
+      <div className={`mb-4 rounded-xl border px-4 py-3 flex flex-wrap items-center justify-between gap-3 ${riskColor}`}>
+        <div className="flex items-center gap-3">
+          <AlertCircle className="w-5 h-5" />
+          <div>
+            <div className="text-xs font-bold uppercase tracking-wider opacity-80">Compliance Risk</div>
+            <div className="text-lg font-black">{riskScore.level} Risk · Score {riskScore.score}/100</div>
+          </div>
+        </div>
+        <div className="flex items-center gap-4 text-xs font-bold">
+          <span>{riskScore.overdue} Overdue</span>
+          <span>{riskScore.pending} Pending</span>
+          <span className="opacity-70">Penalties: 25% surcharge + 20%/yr interest</span>
+        </div>
+      </div>
       <div className="flex flex-col lg:flex-row gap-6 font-sans">
         
         {/* Left Control Sidebar */}

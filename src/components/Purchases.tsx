@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { PageHeader } from './ui/PageHeader';
+import { computeApAging, formatMoney } from '../lib/apAging';
 import { Combobox } from './ui/Combobox';
 import { useAccounting } from '../context/AccountingContext';
 import { formatTIN, generateCSV, MONTHS, getMonthName } from '../lib/utils';
@@ -124,6 +125,8 @@ export function Purchases() {
   const isOtherPayments = location.pathname === '/purchases/other-payments';
   const isAP = location.pathname === '/purchases/ap';
   const { currentClient, currentClientId, currentDat, saveCoaAccounts, savePurchase, deletePurchase, showToast, setCurrentDat } = useAccounting();
+  // Run 009 / T009 — AP aging summary (unpaid = On Account)
+  const apAging = useMemo(() => isAP ? computeApAging(currentClient?.purchases || [], new Date().toISOString().split('T')[0]) : null, [currentClient?.purchases, isAP]);
   
   // Single record state (similar to original but react-friendly)
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
@@ -546,6 +549,19 @@ export function Purchases() {
         {isAP ? 'Accounts Payable (AP)' : isOtherPayments ? 'Other Payments' : 'Invoiced'}
       </div>
 
+      {isAP && apAging && (
+        <div className="mb-4">
+          <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">AP Aging — {apAging.count} unpaid bill{apAging.count === 1 ? '' : 's'} · Total {formatMoney(apAging.total)}</div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {apAging.buckets.map((b, i) => (
+              <div key={b.label} className={`rounded-xl border p-3 ${i === 3 ? 'border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/20' : i === 2 ? 'border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/20' : 'border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800'}`}>
+                <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{b.label} <span className="font-normal">({b.count})</span></div>
+                <div className={`text-sm font-extrabold mt-1 tabular-nums ${i === 3 ? 'text-rose-600 dark:text-rose-400' : i === 2 ? 'text-amber-600 dark:text-amber-400' : 'text-slate-800 dark:text-slate-100'}`}>{formatMoney(b.amount)}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-100 dark:border-slate-700 relative">
         <div className="lg:col-span-3 pb-2 mb-2 border-b border-slate-200 dark:border-slate-700 flex flex-col md:flex-row gap-4 justify-between">
             <div className="w-full md:w-1/3">

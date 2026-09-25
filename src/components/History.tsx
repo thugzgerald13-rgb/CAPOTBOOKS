@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { PageHeader } from './ui/PageHeader';
 import { AttachmentViewer } from './AttachmentViewer';
 import { useAccounting } from '../context/AccountingContext';
-import { Search, Trash2, Receipt, ShoppingCart, FolderClock, History as HistoryIcon, FileDown, FileSpreadsheet, Download, Pencil, Columns3, ChevronDown, X, Eye } from 'lucide-react';
+import { Search, Trash2, Receipt, ShoppingCart, FolderClock, History as HistoryIcon, FileDown, FileSpreadsheet, Download, Pencil, Columns3, ChevronDown, X, Eye, Bookmark } from 'lucide-react';
 import { cn, MONTHS, generateCSV, formatTIN } from '../lib/utils';
 import { getAttachmentViewUrl } from '../lib/supabaseUtils';
 import { supabase } from '../lib/supabase';
@@ -51,6 +51,26 @@ export function History() {
   const [localHistorySales, setLocalHistorySales] = useState<any[]>([]);
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  // ---- T011: saved filters (persisted per client) ----
+  type SavedFilter = { id: string; name: string; month: number; year: number; search: string };
+  const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
+  const [showSavedFilters, setShowSavedFilters] = useState(false);
+  useEffect(() => {
+    if (!currentClientId) return;
+    try { setSavedFilters(JSON.parse(localStorage.getItem(`capot-history-filters-${currentClientId}`) || '[]')); } catch { /* ignore */ }
+  }, [currentClientId]);
+  const persistFilters = (list: SavedFilter[]) => {
+    setSavedFilters(list);
+    if (currentClientId) try { localStorage.setItem(`capot-history-filters-${currentClientId}`, JSON.stringify(list)); } catch { /* ignore */ }
+  };
+  const handleSaveFilter = () => {
+    const name = prompt('Name this filter:');
+    if (!name?.trim()) return;
+    persistFilters([...savedFilters, { id: crypto.randomUUID(), name: name.trim(), month: selectedMonth, year: selectedYear, search: searchTerm }]);
+    showToast(`Filter "${name.trim()}" saved`);
+  };
+  const handleApplyFilter = (f: SavedFilter) => { setSelectedMonth(f.month); setSelectedYear(f.year); setSearchTerm(f.search); setShowSavedFilters(false); };
+  const handleDeleteFilter = (id: string, e: { stopPropagation: () => void }) => { e.stopPropagation(); persistFilters(savedFilters.filter(f => f.id !== id)); };
   const expenseColumnDefinitions = useMemo(() => [
     { key: 'transactionNo', label: 'Transaction #' },
     { key: 'date', label: 'Transaction Date' },
@@ -1036,6 +1056,24 @@ export function History() {
                     </div>
                   </div>
                 )}
+                <div className="relative">
+                  <button type="button" onClick={() => setShowSavedFilters(v => !v)} className="inline-flex items-center gap-2 px-3 py-2 text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
+                    <Bookmark className="w-4 h-4" /> Filters <ChevronDown className="w-3.5 h-3.5" />
+                  </button>
+                  {showSavedFilters && (
+                    <div className="absolute right-0 top-full mt-2 z-[60] w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl p-2">
+                      <button type="button" onClick={handleSaveFilter} className="w-full text-left px-3 py-2 text-xs font-bold text-indigo-600 dark:text-indigo-400 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg">+ Save current filter</button>
+                      {savedFilters.length === 0 && <div className="px-3 py-2 text-[10px] text-slate-400">No saved filters yet.</div>}
+                      {savedFilters.map(f => (
+                        <div key={f.id} className="flex items-center justify-between gap-2 px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800 rounded-lg cursor-pointer" onClick={() => handleApplyFilter(f)}>
+                          <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate">{f.name}</span>
+                          <span className="text-[10px] text-slate-400 whitespace-nowrap">{MONTHS[f.month - 1]?.slice(0, 3)} {f.year}</span>
+                          <button type="button" onClick={(e) => handleDeleteFilter(f.id, e)} className="text-slate-300 hover:text-red-500 shrink-0"><X className="w-3.5 h-3.5" /></button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <div className="relative w-full sm:w-64">
                   <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
                   <input 

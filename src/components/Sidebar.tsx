@@ -9,7 +9,7 @@ import {
   LineChart, Scale, Receipt, ShoppingCart, 
   TrendingUp, FileText, Library, FolderClock, History,
   ChevronDown, ChevronLeft, ChevronRight, Settings, Key, Banknote, Wallet, CreditCard, ShieldAlert, RefreshCw, LogOut, Shield, FolderUp,
-  Boxes, CheckCircle2, FileSignature, Home, Landmark, ArrowLeftRight, Wrench, UserCircle
+  Boxes, CheckCircle2, FileSignature, Home, Landmark, ArrowLeftRight, Wrench, UserCircle, Search, X
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -141,6 +141,43 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     { id: 'cash-receipt', label: 'Cash Receipt Journal', icon: Wallet },
   ];
 
+  // Sidebar inline search (Run 002 / T002): flat index of every navigable
+  // page; typing filters it in an overlay below the search box.
+  const [sidebarQuery, setSidebarQuery] = useState('');
+  const SIDEBAR_NAV_INDEX: { label: string; pageId: string | null; icon: any; historyTab?: string; keywords: string }[] = [
+    { label: 'Dashboard', pageId: null, icon: Home, keywords: 'home overview kpi' },
+    { label: 'Chart of Accounts', pageId: 'coa', icon: BookOpen, keywords: 'accounts coa ledger' },
+    { label: 'Billing / Invoices', pageId: 'billing', icon: CreditCard, keywords: 'invoice billing invoicing' },
+    { label: 'Income / Sales', pageId: 'sales', icon: Receipt, keywords: 'income sales revenue' },
+    { label: 'Purchases / Bills', pageId: 'purchases', icon: ShoppingCart, keywords: 'purchases bills expenses payable' },
+    { label: 'Journal Voucher', pageId: 'journal-voucher', icon: FileSignature, keywords: 'journal entry je voucher' },
+    { label: 'Expense History', pageId: 'history', historyTab: 'expenses', icon: ShoppingCart, keywords: 'expense history' },
+    { label: 'Income History', pageId: 'history', historyTab: 'income', icon: Receipt, keywords: 'income history' },
+    { label: 'Compliance Tracker', pageId: 'compliance-tracker', icon: Shield, keywords: 'compliance filing deadline bir' },
+    { label: 'BIR Forms', pageId: 'bir-forms', icon: FileText, keywords: 'bir forms tax 1701 2550 1601' },
+    { label: 'Cash Flow', pageId: 'cashflow', icon: Wallet, keywords: 'cash flow statement' },
+    { label: 'General Journal', pageId: 'journal', icon: BookText, keywords: 'general journal gj book' },
+    { label: 'General Ledger', pageId: 'ledger', icon: LineChart, keywords: 'general ledger gl book' },
+    { label: 'Sales Journal', pageId: 'sales-journal', icon: Receipt, keywords: 'sales journal book' },
+    { label: 'Purchase Journal', pageId: 'purchase-journal', icon: ShoppingCart, keywords: 'purchase journal book' },
+    { label: 'Cash Disbursement Book', pageId: 'cash-disbursement', icon: CreditCard, keywords: 'cash disbursement cdb book' },
+    { label: 'Cash Receipt Journal', pageId: 'cash-receipt', icon: Wallet, keywords: 'cash receipt crj book' },
+    { label: 'Trial Balance', pageId: 'trialbalance', icon: Scale, keywords: 'trial balance tb report' },
+    { label: 'Balance Sheet', pageId: 'balancesheet', icon: Landmark, keywords: 'balance sheet bs financial position' },
+    { label: 'Profit & Loss', pageId: 'pl', icon: TrendingUp, keywords: 'profit loss pnl income statement' },
+    { label: 'Asset Lapsing', pageId: 'assetlapsing', icon: Wrench, keywords: 'asset lapsing fixed depreciation' },
+    { label: 'Upload Files', pageId: 'files', icon: FolderUp, keywords: 'upload files receipts documents' },
+    { label: 'Inventory', pageId: 'inventory', icon: Boxes, keywords: 'inventory stock items' },
+    { label: 'Clients', pageId: 'clients', icon: Users, keywords: 'clients entities' },
+    { label: 'Business Profile', pageId: 'business', icon: Building2, keywords: 'business profile tin rdo setup' },
+    { label: 'Account Settings', pageId: 'account-settings', icon: UserCircle, keywords: 'account settings profile' },
+  ];
+  const sidebarFiltered = sidebarQuery.trim()
+    ? SIDEBAR_NAV_INDEX.filter(i =>
+        i.label.toLowerCase().includes(sidebarQuery.trim().toLowerCase()) ||
+        i.keywords.includes(sidebarQuery.trim().toLowerCase()))
+    : [];
+
   // Persistent "selected" highlight — applied to the nav button whose page
   // matches the current route, so the active selection stays highlighted.
   const activeIndigo = "bg-indigo-100/70 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300";
@@ -186,6 +223,54 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
         </div>
 
         <div className={cn("flex-1 overflow-y-auto py-4 px-3 flex flex-col gap-1 custom-scrollbar", isCollapsed && "md:px-2")}>
+          {/* Inline nav search (Run 002 / T002) — filters every page by label/keyword */}
+          <div className={cn("relative mb-2", isCollapsed && "md:hidden")}>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 dark:text-slate-500 pointer-events-none" />
+              <input
+                value={sidebarQuery}
+                onChange={e => setSidebarQuery(e.target.value)}
+                placeholder="Search pages…"
+                className="w-full pl-9 pr-8 py-2 text-sm rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+              />
+              {sidebarQuery && (
+                <button
+                  onClick={() => setSidebarQuery('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                  aria-label="Clear search"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+            {sidebarFiltered.length > 0 && (
+              <div className="absolute left-0 right-0 top-full mt-1 z-30 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-xl max-h-[55vh] overflow-y-auto py-1 animate-scale-in">
+                {sidebarFiltered.map(item => {
+                  const Icon = item.icon;
+                  return (
+                    <button
+                      key={item.label}
+                      onClick={() => {
+                        if (item.historyTab) setHistoryTab(item.historyTab);
+                        navigateToPage(item.pageId);
+                        setSidebarQuery('');
+                        setIsOpen(false);
+                      }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:text-blue-700 dark:hover:text-blue-300 transition-colors text-left"
+                    >
+                      <Icon className="w-4 h-4 text-slate-400 shrink-0" />
+                      <span className="truncate">{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {sidebarQuery.trim() && sidebarFiltered.length === 0 && (
+              <div className="absolute left-0 right-0 top-full mt-1 z-30 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-xl px-3 py-4 text-center text-xs text-slate-400">
+                No pages match “{sidebarQuery}”
+              </div>
+            )}
+          </div>
           <button
             onClick={() => {
               navigateToPage(null);

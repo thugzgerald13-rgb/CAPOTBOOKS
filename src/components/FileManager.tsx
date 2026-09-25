@@ -3,6 +3,8 @@ import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { AppFolder, AppFile } from '../types';
 import { parsePdf } from '../lib/pdfParser';
+import { parseBankStatement, type BankTxn } from '../lib/bankImport';
+import { loadReconcileRules, saveReconcileRules, matchTransaction, DEFAULT_RECONCILE_RULES, type ReconcileRule } from '../lib/reconcileRules';
 import { supabase } from '../lib/supabase';
 import { downloadWithCache, evictCachedFile } from '../db/storageCache';
 import imageCompression from 'browser-image-compression';
@@ -297,10 +299,63 @@ export function FileManager() {
 
   const activeFolderFiles = files.filter(f => f.folderId === activeFolderId);
 
+  // ---- T019: bank statement import + auto-match reconciliation ----
+  const [bankTxns, setBankTxns] = useState<BankTxn[]>([]);
+  const bankFileRef = useRef<HTMLInputElement>(null);
+  const reconcileRules: ReconcileRule[] = DEFAULT_RECONCILE_RULES;
+  const handleBankFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = String(reader.result || '');
+      const txns = parseBankStatement(file.name, text);
+      setBankTxns(txns);
+      showToast(`Imported ${txns.length} bank transactions`);
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
   return (
     <div className="w-full flex flex-col">
       <PageHeader title="Document & Receipt Vault" icon={<FolderOpen className="text-blue-500" />} />
       <div className="p-4 md:p-6 flex-1">
+      {/* T019: Bank import + auto-match inbox */}
+      <div className="mb-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+          <div>
+            <div className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Bank Statement Import</div>
+            <div className="text-[11px] text-slate-400">Upload CSV / OFX — transactions auto-matched to account titles by keyword rules.</div>
+          </div>
+          <button type="button" onClick={() => bankFileRef.current?.click()} className="inline-flex items-center gap-2 px-3 py-2 text-xs font-bold rounded-lg bg-blue-600 hover:bg-blue-700 text-white">
+            <Upload className="w-3.5 h-3.5" /> Import Bank Statement
+          </button>
+          <input ref={bankFileRef} type="file" accept=".csv,.ofx,.qbo,.txt" className="hidden" onChange={handleBankFile} />
+        </div>
+        {bankTxns.length > 0 && (
+          <div className="max-h-64 overflow-y-auto rounded-lg border border-slate-200 dark:border-slate-700">
+            <table className="w-full text-[11px]">
+              <thead className="bg-slate-100 dark:bg-slate-800 text-slate-500 uppercase sticky top-0">
+                <tr><th className="text-left px-3 py-2">Date</th><th className="text-left px-3 py-2">Description</th><th className="text-right px-3 py-2">Amount</th><th className="text-left px-3 py-2">Suggested Account</th></tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {bankTxns.slice(0, 50).map(t => {
+                  const match = matchTransaction(t.description, reconcileRules);
+                  return (
+                    <tr key={t.id} className="hover:bg-white dark:hover:bg-slate-800/50">
+                      <td className="px-3 py-1.5 font-mono text-slate-500">{t.date}</td>
+                      <td className="px-3 py-1.5 text-slate-700 dark:text-slate-200 max-w-[240px] truncate">{t.description}</td>
+                      <td className={`px-3 py-1.5 text-right font-mono font-bold ${t.amount >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>{t.amount >= 0 ? '+' : ''}₱{Math.abs(t.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                      <td className="px-3 py-1.5">{match ? <span className="inline-block px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 text-[10px] font-bold">{match.accountTitle}</span> : <span className="text-slate-300 text-[10px]">— uncategorized —</span>}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
       <div className="flex flex-col md:flex-row gap-6 min-h-[500px]">
         {/* Left Side: Folder Management */}
         <div className="w-full md:w-80 shrink-0 border-r border-slate-100 dark:border-slate-800 pr-0 md:pr-6 flex flex-col gap-6">

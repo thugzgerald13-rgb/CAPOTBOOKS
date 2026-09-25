@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
-import { FileSignature, Plus, Trash2, Check, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { FileSignature, Plus, Trash2, Check, X, ChevronDown, ChevronUp, Save, FolderOpen, Paperclip, RefreshCw } from 'lucide-react';
 import { DEFAULT_GJ_COLUMNS } from './GeneralJournal';
 import { JournalVoucher as JournalVoucherType, JournalVoucherLine, JournalEntry } from '../types';
+import { addIntervalISO, loadJVTemplates, persistJVTemplates, readJVAttachment, type JVTemplate, type JVAttachment, type RecurrenceFrequency } from '../lib/glPosting';
 
 interface DraftLine {
   id: string;
@@ -40,6 +41,14 @@ export function JournalVoucher() {
   const [memo, setMemo] = useState('');
   const [lines, setLines] = useState<DraftLine[]>([newDraftLine(), newDraftLine()]);
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  // Run 010 / T010 — recurring, templates, attachments
+  const [isRecurring, setIsRecurring] = useState(false);
+  const [recurrenceFrequency, setRecurrenceFrequency] = useState<RecurrenceFrequency>('Monthly');
+  const [templates, setTemplates] = useState<JVTemplate[]>([]);
+  const [templateName, setTemplateName] = useState('');
+  const [attachments, setAttachments] = useState<JVAttachment[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (currentClientId) setTemplates(loadJVTemplates(currentClientId)); }, [currentClientId]);
 
   if (!currentClient || !currentClientId) return null;
 
@@ -107,13 +116,15 @@ export function JournalVoucher() {
       credit: parseFloat(l.credit) || 0
     }));
 
-    const newVoucher: JournalVoucherType = {
+    const newVoucher = {
       id: crypto.randomUUID(),
       date,
       reference,
       memo,
-      lines: finalLines
-    };
+      lines: finalLines,
+      ...(isRecurring ? { isRecurring: true, recurrenceFrequency, nextDate: addIntervalISO(date, recurrenceFrequency) } : {}),
+      ...(attachments.length ? { attachments } : {}),
+    } as unknown as JournalVoucherType;
 
     try {
       await saveJournalVoucher(currentClientId, newVoucher, buildGjEntries(newVoucher));
@@ -124,6 +135,8 @@ export function JournalVoucher() {
     setReference('');
     setMemo('');
     setLines([newDraftLine(), newDraftLine()]);
+    setIsRecurring(false);
+    setAttachments([]);
   };
 
   const handleDelete = async (id: string) => {
@@ -132,6 +145,57 @@ export function JournalVoucher() {
     } catch {
       return;
     }
+  };
+  // ---- Run 010 / T010 handlers ----
+  const handleSaveTemplate = () => {
+    const validLines = lines.filter(l => l.accountName && (parseFloat(l.debit) > 0 || parseFloat(l.credit) > 0));
+    if (validLines.length < 2 || !templateName.trim()) {
+      alert('Enter a template name and at least two balanced lines before saving.');
+      return;
+    }
+    const tpl: JVTemplate = {
+      id: crypto.randomUUID(), name: templateName.trim(), memo,
+      lines: validLines.map(l => ({ accountId: l.accountId, accountName: l.accountName, debit: parseFloat(l.debit) || 0, credit: parseFloat(l.credit) || 0 })),
+      createdAt: new Date().toISOString(),
+    };
+    const next = [...templates, tpl];
+    setTemplates(next);
+    if (currentClientId) persistJVTemplates(currentClientId, next);
+    setTemplateName('');
+    showToast(`Template "${tpl.name}" saved`);
+  };
+  const handleApplyTemplate = (tpl: JVTemplate) => {
+    setMemo(tpl.memo);
+    setLines(tpl.lines.map(l => ({ id: crypto.randomUUID(), accountId: l.accountId, accountName: l.accountName, debit: l.debit ? String(l.debit) : '', credit: l.credit ? String(l.credit) : '' })));
+    showToast(`Template "${tpl.name}" applied`);
+  };
+  const handleAttachmentUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    const read: JVAttachment[] = [];
+    for (const f of Array.from(files)) {
+      try { read.push(await readJVAttachment(f)); } catch { /* skip unreadable */ }
+    }
+    setAttachments(prev => [...prev, ...read]);
+    e.target.value = '';
+  };
+  const handleGenerateNext = (v: JournalVoucherType & { nextDate?: string; recurrenceFrequency?: RecurrenceFrequency }) => {
+    if (!v.nextDate || !v.recurrenceFrequency) return;
+    const generated: any = {
+      ...v,
+      id: crypto.randomUUID(),
+      date: v.nextDate,
+      isRecurring: false,
+      nextDate: undefined,
+      recurrenceFrequency: undefined,
+      parentVoucherId: v.id,
+    };
+    const updatedTemplate: any = { ...v, nextDate: addIntervalISO(v.nextDate, v.recurrenceFrequency) };
+    Promise.all([
+      saveJournalVoucher(currentClientId, updatedTemplate, buildGjEntries(updatedTemplate)),
+      saveJournalVoucher(currentClientId, generated, buildGjEntries(generated)),
+    ]).then(() => showToast(`Generated recurring voucher for ${generated.date}`))
+      .catch(() => showToast('Failed to generate recurring voucher'));
   };
 
   return (
@@ -153,6 +217,46 @@ export function JournalVoucher() {
         </div>
       </div>
 
+      {/* Run 010 / T010 — recurring + templates + attachments */}
+      <div className="flex flex-wrap items-end gap-3 mb-4 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-700">
+        <label className="flex items-center gap-2 cursor-pointer mb-1">
+          <input type="checkbox" className="w-4 h-4 rounded accent-cyan-600" checked={isRecurring} onChange={e => setIsRecurring(e.target.checked)} />
+          <span className="text-xs font-bold text-slate-600 dark:text-slate-300 inline-flex items-center gap-1.5"><RefreshCw className="w-3.5 h-3.5" /> Recurring entry</span>
+        </label>
+        {isRecurring && (
+          <select value={recurrenceFrequency} onChange={e => setRecurrenceFrequency(e.target.value as RecurrenceFrequency)} className="form-input !py-1.5 !text-xs">
+            <option value="Monthly">Monthly</option>
+            <option value="Quarterly">Quarterly</option>
+            <option value="Annually">Annually</option>
+          </select>
+        )}
+        <span className="w-px h-6 bg-slate-200 dark:bg-slate-700" />
+        <input type="text" value={templateName} onChange={e => setTemplateName(e.target.value)} placeholder="Template name" className="form-input !py-1.5 !text-xs !w-40" />
+        <button type="button" onClick={handleSaveTemplate} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200">
+          <Save className="w-3.5 h-3.5" /> Save as Template
+        </button>
+        {templates.length > 0 && (
+          <select onChange={e => { const t = templates.find(x => x.id === e.target.value); if (t) handleApplyTemplate(t); e.target.value = ''; }} defaultValue="" className="form-input !py-1.5 !text-xs !w-44">
+            <option value="" disabled>Load template…</option>
+            {templates.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        )}
+        <span className="w-px h-6 bg-slate-200 dark:bg-slate-700" />
+        <button type="button" onClick={() => fileInputRef.current?.click()} className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200">
+          <Paperclip className="w-3.5 h-3.5" /> Attach{attachments.length > 0 && ` (${attachments.length})`}
+        </button>
+        <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleAttachmentUpload} />
+        {attachments.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 w-full">
+            {attachments.map((a, i) => (
+              <span key={i} className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-cyan-50 dark:bg-cyan-950/30 text-cyan-700 dark:text-cyan-300 text-[10px] font-semibold">
+                <Paperclip className="w-3 h-3" /> {a.name}
+                <button type="button" onClick={() => setAttachments(prev => prev.filter((_, j) => j !== i))} className="hover:text-red-500 font-bold">×</button>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
       <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900/40 rounded-xl p-3 mb-4 text-xs text-amber-800 dark:text-amber-300">
         <strong>Note:</strong> Journal vouchers that credit a <strong>Cash</strong> account (cash payments) are recorded in the <strong>Cash Disbursements Journal</strong>, not in the General Journal. Only non-cash adjusting and transfer entries will appear in the General Journal.
       </div>
@@ -255,6 +359,8 @@ export function JournalVoucher() {
           const vTotal = v.lines.reduce((s, l) => s + l.debit, 0);
           const isExpanded = expandedId === v.id;
           const isCashPayment = isCashPaymentVoucher(v);
+          const vAny = v as any;
+          const canGenerateNext = vAny.isRecurring && vAny.nextDate && vAny.nextDate <= today;
           return (
             <div key={v.id} className="bg-white dark:bg-slate-900/20 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden">
               <div className="flex items-center justify-between px-4 py-3 cursor-pointer" onClick={() => setExpandedId(isExpanded ? null : v.id)}>
@@ -270,6 +376,13 @@ export function JournalVoucher() {
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="text-xs font-black text-slate-700 dark:text-slate-300">₱{vTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                  {canGenerateNext && (
+                    <button onClick={(e) => { e.stopPropagation(); handleGenerateNext(vAny); }} className="inline-flex items-center gap-1 text-[10px] font-bold text-cyan-700 dark:text-cyan-400 border border-cyan-200 dark:border-cyan-800 rounded-lg px-2 py-1 hover:bg-cyan-50 dark:hover:bg-cyan-950/20 transition">
+                      <RefreshCw className="w-3 h-3" /> Generate Next
+                    </button>
+                  )}
+                  {vAny.isRecurring && <span className="text-[10px] font-bold text-cyan-600 dark:text-cyan-400">Recurring · {vAny.recurrenceFrequency}</span>}
+                  {vAny.attachments?.length > 0 && <span className="text-[10px] text-slate-400 inline-flex items-center gap-0.5"><Paperclip className="w-3 h-3" />{vAny.attachments.length}</span>}
                   <button onClick={(e) => { e.stopPropagation(); handleDelete(v.id); }} className="p-1 text-slate-300 hover:text-red-500 rounded transition">
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>

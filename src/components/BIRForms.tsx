@@ -2,11 +2,12 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { 
-  FileText, Printer, Sparkles, CheckCircle2
+  FileText, Printer, Sparkles, CheckCircle2, FileDown
 } from 'lucide-react';
 import { TaxDeadline, Client } from '../types';
 import { adjustDeadlineForWeekend } from '../lib/complianceUtils';
 import { supabase } from '../lib/supabase';
+import { downloadBirFormPdf, validateBirForm } from '../lib/birFormPdf';
 
 // Standard BIR filing deadlines generator for Philippines 2026/2025
 export function generateStandardDeadlines(year: number): TaxDeadline[] {
@@ -579,11 +580,25 @@ export function BIRForms() {
   };
 
   const yearsList = [2026, 2025, 2024, 2023];
+  // ---- T013: validation + PDF export ----
+  const birValidationErrors = validateBirForm(activeFormType, compiledData, businessProfile as any);
+  const handleDownloadBirPdf = () => downloadBirFormPdf(activeFormType, compiledData, { year: selectedYear, quarter: selectedQuarter, month: selectedMonth, profile: businessProfile as any });
 
   return (
     <div className="w-full flex flex-col">
       <PageHeader title="Philippine BIR Tax Declarations" icon={<FileText className="text-blue-600 w-5 h-5" />} />
       <div className="p-4 md:p-6 flex-1">
+      {birValidationErrors.length > 0 && (
+        <div className="mb-4 rounded-xl border border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/30 px-4 py-3 text-xs text-rose-700 dark:text-rose-300">
+          <div className="font-bold mb-1">Validation — please fix before filing:</div>
+          <ul className="list-disc list-inside space-y-0.5">{birValidationErrors.map((e, i) => <li key={i}>{e}</li>)}</ul>
+        </div>
+      )}
+      <div className="mb-4 flex justify-end">
+        <button type="button" onClick={handleDownloadBirPdf} className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-sm">
+          <FileDown className="w-4 h-4" /> Download Form PDF
+        </button>
+      </div>
       <div className="flex flex-col lg:flex-row gap-6 font-sans">
         
         {/* Left Control Sidebar */}

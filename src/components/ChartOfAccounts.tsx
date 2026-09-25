@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { BookOpen, Plus, Trash2, RefreshCcw, Edit2, ClipboardList, Check, X, Columns, ArrowUp, ArrowDown, Upload, Eye, EyeOff, MoreVertical } from 'lucide-react';
+import { BookOpen, Plus, Trash2, RefreshCcw, Edit2, ClipboardList, Check, X, Columns, ArrowUp, ArrowDown, Upload, Eye, EyeOff, MoreVertical, Download, CheckSquare, Square, Layers } from 'lucide-react';
+import { parseCoaCsv, downloadCoaCsv, flattenCoaHierarchy } from '../lib/coaImport';
 import * as XLSX from 'xlsx';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
@@ -286,6 +287,42 @@ export function ChartOfAccounts() {
   const [editCustomValues, setEditCustomValues] = useState<Record<string, string>>({});
 
   const [showPresets, setShowPresets] = useState(false);
+  // Bulk select / import-export / hierarchy (Run 006 / T006)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [hierarchyMode, setHierarchyMode] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const toggleSelect = (id: string) => {
+    setSelectedIds(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
+  };
+  const toggleSelectAllFiltered = () => {
+    const allSelected = filteredAccounts.length > 0 && filteredAccounts.every(a => selectedIds.has(a.id));
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (allSelected) filteredAccounts.forEach(a => next.delete(a.id));
+      else filteredAccounts.forEach(a => next.add(a.id));
+      return next;
+    });
+  };
+  const handleExportCsv = () => downloadCoaCsv(accounts);
+  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const text = await file.text();
+    const { accounts: parsed, errors } = parseCoaCsv(text);
+    if (errors.length) alert(`Import completed with warnings:\n${errors.slice(0, 5).join('\n')}`);
+    if (parsed.length) {
+      const existing = new Set(accounts.map(a => a.id));
+      const merged = [...accounts, ...parsed.filter(p => !existing.has(p.id))];
+      await handleSaveAccounts(merged);
+    }
+    e.target.value = '';
+  };
+  const handleBulkHide = async (hide: boolean) => {
+    if (!selectedIds.size) return;
+    const updated = accounts.map(a => selectedIds.has(a.id) ? { ...a, hidden: hide } : a);
+    await handleSaveAccounts(updated);
+    setSelectedIds(new Set());
+  };
   const presetsRef = useRef<HTMLDivElement>(null);
 
   const [isUploading, setIsUploading] = useState(false);
@@ -1175,7 +1212,29 @@ export function ChartOfAccounts() {
 
   return (
     <div className="w-full flex flex-col">
-      <PageHeader title="Chart of Accounts" icon={<BookOpen />} />
+      <PageHeader title="Chart of Accounts" icon={<BookOpen />} actions={
+        <div className="flex flex-wrap items-center gap-2">
+          {selectedIds.size > 0 && (
+            <>
+              <span className="text-xs font-bold text-blue-600 dark:text-blue-400">{selectedIds.size} selected</span>
+              <button type="button" onClick={() => handleBulkHide(true)} className="px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200">Hide</button>
+              <button type="button" onClick={() => handleBulkHide(false)} className="px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200">Unhide</button>
+              <button type="button" onClick={() => setSelectedIds(new Set())} className="px-2.5 py-1.5 text-xs font-semibold rounded-lg text-slate-500 hover:text-slate-700 dark:hover:text-slate-200">Clear</button>
+              <span className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-1" />
+            </>
+          )}
+          <button type="button" onClick={() => setHierarchyMode(v => !v)} className={hierarchyMode ? 'px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 text-white' : 'px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200'}>
+            <span className="inline-flex items-center gap-1.5"><Layers className="w-3.5 h-3.5" />{hierarchyMode ? 'Tree view' : 'Flat view'}</span>
+          </button>
+          <button type="button" onClick={() => fileInputRef.current?.click()} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200">
+            <Upload className="w-3.5 h-3.5" /> Import CSV
+          </button>
+          <button type="button" onClick={handleExportCsv} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-700 text-white">
+            <Download className="w-3.5 h-3.5" /> Export CSV
+          </button>
+          <input ref={fileInputRef} type="file" accept=".csv" className="hidden" onChange={handleImportFile} />
+        </div>
+      } />
       <div className="p-4 md:p-6 flex-1">
       <div className="p-4 sm:p-6 bg-slate-50 dark:bg-slate-950/20">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
@@ -1723,6 +1782,9 @@ export function ChartOfAccounts() {
             <table className="w-full min-w-[860px] text-left border-collapse">
               <thead>
                 <tr className="bg-slate-100 dark:bg-slate-800 border-b border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide">
+                  <th className="px-2 py-3.5 w-8">
+                    <input type="checkbox" aria-label="Select all" checked={filteredAccounts.length > 0 && filteredAccounts.every(a => selectedIds.has(a.id))} onChange={toggleSelectAllFiltered} className="w-3.5 h-3.5 accent-blue-600" />
+                  </th>
                   {coaColumns.map(col => {
                     let widthClass = "";
                     if (col.id === 'id') widthClass = "w-[100px]";
@@ -1745,7 +1807,7 @@ export function ChartOfAccounts() {
                     </td>
                   </tr>
                 ) : (
-                  filteredAccounts.map((account, index) => {
+                  (hierarchyMode ? flattenCoaHierarchy(accounts) : filteredAccounts).map((account, index) => {
                     const balanceValue = getAccountBalance(account);
 
                     const parentAccount = account.parentId ? accounts.find(a => a.id === account.parentId) : null;
@@ -1758,6 +1820,9 @@ export function ChartOfAccounts() {
                           account.hidden && "opacity-50"
                         )}
                       >
+                        <td className="px-2 py-3.5 w-8">
+                          <input type="checkbox" aria-label={`Select ${account.id}`} checked={selectedIds.has(account.id)} onChange={() => toggleSelect(account.id)} className="w-3.5 h-3.5 accent-blue-600" />
+                        </td>
                         {coaColumns.map(col => {
                           if (col.id === 'id') {
                             return (

@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { Landmark } from 'lucide-react';
+import { Landmark, FileDown } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { formatAccountAmount, getCurrentYear } from '../lib/accountingBalances';
+import { exportAfBundle, toComparativeRows } from '../lib/afsExport';
 
 export function BalanceSheet() {
   const { currentClient, currentClientId, saveFinancialReportSnapshot } = useAccounting();
@@ -83,6 +84,27 @@ export function BalanceSheet() {
 
   const update = (field: 'companyName' | 'address' | 'reportName', value: string) =>
     saveFinancialReportSnapshot('Balance Sheet', { ...data, [field]: value });
+  // ---- T014: notes stub + AFS bundle export ----
+  const [notes, setNotes] = useState<string>(data.notes || '');
+  const saveNotes = () => saveFinancialReportSnapshot('Balance Sheet', { ...data, notes });
+  const handleExportBundle = () => {
+    exportAfBundle({
+      company: data.companyName,
+      period: `As of December 31, ${year}`,
+      balanceSheet: [
+        ...toComparativeRows(assets, 1),
+        { account: 'TOTAL ASSETS', current: assetTotal, prior: 0 },
+        ...toComparativeRows(liabilities, -1),
+        { account: 'TOTAL LIABILITIES', current: liabilityTotal, prior: 0 },
+        { account: 'Current Year Net Income', current: netIncome, prior: 0 },
+        { account: 'TOTAL EQUITY', current: totalEquity, prior: 0 },
+      ],
+      incomeStatement: [],
+      cashFlow: [],
+      notes: notes || '(Notes to financial statements — to be completed by the accountant.)',
+      filename: `AFS-bundle-${year}.xlsx`,
+    });
+  };
 
   const renderAccounts = (items: typeof balances, sign: 'debit' | 'credit') => items.map(x => {
     const amount = sign === 'debit' ? Math.max(0, x.balance) : Math.max(0, -x.balance);
@@ -147,6 +169,22 @@ export function BalanceSheet() {
               {Math.abs(assetTotal - totalLiabEquity) < 0.01
                 ? 'BALANCED — Assets equal Liabilities & Equity'
                 : `UNBALANCED — Difference: ${formatAccountAmount(assetTotal - totalLiabEquity)}`}
+            </div>
+            <div className="flex justify-end">
+              <button type="button" onClick={handleExportBundle} className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-sm">
+                <FileDown className="w-4 h-4" /> Export AFS Bundle (.xlsx)
+              </button>
+            </div>
+            <div className="mt-4">
+              <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Notes to Financial Statements (stub)</div>
+              <textarea
+                value={notes}
+                onChange={e => setNotes(e.target.value)}
+                onBlur={saveNotes}
+                placeholder="Enter notes to the financial statements here — saved automatically on blur."
+                rows={5}
+                className="w-full text-xs border border-slate-200 dark:border-slate-700 rounded-xl p-3 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+              />
             </div>
           </div>
         </div>

@@ -1,11 +1,12 @@
 
 import React, { useEffect, useMemo, useState } from 'react';
-import { LineChart, ChevronDown, ChevronUp, Loader2, Printer } from 'lucide-react';
+import { LineChart, ChevronDown, ChevronUp, Loader2, Printer, FileDown } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { GeneralLedgerAccount, GeneralLedgerEntry } from '../types';
 import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide } from './ChartOfAccounts';
 import { supabase } from '../lib/supabase';
+import { generateCSV } from '../lib/utils';
 import { glAccountBalanceBefore } from '../lib/accountingBalances';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -135,9 +136,14 @@ export function GeneralLedger() {
   return (
     <div className="w-full flex flex-col print-area">
       <PageHeader title="General Ledger" icon={<LineChart />} actions={
-        <button type="button" onClick={() => window.print()} className="no-print inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-xs font-bold hover:opacity-90 transition-opacity" title="Print General Ledger">
-          <Printer className="w-4 h-4" /> Print
-        </button>
+        <div className="flex items-center gap-2 no-print">
+          <button type="button" onClick={() => generateCSV('general-ledger.csv', ledgerEntries.length ? [Object.keys(ledgerEntries[0] as any), ...ledgerEntries.map(e => Object.values(e as any))] : [['No entries']])} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title="Export to CSV">
+            <FileDown className="w-4 h-4" /> Export
+          </button>
+          <button type="button" onClick={() => window.print()} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-xs font-bold hover:opacity-90 transition-opacity" title="Print General Ledger">
+            <Printer className="w-4 h-4" /> Print
+          </button>
+        </div>
       } />
       <div className="p-4 md:p-6 flex-1">
         <div className="no-print flex flex-col gap-4 mb-6">

@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { InventoryItem, InventoryMovement, InventoryColumn } from '../types';
 import { supabase } from '../lib/supabase';
+import { valuationReport, estimatedCogs } from '../lib/inventoryValuation';
 
 export function Inventory() {
   const { currentClient, saveInventoryItem, deleteInventoryItem, saveInventoryMovement, saveInventoryColumn, deleteInventoryColumn, activePage, navigateToPage } = useAccounting();
@@ -310,6 +311,31 @@ export function Inventory() {
   return (
     <div className="w-full flex flex-col">
       <PageHeader title="Inventory & Stock Valuation" icon={<Boxes className="text-amber-500 w-5 h-5" />} />
+      {/* T020: enhanced valuation (weighted-avg + COGS + low-stock) */}
+      {(() => {
+        const v = valuationReport(inventoryItems as any, loadedMovements as any);
+        const cogs = estimatedCogs(inventoryItems as any, loadedMovements as any);
+        const money = (n: number) => '₱' + n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        return (
+          <div className="px-4 md:px-6 grid grid-cols-1 sm:grid-cols-3 gap-3 mb-2">
+            <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Inventory Value (weighted-avg)</div>
+              <div className="text-lg font-black text-slate-800 dark:text-slate-100">{money(v.totalValue)}</div>
+              <div className="text-[10px] text-slate-400">{v.totalQuantity.toLocaleString()} units on hand</div>
+            </div>
+            <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Estimated COGS (from movements)</div>
+              <div className="text-lg font-black text-slate-800 dark:text-slate-100">{money(cogs)}</div>
+              <div className="text-[10px] text-slate-400">Weighted-average costing</div>
+            </div>
+            <div className={`rounded-xl border p-3 ${v.lowStock.length > 0 ? 'border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30' : 'border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/30'}`}>
+              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Low-Stock Alerts</div>
+              <div className={`text-lg font-black ${v.lowStock.length > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>{v.lowStock.length} item{v.lowStock.length === 1 ? '' : 's'}</div>
+              <div className="text-[10px] text-slate-400 truncate">{v.lowStock.length > 0 ? v.lowStock.slice(0, 2).map((i: any) => i.name || i.itemName).join(', ') : 'All stock healthy'}</div>
+            </div>
+          </div>
+        );
+      })()}
       <div className="p-4 md:p-6 flex-1">
       <div className="flex flex-col gap-6 font-sans">
         

@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { ShoppingCart, Plus, Trash2, Settings, X, Check, Calendar, Printer } from 'lucide-react';
+import { ShoppingCart, Plus, Trash2, Settings, X, Check, Calendar, Printer, FileDown, AlertTriangle } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { JournalColumn, JournalEntry } from '../types';
 import { cn, parseDateToISO, periodPreset } from '../lib/utils';
+import { crossFootValidation, exportJournalToExcel } from '../lib/specialJournals';
 
 export const DEFAULT_PJ_COLUMNS: JournalColumn[] = [
   { id: 'date', name: 'Date', type: 'text', category: 'None', isSystem: true },
@@ -147,10 +148,25 @@ export function PurchasesJournal() {
   return (
     <div className="w-full flex flex-col print-area">
       <PageHeader title="Subsidiary Purchase Journal" icon={<ShoppingCart />} actions={
-        <button type="button" onClick={() => window.print()} className="no-print inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-xs font-bold hover:opacity-90 transition-opacity" title="Print Subsidiary Purchase Journal">
-          <Printer className="w-4 h-4" /> Print
-        </button>
+        <div className="flex items-center gap-2 no-print">
+          <button type="button" onClick={() => exportJournalToExcel(filteredEntries, columns, 'purchases-journal.xlsx')} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title="Export to Excel">
+            <FileDown className="w-4 h-4" /> Excel
+          </button>
+          <button type="button" onClick={() => window.print()} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-xs font-bold hover:opacity-90 transition-opacity" title="Print Subsidiary Purchase Journal">
+            <Printer className="w-4 h-4" /> Print
+          </button>
+        </div>
       } />
+      {(() => {
+        const cf = crossFootValidation(filteredEntries, columns);
+        if (cf.balanced || filteredEntries.length === 0) return null;
+        return (
+          <div className="mx-4 md:mx-6 mt-2 no-print rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 px-4 py-2 text-xs text-amber-700 dark:text-amber-300 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span><strong>Cross-foot warning:</strong> Debits (₱{cf.debitTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}) ≠ Credits (₱{cf.creditTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}). Difference: ₱{Math.abs(cf.difference).toLocaleString(undefined, { minimumFractionDigits: 2 })}.</span>
+          </div>
+        );
+      })()}
       <div className="p-4 md:p-6 flex-1">
       <div className="p-6">
         <div className="no-print flex flex-wrap items-center gap-3 mb-6 p-3 bg-slate-50 dark:bg-slate-800/40 rounded-xl border border-slate-200 dark:border-slate-700">

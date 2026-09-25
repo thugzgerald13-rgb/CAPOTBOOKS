@@ -6,6 +6,8 @@ import { useAccounting } from '../context/AccountingContext';
 import { getEgressMetrics } from '../db/localDb';
 import { Client } from '../types';
 import { useAuth } from '../context/AuthContext';
+import { loadAuditLog, ALL_PERMISSIONS, ROLES, can } from '../lib/accessControl';
+import { FEATURE_FLAGS, getFlags, setFeatureFlag, buildBackup, parseBackup } from '../lib/featureFlags';
 import { supabase } from '../lib/supabase';
 import packageJson from '../../package.json';
 
@@ -273,6 +275,14 @@ export function AdminSettings() {
   const { isAdmin, userRole, setUserRole } = useAuth();
   const navigate = useNavigate();
   const [users, setUsers] = useState<UserProfile[]>([]);
+  // ---- T025: feature flags state ----
+  const [flags, setFlags] = useState<Record<string, boolean>>(() => getFlags());
+  const toggleFlag = (key: string) => { const v = !flags[key]; setFeatureFlag(key, v); setFlags(getFlags()); };
+  const handleFullBackup = () => {
+    const blob = new Blob([buildBackup({ users, localStorage: Object.fromEntries(Object.entries(localStorage).filter(([k]) => k.startsWith('capot.'))) })], { type: 'application/json' });
+    const url = URL.createObjectURL(blob); const a = document.createElement('a');
+    a.href = url; a.download = `capot-backup-${new Date().toISOString().split('T')[0]}.json`; a.click(); URL.revokeObjectURL(url);
+  };
   const [loading, setLoading] = useState(false);
   const [dbConnectionOk, setDbConnectionOk] = useState<boolean | null>(null);
 
@@ -425,6 +435,64 @@ export function AdminSettings() {
           </div>
 
           <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-700">
+            {/* T023: permissions matrix + audit trail */}
+            <div className="grid md:grid-cols-2 gap-4 mb-6">
+              <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
+                <div className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3">Role Permissions Matrix</div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-[10px]">
+                    <thead><tr className="text-slate-400"><th className="text-left py-1">Permission</th>{ROLES.map(r => <th key={r} className="text-center py-1 px-1">{r}</th>)}</tr></thead>
+                    <tbody>
+                      {ALL_PERMISSIONS.map(p => (
+                        <tr key={p.key} className="border-t border-slate-100 dark:border-slate-800">
+                          <td className="py-1 text-slate-600 dark:text-slate-300">{p.label}</td>
+                          {ROLES.map(r => <td key={r} className="text-center py-1">{can(r, p.key) ? <span className="text-emerald-500">✓</span> : <span className="text-slate-300">—</span>}</td>)}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
+                <div className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3">Audit Trail (recent)</div>
+                <div className="max-h-48 overflow-y-auto space-y-1.5">
+                  {loadAuditLog().slice(0, 10).length === 0 && <div className="text-[11px] text-slate-400">No audit entries yet. Actions will be logged here.</div>}
+                  {loadAuditLog().slice(0, 10).map(e => (
+                    <div key={e.id} className="text-[11px] border-l-2 border-cyan-400 pl-2 py-0.5">
+                      <span className="font-bold text-slate-700 dark:text-slate-200">{e.userEmail}</span>
+                      <span className="text-slate-500"> · {e.action} · {e.entity}</span>
+                      <div className="text-[9px] text-slate-400">{new Date(e.timestamp).toLocaleString()}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            {/* T025: feature flags + full backup */}
+            <div className="grid md:grid-cols-2 gap-4 mb-6">
+              <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
+                <div className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3">Feature Flags</div>
+                <div className="space-y-2">
+                  {FEATURE_FLAGS.map(f => (
+                    <label key={f.key} className="flex items-center justify-between gap-2 text-xs cursor-pointer">
+                      <span><span className="font-semibold text-slate-700 dark:text-slate-200">{f.label}</span><span className="block text-[10px] text-slate-400">{f.description}</span></span>
+                      <input type="checkbox" checked={!!flags[f.key]} onChange={() => toggleFlag(f.key)} className="w-4 h-4 accent-violet-600 shrink-0" />
+                    </label>
+                  ))}
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
+                <div className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3">Data Backup & Restore</div>
+                <button onClick={handleFullBackup} className="w-full mb-2 px-3 py-2 text-xs font-bold rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 hover:opacity-90">Download Full Backup (.json)</button>
+                <label className="block w-full px-3 py-2 text-xs font-bold rounded-lg border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 text-center cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-800">
+                  Restore from Backup…
+                  <input type="file" accept=".json" className="hidden" onChange={e => {
+                    const f = e.target.files?.[0]; if (!f) return;
+                    const r = new FileReader(); r.onload = () => { const d = parseBackup(String(r.result || '')); if (d) alert('Backup parsed — restore logic pending review.'); else alert('Invalid backup file.'); }; r.readAsText(f);
+                  }} />
+                </label>
+                <div className="text-[10px] text-slate-400 mt-2">Backup includes users + all capot.* localStorage settings.</div>
+              </div>
+            </div>
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="bg-slate-50 dark:bg-slate-800/50 border-b border-slate-200 dark:border-slate-700">
