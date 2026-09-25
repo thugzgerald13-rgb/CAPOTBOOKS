@@ -597,7 +597,9 @@ type AccountingProviderProps = {
 export function AccountingProvider({
     children,
 }: AccountingProviderProps) {
-  const { user, userRole } = useAuth();
+  const { user, userRole, membership } = useAuth();
+  const dataOwnerId: string =
+    membership?.isSubuser && membership?.ownerId ? membership.ownerId : user?.id ?? '';
   const [clients, setClients] = useState<Record<string, Client>>({});
   const [currentClientId, setCurrentClientId] = useState<string | null>(null);
   const [businessProfile, setBusinessProfile] = useState<BusinessProfile | null>(null);
@@ -653,7 +655,7 @@ export function AccountingProvider({
     setIsSyncing(true);
 
     try {
-      const { data, error } = await supabase.from('clients').select(CLIENTS_LIST_COLUMNS).eq('user_id', user.id);
+      const { data, error } = await supabase.from('clients').select(CLIENTS_LIST_COLUMNS).eq('user_id', dataOwnerId);
       if (error) throw error;
       const cloudClients: Record<string, Client> = {};
       for (const row of data || []) {
@@ -739,7 +741,7 @@ export function AccountingProvider({
   // places on every refresh.
   useEffect(() => {
     if (!currentClientId && cloudPrefsLoaded && Object.keys(clients).length > 0) {
-      const ownerId = user ? ownerClientId(user.id) : null;
+      const ownerId = user ? ownerClientId(dataOwnerId) : null;
       const availableClientIds = Object.keys(clients);
       const nonOwnerClientId = availableClientIds.find((id) => id !== ownerId);
       const restoredId =
@@ -851,7 +853,7 @@ export function AccountingProvider({
 
     const initClients = async () => {
       try {
-        const { data, error } = await supabase.from('clients').select(CLIENTS_LIST_COLUMNS).eq('user_id', user.id);
+        const { data, error } = await supabase.from('clients').select(CLIENTS_LIST_COLUMNS).eq('user_id', dataOwnerId);
         if (isTimedOut) return;
         if (error) throw error;
 
@@ -1045,9 +1047,9 @@ export function AccountingProvider({
           });
         };
 
-        clientsChannel = supabase.channel(`normalized-${user.id}`)
+        clientsChannel = supabase.channel(`normalized-${dataOwnerId}`)
           .on('postgres_changes', {
-            event: '*', schema: 'public', table: 'clients', filter: `user_id=eq.${user.id}`
+            event: '*', schema: 'public', table: 'clients', filter: `user_id=eq.${dataOwnerId}`
           }, (payload) => {
             const clientId = String((payload.eventType === 'DELETE' ? payload.old : payload.new)?.id || '');
             if (!clientId) return;
@@ -1055,7 +1057,7 @@ export function AccountingProvider({
               setClients(prev => { const next = { ...prev }; delete next[clientId]; return next; });
             } else {
               // Client profile changes are tiny; refresh only the root row.
-              void supabase.from('clients').select(CLIENTS_LIST_COLUMNS).eq('id', clientId).eq('user_id', user.id).maybeSingle()
+              void supabase.from('clients').select(CLIENTS_LIST_COLUMNS).eq('id', clientId).eq('user_id', dataOwnerId).maybeSingle()
                 .then(({ data: row, error }) => {
                   if (error || !row) return;
                   setClients(prev => {
@@ -1115,7 +1117,7 @@ export function AccountingProvider({
       const { data, error } = await supabase
         .from('business_profiles')
         .select('data')
-        .eq('user_id', user.id)
+        .eq('user_id', dataOwnerId)
         .maybeSingle();
 
       if (!error && data) {
@@ -1124,21 +1126,21 @@ export function AccountingProvider({
         const defaultBiz = defaultBusinessProfile(
           (user.user_metadata?.full_name as string) || user.email?.split('@')[0] || 'My Business Organization'
         );
-        defaultBiz.id = user.id;
+        defaultBiz.id = dataOwnerId;
         setBusinessProfile(defaultBiz);
         await supabase
           .from('business_profiles')
-          .upsert({ user_id: user.id, data: defaultBiz, updated_at: new Date().toISOString() }, { onConflict: 'user_id' })
+          .upsert({ user_id: dataOwnerId, data: defaultBiz, updated_at: new Date().toISOString() }, { onConflict: 'user_id' })
           .then(({ error: upsertErr }) => {
             if (upsertErr) console.error('Auto-syncing default business_profile doc failed:', upsertErr);
           });
       }
 
       bizChannel = supabase
-        .channel(`biz-profile-${user.id}`)
+        .channel(`biz-profile-${dataOwnerId}`)
         .on(
           'postgres_changes',
-          { event: '*', schema: 'public', table: 'business_profiles', filter: `user_id=eq.${user.id}` },
+          { event: '*', schema: 'public', table: 'business_profiles', filter: `user_id=eq.${dataOwnerId}` },
           (payload) => {
             if (payload.eventType !== 'DELETE') {
               setBusinessProfile((payload.new as any).data as BusinessProfile);
@@ -1170,7 +1172,7 @@ export function AccountingProvider({
   // Sync Business Profile to the current user's owner client
   useEffect(() => {
     if (businessProfile && user) {
-      const ownerId = ownerClientId(user.id);
+      const ownerId = ownerClientId(dataOwnerId);
       const existing = clients[ownerId];
       const needsSync =
         !existing ||
@@ -1198,14 +1200,14 @@ export function AccountingProvider({
         // the business profile on every refresh.
 
         if (isReady) {
-          persistNormalizedClient(matchingClient, user.id).catch((error) => console.error('Auto-syncing owner client failed:', error));
+          persistNormalizedClient(matchingClient, dataOwnerId).catch((error) => console.error('Auto-syncing owner client failed:', error));
         }
       }
 
       // Do not automatically delete a client merely because its name matches
       // the user's business profile. A real client can legitimately have the
       // same registered/trade name as the accountant's own business profile.
-      // The owner profile is represented separately by ownerClientId(user.id);
+      // The owner profile is represented separately by ownerClientId(dataOwnerId);
       // deleting same-name client rows here previously caused legitimate
       // normalized client data (including purchases, COA, and journals) to be
       // removed from the tenancy root.
@@ -1344,7 +1346,7 @@ export function AccountingProvider({
 
     updateClientState(currentClientId, { accounts, ...(format ? { coaFormat: format } : {}) });
     if (format) {
-      const { error } = await supabase.from('clients').update({ coa_format: format }).eq('id', currentClientId).eq('user_id', user.id);
+      const { error } = await supabase.from('clients').update({ coa_format: format }).eq('id', currentClientId).eq('user_id', dataOwnerId);
       if (error) throw error;
     }
   };
@@ -1599,14 +1601,14 @@ export function AccountingProvider({
   const saveClient = async (id: string, clientData: Client) => {
     if (!user) return;
 
-    const updatedClient = { ...clientData, id, userId: user.id } as Client;
+    const updatedClient = { ...clientData, id, userId: dataOwnerId } as Client;
     const previousClient = clients[id];
 
     try {
       // Persist first. Do not advertise a successful save or leave a local-only
       // client visible when Supabase rejected the write (for example because
       // the account's RLS policy is not yet deployed).
-      await persistNormalizedClient(updatedClient, user.id);
+      await persistNormalizedClient(updatedClient, dataOwnerId);
       setClients((prev) => ({ ...prev, [id]: updatedClient }));
       showToast('Client saved');
     } catch (error) {
@@ -1766,7 +1768,7 @@ export function AccountingProvider({
     const newClient: Client = {
       id: newId,
       name: name.trim(),
-      userId: user.id,
+      userId: dataOwnerId,
       tinLibrary: { customers: [], suppliers: [] },
       sales: [],
       purchases: [],
@@ -1781,7 +1783,7 @@ export function AccountingProvider({
     try {
       // The authenticated accountant owns the newly-created client row. This
       // matches clients_insert_own RLS without granting cross-user access.
-      await persistNormalizedClient(newClient, user.id);
+      await persistNormalizedClient(newClient, dataOwnerId);
       setClients((prev) => ({ ...prev, [newId]: newClient }));
       setCurrentClientId(newId);
       showToast('Client added');
@@ -1833,17 +1835,17 @@ export function AccountingProvider({
         const { error } = await supabase
           .from('business_profiles')
           .upsert(
-            { user_id: user.id, data: { ...profileData, id: user.id }, updated_at: new Date().toISOString() },
+            { user_id: dataOwnerId, data: { ...profileData, id: dataOwnerId }, updated_at: new Date().toISOString() },
             { onConflict: 'user_id' }
           );
         if (error) throw error;
 
         // Also update the matching owner client immediately to unlock hasClients and currentClient
-        const ownerId = ownerClientId(user.id);
+        const ownerId = ownerClientId(dataOwnerId);
         const existing = clients[ownerId];
         const matchingClient = buildMatchingClient(profileData, existing, ownerId);
 
-        await persistNormalizedClient(matchingClient, user.id);
+        await persistNormalizedClient(matchingClient, dataOwnerId);
 
         setClients((prev) => ({
           ...prev,
@@ -2234,7 +2236,7 @@ export function AccountingProvider({
         currentClientId,
         currentClient,
         businessProfile,
-        ownerClientId: user ? ownerClientId(user.id) : null,
+        ownerClientId: user ? ownerClientId(dataOwnerId) : null,
         isDarkMode,
         isSidebarCollapsed,
         activePage,

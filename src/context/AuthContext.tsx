@@ -1,6 +1,12 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
+import {
+  getMyAccountMembership,
+  listMySubusers,
+  SubusersNotEnabledError,
+} from '../lib/subusers';
+import type { TeamMember, AccountMembership } from '../types';
 
 interface AuthContextType {
   user: User | null;
@@ -13,12 +19,20 @@ interface AuthContextType {
   signOut: () => Promise<void>;
   needsAccountSetup: boolean;
   completeAccountSetup: (password: string) => Promise<void>;
+  subusersEnabled: boolean;
+  membership: AccountMembership;
+  isSubuser: boolean;
+  teamMembers: TeamMember[];
+  refreshTeamMembers: () => Promise<void>;
 }
 
+const DEFAULT_MEMBERSHIP: AccountMembership = { isSubuser: false };
 const AuthContext = createContext<AuthContextType>({
   user: null, loading: true, isAdmin: false, userRole: null, permissions: {},
   hasPermission: () => false, setUserRole: () => {}, signOut: async () => {},
   needsAccountSetup: false, completeAccountSetup: async () => {},
+  subusersEnabled: false, membership: DEFAULT_MEMBERSHIP, isSubuser: false,
+  teamMembers: [], refreshTeamMembers: async () => {},
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -31,6 +45,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [userRole, setUserRoleState] = useState<string | null>(null);
   const [permissions, setPermissions] = useState<Record<string, boolean>>({});
   const [needsAccountSetup, setNeedsAccountSetup] = useState(false);
+  const [subusersEnabled, setSubusersEnabled] = useState(false);
+  const [membership, setMembership] = useState<AccountMembership>(DEFAULT_MEMBERSHIP);
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
 
   const DEVELOPER_EMAIL =
     (import.meta.env.VITE_ADMIN_EMAIL || 'thugz.gerald13@gmail.com').trim().toLowerCase();
@@ -70,6 +87,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
         } else {
           setPermissions((permissionData || {}) as Record<string, boolean>);
         }
+        try {
+          const mem = await getMyAccountMembership();
+          setMembership(mem);
+          setSubusersEnabled(true);
+          if (!mem.isSubuser) {
+            try { setTeamMembers(await listMySubusers()); } catch { setTeamMembers([]); }
+          } else { setTeamMembers([]); }
+        } catch (memErr) {
+          if (!(memErr instanceof SubusersNotEnabledError)) {
+            console.error('Membership load error:', memErr);
+          }
+          setSubusersEnabled(false);
+          setMembership(DEFAULT_MEMBERSHIP);
+          setTeamMembers([]);
+        }
 
       } catch (error) {
         console.error('Auth sync error:', error);
@@ -91,6 +123,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setUserRoleState(null);
         setPermissions({});
         setNeedsAccountSetup(false);
+        setMembership(DEFAULT_MEMBERSHIP);
+        setTeamMembers([]);
+        setSubusersEnabled(false);
       }
       setLoading(false);
     });
@@ -126,6 +161,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
     setNeedsAccountSetup(false);
   };
 
+  const refreshTeamMembers = async () => {
+    if (!subusersEnabled || membership.isSubuser) return;
+    try { setTeamMembers(await listMySubusers()); } catch (e) { console.error(e); }
+  };
+
   const signOut = async () => {
     setPermissions({});
     await supabase.auth.signOut();
@@ -135,6 +175,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     <AuthContext.Provider value={{
       user, loading, isAdmin, userRole, permissions, hasPermission, setUserRole, signOut,
       needsAccountSetup, completeAccountSetup,
+      subusersEnabled, membership, isSubuser: membership.isSubuser, teamMembers, refreshTeamMembers,
     }}>
       {children}
     </AuthContext.Provider>
