@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { useAuth } from '../context/AuthContext';
@@ -6,9 +6,9 @@ import { Users, TrendingUp, Key, Lightbulb, BookOpen, BookText, LineChart, Scale
 import { Client, BusinessProfile } from '../types';
 import { RDO_CODES } from '../lib/utils';
 import { supabase } from '../lib/supabase';
-import { formatAccountAmount } from '../lib/accountingBalances';
-import { getClientBranding, saveClientBranding, getTaxSetup, saveTaxSetup, TAX_SETUP_DEFAULTS, DEFAULT_BRANDING, type ClientBranding, type TaxSetup } from '../lib/clientService';
-import { getFxRates, setFxRate } from '../lib/multiCurrency';
+import { formatAccountAmount, glAccountBalanceBefore, getAccountBalances } from '../lib/accountingBalances';
+import { findAccountByLabel, syncGeneralLedger } from '../lib/glPosting';
+import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide } from './ChartOfAccounts';
 
 export function Extras() {
   const { 
@@ -28,16 +28,17 @@ export function Extras() {
   } = useAccounting();
   const { userRole } = useAuth();
   const [editingClient, setEditingClient] = useState<Client | null>(null);
-  // ---- T022: entity switcher + per-client branding + tax setup ----
-  const [branding, setBranding] = useState<ClientBranding>(() => currentClientId ? getClientBranding(currentClientId) : DEFAULT_BRANDING);
-  const [taxSetup, setTaxSetup] = useState<TaxSetup>(() => currentClientId ? getTaxSetup(currentClientId) : TAX_SETUP_DEFAULTS);
-  useEffect(() => { if (currentClientId) { setBranding(getClientBranding(currentClientId)); setTaxSetup(getTaxSetup(currentClientId)); } }, [currentClientId]);
-  const updateBranding = (patch: Partial<ClientBranding>) => { if (!currentClientId) return; setBranding(saveClientBranding(currentClientId, patch)); };
-  const updateTax = (patch: Partial<TaxSetup>) => { if (!currentClientId) return; setTaxSetup(saveTaxSetup(currentClientId, patch)); };
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [trialBalances, setTrialBalances] = useState<any[]>([]);
   const [trialBalanceError, setTrialBalanceError] = useState<string | null>(null);
   const trialBalanceYear = new Date().getFullYear();
+  // Rebuild the General Ledger (auto-postings from all journals) once per
+  // client so the Trial Balance's Debit/Credit columns can be summed from the
+  // ledger entries instead of trusting the server RPC's period totals.
+  const glClientTb = useMemo(
+    () => (currentClient ? syncGeneralLedger(currentClient) : null),
+    [currentClient]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -215,42 +216,6 @@ export function Extras() {
               ) : undefined
             }
           />
-          {/* T022: entity switcher + per-client branding + tax setup */}
-          <div className="px-4 md:px-6 grid md:grid-cols-3 gap-3 mt-2">
-            <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Active Entity</div>
-              <select value={currentClientId || ''} onChange={e => setCurrentClientId(e.target.value)} className="w-full text-xs font-bold border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 bg-transparent outline-none">
-                {Object.values(clients).map((c: any) => <option key={c.id} value={c.id}>{c.name || c.tradeName || c.id}</option>)}
-              </select>
-            </div>
-            <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Branding</div>
-              <div className="flex items-center gap-2">
-                <input type="color" value={branding.accentColor} onChange={e => updateBranding({ accentColor: e.target.value })} className="w-8 h-8 rounded cursor-pointer border-0 bg-transparent" />
-                <input type="text" value={branding.logoUrl} onChange={e => updateBranding({ logoUrl: e.target.value })} placeholder="Logo URL" className="flex-1 text-xs border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 bg-transparent outline-none" />
-              </div>
-            </div>
-            <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Tax Setup</div>
-              <select value={taxSetup.taxType} onChange={e => updateTax({ taxType: e.target.value })} className="w-full text-xs font-bold border border-slate-200 dark:border-slate-700 rounded-lg px-2 py-1.5 bg-transparent outline-none">
-                <option>VAT Registered</option>
-                <option>Non-VAT</option>
-                <option>Exempt</option>
-              </select>
-            </div>
-          </div>
-          {/* T026: base currency + FX rates */}
-          <div className="px-4 md:px-6 mt-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-3">
-            <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">FX Rates (to PHP)</div>
-            <div className="flex flex-wrap gap-2 items-center">
-              {getFxRates().filter(r => r.code !== 'PHP').map(r => (
-                <label key={r.code} className="inline-flex items-center gap-1 text-[11px] text-slate-600 dark:text-slate-300">
-                  <span className="font-bold">{r.code}</span>
-                  <input type="number" step="0.01" value={r.rateToPhp} onChange={e => setFxRate(r.code, parseFloat(e.target.value) || 0)} className="w-20 text-right font-mono text-xs border border-slate-200 dark:border-slate-700 rounded px-1.5 py-1 bg-transparent outline-none" />
-                </label>
-              ))}
-            </div>
-          </div>
           <div className="p-4 md:p-6 flex-1">
         {editingClient ? (
           <div className="bg-slate-100 dark:bg-slate-900 -m-6 p-6 h-full min-h-[600px] flex flex-col font-sans">
@@ -1225,9 +1190,108 @@ export function Extras() {
           <PageHeader title="Trial Balance" icon={<Scale />} centered />
           <div className="p-4 md:p-6 flex-1">
             {currentClient ? (() => {
-              const balances = trialBalances;
-              const totalDebit = balances.reduce((n, x) => n + Math.max(0, x.balance), 0);
-              const totalCredit = balances.reduce((n, x) => n + Math.max(0, -x.balance), 0);
+              const balances = [...trialBalances];
+              // Chart of Accounts is the single source of truth for the account
+              // title and the opening (beginning) balance — the server RPC
+              // doesn't reliably return the title, so look both up locally.
+              // Use the full, unfiltered account list (not getCoaAccounts, which
+              // drops hidden accounts) so every account's opening balance is
+              // found even if it's since been hidden in the Chart of Accounts.
+              const coaAccounts = currentClient.accounts && currentClient.accounts.length > 0
+                ? currentClient.accounts
+                : (currentClient.coaFormat === 'alphanumeric' ? DEFAULT_ACCOUNTS_ALPHA : DEFAULT_ACCOUNTS);
+              const coaById = new Map(coaAccounts.map(a => [String(a.id), a]));
+              // The server RPC groups special-journal postings by account name
+              // (stored inside journal_entries.values jsonb), so its
+              // account_id often does not match a coa_accounts.id. Resolve
+              // each row's Chart of Accounts entry by id first, then by name,
+              // so the opening (beginning) balance — which lives only on the
+              // CoA entry — is always found instead of silently falling back
+              // to 0.
+              const resolveCoaAccount = (row: { account_id: string; account_name?: string }) => {
+                const byId = coaById.get(String(row.account_id));
+                if (byId) return byId;
+                if (row.account_name) {
+                  const byName = findAccountByLabel(String(row.account_name), coaAccounts);
+                  if (byName) return byName;
+                }
+                return undefined;
+              };
+              // The General Ledger is the recorded source for each account's
+              // beginning balance: its opening balance (from the Chart of
+              // Accounts) rolled forward through every entry posted before
+              // the trial balance year — the same formula the General Ledger
+              // page itself uses for its "Beginning Balance" row.
+              const glById = new Map((currentClient.glAccounts || []).map(g => [String(g.accountId ?? g.id), g]));
+              const yearStart = `${trialBalanceYear}-01-01`;
+              const getBeginningBalance = (row: { account_id: string; account_name?: string }) => {
+                const coaAccount = resolveCoaAccount(row);
+                const glAccount = glById.get(String(row.account_id));
+                return glAccountBalanceBefore({
+                  id: String(row.account_id),
+                  accountTitle: coaAccount?.name || '',
+                  entries: glAccount?.entries || [],
+                  openingBalance: coaAccount?.openingBalance ?? glAccount?.openingBalance ?? 0,
+                  normalSide: coaAccount?.normalSide || glAccount?.normalSide || getNormalSide(coaAccount?.type || ''),
+                }, yearStart);
+              };
+              // (Missing-account merge happens below, after yearBalances is built.)
+              // Debit & Credit columns come straight from the General Ledger:
+              // each account's ledger Debit / Credit entries for the trial
+              // balance year. The beginning balance is stored on the ledger
+              // account (not as an entry), so summing entries excludes it.
+              const glClient = glClientTb ?? currentClient;
+              const yearBalances = new Map(
+                getAccountBalances(glClient, trialBalanceYear).map(b => [String(b.account.id), b])
+              );
+              // Per-account year Debit / Credit, summed from the General
+              // Ledger (beginning balance excluded — it is not an entry).
+              // Used by both the row cells and the TOTAL row so they agree.
+              const rowYearDebit = (x: any) => {
+                const yb = yearBalances.get(String(resolveCoaAccount(x)?.id ?? x.account_id));
+                return yb ? yb.currentYearDebit : Number(x.period_debit || 0);
+              };
+              const rowYearCredit = (x: any) => {
+                const yb = yearBalances.get(String(resolveCoaAccount(x)?.id ?? x.account_id));
+                return yb ? yb.currentYearCredit : Number(x.period_credit || 0);
+              };
+              // Merge in any CoA account missing from the server RPC result —
+              // including revenue/expense accounts (Sales, Expenses), which
+              // usually have zero opening balance but carry year activity.
+              const representedIds = new Set(balances.map(x => String(resolveCoaAccount(x)?.id ?? x.account_id)));
+              coaAccounts.forEach(a => {
+                if (representedIds.has(String(a.id))) return;
+                const opening = Number(a.openingBalance) || 0;
+                const yb = yearBalances.get(String(a.id));
+                const yearDr = yb?.currentYearDebit || 0;
+                const yearCr = yb?.currentYearCredit || 0;
+                if (opening === 0 && yearDr === 0 && yearCr === 0) return;
+                const normal = a.normalSide || getNormalSide(a.type || '');
+                const signedOpening = normal === 'credit' ? -Math.abs(opening) : Math.abs(opening);
+                balances.push({
+                  account_id: String(a.id),
+                  account_name: a.name,
+                  account_type: a.type,
+                  balance: signedOpening + yearDr - yearCr,
+                  period_debit: yearDr,
+                  period_credit: yearCr,
+                  period_balance: yearDr - yearCr,
+                });
+              });
+              // Sort by account code (natural order, so 1010 < 1020 < 10100
+              // and sub-accounts stay under their parent) using the resolved
+              // Chart of Accounts code, falling back to the RPC account_id.
+              balances.sort((a, b) => {
+                const ca = resolveCoaAccount(a);
+                const cb = resolveCoaAccount(b);
+                const codeA = String(ca?.id ?? a.account_id ?? '');
+                const codeB = String(cb?.id ?? b.account_id ?? '');
+                return codeA.localeCompare(codeB, undefined, { numeric: true, sensitivity: 'base' });
+              });
+              const totalDebit = balances.reduce((n, x) => n + rowYearDebit(x), 0);
+              const totalCredit = balances.reduce((n, x) => n + rowYearCredit(x), 0);
+              const totalBeginning = balances.reduce((n, x) => n + getBeginningBalance(x), 0);
+              const totalEnding = totalBeginning + totalDebit - totalCredit;
               return (
                 <div className="max-w-4xl mx-auto">
                   {trialBalanceError && <div className="mb-4 p-3 rounded-lg bg-red-50 text-red-700 text-sm">{trialBalanceError}</div>}
@@ -1241,30 +1305,41 @@ export function Extras() {
                       <thead>
                         <tr className="bg-slate-50 dark:bg-slate-800/60 font-bold">
                           <th className="px-4 py-3 text-left">Account</th>
-                          <th className="px-4 py-3 text-left">Type</th>
+                          <th className="px-4 py-3 text-right">Beginning Balance</th>
                           <th className="px-4 py-3 text-right">Debit</th>
                           <th className="px-4 py-3 text-right">Credit</th>
+                          <th className="px-4 py-3 text-right">Ending Balance</th>
                         </tr>
                       </thead>
                       <tbody>
                         {balances.map(x => {
-                          const debit = Math.max(0, x.balance);
-                          const credit = Math.max(0, -x.balance);
+                          const coaAccount = resolveCoaAccount(x);
+                          const accountCode = coaAccount?.id || x.account_id;
+                          const accountTitle = coaAccount?.name || x.account_name;
+                          const beginningBalance = getBeginningBalance(x);
+                          const debit = rowYearDebit(x);
+                          const credit = rowYearCredit(x);
+                          // Ending Balance = Beginning + period Debits − period Credits
+                          // (beginning is signed: debit-normal positive, credit-normal negative)
+                          const endingBalance = beginningBalance + debit - credit;
                           return (
                             <tr key={x.account_id} className="border-t border-slate-100 dark:border-slate-800">
-                              <td className="px-4 py-2">{x.account_id} — {x.account_name}</td>
-                              <td className="px-4 py-2">{x.account_type}</td>
+                              <td className="px-4 py-2">{accountCode} — {accountTitle}</td>
+                              <td className="px-4 py-2 text-right font-mono">{beginningBalance ? formatAccountAmount(beginningBalance) : ''}</td>
                               <td className="px-4 py-2 text-right font-mono">{debit ? formatAccountAmount(debit) : ''}</td>
                               <td className="px-4 py-2 text-right font-mono">{credit ? formatAccountAmount(credit) : ''}</td>
+                              <td className="px-4 py-2 text-right font-mono">{endingBalance ? formatAccountAmount(endingBalance) : ''}</td>
                             </tr>
                           );
                         })}
                       </tbody>
                       <tfoot>
                         <tr className="bg-slate-100 dark:bg-slate-800 font-bold border-t-2">
-                          <td className="px-4 py-3" colSpan={2}>TOTAL</td>
+                          <td className="px-4 py-3">TOTAL</td>
+                          <td className="px-4 py-3 text-right font-mono">{formatAccountAmount(totalBeginning)}</td>
                           <td className="px-4 py-3 text-right font-mono">{formatAccountAmount(totalDebit)}</td>
                           <td className="px-4 py-3 text-right font-mono">{formatAccountAmount(totalCredit)}</td>
+                          <td className="px-4 py-3 text-right font-mono">{formatAccountAmount(totalEnding)}</td>
                         </tr>
                       </tfoot>
                     </table>
