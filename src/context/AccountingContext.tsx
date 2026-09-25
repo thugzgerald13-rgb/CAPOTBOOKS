@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useMemo, useState } from '
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Client, BusinessProfile, DatSelection } from '../types';
 import { supabase } from '../lib/supabase';
+import { toast } from '../components/ui/Toast';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { useAuth } from './AuthContext';
 import { handleSupabaseError, OperationType } from '../lib/supabaseUtils';
@@ -1962,6 +1963,9 @@ export function AccountingProvider({
   const showToast = (msg: string) => {
     setToastMsg(msg);
     setTimeout(() => setToastMsg(null), 3000);
+    // Bridge to the stacked toast system (Run 003 / T003) — all existing
+    // showToast call sites now render as stacking success toasts.
+    toast.success(msg);
   };
 
   // Flush queued offline writes when connectivity returns.
