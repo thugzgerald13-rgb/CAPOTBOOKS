@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Client, BusinessProfile, DatSelection } from '../types';
 import { supabase } from '../lib/supabase';
@@ -86,6 +86,7 @@ interface AccountingContextType {
 }
 
 const AccountingContext = createContext<AccountingContextType | undefined>(undefined);
+const AccountingActionsContext = createContext<Record<string, any>>({});
 
 // clients.id is a single global primary key (not scoped by user_id), so a
 // shared literal like 'client_owner' would only ever be usable by one user
@@ -2229,70 +2230,45 @@ export function AccountingProvider({
     );
   }
 
+  // Split state (changes often) from actions (stable identity via ref + Proxy)
+  // so action-only consumers never re-render when data changes.
+  const actionsRef = useRef<Record<string, any>>({});
+  actionsRef.current = {
+    setDarkMode, setSidebarCollapsed, navigateToPage, setHistoryTab, setBirFormTab,
+    setCurrentClientId, setCurrentDat, saveClient, saveClientProfile, savePurchase,
+    deletePurchase, saveSale, saveCoaColumns, saveCoaAccounts, saveJournalColumn,
+    saveJournalColumns, saveJournalEntry, saveJournalEntries, deleteJournalColumn,
+    deleteJournalEntry, saveJournalVoucher, deleteJournalVoucher, saveInventoryColumn,
+    deleteInventoryColumn, saveInventoryItem, deleteInventoryItem, saveInventoryMovement,
+    saveTinEntry, deleteTinEntry, saveBillingInvoice, deleteBillingInvoice, addClient,
+    deleteClient, saveBusinessProfile, saveFolder, deleteFolder, saveFile, deleteFile,
+    saveFinancialReportSnapshot, saveAssetLapsingSchedule, saveTaxDeadlines, showToast,
+  };
+  const stableActions = useMemo(
+    () => new Proxy(actionsRef, { get: (t, p) => (t.current as any)[p] }) as any,
+    [],
+  );
+  const stateValue = useMemo(
+    () => ({
+      clients, currentClientId, currentClient, businessProfile,
+      ownerClientId: user ? ownerClientId(dataOwnerId) : null,
+      isDarkMode, isSidebarCollapsed, activePage, currentDat, historyTab, birFormTab,
+      toastMsg, isSyncing, syncError, syncData, activeDevice,
+    }),
+    [clients, currentClientId, currentClient, businessProfile, user, dataOwnerId,
+      isDarkMode, isSidebarCollapsed, activePage, currentDat, historyTab, birFormTab,
+      toastMsg, isSyncing, syncError, syncData, activeDevice],
+  );
+  const mergedValue = useMemo(
+    () => ({ ...stateValue, ...stableActions }),
+    [stateValue, stableActions],
+  );
+
   return (
-    <AccountingContext.Provider
-      value={{
-        clients,
-        currentClientId,
-        currentClient,
-        businessProfile,
-        ownerClientId: user ? ownerClientId(dataOwnerId) : null,
-        isDarkMode,
-        isSidebarCollapsed,
-        activePage,
-        currentDat,
-        historyTab,
-        birFormTab,
-        toastMsg,
-        isSyncing,
-        syncError,
-        syncData,
-        setDarkMode,
-        setSidebarCollapsed,
-        navigateToPage,
-        setHistoryTab,
-        setBirFormTab,
-        setCurrentClientId,
-        setCurrentDat,
-        saveClient,
-        saveClientProfile,
-        savePurchase,
-        deletePurchase,
-        saveSale,
-        saveCoaColumns,
-        saveCoaAccounts,
-        saveJournalColumn,
-        saveJournalColumns,
-        saveJournalEntry,
-        saveJournalEntries,
-        deleteJournalColumn,
-        deleteJournalEntry,
-        saveJournalVoucher,
-        deleteJournalVoucher,
-        saveInventoryColumn,
-        deleteInventoryColumn,
-        saveInventoryItem,
-        deleteInventoryItem,
-        saveInventoryMovement,
-        saveTinEntry,
-        deleteTinEntry,
-        saveBillingInvoice,
-        deleteBillingInvoice,
-        addClient,
-        deleteClient,
-        saveBusinessProfile,
-        saveFolder,
-        deleteFolder,
-        saveFile,
-        deleteFile,
-        saveFinancialReportSnapshot,
-        saveAssetLapsingSchedule,
-        saveTaxDeadlines,
-        showToast,
-        activeDevice,
-      }}
-    >
-      {children}
+    <AccountingContext.Provider value={mergedValue}>
+      <AccountingActionsContext.Provider value={stableActions}>
+        {children}
+      </AccountingActionsContext.Provider>
     </AccountingContext.Provider>
   );
 };
@@ -2302,3 +2278,5 @@ export const useAccounting = () => {
   if (!ctx) throw new Error('useAccounting must be used within AccountingProvider');
   return ctx;
 };
+
+export const useAccountingActions = () => useContext(AccountingActionsContext);
