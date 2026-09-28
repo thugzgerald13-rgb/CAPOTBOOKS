@@ -1,7 +1,7 @@
 import React, { lazy, Suspense, useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Header } from './components/Header';
-import { Dashboard } from './components/Dashboard';
+const Dashboard = lazy(() => import('./components/Dashboard').then(m => ({ default: m.Dashboard })));
 import { AccountingProvider, useAccounting } from './context/AccountingContext';
 import { AnimatePresence, motion } from 'motion/react';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -74,7 +74,7 @@ function AppLayout() {
         <div className="app-content px-4 md:px-8 pt-[1.5px] pb-1 md:pb-2 max-w-[1400px] mx-auto w-full">
           {!activePage && (
             hasClients ? (
-              <Dashboard />
+              <Suspense fallback={<PageSkeleton />}><Dashboard /></Suspense>
             ) : (
               <div className="mt-8 card-surface">
                 <EmptyState
