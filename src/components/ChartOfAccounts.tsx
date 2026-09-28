@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { BookOpen, Plus, Trash2, RefreshCcw, Edit2, ClipboardList, Check, X, Columns, ArrowUp, ArrowDown, Upload, Eye, EyeOff, MoreVertical, Download, CheckSquare, Square, Layers } from 'lucide-react';
 import { parseCoaCsv, downloadCoaCsv, flattenCoaHierarchy } from '../lib/coaImport';
-import * as XLSX from 'xlsx';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { supabase } from '../lib/supabase';
@@ -711,9 +710,10 @@ export function ChartOfAccounts() {
   // and their values are imported too.
   // Prompts the user to choose whether to overwrite (replace) the current Chart of Accounts
   // entirely, or just merge in the new accounts alongside the existing ones.
-  const handleUploadFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUploadFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    const XLSX = await import('xlsx');
 
     const reader = new FileReader();
     reader.onload = (evt) => {
