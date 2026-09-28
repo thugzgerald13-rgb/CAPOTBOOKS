@@ -8,47 +8,10 @@ import { CoaAccount } from '../types';
 import { cn } from '../lib/utils';
 import { balanceFor } from '../lib/accountingBalances';
 
-export const DEFAULT_ACCOUNTS: CoaAccount[] = [
-  { id: '1000', name: 'Cash on Hand', type: 'Asset', normalSide: 'debit' },
-  { id: '1100', name: 'Accounts Receivable', type: 'Asset', normalSide: 'debit' },
-  { id: '1200', name: 'Creditable Withholding Tax', type: 'Asset', normalSide: 'debit' },
-  { id: '1300', name: 'Inventory', type: 'Asset', normalSide: 'debit' },
-  { id: '2000', name: 'Accounts Payable', type: 'Liabilities', normalSide: 'credit' },
-  { id: '2100', name: 'VAT Output Payable', type: 'Liabilities', normalSide: 'credit' },
-  { id: '2200', name: 'VAT Input Receivable', type: 'Asset', normalSide: 'debit' },
-  { id: '2300', name: 'Withholding Tax Payable', type: 'Liabilities', normalSide: 'credit' },
-  { id: '3000', name: 'Capital Stock', type: 'Equity', normalSide: 'credit' },
-  { id: '3100', name: 'Retained Earnings', type: 'Equity', normalSide: 'credit' },
-  { id: '4000', name: 'Sales Revenue', type: 'Revenue', normalSide: 'credit' },
-  { id: '5000', name: 'Cost of Goods Sold', type: 'Costs', normalSide: 'debit' },
-  { id: '5100', name: 'Operating Expenses', type: 'Expense', normalSide: 'debit' },
-];
-
-export const DEFAULT_ACCOUNTS_ALPHA: CoaAccount[] = [
-  { id: 'COH-1000', name: 'Cash on Hand', type: 'Asset', normalSide: 'debit' },
-  { id: 'ACR-1100', name: 'Accounts Receivable', type: 'Asset', normalSide: 'debit' },
-  { id: 'CWT-1200', name: 'Creditable Withholding Tax', type: 'Asset', normalSide: 'debit' },
-  { id: 'INV-1300', name: 'Inventory', type: 'Asset', normalSide: 'debit' },
-  { id: 'ACP-2000', name: 'Accounts Payable', type: 'Liabilities', normalSide: 'credit' },
-  { id: 'VOP-2100', name: 'VAT Output Payable', type: 'Liabilities', normalSide: 'credit' },
-  { id: 'VIR-2200', name: 'VAT Input Receivable', type: 'Asset', normalSide: 'debit' },
-  { id: 'WTP-2300', name: 'Withholding Tax Payable', type: 'Liabilities', normalSide: 'credit' },
-  { id: 'CAP-3000', name: 'Capital Stock', type: 'Equity', normalSide: 'credit' },
-  { id: 'RET-3100', name: 'Retained Earnings', type: 'Equity', normalSide: 'credit' },
-  { id: 'REV-4000', name: 'Sales Revenue', type: 'Revenue', normalSide: 'credit' },
-  { id: 'CGS-5000', name: 'Cost of Goods Sold', type: 'Costs', normalSide: 'debit' },
-  { id: 'OPE-5100', name: 'Operating Expenses', type: 'Expense', normalSide: 'debit' },
-];
+import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide } from '../lib/journalDefaults';
+export { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide };
 
 const ACCOUNT_TYPES = ['Asset', 'Liabilities', 'Equity', 'Revenue', 'Costs', 'Expense'];
-
-export function getNormalSide(type: string): 'debit' | 'credit' {
-  const t = type.toLowerCase();
-  if (t === 'asset' || t === 'assets' || t === 'expense' || t === 'expenses' || t === 'costs' || t === 'cost') {
-    return 'debit';
-  }
-  return 'credit';
-}
 
 // Maps a free-text account type (from an uploaded file) to a canonical CoA type
 function normalizeUploadedType(raw: string): { type: string } {

@@ -6,18 +6,8 @@ import { useAccounting } from '../context/AccountingContext';
 import { JournalColumn, JournalEntry, CoaAccount } from '../types';
 import { cn, parseDateToISO, periodPreset } from '../lib/utils';
 
-export const CDJ_CASH_ON_HAND_BANK_ID = 'cash_on_hand_bank';
-export const CDJ_SUNDRY_ACCOUNT_TITLE_ID = 'sundry_account_title';
-export const CDJ_SUNDRY_AMOUNT_ID = 'sundry_amount';
-
-export const DEFAULT_CDJ_COLUMNS: JournalColumn[] = [
-  { id: 'date', name: 'Date', type: 'text', category: 'None', isSystem: true },
-  { id: 'payee', name: 'Payees', type: 'text', category: 'None', isSystem: true },
-  { id: 'folio_f', name: 'Folio/F', type: 'text', category: 'None', isSystem: true },
-  { id: CDJ_CASH_ON_HAND_BANK_ID, name: 'Cash on Hand/Bank', type: 'number', category: 'Cr', isSystem: true },
-  { id: CDJ_SUNDRY_ACCOUNT_TITLE_ID, name: 'Account Title', type: 'text', category: 'None', isSystem: true },
-  { id: CDJ_SUNDRY_AMOUNT_ID, name: 'Amount Dr/Cr', type: 'number', category: 'None', isSystem: true },
-];
+import { CDJ_CASH_ON_HAND_BANK_ID, CDJ_SUNDRY_ACCOUNT_TITLE_ID, CDJ_SUNDRY_AMOUNT_ID, DEFAULT_CDJ_COLUMNS } from '../lib/journalDefaults';
+export { CDJ_CASH_ON_HAND_BANK_ID, CDJ_SUNDRY_ACCOUNT_TITLE_ID, CDJ_SUNDRY_AMOUNT_ID, DEFAULT_CDJ_COLUMNS };
 
 const MAX_CDJ_ACCOUNT_COLUMNS = 10; // user-selectable COA columns; Input Tax is a fixed default column
 const CDJ_ACCOUNT_PREFIX = 'cdj_coa_';

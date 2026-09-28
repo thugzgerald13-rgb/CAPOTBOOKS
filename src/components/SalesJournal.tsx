@@ -7,19 +7,8 @@ import { cn, parseDateToISO, periodPreset } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import { crossFootValidation, exportJournalToExcel } from '../lib/specialJournals';
 
-export const DEFAULT_SJ_COLUMNS: JournalColumn[] = [
-  { id: 'date', name: 'Date', type: 'text', category: 'None', isSystem: true },
-  { id: 'invoice_no', name: 'Invoice #', type: 'text', category: 'None', isSystem: true },
-  { id: 'customer_tin', name: 'Customer TIN', type: 'text', category: 'None', isSystem: true },
-  { id: 'customer_name', name: 'Customer Name', type: 'text', category: 'None', isSystem: true },
-  { id: 'customer_address', name: 'Customer Address', type: 'text', category: 'None', isSystem: true },
-  { id: 'net_of_vat', name: 'Net of VAT', type: 'number', category: 'Cr', isSystem: true },
-  { id: 'output_vat', name: 'Output VAT', type: 'number', category: 'Cr', isSystem: true },
-  { id: 'exempt_zero_rated', name: 'Exempt / 0-Rated', type: 'number', category: 'Cr', isSystem: true },
-  { id: 'account_title', name: 'Account Title', type: 'text', category: 'None', isSystem: true },
-  { id: 'accounts_receivable', name: 'Accounts Receivable', type: 'number', category: 'Dr', isSystem: true },
-  { id: 'credit_card', name: 'Credit Card', type: 'number', category: 'Dr', isSystem: true },
-];
+import { DEFAULT_SJ_COLUMNS } from '../lib/journalDefaults';
+export { DEFAULT_SJ_COLUMNS };
 
 export function SalesJournal() {
   const { currentClient, currentClientId, saveJournalColumns, saveJournalEntries, deleteJournalEntry } = useAccounting();

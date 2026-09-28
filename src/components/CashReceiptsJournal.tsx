@@ -7,18 +7,8 @@ import { JournalColumn, CashReceipt } from '../types';
 import { cn, parseDateToISO, periodPreset } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 
-export const DEFAULT_CRJ_COLUMNS: JournalColumn[] = [
-  { id: 'date', name: 'Date', type: 'text', category: 'None', isSystem: true },
-  { id: 'reference', name: 'OR / Invoice No.', type: 'text', category: 'None', isSystem: true },
-  { id: 'payor', name: "Customer / Payor", type: 'text', category: 'None', isSystem: true },
-  { id: 'description', name: 'Account Credited / Description', type: 'text', category: 'None', isSystem: true },
-  { id: 'post_ref', name: 'PR', type: 'text', category: 'None', isSystem: true },
-  { id: 'cash', name: 'Cash on Hand / Bank', type: 'number', category: 'Dr', isSystem: true },
-  { id: 'sales_disc', name: 'Sales Discount', type: 'number', category: 'Dr', isSystem: true },
-  { id: 'ar', name: 'Accounts Receivable', type: 'number', category: 'Cr', isSystem: true },
-  { id: 'sales', name: 'Sales', type: 'number', category: 'Cr', isSystem: true },
-  { id: 'sundry', name: 'Other Accounts / Sundry', type: 'number', category: 'Cr', isSystem: true },
-];
+import { DEFAULT_CRJ_COLUMNS } from '../lib/journalDefaults';
+export { DEFAULT_CRJ_COLUMNS };
 
 export function CashReceiptsJournal() {
   const { currentClient, currentClientId, saveJournalColumns, saveJournalEntry, deleteJournalEntry, activeDevice } = useAccounting();

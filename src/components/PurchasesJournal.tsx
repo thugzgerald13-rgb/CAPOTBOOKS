@@ -6,19 +6,8 @@ import { JournalColumn, JournalEntry } from '../types';
 import { cn, parseDateToISO, periodPreset } from '../lib/utils';
 import { crossFootValidation, exportJournalToExcel } from '../lib/specialJournals';
 
-export const DEFAULT_PJ_COLUMNS: JournalColumn[] = [
-  { id: 'date', name: 'Date', type: 'text', category: 'None', isSystem: true },
-  { id: 'supplier_name', name: "Supplier's Name", type: 'text', category: 'None', isSystem: true },
-  { id: 'supplier_tin', name: 'TIN', type: 'text', category: 'None', isSystem: true },
-  { id: 'invoice_no', name: 'Invoice', type: 'text', category: 'None', isSystem: true },
-  { id: 'description', name: 'Nature of Purchase', type: 'text', category: 'None', isSystem: true },
-  { id: 'net_purchase', name: 'Net of VAT', type: 'number', category: 'Dr', isSystem: true },
-  { id: 'exempt_zero_rated', name: 'Exempt / 0-Rated', type: 'number', category: 'Dr', isSystem: true },
-  { id: 'input_tax', name: 'Input Tax', type: 'number', category: 'Dr', isSystem: true },
-  { id: 'debit_account', name: 'Account Title', type: 'text', category: 'None', isSystem: true },
-  { id: 'accounts_payable', name: 'Accounts Payable', type: 'number', category: 'Cr', isSystem: true },
-  { id: 'withholding_tax', name: 'Withholding Tax', type: 'number', category: 'Cr', isSystem: true },
-];
+import { DEFAULT_PJ_COLUMNS } from '../lib/journalDefaults';
+export { DEFAULT_PJ_COLUMNS };
 
 export function PurchasesJournal() {
   const { currentClient, currentClientId, saveJournalColumns, saveJournalEntries, deleteJournalColumn, deleteJournalEntry } = useAccounting();
