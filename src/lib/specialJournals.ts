@@ -1,5 +1,5 @@
 // Special-journal helpers (Run 016 / T016): cross-footing validation + Excel export.
-import * as XLSX from 'xlsx';
+// xlsx is dynamically imported inside exportJournalToExcel so it stays out of the main bundle.
 
 export interface JournalColumnLike { id: string; name?: string; category?: 'Dr' | 'Cr' | string; type?: string; }
 export interface JournalEntryLike { values?: Record<string, string | number>; [k: string]: any; }
@@ -30,11 +30,12 @@ export function crossFootValidation(
 }
 
 /** Export a special journal to a multi-column Excel file with column totals row. */
-export function exportJournalToExcel(
+export async function exportJournalToExcel(
   entries: JournalEntryLike[],
   columns: JournalColumnLike[],
   filename: string,
 ) {
+  const XLSX = await import('xlsx');
   const header = columns.map(c => c.name || c.id);
   const rows = entries.map(e => columns.map(c => {
     const v = e.values?.[c.id] ?? (e as any)[c.id] ?? '';
