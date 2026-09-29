@@ -518,7 +518,8 @@ const persistNormalizedClient = async (client: Client, userId: string) => {
 
     for (const part of chunk(normalizedRows)) {
       if (!part.length) continue;
-      const { error } = await supabase.from(table).upsert(part, { onConflict: 'id' });
+      const conflictTarget = table === 'coa_accounts' ? 'client_id,id' : 'id';
+      const { error } = await supabase.from(table).upsert(part, { onConflict: conflictTarget });
       if (error) throw error;
     }
 
@@ -1294,7 +1295,7 @@ export function AccountingProvider({
     if (readError) throw readError;
     const keep = new Set(rows.map(r => r.id));
     const stale = (existing || []).map((r: any) => String(r.id)).filter(id => !keep.has(id));
-    if (rows.length) { const { error } = await supabase.from('coa_accounts').upsert(rows, { onConflict: 'id' }); if (error) throw error; }
+    if (rows.length) { const { error } = await supabase.from('coa_accounts').upsert(rows, { onConflict: 'client_id,id' }); if (error) throw error; }
     if (stale.length) {
       const { error } = await supabase
         .from('coa_accounts')
@@ -1980,7 +1981,8 @@ export function AccountingProvider({
             const { error } = await supabase.from(table).delete().eq('id', (row as any).id);
             if (error) throw error;
           } else {
-            const { error } = await supabase.from(table).upsert(row as any, { onConflict: 'id' });
+            const conflictTarget = table === 'coa_accounts' ? 'client_id,id' : 'id';
+            const { error } = await supabase.from(table).upsert(row as any, { onConflict: conflictTarget });
             if (error) throw error;
           }
         });
