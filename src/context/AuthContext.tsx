@@ -4,10 +4,9 @@ import { supabase } from '../lib/supabase';
 import {
   getMyAccountMembership,
   listMySubusers,
-  listMyPendingInvites,
   SubusersNotEnabledError,
 } from '../lib/subusers';
-import type { TeamMember, AccountMembership, PendingInviteForMe } from '../types';
+import type { TeamMember, AccountMembership } from '../types';
 
 interface AuthContextType {
   user: User | null;
@@ -25,8 +24,6 @@ interface AuthContextType {
   isSubuser: boolean;
   teamMembers: TeamMember[];
   refreshTeamMembers: () => Promise<void>;
-  pendingInvites: PendingInviteForMe[];
-  refreshPendingInvites: () => Promise<void>;
 }
 
 const DEFAULT_MEMBERSHIP: AccountMembership = { isSubuser: false };
@@ -36,7 +33,6 @@ const AuthContext = createContext<AuthContextType>({
   needsAccountSetup: false, completeAccountSetup: async () => {},
   subusersEnabled: false, membership: DEFAULT_MEMBERSHIP, isSubuser: false,
   teamMembers: [], refreshTeamMembers: async () => {},
-  pendingInvites: [], refreshPendingInvites: async () => {},
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -52,7 +48,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [subusersEnabled, setSubusersEnabled] = useState(false);
   const [membership, setMembership] = useState<AccountMembership>(DEFAULT_MEMBERSHIP);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
-  const [pendingInvites, setPendingInvites] = useState<PendingInviteForMe[]>([]);
 
   const DEVELOPER_EMAIL =
     (import.meta.env.VITE_ADMIN_EMAIL || 'thugz.gerald13@gmail.com').trim().toLowerCase();
@@ -99,7 +94,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
           if (!mem.isSubuser) {
             try { setTeamMembers(await listMySubusers()); } catch { setTeamMembers([]); }
           } else { setTeamMembers([]); }
-          try { setPendingInvites(await listMyPendingInvites()); } catch { setPendingInvites([]); }
         } catch (memErr) {
           if (!(memErr instanceof SubusersNotEnabledError)) {
             console.error('Membership load error:', memErr);
@@ -131,7 +125,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setNeedsAccountSetup(false);
         setMembership(DEFAULT_MEMBERSHIP);
         setTeamMembers([]);
-        setPendingInvites([]);
         setSubusersEnabled(false);
       }
       setLoading(false);
@@ -172,10 +165,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
     if (!subusersEnabled || membership.isSubuser) return;
     try { setTeamMembers(await listMySubusers()); } catch (e) { console.error(e); }
   };
-  const refreshPendingInvites = async () => {
-    if (!subusersEnabled) return;
-    try { setPendingInvites(await listMyPendingInvites()); } catch (e) { console.error(e); }
-  };
 
   const signOut = async () => {
     setPermissions({});
@@ -187,7 +176,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
       user, loading, isAdmin, userRole, permissions, hasPermission, setUserRole, signOut,
       needsAccountSetup, completeAccountSetup,
       subusersEnabled, membership, isSubuser: membership.isSubuser, teamMembers, refreshTeamMembers,
-      pendingInvites, refreshPendingInvites,
     }}>
       {children}
     </AuthContext.Provider>

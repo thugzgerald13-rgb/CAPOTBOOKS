@@ -6,7 +6,7 @@ import { formatAccountAmount, getCurrentYear } from '../lib/accountingBalances';
 import { exportAfBundle, type AfsSheetRow } from '../lib/afsExport';
 import { NET_INCOME_ID } from '../utils/fileParser';
 import ImportDataModal from './ImportDataModal';
-import { useImportedData, ImportedDataToolbar, ImportedDataTable, ReportYearSelect } from './ImportedData';
+import { useImportedData, ImportedDataToolbar, ReportYearSelect, ReportAmount, UnmatchedRowsSection } from './ImportedData';
 
 type Line = {
   account_id: string; account_name: string; account_type: string;
@@ -174,8 +174,8 @@ export function BalanceSheet() {
   const renderAccounts = (items: Line[], sign: 'debit' | 'credit') => items.map(x => (
     <tr key={x.account_id}>
       <td className="pl-6 py-1.5">{x.account_id} — {x.account_name}</td>
-      <td className={money}>{formatAccountAmount(amt(x, sign, 'cur'))}</td>
-      <td className={`${money} text-slate-400`}>{formatAccountAmount(amt(x, sign, 'prior'))}</td>
+      <ReportAmount api={imported} year={year} accountId={x.account_id} value={amt(x, sign, 'cur')} className={money} />
+      <ReportAmount api={imported} year={year - 1} accountId={x.account_id} value={amt(x, sign, 'prior')} className={`${money} text-slate-400`} />
     </tr>
   ));
 
@@ -243,6 +243,7 @@ export function BalanceSheet() {
                 <div className="text-xs font-medium mt-1">{year - 1} column differs by {formatAccountAmount(diffPrior)}</div>
               )}
             </div>
+            <UnmatchedRowsSection api={imported} year={year} priorYear={year - 1} />
             <div className="flex justify-end">
               <button type="button" onClick={handleExportBundle} className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-sm">
                 <FileDown className="w-4 h-4" /> Export AFS Bundle (.xlsx)
@@ -260,7 +261,6 @@ export function BalanceSheet() {
               />
             </div>
 
-            <ImportedDataTable api={imported} pageType="balance-sheet" />
           </div>
         </div>
       </div>

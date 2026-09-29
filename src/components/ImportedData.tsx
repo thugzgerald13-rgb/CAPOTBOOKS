@@ -7,10 +7,11 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Upload, Download, RotateCcw, Trash2 } from 'lucide-react';
-import type { Cell, ImportMatch, SheetData } from '../utils/fileParser';
+import type { Cell, ImportMatch, SheetData, UnmatchedRow } from '../utils/fileParser';
 import {
   changedCells, exportImportedYear, extractRows, getExtension, hasChanges, parseNumber,
 } from '../utils/fileParser';
+import { formatAccountAmount } from '../lib/accountingBalances';
 
 export interface YearStore {
   importedAt: string;
@@ -20,6 +21,7 @@ export interface YearStore {
   baseline: Cell[][];            // untouched copy of the active sheet, used to detect edits
   matches: ImportMatch[];
   yearCols: number[];
+  unmatched?: UnmatchedRow[];   // titles in the file with an amount that matched NO chart-of-accounts account
 }
 export type PageType = 'balance-sheet' | 'profit-loss';
 
@@ -103,10 +105,112 @@ export function useImportedData(storageKey: string) {
     return map;
   }, [store]);
 
-  return { store, years, changedYears, selectedYear, setSelectedYear, reload, updateCell, resetYear, removeYear, amountsFor };
+  /** Grid cell (row, col) holding a matched account's amount for an imported year — null if not imported. */
+  const cellFor = useCallback((year: number, accountId: string): { row: number; col: number } | null => {
+    const e = store[String(year)];
+    if (!e) return null;
+    const m = e.matches.find((x) => x.accountId === accountId && x.valueCol !== null);
+    return m ? { row: m.row, col: m.valueCol as number } : null;
+  }, [store]);
+
+  /** Unmatched titles (not in chart of accounts) with their live amounts for an imported year. */
+  const unmatchedFor = useCallback((year: number): { title: string; amount: number; row: number; col: number | null }[] => {
+    const e = store[String(year)];
+    if (!e || !e.unmatched?.length) return [];
+    const grid = e.sheets[e.activeSheet].grid;
+    return e.unmatched.map((u) => ({
+      title: u.title,
+      amount: u.valueCol === null ? 0 : parseNumber(grid[u.row]?.[u.valueCol]),
+      row: u.row,
+      col: u.valueCol,
+    }));
+  }, [store]);
+
+  return { store, years, changedYears, selectedYear, setSelectedYear, reload, updateCell, resetYear, removeYear, amountsFor, cellFor, unmatchedFor };
 }
 
 type ImportedApi = ReturnType<typeof useImportedData>;
+
+/**
+ * One amount cell inside the report. When the year was imported and this account matched, the cell
+ * becomes an inline <input> writing straight back into the imported sheet — so edits are tracked and
+ * exported. Otherwise it renders as plain formatted text (the ledger number).
+ */
+export function ReportAmount({ api, year, accountId, value, className }: {
+  api: ImportedApi; year: number; accountId: string; value: number; className?: string;
+}) {
+  const cell = api.cellFor(year, accountId);
+  if (!cell) {
+    return <td className={className}>{formatAccountAmount(value)}</td>;
+  }
+  const entry = api.store[String(year)];
+  const grid = entry?.sheets?.[entry.activeSheet]?.grid;
+  const raw = String(grid?.[cell.row]?.[cell.col] ?? '');
+  return (
+    <td className={`p-0 ${className ?? ''}`}>
+      <input
+        value={raw}
+        onChange={(e) => api.updateCell(year, cell.row, cell.col, e.target.value)}
+        className="w-full min-w-[4.5rem] bg-transparent px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-300 focus:bg-cyan-50 dark:focus:bg-cyan-950/30 focus:outline-none"
+        aria-label={`${accountId} amount for ${year}`}
+        title="Imported — click to edit; changes export back to the original file"
+      />
+    </td>
+  );
+}
+
+/**
+ * Rows from the imported file whose title matched NO account in the chart of accounts.
+ * Inserted into the report as a clearly-labeled section (not included in the totals above).
+ * Amounts are inline-editable like matched accounts.
+ */
+export function UnmatchedRowsSection({ api, year, priorYear }: { api: ImportedApi; year: number; priorYear: number }) {
+  const rows = api.unmatchedFor(year);
+  if (!rows.length) return null;
+  const entry = api.store[String(year)];
+  const grid = entry?.sheets?.[entry.activeSheet]?.grid;
+  return (
+    <section>
+      <div className="uppercase mb-1 font-bold text-amber-700 dark:text-amber-400">
+        Imported — not in chart of accounts ({rows.length})
+      </div>
+      <div className="text-[11px] text-slate-500 mb-2">
+        These titles were found in the imported file but do not match any account. They are shown for reference only and are NOT included in the totals above. Click an amount to edit — edits export back to the file.
+      </div>
+      <div className="overflow-x-auto rounded-lg border border-amber-200 dark:border-amber-900/60">
+        <table className="w-full text-xs">
+          <thead className="bg-amber-50/60 dark:bg-amber-950/30">
+            <tr>
+              <th className="px-3 py-2 text-left font-semibold text-amber-700 dark:text-amber-400">Account title (as in file)</th>
+              <th className="w-32 px-3 py-2 text-right font-semibold text-amber-700 dark:text-amber-400">{year}</th>
+              <th className="w-32 px-3 py-2 text-right font-semibold text-amber-700/70 dark:text-amber-400/70">{priorYear}</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={i} className="border-t border-amber-100 dark:border-amber-950/40 bg-amber-50/30 dark:bg-amber-950/10">
+                <td className="px-3 py-1.5 text-slate-700 dark:text-slate-300">{r.title}</td>
+                {r.col === null ? (
+                  <td className="w-32 px-3 py-1.5 text-right font-mono text-slate-400">—</td>
+                ) : (
+                  <td className="w-32 p-0">
+                    <input
+                      value={String(grid?.[r.row]?.[r.col] ?? '')}
+                      onChange={(e) => api.updateCell(year, r.row, r.col as number, e.target.value)}
+                      className="w-full min-w-[4.5rem] bg-transparent px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-300 focus:bg-cyan-50 dark:focus:bg-cyan-950/30 focus:outline-none"
+                      aria-label={`${r.title} amount for ${year}`}
+                    />
+                  </td>
+                )}
+                <td className="w-32 px-3 py-1.5 text-right font-mono text-slate-400">—</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
 
 /** One file per edited year, each in the format it was uploaded in. Unchanged years are skipped. */
 const exportChanged = (api: ImportedApi, pageType: PageType) => {

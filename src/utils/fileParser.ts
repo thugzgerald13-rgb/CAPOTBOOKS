@@ -48,6 +48,12 @@ export interface ImportMatch {
   fileTitle: string;           // text exactly as written in the file
   matchType: 'exact' | 'fuzzy' | 'code' | 'unmapped';
 }
+/** A row in the file that has a title + amount but did NOT match any chart-of-accounts title. */
+export interface UnmatchedRow {
+  title: string;               // text exactly as written in the file
+  row: number;                 // 0-based row in the sheet
+  valueCol: number | null;     // column holding the amount for the chosen year
+}
 
 export interface ImportedAccountRow {
   accountCode: string;
@@ -67,6 +73,7 @@ export interface ImportResult {
   activeSheet?: number;
   matches?: ImportMatch[];
   yearCols?: number[];
+  unmatched?: UnmatchedRow[];
 }
 
 export const SUPPORTED_EXTENSIONS = [
@@ -192,7 +199,7 @@ interface SheetAnalysis {
   matches: ImportMatch[];
   yearCols: number[];
   yearsFound: number[];
-  unmatched: string[];
+  unmatched: UnmatchedRow[];
   noValue: number;
   fallbackMode: boolean;
 }
@@ -276,7 +283,7 @@ const analyzeSheet = (grid: Cell[][], year: number, accounts: AccountRef[], igno
 
   // Rows that look like accounts (text + amount) but did not match anything
   const matchedRows = new Set(matches.map((m) => m.row));
-  const unmatched: string[] = [];
+  const unmatched: UnmatchedRow[] = [];
   if (!fallbackMode) {
     grid.forEach((row, r) => {
       if (matchedRows.has(r) || r < firstDataRow) return;
@@ -285,7 +292,8 @@ const analyzeSheet = (grid: Cell[][], year: number, accounts: AccountRef[], igno
       const text = String(row[tc]).trim();
       if (/^(total|net|subtotal|gross)\b/i.test(text)) return;
       if (ignoreIdx.list.length && matchTitle(text, ignoreIdx)) return; // belongs to the other report
-      if (valueColFor(row, tc) !== null) unmatched.push(text);
+      const vc = valueColFor(row, tc);
+      if (vc !== null) unmatched.push({ title: text, row: r, valueCol: vc });
     });
   }
 
@@ -392,7 +400,7 @@ const parseCore = async (
     if (a.fallbackMode) warnings.push('This client has no chart of accounts yet — every row with an amount was imported as-is.');
     if (a.noValue) warnings.push(`${a.noValue} matched account${a.noValue > 1 ? 's' : ''} had no amount for ${targetYear}.`);
     if (a.unmatched.length) {
-      const shown = a.unmatched.slice(0, 5).join(', ');
+      const shown = a.unmatched.map((u) => u.title).slice(0, 5).join(', ');
       warnings.push(`${a.unmatched.length} row${a.unmatched.length > 1 ? 's' : ''} not matched to any account: ${shown}${a.unmatched.length > 5 ? '…' : ''}`);
     }
     if (sheets.length > 1) warnings.push(`Workbook has ${sheets.length} sheets — used "${sheets[active].name}" (best match).`);
@@ -407,6 +415,7 @@ const parseCore = async (
       activeSheet: active,
       matches: a.matches,
       yearCols: a.yearCols,
+      unmatched: a.unmatched,
     };
   } catch (err) {
     return { success: false, message: `Could not read file: ${err instanceof Error ? err.message : 'Unknown error'}` };

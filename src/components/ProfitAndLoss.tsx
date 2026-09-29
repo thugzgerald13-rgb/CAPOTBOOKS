@@ -5,7 +5,7 @@ import { useAccounting } from '../context/AccountingContext';
 import { formatAccountAmount, getCurrentYear, getProfitAndLossTotals } from '../lib/accountingBalances';
 import { loadReportLayout, saveReportLayout, CASH_BASIS_NOTE, type ReportBasis } from '../lib/reportCustomizer';
 import ImportDataModal from './ImportDataModal';
-import { useImportedData, ImportedDataToolbar, ImportedDataTable, ReportYearSelect } from './ImportedData';
+import { useImportedData, ImportedDataToolbar, ReportYearSelect, ReportAmount, UnmatchedRowsSection } from './ImportedData';
 
 type BalanceItem = { account_id: string; account_name: string; period_debit?: number; period_credit?: number; balance?: number };
 
@@ -92,8 +92,8 @@ export function ProfitAndLoss() {
   const renderAccounts = (items: BalanceItem[], sign: 'revenue' | 'debit') => items.length ? items.map(x => (
     <tr key={x.account_id}>
       <td className="pl-6 py-1.5">{x.account_id} — {x.account_name}</td>
-      <td className="w-32 py-1.5 text-right font-mono pr-2">{formatAccountAmount(cur(x, sign))}</td>
-      <td className="w-32 py-1.5 text-right font-mono pr-2 text-slate-400">{formatAccountAmount(prior(x, sign))}</td>
+      <ReportAmount api={imported} year={year} accountId={x.account_id} value={cur(x, sign)} className="w-32 py-1.5 text-right font-mono pr-2" />
+      <ReportAmount api={imported} year={year - 1} accountId={x.account_id} value={prior(x, sign)} className="w-32 py-1.5 text-right font-mono pr-2 text-slate-400" />
     </tr>
   )) : <tr><td colSpan={3} className="pl-6 py-2 text-slate-400">No accounts in this category.</td></tr>;
   type CostLine = (typeof costs)[number];
@@ -107,8 +107,8 @@ export function ProfitAndLoss() {
   const costItemRow = (x: CostLine) => (
     <tr key={x.account_id}>
       <td className="pl-6 py-1.5">{x.account_id} — {x.account_name}</td>
-      <td className="w-32 py-1.5 text-right font-mono pr-2">{formatAccountAmount(costAmt(x))}</td>
-      <td className="w-32 py-1.5 text-right font-mono pr-2 text-slate-400">{formatAccountAmount(costPrior(x))}</td>
+      <ReportAmount api={imported} year={year} accountId={x.account_id} value={costAmt(x)} className="w-32 py-1.5 text-right font-mono pr-2" />
+      <ReportAmount api={imported} year={year - 1} accountId={x.account_id} value={costPrior(x)} className="w-32 py-1.5 text-right font-mono pr-2 text-slate-400" />
     </tr>
   );
   const colHeaders = (
@@ -220,7 +220,7 @@ export function ProfitAndLoss() {
               <div className="flex gap-6"><span className="w-32 text-right font-mono pr-2">{formatAccountAmount(netIncome)}</span><span className="w-32 text-right font-mono pr-2 text-slate-400">{formatAccountAmount(priorNetIncome)}</span></div>
             </div>
 
-            <ImportedDataTable api={imported} pageType="profit-loss" />
+            <UnmatchedRowsSection api={imported} year={year} priorYear={year - 1} />
           </div>
         </div>
       </div>

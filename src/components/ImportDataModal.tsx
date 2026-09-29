@@ -45,6 +45,7 @@ export default function ImportDataModal({ open, onClose, pageLabel, storageKey, 
         baseline: JSON.parse(JSON.stringify(res.sheets[active].grid)),
         matches: res.matches,
         yearCols: res.yearCols ?? [],
+        unmatched: res.unmatched ?? [],
       };
       try {
         localStorage.setItem(storageKey, JSON.stringify(existing));

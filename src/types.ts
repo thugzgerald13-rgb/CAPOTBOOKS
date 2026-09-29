@@ -562,9 +562,6 @@ export interface MiscellaneousPayment {
 // ============================================================================
 export type MemberRole = 'accountant' | 'bookkeeper' | 'staff' | 'viewer';
 export type MemberStatus = 'invited' | 'active' | 'disabled';
-// 'managed'     -> owner created the login (staff who don't sign up themselves)
-// 'independent' -> invitee owns their own CAPOT account; they accepted an invite
-export type MemberKind = 'managed' | 'independent';
 
 export interface TeamMember {
   id: string;
@@ -572,7 +569,6 @@ export interface TeamMember {
   email: string;
   displayName?: string | null;
   memberRole: MemberRole;
-  memberKind: MemberKind;
   status: MemberStatus;
   lastLogin?: string | null;
   createdAt?: string | null;
@@ -584,7 +580,6 @@ export interface AccountMembership {
   ownerEmail?: string | null;
   memberRole?: MemberRole | null;
   status?: MemberStatus | null;
-  memberKind?: MemberKind | null;
 }
 
 export interface InviteResult {
@@ -592,54 +587,4 @@ export interface InviteResult {
   email: string;
   temporaryPassword: string | null;
   existingUser: boolean;
-  memberKind?: MemberKind;
-}
-
-// Result of sending an independent invite (no account created; invitee accepts later)
-export interface IndependentInviteResult {
-  email: string;
-  inviteToken: string;
-  hasExistingAccount: boolean;
-}
-
-// Pending independent invite as seen by the OWNER
-export interface PendingInvitation {
-  id: string;
-  inviteeEmail: string;
-  displayName?: string | null;
-  memberRole: MemberRole;
-  status: 'pending' | 'accepted' | 'declined' | 'revoked' | 'expired';
-  createdAt?: string | null;
-  expiresAt?: string | null;
-}
-
-// Pending invite addressed to the CURRENT signed-in user (invitee view)
-export interface PendingInviteForMe {
-  id: string;
-  inviteToken: string;
-  ownerEmail?: string | null;
-  ownerDisplayName?: string | null;
-  memberRole: MemberRole;
-  createdAt?: string | null;
-  expiresAt?: string | null;
-}
-/** A single imported account row. `original` preserves every column from the uploaded file, so the uploaded format prevails. */
-export interface ImportedAccountRow {
-  accountCode: string;
-  accountName: string;
-  amount: number;
-  year: number;
-  original?: Record<string, string | number>;
-}
-
-/** Result returned by the file parser (src/utils/fileParser.ts). */
-export interface ImportResult {
-  success: boolean;
-  message: string;
-  year?: number;
-  data?: ImportedAccountRow[];
-  warnings?: string[];
-  originalFileName?: string;
-  originalHeaders?: string[];
-  sheetName?: string;
 }
