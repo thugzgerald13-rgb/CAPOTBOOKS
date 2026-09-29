@@ -69,6 +69,7 @@ export function Extras() {
   const [birCorExtraction, setBirCorExtraction] = useState<BirCorExtractionResult | null>(null);
   const [birCorStatus, setBirCorStatus] = useState<string | null>(null);
   const [birCorError, setBirCorError] = useState<string | null>(null);
+  const [birCorReviewOpen, setBirCorReviewOpen] = useState(false);
   const isBirCorBusy = !!birCorStatus && (birCorStatus.includes('Starting') || birCorStatus.includes('Reading') || birCorStatus.includes('Preparing') || birCorStatus.includes('%') || birCorStatus.includes('switching to OCR'));
   const birCorInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -132,6 +133,67 @@ export function Extras() {
   const countExtractedFields = (fields: BirCorExtractionResult['fields']) =>
     Object.values(fields).filter((value) => String(value || '').trim()).length;
 
+  type BirCorFieldKey = Exclude<keyof BirCorExtractionResult['fields'], 'name'>;
+  type BirCorConfidence = 'high' | 'medium' | 'low';
+
+  const getBirCorFieldConfidence = (key: BirCorFieldKey, value: string): BirCorConfidence => {
+    const normalized = value.trim();
+    if (!normalized) return 'low';
+
+    const fromOcr = birCorExtraction?.source === 'ocr';
+    const hasOcrNoise = /[^\p{L}\p{N}\s@#.,'&()\-/]/u.test(normalized);
+
+    switch (key) {
+      case 'tin':
+        return /^\d{3}-\d{3}-\d{3}(?:-\d{3})?$/.test(normalized) ? (fromOcr ? 'medium' : 'high') : 'low';
+      case 'rdoCode':
+        return /^\d{3}[A-Z]?$/.test(normalized.toUpperCase()) ? (fromOcr ? 'medium' : 'high') : 'low';
+      case 'zipCode':
+        return /^\d{4}$/.test(normalized) ? (fromOcr ? 'medium' : 'high') : 'low';
+      case 'email':
+        return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized) ? (fromOcr ? 'medium' : 'high') : 'low';
+      case 'phone':
+        return /^[0-9+()\-\s]{7,20}$/.test(normalized) && /\d{7,}/.test(normalized.replace(/\D/g, '')) ? (fromOcr ? 'medium' : 'high') : 'low';
+      case 'taxpayerClassification':
+        return /^(Individual|Non-Individual)$/i.test(normalized) ? 'high' : 'low';
+      case 'registeredName':
+      case 'tradeName':
+      case 'lastName':
+      case 'firstName':
+      case 'middleName':
+        if (normalized.length < 2 || hasOcrNoise) return 'low';
+        return fromOcr ? 'medium' : 'high';
+      default:
+        if (normalized.length < 3 || hasOcrNoise) return 'low';
+        return fromOcr ? 'medium' : 'high';
+    }
+  };
+
+  const getBirCorConfidenceMeta = (confidence: BirCorConfidence) => {
+    if (confidence === 'high') {
+      return {
+        label: 'High confidence',
+        dot: 'bg-emerald-500',
+        badge: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300',
+        field: 'border-emerald-300 dark:border-emerald-800 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20',
+      };
+    }
+    if (confidence === 'medium') {
+      return {
+        label: 'Review recommended',
+        dot: 'bg-amber-500',
+        badge: 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300',
+        field: 'border-amber-300 dark:border-amber-800 focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20',
+      };
+    }
+    return {
+      label: 'Low confidence',
+      dot: 'bg-rose-500',
+      badge: 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300',
+      field: 'border-rose-300 dark:border-rose-800 focus:border-rose-500 focus:ring-2 focus:ring-rose-500/20',
+    };
+  };
+
   const handleBirCorUpload = async (file: File | undefined) => {
     if (!file) return;
     if (!isNewClient) return;
@@ -154,29 +216,19 @@ export function Extras() {
       const extractedCount = countExtractedFields(result.fields);
       setBirCorExtraction(result);
 
-      setEditingClient((current) => {
-        if (!current) return current;
-        const next = { ...current } as Client;
-        const fields = result.fields;
-        for (const [key, value] of Object.entries(fields)) {
-          if (value && String(value).trim()) {
-            (next as any)[key] = value;
-          }
-        }
-        next.name = fields.registeredName || fields.tradeName || fields.name || next.name;
-        return next;
-      });
+      setBirCorReviewOpen(true);
 
       setBirCorStatus(
         extractedCount > 0
           ? `Extracted ${extractedCount} field(s). Please review them before saving.`
           : 'The document was read, but no client fields were detected. Please review the form manually.'
       );
-      showToast(extractedCount > 0 ? 'COR / 2303 data populated into the client form.' : 'COR / 2303 uploaded, but fields could not be detected automatically.');
+      showToast(extractedCount > 0 ? 'COR / 2303 data extracted. Review it before applying to the client form.' : 'COR / 2303 uploaded, but fields could not be detected automatically.');
     } catch (error: any) {
       console.error('BIR COR extraction failed:', error);
       setBirCorExtraction(null);
       setBirCorStatus(null);
+      setBirCorReviewOpen(false);
       setBirCorError(error?.message || 'Unable to read this document. Please try another PDF or image.');
       showToast('Unable to extract the COR / 2303 data. You can still enter the details manually.');
     }
@@ -310,6 +362,7 @@ export function Extras() {
     setBirCorExtraction(null);
     setBirCorStatus(null);
     setBirCorError(null);
+    setBirCorReviewOpen(false);
   };
 
   const salesTotal = currentClient?.sales.reduce((s,i)=>s+i.amount,0) || 0;
@@ -353,6 +406,7 @@ export function Extras() {
                   setBirCorExtraction(null);
                   setBirCorStatus(null);
                   setBirCorError(null);
+                  setBirCorReviewOpen(false);
                 }}
                 className="hover:bg-slate-400 dark:hover:bg-slate-700 rounded p-1"
               >
@@ -408,6 +462,15 @@ export function Extras() {
                         <CheckCircle2 className="w-3.5 h-3.5" />
                         {countExtractedFields(birCorExtraction.fields)} fields found
                       </span>
+                    ) : null}
+                    {birCorExtraction ? (
+                      <button
+                        type="button"
+                        onClick={() => setBirCorReviewOpen(true)}
+                        className="shrink-0 text-[10px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
+                      >
+                        Review extraction
+                      </button>
                     ) : null}
                   </div>
                 )}
@@ -721,6 +784,137 @@ export function Extras() {
                 </div>
               </div>
             </fieldset>
+
+            {birCorReviewOpen && birCorExtraction && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4" role="dialog" aria-modal="true" aria-labelledby="bir-cor-review-title">
+                <div className="w-full max-w-4xl max-h-[90vh] overflow-hidden rounded-2xl bg-white dark:bg-slate-900 shadow-2xl border border-slate-200 dark:border-slate-700">
+                  <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between gap-4">
+                    <div className="min-w-0">
+                      <div id="bir-cor-review-title" className="flex items-center gap-2 text-base font-extrabold text-slate-900 dark:text-slate-100">
+                        <FileText className="w-5 h-5 text-blue-600" />
+                        Review COR / 2303 Extraction
+                      </div>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">{birCorFile?.name || 'BIR document'} · {birCorExtraction.source === 'ocr' ? 'OCR' : 'PDF text'} · {countExtractedFields(birCorExtraction.fields)} field(s) detected</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setBirCorReviewOpen(false)}
+                      className="p-2 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-500"
+                      aria-label="Close review"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  <div className="overflow-y-auto max-h-[62vh] p-5">
+                    {countExtractedFields(birCorExtraction.fields) === 0 ? (
+                      <div className="rounded-xl border border-amber-200 dark:border-amber-900/60 bg-amber-50 dark:bg-amber-950/20 p-4 text-sm text-amber-800 dark:text-amber-300">
+                        No usable client fields were detected. You can close this review and enter the details manually.
+                      </div>
+                    ) : (
+                      <>
+                        <div className="mb-4 rounded-xl border border-blue-200 dark:border-blue-900/60 bg-blue-50/70 dark:bg-blue-950/20 p-3 text-xs text-blue-800 dark:text-blue-300">
+                          Confirm the detected values before applying them. You can still edit any value later in the client form.
+                        </div>
+                        <div className="mb-4 flex flex-wrap items-center gap-2 text-[10px] font-bold uppercase tracking-wide">
+                          <span className="inline-flex items-center gap-1 rounded-full border px-2 py-1 border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-300"><span className="h-2 w-2 rounded-full bg-emerald-500" />High confidence</span>
+                          <span className="inline-flex items-center gap-1 rounded-full border px-2 py-1 border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300"><span className="h-2 w-2 rounded-full bg-amber-500" />Review recommended</span>
+                          <span className="inline-flex items-center gap-1 rounded-full border px-2 py-1 border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/60 dark:bg-rose-950/30 dark:text-rose-300"><span className="h-2 w-2 rounded-full bg-rose-500" />Low confidence / check manually</span>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {([
+                            ['tin', 'TIN'],
+                            ['taxpayerClassification', 'Taxpayer Classification'],
+                            ['registeredName', 'Registered Name'],
+                            ['lastName', 'Last Name'],
+                            ['firstName', 'First Name'],
+                            ['middleName', 'Middle Name'],
+                            ['tradeName', 'Trade Name'],
+                            ['substreet', 'Substreet'],
+                            ['street', 'Street'],
+                            ['barangay', 'Barangay'],
+                            ['district', 'District / Municipality'],
+                            ['city', 'City / Province'],
+                            ['zipCode', 'ZIP Code'],
+                            ['rdoCode', 'RDO Code'],
+                            ['phone', 'Contact Number'],
+                            ['email', 'Registered Email'],
+                          ] as const).map(([key, label]) => {
+                            const value = String((birCorExtraction.fields as any)[key] || '');
+                            const confidence = getBirCorFieldConfidence(key, value);
+                            const confidenceMeta = getBirCorConfidenceMeta(confidence);
+                            return (
+                              <label key={key} className="block">
+                                <div className="mb-1 flex items-center justify-between gap-2">
+                                  <span className="text-[11px] font-bold uppercase tracking-wide text-slate-500 dark:text-slate-400">{label}</span>
+                                  <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[9px] font-extrabold uppercase tracking-wide ${confidenceMeta.badge}`}>
+                                    <span className={`h-1.5 w-1.5 rounded-full ${confidenceMeta.dot}`} />
+                                    {confidenceMeta.label}
+                                  </span>
+                                </div>
+                                <div className="relative">
+                                  <input
+                                    value={value}
+                                    onChange={(e) => {
+                                      const nextValue = e.target.value;
+                                      setBirCorExtraction((current) => current ? {
+                                        ...current,
+                                        fields: { ...current.fields, [key]: nextValue || undefined },
+                                      } : current);
+                                    }}
+                                    placeholder="Not detected"
+                                    className={`w-full rounded-lg border px-3 py-2 pr-3 text-sm bg-white dark:bg-slate-800 text-slate-900 dark:text-slate-100 outline-none ${value ? confidenceMeta.field : 'border-slate-300 dark:border-slate-600 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500'}`}
+                                  />
+                                </div>
+                              </label>
+                            );
+                          })}
+                        </div>
+                        <details className="mt-5">
+                          <summary className="cursor-pointer text-xs font-bold text-slate-600 dark:text-slate-300">View extracted document text</summary>
+                          <pre className="mt-2 max-h-48 overflow-auto rounded-xl bg-slate-950 text-slate-100 p-3 text-[11px] leading-relaxed whitespace-pre-wrap">{birCorExtraction.text}</pre>
+                        </details>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="px-5 py-4 border-t border-slate-200 dark:border-slate-700 flex flex-col sm:flex-row justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setBirCorReviewOpen(false)}
+                      className="px-4 py-2 rounded-lg border border-slate-300 dark:border-slate-600 font-bold text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      disabled={countExtractedFields(birCorExtraction.fields) === 0}
+                      onClick={() => {
+                        setEditingClient((current) => {
+                          if (!current) return current;
+                          const next = { ...current } as Client;
+                          const fields = birCorExtraction.fields;
+                          for (const [key, value] of Object.entries(fields)) {
+                            if (value && String(value).trim()) {
+                              (next as any)[key] = value;
+                            }
+                          }
+                          next.name = fields.registeredName || fields.tradeName || fields.name || next.name;
+                          return next;
+                        });
+                        setBirCorReviewOpen(false);
+                        setBirCorStatus(`Applied ${countExtractedFields(birCorExtraction.fields)} extracted field(s) to the client form. Please review before saving.`);
+                        showToast('COR / 2303 data applied to the client form.');
+                      }}
+                      className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 text-white font-bold text-sm flex items-center justify-center gap-2"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      Apply to Client Form
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {/* Form Footer */}
             <div className="border-t border-slate-300 dark:border-slate-700 pt-4 flex justify-end gap-3 px-4">
