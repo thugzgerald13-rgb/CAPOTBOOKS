@@ -623,3 +623,22 @@ export interface PendingInviteForMe {
   createdAt?: string | null;
   expiresAt?: string | null;
 }
+/** A single imported account row. `original` preserves every column from the uploaded file, so the uploaded format prevails. */
+export interface ImportedAccountRow {
+  accountCode: string;
+  accountName: string;
+  amount: number;
+  year: number;
+  original?: Record<string, string>;
+}
+
+/** Result returned by the file parser (src/utils/fileParser.ts). */
+export interface ImportResult {
+  success: boolean;
+  message: string;
+  year?: number;
+  data?: ImportedAccountRow[];
+  warnings?: string[];
+  originalFileName?: string;
+  originalHeaders?: string[];
+}
