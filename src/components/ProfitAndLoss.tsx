@@ -5,7 +5,7 @@ import { useAccounting } from '../context/AccountingContext';
 import { formatAccountAmount, getCurrentYear, getProfitAndLossTotals } from '../lib/accountingBalances';
 import { loadReportLayout, saveReportLayout, CASH_BASIS_NOTE, type ReportBasis } from '../lib/reportCustomizer';
 import ImportDataModal from './ImportDataModal';
-import type { ImportedAccountRow } from '../types';
+import { useImportedData, ImportedDataToolbar, ImportedDataTable } from './ImportedData';
 
 type BalanceItem = { account_id: string; account_name: string; period_debit?: number; period_credit?: number; balance?: number };
 
@@ -16,32 +16,8 @@ export function ProfitAndLoss() {
 
   // ---- Import prior-year data (format of uploaded file is preserved) ----
   const [importModalOpen, setImportModalOpen] = useState(false);
-  const [importedYears, setImportedYears] = useState<number[]>([]);
-  const [selectedImportYear, setSelectedImportYear] = useState<number | null>(null);
-  const [importedRows, setImportedRows] = useState<ImportedAccountRow[]>([]);
-  const [importedHeaders, setImportedHeaders] = useState<string[]>([]);
   const importStorageKey = `pl_import_${currentClientId}`;
-
-  const loadImportedYears = () => {
-    const raw = localStorage.getItem(importStorageKey);
-    if (raw) {
-      setImportedYears(Object.keys(JSON.parse(raw)).map(Number).sort((a, b) => b - a));
-    } else {
-      setImportedYears([]);
-    }
-  };
-  useEffect(() => { loadImportedYears(); setSelectedImportYear(null); setImportedRows([]); }, [currentClientId]);
-
-  const selectImportYear = (y: number) => {
-    const raw = localStorage.getItem(importStorageKey);
-    const parsed = raw ? JSON.parse(raw) : {};
-    const entry = parsed[String(y)];
-    if (entry) {
-      setImportedRows(entry.rows || []);
-      setImportedHeaders(entry.originalHeaders || []);
-      setSelectedImportYear(y);
-    }
-  };
+  const imported = useImportedData(importStorageKey);
   // -----------------------------------------------------------------------
 
   // ---- T017: report customization state (loaded from saved layout) ----
@@ -132,24 +108,7 @@ export function ProfitAndLoss() {
         <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 inline-flex items-center gap-1.5"><input type="checkbox" checked={!!showSections.costs} onChange={() => toggleSection('costs')} className="rounded" /> Cost of Revenue</label>
         <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 inline-flex items-center gap-1.5"><input type="checkbox" checked={!!showSections.expenses} onChange={() => toggleSection('expenses')} className="rounded" /> Operating Expenses</label>
 
-        {importedYears.length > 0 && (
-          <select
-            value={selectedImportYear ?? ''}
-            onChange={(e) => e.target.value ? selectImportYear(Number(e.target.value)) : setSelectedImportYear(null)}
-            className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-bold text-slate-700 dark:text-slate-200 focus:border-cyan-500 focus:outline-none"
-            aria-label="View imported year"
-          >
-            <option value="">View imported year…</option>
-            {importedYears.map((y) => <option key={y} value={y}>{y}</option>)}
-          </select>
-        )}
-        <button
-          type="button"
-          onClick={() => setImportModalOpen(true)}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
-        >
-          <Upload className="w-3.5 h-3.5" /> Import Prior-Year Data
-        </button>
+        <ImportedDataToolbar api={imported} pageType="profit-loss" onImportClick={() => setImportModalOpen(true)} />
 
         <button type="button" onClick={handleSaveLayout} className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 hover:opacity-90">
           <Save className="w-3.5 h-3.5" /> Save Layout
@@ -237,35 +196,7 @@ export function ProfitAndLoss() {
               <div className="flex gap-6"><span className="w-32 text-right font-mono pr-2">{formatAccountAmount(netIncome)}</span><span className="w-32 text-right font-mono pr-2 text-slate-400">{formatAccountAmount(priorNetIncome)}</span></div>
             </div>
 
-            {/* Imported prior-year data — original file columns preserved */}
-            {selectedImportYear !== null && importedRows.length > 0 && (
-              <section className="mt-6">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="uppercase font-bold">Imported Data — {selectedImportYear}</div>
-                  <button type="button" onClick={() => setSelectedImportYear(null)} className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">Hide</button>
-                </div>
-                <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
-                  <table className="w-full text-xs">
-                    <thead className="bg-slate-50 dark:bg-slate-800">
-                      <tr>
-                        {importedHeaders.map((h) => (
-                          <th key={h} className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-300 whitespace-nowrap">{h}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {importedRows.map((r, i) => (
-                        <tr key={i} className="border-t border-slate-100 dark:border-slate-800">
-                          {importedHeaders.map((h) => (
-                            <td key={h} className="px-3 py-1.5 font-mono text-slate-700 dark:text-slate-300 whitespace-nowrap">{r.original?.[h] ?? ''}</td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </section>
-            )}
+            <ImportedDataTable api={imported} pageType="profit-loss" />
           </div>
         </div>
       </div>
@@ -275,7 +206,7 @@ export function ProfitAndLoss() {
         onClose={() => setImportModalOpen(false)}
         pageLabel="Profit & Loss"
         storageKey={importStorageKey}
-        onImported={(y) => { loadImportedYears(); selectImportYear(y); }}
+        onImported={(y) => { imported.reload(); imported.setSelectedYear(y); }}
       />
     </div>
   );

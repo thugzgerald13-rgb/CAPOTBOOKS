@@ -4,8 +4,8 @@
 
 import { useState } from 'react';
 import { X, Upload, FileUp, AlertTriangle, CheckCircle2 } from 'lucide-react';
-import { parseImportedFile } from '../utils/fileParser';
-import type { ImportResult, ImportedAccountRow } from '../types';
+import { parseImportedFile, ACCEPT_ATTR } from '../utils/fileParser';
+import type { ImportResult, ImportedAccountRow } from '../utils/fileParser';
 
 interface Props {
   open: boolean;
@@ -17,8 +17,10 @@ interface Props {
 
 interface YearStore {
   rows: ImportedAccountRow[];
+  baseline: ImportedAccountRow[];   // untouched snapshot used to detect edits on export
   importedAt: string;
   sourceFile?: string;
+  sheetName?: string;
   originalHeaders?: string[];
 }
 
@@ -37,14 +39,23 @@ export default function ImportDataModal({ open, onClose, pageLabel, storageKey, 
     const res = await parseImportedFile(file, year);
     setResult(res);
     if (res.success && res.data) {
-      const existing: Record<string, YearStore> = JSON.parse(localStorage.getItem(storageKey) || '{}');
+      let existing: Record<string, YearStore> = {};
+      try { existing = JSON.parse(localStorage.getItem(storageKey) || '{}'); } catch { /* start fresh */ }
       existing[String(year)] = {
         rows: res.data,
+        baseline: JSON.parse(JSON.stringify(res.data)),
         importedAt: new Date().toISOString(),
         sourceFile: res.originalFileName,
+        sheetName: res.sheetName,
         originalHeaders: res.originalHeaders,
       };
-      localStorage.setItem(storageKey, JSON.stringify(existing));
+      try {
+        localStorage.setItem(storageKey, JSON.stringify(existing));
+      } catch {
+        setResult({ success: false, message: 'File is too large to store in the browser. Try a smaller file.' });
+        setBusy(false);
+        return;
+      }
       setTimeout(() => {
         onImported(year);
         setFile(null);
@@ -75,14 +86,14 @@ export default function ImportDataModal({ open, onClose, pageLabel, storageKey, 
           className="mb-4 w-full rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-slate-800 dark:text-slate-100 focus:border-cyan-500 focus:outline-none"
         />
 
-        <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Upload file (CSV / TSV / TXT)</label>
-        <p className="mb-2 text-xs text-slate-500">Your original column names and order are preserved exactly.</p>
+        <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Upload file (Excel .xlsx / .xls / .xlsm / .xlsb / .ods, CSV, TSV, TXT …)</label>
+        <p className="mb-2 text-xs text-slate-500">Column names and order are preserved. Exports come back in the same format you upload.</p>
         <label className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-slate-300 dark:border-slate-600 px-4 py-6 text-center hover:border-cyan-400 hover:bg-cyan-50/40 dark:hover:bg-cyan-950/20">
           <FileUp className="text-slate-400" size={28} />
           <span className="text-sm text-slate-600 dark:text-slate-300">{file ? file.name : 'Click to choose a file'}</span>
           <input
             type="file"
-            accept=".csv,.tsv,.txt"
+            accept={ACCEPT_ATTR}
             className="hidden"
             onChange={(e) => { setFile(e.target.files?.[0] ?? null); setResult(null); }}
           />
