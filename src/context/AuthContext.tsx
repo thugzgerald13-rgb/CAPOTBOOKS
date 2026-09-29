@@ -65,10 +65,29 @@ export function AuthProvider({ children }: AuthProviderProps) {
   };
 
   useEffect(() => {
+    let active = true;
+    let initialSessionHandled = false;
+
+    const clearAuthState = () => {
+      if (!active) return;
+      setUser(null);
+      setUserRoleState(null);
+      setPermissions({});
+      setNeedsAccountSetup(false);
+      setMembership(DEFAULT_MEMBERSHIP);
+      setTeamMembers([]);
+      setSubusersEnabled(false);
+    };
+
     const syncUser = async (usr: User) => {
       try {
         syncAccountSetupState(usr);
-        await supabase.from('profiles').upsert({
+
+        // Keep profile/membership queries outside the auth state callback.
+        // Supabase holds an internal auth lock while dispatching auth events;
+        // awaiting another Supabase request from inside that callback can
+        // deadlock initialization or leave the app stuck on the auth check.
+        const { error: profileUpsertError } = await supabase.from('profiles').upsert({
           id: usr.id,
           email: usr.email,
           display_name: usr.user_metadata?.full_name ?? usr.user_metadata?.name ?? null,
@@ -77,60 +96,132 @@ export function AuthProvider({ children }: AuthProviderProps) {
           updated_at: new Date().toISOString(),
         }, { onConflict: 'id' });
 
-        const { data } = await supabase.from('profiles').select('user_role').eq('id', usr.id).single();
+        if (profileUpsertError) {
+          console.error('Profile sync error:', profileUpsertError);
+        }
+
+        const { data, error: roleError } = await supabase
+          .from('profiles')
+          .select('user_role')
+          .eq('id', usr.id)
+          .maybeSingle();
+
+        if (roleError) {
+          console.error('Role load error:', roleError);
+        }
+
+        if (!active) return;
         setUserRoleState(data?.user_role ?? null);
 
-        const { data: permissionData, error: permissionError } = await supabase.rpc('get_my_account_permissions');
+        const { data: permissionData, error: permissionError } =
+          await supabase.rpc('get_my_account_permissions');
+
+        if (!active) return;
         if (permissionError) {
           console.error('Permission load error:', permissionError);
           setPermissions({});
         } else {
           setPermissions((permissionData || {}) as Record<string, boolean>);
         }
+
         try {
           const mem = await getMyAccountMembership();
+          if (!active) return;
           setMembership(mem);
           setSubusersEnabled(true);
+
           if (!mem.isSubuser) {
-            try { setTeamMembers(await listMySubusers()); } catch { setTeamMembers([]); }
-          } else { setTeamMembers([]); }
+            try {
+              setTeamMembers(await listMySubusers());
+            } catch (teamError) {
+              console.error('Subuser list error:', teamError);
+              setTeamMembers([]);
+            }
+          } else {
+            setTeamMembers([]);
+          }
         } catch (memErr) {
           if (!(memErr instanceof SubusersNotEnabledError)) {
             console.error('Membership load error:', memErr);
           }
+          if (!active) return;
           setSubusersEnabled(false);
           setMembership(DEFAULT_MEMBERSHIP);
           setTeamMembers([]);
         }
-
       } catch (error) {
         console.error('Auth sync error:', error);
+        if (!active) return;
         setUserRoleState(null);
         setPermissions({});
+        setMembership(DEFAULT_MEMBERSHIP);
+        setTeamMembers([]);
       }
     };
 
-    supabase.auth.getSession().then(async ({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      if (session?.user) await syncUser(session.user);
-      setLoading(false);
-    });
+    const deferUserSync = (usr: User) => {
+      window.setTimeout(() => {
+        if (active) void syncUser(usr);
+      }, 0);
+    };
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      setUser(session?.user ?? null);
-      if (session?.user) await syncUser(session.user);
-      else {
-        setUserRoleState(null);
-        setPermissions({});
-        setNeedsAccountSetup(false);
-        setMembership(DEFAULT_MEMBERSHIP);
-        setTeamMembers([]);
-        setSubusersEnabled(false);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!active) return;
+
+      const nextUser = session?.user ?? null;
+      setUser(nextUser);
+
+      // INITIAL_SESSION is handled by the explicit getSession() call below.
+      // For all later auth events, defer the database work until after the
+      // auth callback has released Supabase's internal lock.
+      if (event === 'INITIAL_SESSION') {
+        initialSessionHandled = true;
+        if (!nextUser) clearAuthState();
+        return;
       }
-      setLoading(false);
+
+      if (nextUser) {
+        deferUserSync(nextUser);
+      } else {
+        clearAuthState();
+      }
     });
 
-    return () => subscription.unsubscribe();
+    void (async () => {
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
+
+        if (!active) return;
+        if (error) {
+          console.error('Auth session check error:', error);
+          clearAuthState();
+          return;
+        }
+
+        const sessionUser = session?.user ?? null;
+        setUser(sessionUser);
+
+        if (sessionUser) {
+          // Do not block the auth gate on profile/RPC/database work.
+          // The authenticated user can render immediately while the
+          // application-specific profile and permissions sync in the
+          // background.
+          deferUserSync(sessionUser);
+        } else if (!initialSessionHandled) {
+          clearAuthState();
+        }
+      } catch (error) {
+        console.error('Failed to initialize auth session:', error);
+        clearAuthState();
+      } finally {
+        if (active) setLoading(false);
+      }
+    })();
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   const hasPermission = (permission: string) => Boolean(permissions[permission]);
