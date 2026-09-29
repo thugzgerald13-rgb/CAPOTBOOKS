@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { TrendingUp, Save } from 'lucide-react';
+import { TrendingUp, Save, Upload } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { formatAccountAmount, getCurrentYear, getProfitAndLossTotals } from '../lib/accountingBalances';
 import { loadReportLayout, saveReportLayout, CASH_BASIS_NOTE, type ReportBasis } from '../lib/reportCustomizer';
+import ImportDataModal from './ImportDataModal';
+import type { ImportedAccountRow } from '../types';
 
 type BalanceItem = { account_id: string; account_name: string; period_debit?: number; period_credit?: number; balance?: number };
 
@@ -11,6 +13,37 @@ export function ProfitAndLoss() {
   const { currentClient, currentClientId, saveFinancialReportSnapshot, showToast } = useAccounting();
   const year = getCurrentYear(currentClient || ({ glAccounts: [] } as any));
   const [reportError, setReportError] = useState<string | null>(null);
+
+  // ---- Import prior-year data (format of uploaded file is preserved) ----
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importedYears, setImportedYears] = useState<number[]>([]);
+  const [selectedImportYear, setSelectedImportYear] = useState<number | null>(null);
+  const [importedRows, setImportedRows] = useState<ImportedAccountRow[]>([]);
+  const [importedHeaders, setImportedHeaders] = useState<string[]>([]);
+  const importStorageKey = `pl_import_${currentClientId}`;
+
+  const loadImportedYears = () => {
+    const raw = localStorage.getItem(importStorageKey);
+    if (raw) {
+      setImportedYears(Object.keys(JSON.parse(raw)).map(Number).sort((a, b) => b - a));
+    } else {
+      setImportedYears([]);
+    }
+  };
+  useEffect(() => { loadImportedYears(); setSelectedImportYear(null); setImportedRows([]); }, [currentClientId]);
+
+  const selectImportYear = (y: number) => {
+    const raw = localStorage.getItem(importStorageKey);
+    const parsed = raw ? JSON.parse(raw) : {};
+    const entry = parsed[String(y)];
+    if (entry) {
+      setImportedRows(entry.rows || []);
+      setImportedHeaders(entry.originalHeaders || []);
+      setSelectedImportYear(y);
+    }
+  };
+  // -----------------------------------------------------------------------
+
   // ---- T017: report customization state (loaded from saved layout) ----
   const [basis, setBasis] = useState<ReportBasis>('accrual');
   const [showSections, setShowSections] = useState<Record<string, boolean>>({ revenue: true, costs: true, expenses: true });
@@ -20,21 +53,17 @@ export function ProfitAndLoss() {
     setBasis(saved.basis);
     setShowSections({ revenue: true, costs: true, expenses: true, ...saved.showSections });
   }, [currentClientId]);
-
   const totals = useMemo(
     () => getProfitAndLossTotals(currentClient || ({ glAccounts: [] } as any), year),
     [currentClient, year]
   );
   const balances = totals.balances;
-
   useEffect(() => {
     if (!currentClientId) { setReportError(null); return; }
     setReportError(balances.length ? null : 'No accounts found.');
   }, [currentClientId, balances]);
-
   if (!currentClient || !currentClientId) return null;
   const { revenue, costs, expenses, revenueTotal, costTotal, expenseTotal, grossIncome, netIncome } = totals;
-
   // Prior-year (comparative) amount: cumulative balance minus current-period movement.
   const cur = (x: BalanceItem, sign: 'revenue' | 'debit') =>
     sign === 'revenue'
@@ -42,13 +71,11 @@ export function ProfitAndLoss() {
       : Math.max(0, Number(x.period_debit || 0) - Number(x.period_credit || 0));
   const prior = (x: BalanceItem, sign: 'revenue' | 'debit') =>
     Math.max(0, Number(x.balance || 0) - cur(x, sign));
-
   const priorRevenueTotal = revenue.reduce((n, x) => n + prior(x, 'revenue'), 0);
   const priorCostTotal = costs.reduce((n, x) => n + prior(x, 'debit'), 0);
   const priorExpenseTotal = expenses.reduce((n, x) => n + prior(x, 'debit'), 0);
   const priorGrossIncome = priorRevenueTotal - priorCostTotal;
   const priorNetIncome = priorGrossIncome - priorExpenseTotal;
-
   const data = currentClient.plData || {
     companyName: currentClient.tradeName || currentClient.name || '',
     address: [currentClient.street, currentClient.barangay, currentClient.city, currentClient.zipCode].filter(Boolean).join(', ') || '',
@@ -58,13 +85,11 @@ export function ProfitAndLoss() {
   };
   const update = (field: 'companyName' | 'address' | 'reportName', value: string) =>
     saveFinancialReportSnapshot('P&L', { ...data, [field]: value });
-
   const handleSaveLayout = () => {
     saveReportLayout(currentClientId, 'pl', { basis, showSections, columns: [], updatedAt: new Date().toISOString() });
     showToast('Report layout saved');
   };
   const toggleSection = (k: string) => setShowSections(prev => ({ ...prev, [k]: !prev[k] }));
-
   const renderAccounts = (items: BalanceItem[], sign: 'revenue' | 'debit') => items.length ? items.map(x => (
     <tr key={x.account_id}>
       <td className="pl-6 py-1.5">{x.account_id} — {x.account_name}</td>
@@ -72,7 +97,6 @@ export function ProfitAndLoss() {
       <td className="w-32 py-1.5 text-right font-mono pr-2 text-slate-400">{formatAccountAmount(prior(x, sign))}</td>
     </tr>
   )) : <tr><td colSpan={3} className="pl-6 py-2 text-slate-400">No accounts in this category.</td></tr>;
-
   type CostLine = (typeof costs)[number];
   const costAmt = (x: CostLine) => cur(x, 'debit');
   const costPrior = (x: CostLine) => prior(x, 'debit');
@@ -95,11 +119,10 @@ export function ProfitAndLoss() {
       <td className="w-32 text-right pr-2">{year - 1}</td>
     </tr>
   );
-
   return (
     <div className="w-full flex flex-col">
       <PageHeader title="Profit & Loss" icon={<TrendingUp className="text-emerald-500" />} centered />
-      {/* T017: report customization toolbar */}
+      {/* T017: report customization toolbar + import prior-year data */}
       <div className="no-print px-4 md:px-6 flex flex-wrap items-center gap-3 mb-2">
         <div className="inline-flex rounded-lg border border-slate-200 dark:border-slate-700 overflow-hidden text-xs font-bold">
           <button type="button" onClick={() => setBasis('accrual')} className={`px-3 py-1.5 ${basis === 'accrual' ? 'bg-emerald-600 text-white' : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300'}`}>Accrual</button>
@@ -108,6 +131,26 @@ export function ProfitAndLoss() {
         <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 inline-flex items-center gap-1.5"><input type="checkbox" checked={!!showSections.revenue} onChange={() => toggleSection('revenue')} className="rounded" /> Revenue</label>
         <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 inline-flex items-center gap-1.5"><input type="checkbox" checked={!!showSections.costs} onChange={() => toggleSection('costs')} className="rounded" /> Cost of Revenue</label>
         <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 inline-flex items-center gap-1.5"><input type="checkbox" checked={!!showSections.expenses} onChange={() => toggleSection('expenses')} className="rounded" /> Operating Expenses</label>
+
+        {importedYears.length > 0 && (
+          <select
+            value={selectedImportYear ?? ''}
+            onChange={(e) => e.target.value ? selectImportYear(Number(e.target.value)) : setSelectedImportYear(null)}
+            className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-bold text-slate-700 dark:text-slate-200 focus:border-cyan-500 focus:outline-none"
+            aria-label="View imported year"
+          >
+            <option value="">View imported year…</option>
+            {importedYears.map((y) => <option key={y} value={y}>{y}</option>)}
+          </select>
+        )}
+        <button
+          type="button"
+          onClick={() => setImportModalOpen(true)}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
+        >
+          <Upload className="w-3.5 h-3.5" /> Import Prior-Year Data
+        </button>
+
         <button type="button" onClick={handleSaveLayout} className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 hover:opacity-90">
           <Save className="w-3.5 h-3.5" /> Save Layout
         </button>
@@ -193,9 +236,47 @@ export function ProfitAndLoss() {
               <div className="uppercase">NET INCOME (LOSS)</div>
               <div className="flex gap-6"><span className="w-32 text-right font-mono pr-2">{formatAccountAmount(netIncome)}</span><span className="w-32 text-right font-mono pr-2 text-slate-400">{formatAccountAmount(priorNetIncome)}</span></div>
             </div>
+
+            {/* Imported prior-year data — original file columns preserved */}
+            {selectedImportYear !== null && importedRows.length > 0 && (
+              <section className="mt-6">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="uppercase font-bold">Imported Data — {selectedImportYear}</div>
+                  <button type="button" onClick={() => setSelectedImportYear(null)} className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">Hide</button>
+                </div>
+                <div className="overflow-x-auto rounded-lg border border-slate-200 dark:border-slate-700">
+                  <table className="w-full text-xs">
+                    <thead className="bg-slate-50 dark:bg-slate-800">
+                      <tr>
+                        {importedHeaders.map((h) => (
+                          <th key={h} className="px-3 py-2 text-left font-semibold text-slate-600 dark:text-slate-300 whitespace-nowrap">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {importedRows.map((r, i) => (
+                        <tr key={i} className="border-t border-slate-100 dark:border-slate-800">
+                          {importedHeaders.map((h) => (
+                            <td key={h} className="px-3 py-1.5 font-mono text-slate-700 dark:text-slate-300 whitespace-nowrap">{r.original?.[h] ?? ''}</td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            )}
           </div>
         </div>
       </div>
+
+      <ImportDataModal
+        open={importModalOpen}
+        onClose={() => setImportModalOpen(false)}
+        pageLabel="Profit & Loss"
+        storageKey={importStorageKey}
+        onImported={(y) => { loadImportedYears(); selectImportYear(y); }}
+      />
     </div>
   );
 }
