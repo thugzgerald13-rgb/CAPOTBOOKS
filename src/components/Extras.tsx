@@ -1,14 +1,15 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { useAuth } from '../context/AuthContext';
-import { Users, TrendingUp, Key, Lightbulb, BookOpen, BookText, LineChart, Scale, Plus, Building2, Save, X, RotateCcw, Library, FileText, Receipt, ShoppingCart, Banknote, Wallet, CreditCard, Trash2, Pencil } from 'lucide-react';
+import { Users, TrendingUp, Key, Lightbulb, BookOpen, BookText, LineChart, Scale, Plus, Building2, Save, X, RotateCcw, Library, FileText, Receipt, ShoppingCart, Banknote, Wallet, CreditCard, Trash2, Pencil, Upload, Loader2, CheckCircle2, AlertTriangle, FileImage } from 'lucide-react';
 import { Client, BusinessProfile } from '../types';
 import { RDO_CODES } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import { formatAccountAmount, glAccountBalanceBefore, getAccountBalances } from '../lib/accountingBalances';
 import { findAccountByLabel, syncGeneralLedger } from '../lib/glPosting';
 import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide } from './ChartOfAccounts';
+import { parseBirCorDocument, BirCorExtractionResult } from '../lib/birCorParser';
 
 export function Extras() {
   const { 
@@ -64,6 +65,12 @@ export function Extras() {
   // Edit button is pressed again.
   const [isClientLocked, setIsClientLocked] = useState(false);
   const [isNewClient, setIsNewClient] = useState(false);
+  const [birCorFile, setBirCorFile] = useState<File | null>(null);
+  const [birCorExtraction, setBirCorExtraction] = useState<BirCorExtractionResult | null>(null);
+  const [birCorStatus, setBirCorStatus] = useState<string | null>(null);
+  const [birCorError, setBirCorError] = useState<string | null>(null);
+  const isBirCorBusy = !!birCorStatus && (birCorStatus.includes('Starting') || birCorStatus.includes('Reading') || birCorStatus.includes('Preparing') || birCorStatus.includes('%') || birCorStatus.includes('switching to OCR'));
+  const birCorInputRef = useRef<HTMLInputElement | null>(null);
 
   // Dedicated management state for own business profile
   const [editingBusiness, setEditingBusiness] = useState<BusinessProfile | null>(null);
@@ -104,20 +111,125 @@ export function Extras() {
       setIsClientLocked(false);
       setIsNewClient(false);
       setIsBusinessLocked(false);
+      setBirCorFile(null);
+      setBirCorExtraction(null);
+      setBirCorStatus(null);
+      setBirCorError(null);
     }
   }, [activePage]);
 
   const handleEditClient = (client: Client) => {
     setEditingClient({ ...client });
     setIsNewClient(false);
+    setBirCorFile(null);
+    setBirCorExtraction(null);
+    setBirCorStatus(null);
+    setBirCorError(null);
     // Existing profiles open read-only; the accountant must press Edit to change them.
     setIsClientLocked(true);
   };
 
+  const countExtractedFields = (fields: BirCorExtractionResult['fields']) =>
+    Object.values(fields).filter((value) => String(value || '').trim()).length;
+
+  const handleBirCorUpload = async (file: File | undefined) => {
+    if (!file) return;
+    if (!isNewClient) return;
+
+    const isPdf = file.type === 'application/pdf' || /\.pdf$/i.test(file.name);
+    const isImage = file.type.startsWith('image/') || /\.(jpe?g|png|gif|webp|bmp|tiff?|heic|heif)$/i.test(file.name);
+    if (!isPdf && !isImage) {
+      setBirCorError('Please choose a PDF or an image file.');
+      setBirCorStatus(null);
+      return;
+    }
+
+    setBirCorFile(file);
+    setBirCorExtraction(null);
+    setBirCorError(null);
+    setBirCorStatus('Starting document extraction…');
+
+    try {
+      const result = await parseBirCorDocument(file, (message) => setBirCorStatus(message));
+      const extractedCount = countExtractedFields(result.fields);
+      setBirCorExtraction(result);
+
+      setEditingClient((current) => {
+        if (!current) return current;
+        const next = { ...current } as Client;
+        const fields = result.fields;
+        for (const [key, value] of Object.entries(fields)) {
+          if (value && String(value).trim()) {
+            (next as any)[key] = value;
+          }
+        }
+        next.name = fields.registeredName || fields.tradeName || fields.name || next.name;
+        return next;
+      });
+
+      setBirCorStatus(
+        extractedCount > 0
+          ? `Extracted ${extractedCount} field(s). Please review them before saving.`
+          : 'The document was read, but no client fields were detected. Please review the form manually.'
+      );
+      showToast(extractedCount > 0 ? 'COR / 2303 data populated into the client form.' : 'COR / 2303 uploaded, but fields could not be detected automatically.');
+    } catch (error: any) {
+      console.error('BIR COR extraction failed:', error);
+      setBirCorExtraction(null);
+      setBirCorStatus(null);
+      setBirCorError(error?.message || 'Unable to read this document. Please try another PDF or image.');
+      showToast('Unable to extract the COR / 2303 data. You can still enter the details manually.');
+    }
+  };
+
+  const uploadBirCorAttachment = async (clientId: string, file: File, folderId?: string) => {
+    const id = 'file_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7);
+    const safeName = (file.name.trim() || 'BIR-COR-2303').replace(/[^a-zA-Z0-9._-]/g, '_');
+    const storagePath = `${clientId}/registration/${id}/${safeName}`;
+
+    const { error: uploadError } = await supabase.storage.from('client-files').upload(storagePath, file, {
+      contentType: file.type || 'application/octet-stream',
+      cacheControl: 'public, max-age=31536000, immutable',
+      upsert: false,
+    });
+    if (uploadError) throw uploadError;
+
+    const { error: rowError } = await supabase.from('app_files').upsert({
+      id,
+      client_id: clientId,
+      name: file.name,
+      type: file.type || 'application/octet-stream',
+      size: file.size,
+      uploaded_at: new Date().toISOString(),
+      folder_id: folderId || null,
+      storage_path: storagePath,
+      description: 'BIR Certificate of Registration (COR / BIR Form 2303) used to populate client profile',
+    }, { onConflict: 'id' });
+    if (rowError) {
+      await supabase.storage.from('client-files').remove([storagePath]);
+      throw rowError;
+    }
+  };
+
   const handleSaveProfile = async () => {
     if (!editingClient) return;
+    const wasNewClient = isNewClient;
+    const fileToAttach = birCorFile;
     try {
       await saveClientProfile(editingClient.id, editingClient);
+      if (wasNewClient && fileToAttach) {
+        setBirCorStatus('Saving the COR / 2303 with the client record…');
+        try {
+          const registrationFolderId = editingClient.folders?.find((folder) => folder.name === 'BIR Registration')?.id;
+          await uploadBirCorAttachment(editingClient.id, fileToAttach, registrationFolderId);
+          setBirCorStatus('COR / 2303 saved with this client.');
+        } catch (attachmentError) {
+          console.error('BIR COR attachment upload failed:', attachmentError);
+          setBirCorError('Client was saved, but the COR / 2303 file could not be attached.');
+          setBirCorStatus(null);
+          showToast('Client saved, but the COR / 2303 attachment failed to upload.');
+        }
+      }
       // Stay on the form (grayed out) only after Supabase confirms the save.
       setIsNewClient(false);
       setIsClientLocked(true);
@@ -186,6 +298,7 @@ export function Extras() {
       folders: [
         { id: 'folder_revenue', name: 'Revenue', isDefault: true, type: 'revenue' },
         { id: 'folder_expense', name: 'Expense', isDefault: true, type: 'expense' },
+        { id: `${draftId}_registration`, name: 'BIR Registration', isDefault: true, type: 'custom' },
       ],
       files: [],
     } as Client;
@@ -193,6 +306,10 @@ export function Extras() {
     setEditingClient(draft);
     setIsNewClient(true);
     setIsClientLocked(false);
+    setBirCorFile(null);
+    setBirCorExtraction(null);
+    setBirCorStatus(null);
+    setBirCorError(null);
   };
 
   const salesTotal = currentClient?.sales.reduce((s,i)=>s+i.amount,0) || 0;
@@ -232,12 +349,83 @@ export function Extras() {
                 onClick={() => {
                   setEditingClient(null);
                   setIsNewClient(false);
+                  setBirCorFile(null);
+                  setBirCorExtraction(null);
+                  setBirCorStatus(null);
+                  setBirCorError(null);
                 }}
                 className="hover:bg-slate-400 dark:hover:bg-slate-700 rounded p-1"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
+
+            {isNewClient && (
+              <div className="mx-4 mb-4 rounded-xl border border-blue-200 dark:border-blue-900/70 bg-blue-50/70 dark:bg-blue-950/20 p-4">
+                <input
+                  ref={birCorInputRef}
+                  type="file"
+                  className="hidden"
+                  accept="application/pdf,image/*,.pdf,.jpg,.jpeg,.png,.gif,.webp,.bmp,.tif,.tiff,.heic,.heif"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    void handleBirCorUpload(file);
+                    e.target.value = '';
+                  }}
+                />
+                <div className="flex flex-col lg:flex-row lg:items-center gap-3 justify-between">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 text-sm font-bold text-slate-800 dark:text-slate-100">
+                      <FileText className="w-4 h-4 text-blue-600" />
+                      BIR Certificate of Registration (COR / 2303)
+                    </div>
+                    <p className="text-xs text-slate-600 dark:text-slate-400 mt-1">
+                      Upload a PDF or any image. The document is read locally and detected details are placed into the form for review.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => birCorInputRef.current?.click()}
+                    disabled={isBirCorBusy}
+                    className="shrink-0 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-400 text-white font-bold px-4 py-2 rounded-lg flex items-center justify-center gap-2 text-sm"
+                  >
+                    {isBirCorBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                    Upload COR / 2303
+                  </button>
+                </div>
+
+                {birCorFile && (
+                  <div className="mt-3 flex items-center gap-3 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2">
+                    <div className="w-8 h-8 rounded-md bg-slate-100 dark:bg-slate-800 flex items-center justify-center shrink-0">
+                      {birCorFile.type.startsWith('image/') ? <FileImage className="w-4 h-4 text-slate-600" /> : <FileText className="w-4 h-4 text-slate-600" />}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-bold truncate text-slate-800 dark:text-slate-200">{birCorFile.name}</div>
+                      <div className="text-[10px] text-slate-500">{Math.max(1, Math.round(birCorFile.size / 1024))} KB</div>
+                    </div>
+                    {birCorExtraction ? (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 shrink-0">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        {countExtractedFields(birCorExtraction.fields)} fields found
+                      </span>
+                    ) : null}
+                  </div>
+                )}
+
+                {birCorStatus && (
+                  <div className="mt-3 text-xs font-medium text-blue-700 dark:text-blue-300 flex items-start gap-2">
+                    <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span>{birCorStatus}</span>
+                  </div>
+                )}
+                {birCorError && (
+                  <div className="mt-3 text-xs font-medium text-amber-700 dark:text-amber-300 flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span>{birCorError}</span>
+                  </div>
+                )}
+              </div>
+            )}
 
             <fieldset disabled={isClientLocked} className="flex-1 overflow-y-auto px-4 border-0 m-0 p-0 disabled:opacity-60 transition-opacity">
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 mb-4">
@@ -278,6 +466,20 @@ export function Extras() {
                         const val = e.target.value.replace(/\D/g, '');
                         const parts = (editingClient.tin || '').split('-');
                         parts[2] = val;
+                        setEditingClient({...editingClient, tin: parts.join('-')});
+                      }}
+                      className="w-16 px-2 py-1.5 border border-slate-400 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-center font-mono"
+                    />
+                    <span>-</span>
+                    <input 
+                      type="text" 
+                      maxLength={3}
+                      value={(editingClient.tin || '').split('-')[3] || ''} 
+                      onChange={e => {
+                        const val = e.target.value.replace(/\D/g, '');
+                        const parts = (editingClient.tin || '').split('-');
+                        while (parts.length < 4) parts.push('');
+                        parts[3] = val;
                         setEditingClient({...editingClient, tin: parts.join('-')});
                       }}
                       className="w-16 px-2 py-1.5 border border-slate-400 dark:border-slate-600 rounded bg-white dark:bg-slate-800 text-center font-mono"
@@ -542,6 +744,10 @@ export function Extras() {
                     setEditingClient(null);
                     setIsNewClient(false);
                     setIsClientLocked(false);
+                    setBirCorFile(null);
+                    setBirCorExtraction(null);
+                    setBirCorStatus(null);
+                    setBirCorError(null);
                     return;
                   }
                   setEditingClient({...clients[editingClient.id]});
@@ -557,6 +763,10 @@ export function Extras() {
                   setEditingClient(null);
                   setIsNewClient(false);
                   setIsClientLocked(false);
+                  setBirCorFile(null);
+                  setBirCorExtraction(null);
+                  setBirCorStatus(null);
+                  setBirCorError(null);
                 }}
                 className="bg-slate-200 dark:bg-slate-700 font-bold px-6 py-2 rounded border border-slate-400 dark:border-slate-600 shadow-sm hover:bg-slate-300 dark:hover:bg-slate-600 flex items-center gap-2"
               >
