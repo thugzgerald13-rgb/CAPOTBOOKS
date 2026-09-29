@@ -15,7 +15,29 @@ import * as XLSX from 'xlsx';
 export type Cell = string | number;
 
 export interface SheetData { name: string; grid: Cell[][]; }
-export interface AccountRef { id: string; title: string; }
+export interface AccountRef {
+  id: string;
+  title: string;
+  type?: string;        // accountType from the chart of accounts (asset, liability, revenue, ...)
+  aliases?: string[];   // extra titles that should also match this account
+}
+
+export type ImportKind = 'balance-sheet' | 'profit-loss';
+
+/** Balance Sheet accounts vs Profit & Loss accounts. Each page's import only looks at its own. */
+const BS_TYPES = ['asset', 'assets', 'liability', 'liabilities', 'equity', 'equities', 'capital'];
+const PL_TYPES = ['revenue', 'cost', 'costs', 'expense', 'expenses'];
+const typeIn = (a: AccountRef, list: string[]) => list.includes((a.type || '').trim().toLowerCase());
+
+/** Virtual Balance Sheet line: lets an imported balance sheet carry its own "Net Income (Loss)" row. */
+export const NET_INCOME_ID = '__NET_INCOME__';
+const NET_INCOME_ACCOUNT: AccountRef = {
+  id: NET_INCOME_ID,
+  title: 'Current Year Net Income (Loss)',
+  type: 'equity',
+  aliases: ['Net Income', 'Net Income (Loss)', 'Net Profit', 'Net Profit (Loss)', 'Profit for the Year',
+    'Net Income for the Year', 'Current Year Earnings', 'Current Year Net Income', 'Profit (Loss) for the Year'],
+};
 
 export interface ImportMatch {
   row: number;                 // 0-based row in the sheet
@@ -120,6 +142,7 @@ const buildIndex = (accounts: AccountRef[]) => {
     .map((a) => { const n = norm(a.title); return { ref: a, n, t: tokens(n) }; });
   const byTitle = new Map<string, AccountRef>();
   list.forEach((x) => { if (!byTitle.has(x.n)) byTitle.set(x.n, x.ref); });
+  accounts.forEach((a) => (a.aliases || []).forEach((al) => { const n = norm(al); if (n && !byTitle.has(n)) byTitle.set(n, a); }));
   const byCode = new Map<string, AccountRef>();
   accounts.forEach((a) => { if (a.id) byCode.set(String(a.id).trim().toLowerCase(), a); });
   return { list, byTitle, byCode };
@@ -176,8 +199,9 @@ interface SheetAnalysis {
 
 const isTextCell = (v: Cell | undefined) => typeof v === 'string' && v.trim() !== '' && !isNumLike(v) && v.trim().length >= 2;
 
-const analyzeSheet = (grid: Cell[][], year: number, accounts: AccountRef[]): SheetAnalysis => {
+const analyzeSheet = (grid: Cell[][], year: number, accounts: AccountRef[], ignore: AccountRef[] = []): SheetAnalysis => {
   const idx = buildIndex(accounts);
+  const ignoreIdx = buildIndex(ignore);
   const fallbackMode = idx.list.length === 0;
 
   // Pass 1 — find title matches (value column decided afterwards, once year columns are known)
@@ -206,7 +230,13 @@ const analyzeSheet = (grid: Cell[][], year: number, accounts: AccountRef[]): She
   });
 
   const titleCols = new Set(found.map((f) => f.titleCol));
-  const firstDataRow = found.length ? found[0].row : Math.min(grid.length, 20);
+  // First row that holds ANY account (this page's or the other page's) — year labels live above it.
+  let firstDataRow = found.length ? found[0].row : Math.min(grid.length, 20);
+  if (ignoreIdx.list.length) {
+    for (let r = 0; r < firstDataRow; r++) {
+      if (grid[r].some((x) => isTextCell(x) && matchTitle(String(x).trim(), ignoreIdx))) { firstDataRow = r; break; }
+    }
+  }
 
   // Year columns: look for year labels ABOVE the first matched row, never in a title column.
   const yearsFoundSet = new Set<number>();
@@ -254,6 +284,7 @@ const analyzeSheet = (grid: Cell[][], year: number, accounts: AccountRef[]): She
       if (tc < 0) return;
       const text = String(row[tc]).trim();
       if (/^(total|net|subtotal|gross)\b/i.test(text)) return;
+      if (ignoreIdx.list.length && matchTitle(text, ignoreIdx)) return; // belongs to the other report
       if (valueColFor(row, tc) !== null) unmatched.push(text);
     });
   }
@@ -312,10 +343,12 @@ const readWorkbook = (file: File): Promise<XLSX.WorkBook> =>
     }
   });
 
-export const parseImportedFile = async (
+const parseCore = async (
   file: File,
   targetYear: number,
-  accounts: AccountRef[] = [],
+  accounts: AccountRef[],
+  ignore: AccountRef[],
+  label: string,
 ): Promise<ImportResult> => {
   const ext = getExtension(file.name);
   if (ext && !SUPPORTED_EXTENSIONS.includes(ext)) {
@@ -328,7 +361,7 @@ export const parseImportedFile = async (
     if (!sheets.length) return { success: false, message: 'The file has no data' };
 
     // Analyze every sheet, keep the one with the most matched accounts.
-    const analyses = sheets.map((s) => analyzeSheet(s.grid, targetYear, accounts));
+    const analyses = sheets.map((s) => analyzeSheet(s.grid, targetYear, accounts, ignore));
     let active = 0;
     analyses.forEach((a, i) => { if (a.matches.length > analyses[active].matches.length) active = i; });
     const a = analyses[active];
@@ -339,7 +372,7 @@ export const parseImportedFile = async (
         success: false,
         message: a.fallbackMode
           ? 'No account rows with amounts were found in the file.'
-          : 'No account titles in the file matched this client\'s chart of accounts.',
+          : `No ${label} account titles in the file matched this client's chart of accounts.`,
       };
     }
 
@@ -366,7 +399,7 @@ export const parseImportedFile = async (
 
     return {
       success: true,
-      message: `Matched ${a.matches.length} account${a.matches.length > 1 ? 's' : ''} for ${targetYear}`,
+      message: `Matched ${a.matches.length} ${label} account${a.matches.length > 1 ? 's' : ''} for ${targetYear}`,
       year: targetYear,
       warnings: warnings.length ? warnings : undefined,
       originalFileName: file.name,
@@ -378,6 +411,31 @@ export const parseImportedFile = async (
   } catch (err) {
     return { success: false, message: `Could not read file: ${err instanceof Error ? err.message : 'Unknown error'}` };
   }
+};
+
+// ---------------------------------------------------------------------------
+// Separate import functions — one per report. Each only looks for ITS OWN accounts.
+// ---------------------------------------------------------------------------
+
+const noAccounts = (kind: string): ImportResult => ({
+  success: false,
+  message: `This client's chart of accounts has no ${kind} accounts to match against.`,
+});
+
+/** Balance Sheet import: only asset / liability / equity accounts (+ a Net Income line) are read. */
+export const parseBalanceSheetImport = (file: File, year: number, allAccounts: AccountRef[]): Promise<ImportResult> => {
+  const own = allAccounts.filter((a) => typeIn(a, BS_TYPES));
+  if (allAccounts.length && !own.length) return Promise.resolve(noAccounts('Balance Sheet'));
+  const other = allAccounts.filter((a) => typeIn(a, PL_TYPES));
+  return parseCore(file, year, allAccounts.length ? [...own, NET_INCOME_ACCOUNT] : [], other, 'Balance Sheet');
+};
+
+/** Profit & Loss import: only revenue / cost / expense accounts are read. */
+export const parseProfitLossImport = (file: File, year: number, allAccounts: AccountRef[]): Promise<ImportResult> => {
+  const own = allAccounts.filter((a) => typeIn(a, PL_TYPES));
+  if (allAccounts.length && !own.length) return Promise.resolve(noAccounts('Profit & Loss'));
+  const other = allAccounts.filter((a) => typeIn(a, BS_TYPES));
+  return parseCore(file, year, own, [...other, NET_INCOME_ACCOUNT], 'Profit & Loss');
 };
 
 /** Amount for each matched account, read live from the (possibly edited) grid. */
