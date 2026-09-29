@@ -18,6 +18,10 @@ export function ProfitAndLoss() {
   const [importModalOpen, setImportModalOpen] = useState(false);
   const importStorageKey = `pl_import_${currentClientId}`;
   const imported = useImportedData(importStorageKey);
+  const importAccounts = useMemo(
+    () => ((currentClient?.glAccounts || []) as any[]).map((a) => ({ id: String(a.accountId || a.id || ''), title: String(a.accountTitle || '') })),
+    [currentClient],
+  );
   // -----------------------------------------------------------------------
 
   // ---- T017: report customization state (loaded from saved layout) ----
@@ -206,6 +210,7 @@ export function ProfitAndLoss() {
         onClose={() => setImportModalOpen(false)}
         pageLabel="Profit & Loss"
         storageKey={importStorageKey}
+        accounts={importAccounts}
         onImported={(y) => { imported.reload(); imported.setSelectedYear(y); }}
       />
     </div>

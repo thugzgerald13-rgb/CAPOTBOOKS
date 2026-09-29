@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Landmark, FileDown, Upload } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
@@ -17,6 +17,10 @@ export function BalanceSheet() {
   const [importModalOpen, setImportModalOpen] = useState(false);
   const importStorageKey = `bs_import_${currentClientId}`;
   const imported = useImportedData(importStorageKey);
+  const importAccounts = useMemo(
+    () => ((currentClient?.glAccounts || []) as any[]).map((a) => ({ id: String(a.accountId || a.id || ''), title: String(a.accountTitle || '') })),
+    [currentClient],
+  );
   // -----------------------------------------------------------------------
 
   useEffect(() => {
@@ -198,6 +202,7 @@ export function BalanceSheet() {
         onClose={() => setImportModalOpen(false)}
         pageLabel="Balance Sheet"
         storageKey={importStorageKey}
+        accounts={importAccounts}
         onImported={(y) => { imported.reload(); imported.setSelectedYear(y); }}
       />
     </div>

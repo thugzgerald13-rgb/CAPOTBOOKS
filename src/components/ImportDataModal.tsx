@@ -5,7 +5,7 @@
 import { useState } from 'react';
 import { X, Upload, FileUp, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { parseImportedFile, ACCEPT_ATTR } from '../utils/fileParser';
-import type { ImportResult, ImportedAccountRow } from '../utils/fileParser';
+import type { ImportResult, AccountRef } from '../utils/fileParser';
 
 interface Props {
   open: boolean;
@@ -13,18 +13,10 @@ interface Props {
   pageLabel: string;          // "Balance Sheet" | "Profit & Loss"
   storageKey: string;         // e.g. `bs_import_${clientId}`
   onImported: (year: number) => void;
+  accounts: AccountRef[];     // the client's chart of accounts, used to match titles in the file
 }
 
-interface YearStore {
-  rows: ImportedAccountRow[];
-  baseline: ImportedAccountRow[];   // untouched snapshot used to detect edits on export
-  importedAt: string;
-  sourceFile?: string;
-  sheetName?: string;
-  originalHeaders?: string[];
-}
-
-export default function ImportDataModal({ open, onClose, pageLabel, storageKey, onImported }: Props) {
+export default function ImportDataModal({ open, onClose, pageLabel, storageKey, onImported, accounts }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [year, setYear] = useState<number>(new Date().getFullYear() - 1);
   const [busy, setBusy] = useState(false);
@@ -36,18 +28,20 @@ export default function ImportDataModal({ open, onClose, pageLabel, storageKey, 
     if (!file) return;
     setBusy(true);
     setResult(null);
-    const res = await parseImportedFile(file, year);
+    const res = await parseImportedFile(file, year, accounts);
     setResult(res);
-    if (res.success && res.data) {
-      let existing: Record<string, YearStore> = {};
+    if (res.success && res.sheets && res.matches) {
+      let existing: Record<string, unknown> = {};
       try { existing = JSON.parse(localStorage.getItem(storageKey) || '{}'); } catch { /* start fresh */ }
+      const active = res.activeSheet ?? 0;
       existing[String(year)] = {
-        rows: res.data,
-        baseline: JSON.parse(JSON.stringify(res.data)),
         importedAt: new Date().toISOString(),
         sourceFile: res.originalFileName,
-        sheetName: res.sheetName,
-        originalHeaders: res.originalHeaders,
+        sheets: res.sheets,
+        activeSheet: active,
+        baseline: JSON.parse(JSON.stringify(res.sheets[active].grid)),
+        matches: res.matches,
+        yearCols: res.yearCols ?? [],
       };
       try {
         localStorage.setItem(storageKey, JSON.stringify(existing));
@@ -76,7 +70,7 @@ export default function ImportDataModal({ open, onClose, pageLabel, storageKey, 
           </button>
         </div>
 
-        <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Year of data being imported</label>
+        <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Year to extract from the file</label>
         <input
           type="number"
           value={year}
@@ -87,7 +81,7 @@ export default function ImportDataModal({ open, onClose, pageLabel, storageKey, 
         />
 
         <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-slate-300">Upload file (Excel .xlsx / .xls / .xlsm / .xlsb / .ods, CSV, TSV, TXT …)</label>
-        <p className="mb-2 text-xs text-slate-500">Column names and order are preserved. Exports come back in the same format you upload.</p>
+        <p className="mb-2 text-xs text-slate-500">No header row needed. Account titles are matched to this client's chart of accounts and the amount is read from the same row (using the column for the year above). Exports come back in the same format you upload.</p>
         <label className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-slate-300 dark:border-slate-600 px-4 py-6 text-center hover:border-cyan-400 hover:bg-cyan-50/40 dark:hover:bg-cyan-950/20">
           <FileUp className="text-slate-400" size={28} />
           <span className="text-sm text-slate-600 dark:text-slate-300">{file ? file.name : 'Click to choose a file'}</span>
