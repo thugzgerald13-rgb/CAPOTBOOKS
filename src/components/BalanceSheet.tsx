@@ -1,55 +1,72 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Landmark, FileDown, Upload } from 'lucide-react';
+import { Landmark, FileDown } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { formatAccountAmount, getCurrentYear } from '../lib/accountingBalances';
-import { exportAfBundle, toComparativeRows } from '../lib/afsExport';
+import { exportAfBundle, type AfsSheetRow } from '../lib/afsExport';
+import { NET_INCOME_ID } from '../utils/fileParser';
 import ImportDataModal from './ImportDataModal';
-import { useImportedData, ImportedDataToolbar, ImportedDataTable } from './ImportedData';
+import { useImportedData, ImportedDataToolbar, ImportedDataTable, ReportYearSelect } from './ImportedData';
+
+type Line = {
+  account_id: string; account_name: string; account_type: string;
+  balance: number; period_debit: number; period_credit: number; period_balance: number;
+  prior_period_debit: number; prior_period_credit: number;
+};
+type Col = 'cur' | 'prior';
+
+const isDrawing = (x: Line) => ['equity', 'equities', 'capital'].includes((x.account_type || '').toLowerCase()) && (x.account_name || '').toLowerCase().includes('drawing');
+const numOf = (v: any) => Number(String(v ?? '').replace(/,/g, '') || 0);
+const dateOf = (e: any) => String(e.date || e.dateDr || e.dateCr || '').slice(0, 10);
 
 export function BalanceSheet() {
   const { currentClient, currentClientId, saveFinancialReportSnapshot } = useAccounting();
-  const [balances, setBalances] = useState<any[]>([]);
+  const [balances, setBalances] = useState<Line[]>([]);
   const [reportError, setReportError] = useState<string | null>(null);
-  const year = getCurrentYear(currentClient || ({ glAccounts: [] } as any));
 
-  // ---- Import prior-year data (format of uploaded file is preserved) ----
+  // Report year: defaults to the ledger's latest year; picking / importing another year switches the report to it.
+  const glYear = getCurrentYear(currentClient || ({ glAccounts: [] } as any));
+  const [reportYear, setReportYear] = useState<number | null>(null);
+  const year = reportYear ?? glYear;
+  useEffect(() => { setReportYear(null); }, [currentClientId]);
+
+  // ---- Balance Sheet import (separate from Profit & Loss; only reads BS accounts) ----
   const [importModalOpen, setImportModalOpen] = useState(false);
   const importStorageKey = `bs_import_${currentClientId}`;
   const imported = useImportedData(importStorageKey);
   const importAccounts = useMemo(
-    () => ((currentClient?.glAccounts || []) as any[]).map((a) => ({ id: String(a.accountId || a.id || ''), title: String(a.accountTitle || '') })),
+    () => ((currentClient?.glAccounts || []) as any[]).map((a) => ({
+      id: String(a.accountId || a.id || ''), title: String(a.accountTitle || ''), type: String(a.accountType || ''),
+    })),
     [currentClient],
   );
-  // -----------------------------------------------------------------------
+  // Imported amounts (if any) for the two columns the report shows.
+  const impCur = imported.amountsFor(year);
+  const impPrior = imported.amountsFor(year - 1);
+  // -------------------------------------------------------------------------------------
 
   useEffect(() => {
-    if (!currentClientId) {
-      setBalances([]);
-      setReportError(null);
-      return;
-    }
+    if (!currentClientId) { setBalances([]); setReportError(null); return; }
     const start = `${year}-01-01`;
     const end = `${year + 1}-01-01`;
-    const fallback = (currentClient.glAccounts || []).map((account: any) => {
+    const pStart = `${year - 1}-01-01`;
+    const fallback: Line[] = (currentClient.glAccounts || []).map((account: any) => {
       const entries = Array.isArray(account.entries) ? account.entries : [];
-      const periodEntries = entries.filter((entry: any) => {
-        const d = String(entry.date || entry.dateDr || entry.dateCr || '').slice(0, 10);
-        return d >= start && d < end;
-      });
-      const period_debit = periodEntries.reduce((n: number, entry: any) => n + Number(String(entry.debit ?? '').replace(/,/g, '') || 0), 0);
-      const period_credit = periodEntries.reduce((n: number, entry: any) => n + Number(String(entry.credit ?? '').replace(/,/g, '') || 0), 0);
-      const allEntries = entries.filter((entry: any) => String(entry.date || entry.dateDr || entry.dateCr || '').slice(0, 10) < end);
-      const totalDebit = allEntries.reduce((n: number, entry: any) => n + Number(String(entry.debit ?? '').replace(/,/g, '') || 0), 0);
-      const totalCredit = allEntries.reduce((n: number, entry: any) => n + Number(String(entry.credit ?? '').replace(/,/g, '') || 0), 0);
+      const inRange = (a: string, b: string) => entries.filter((e: any) => { const d = dateOf(e); return d >= a && d < b; });
+      const cur = inRange(start, end);
+      const prv = inRange(pStart, start);
+      const sum = (list: any[], k: 'debit' | 'credit') => list.reduce((n: number, e: any) => n + numOf(e[k]), 0);
+      const all = entries.filter((e: any) => dateOf(e) < end);
       return {
         account_id: String(account.accountId || account.id),
         account_name: String(account.accountTitle || ''),
         account_type: String(account.accountType || ''),
-        balance: totalDebit - totalCredit,
-        period_debit,
-        period_credit,
-        period_balance: period_debit - period_credit,
+        balance: sum(all, 'debit') - sum(all, 'credit'),
+        period_debit: sum(cur, 'debit'),
+        period_credit: sum(cur, 'credit'),
+        period_balance: sum(cur, 'debit') - sum(cur, 'credit'),
+        prior_period_debit: sum(prv, 'debit'),
+        prior_period_credit: sum(prv, 'credit'),
       };
     });
     setBalances(fallback);
@@ -57,27 +74,51 @@ export function BalanceSheet() {
   }, [currentClientId, currentClient, year]);
 
   if (!currentClient || !currentClientId) return null;
-  const assets = balances.filter(x => ['asset', 'assets'].includes((x.account_type || '').toLowerCase()));
-  const liabilities = balances.filter(x => ['liability', 'liabilities'].includes((x.account_type || '').toLowerCase()));
-  const equity = balances.filter(x => ['equity', 'equities', 'capital'].includes((x.account_type || '').toLowerCase()));
-  const drawings = balances.filter(x => {
-    const type = (x.account_type || '').toLowerCase();
-    const name = (x.account_name || '').toLowerCase();
-    return ['equity', 'equities', 'capital'].includes(type) && name.includes('drawing');
-  });
-  const assetTotal = assets.reduce((n, x) => n + Math.max(0, x.balance), 0);
-  const liabilityTotal = liabilities.reduce((n, x) => n + Math.max(0, -x.balance), 0);
-  const equityAccountsTotal = equity.reduce((n, x) => n + Math.max(0, -x.balance), 0);
-  const drawingsTotal = drawings.reduce((n, x) => n + Math.max(0, x.balance), 0);
-  const revenue = balances.filter(x => (x.account_type || '').toLowerCase() === 'revenue')
-    .reduce((n, x) => n + Math.max(0, x.period_credit - x.period_debit), 0);
-  const costs = balances.filter(x => ['cost','costs'].includes((x.account_type || '').toLowerCase()))
-    .reduce((n, x) => n + Math.max(0, x.period_debit - x.period_credit), 0);
-  const expenses = balances.filter(x => ['expense','expenses'].includes((x.account_type || '').toLowerCase()))
-    .reduce((n, x) => n + Math.max(0, x.period_debit - x.period_credit), 0);
-  const netIncome = revenue - costs - expenses;
-  const totalEquity = equityAccountsTotal - drawingsTotal + netIncome;
-  const totalLiabEquity = liabilityTotal + totalEquity;
+
+  const typeIs = (x: Line, list: string[]) => list.includes((x.account_type || '').toLowerCase());
+  const assets = balances.filter(x => typeIs(x, ['asset', 'assets']));
+  const liabilities = balances.filter(x => typeIs(x, ['liability', 'liabilities']));
+  const equityAll = balances.filter(x => typeIs(x, ['equity', 'equities', 'capital']));
+  const drawings = equityAll.filter(isDrawing);
+  const equity = equityAll.filter(x => !isDrawing(x));
+
+  const imp = (col: Col) => (col === 'cur' ? impCur : impPrior);
+  // One number per account per column: imported value when that year was imported, otherwise the ledger.
+  const amt = (x: Line, sign: 'debit' | 'credit', col: Col) => {
+    const m = imp(col);
+    if (m) return m.get(x.account_id) ?? 0;
+    const bal = col === 'cur' ? x.balance : x.balance - x.period_balance;
+    return sign === 'debit' ? Math.max(0, bal) : Math.max(0, -bal);
+  };
+  const drawAmt = (x: Line, col: Col) => {
+    const m = imp(col);
+    if (m) return Math.abs(m.get(x.account_id) ?? 0);
+    const bal = col === 'cur' ? x.balance : x.balance - x.period_balance;
+    return Math.max(0, bal);
+  };
+  const glNetIncome = (col: Col) => {
+    const d = (x: Line) => (col === 'cur' ? x.period_debit : x.prior_period_debit);
+    const c = (x: Line) => (col === 'cur' ? x.period_credit : x.prior_period_credit);
+    const rev = balances.filter(x => typeIs(x, ['revenue'])).reduce((n, x) => n + Math.max(0, c(x) - d(x)), 0);
+    const exp = balances.filter(x => typeIs(x, ['cost', 'costs', 'expense', 'expenses'])).reduce((n, x) => n + Math.max(0, d(x) - c(x)), 0);
+    return rev - exp;
+  };
+  const netIncomeFor = (col: Col) => { const m = imp(col); return m ? (m.get(NET_INCOME_ID) ?? 0) : glNetIncome(col); };
+
+  const totalsFor = (col: Col) => {
+    const assetTotal = assets.reduce((n, x) => n + amt(x, 'debit', col), 0);
+    const liabilityTotal = liabilities.reduce((n, x) => n + amt(x, 'credit', col), 0);
+    const equityAccountsTotal = equity.reduce((n, x) => n + amt(x, 'credit', col), 0);
+    const drawingsTotal = drawings.reduce((n, x) => n + drawAmt(x, col), 0);
+    const netIncome = netIncomeFor(col);
+    const totalEquity = equityAccountsTotal - drawingsTotal + netIncome;
+    return { assetTotal, liabilityTotal, netIncome, totalEquity, totalLiabEquity: liabilityTotal + totalEquity };
+  };
+  const T = totalsFor('cur');
+  const P = totalsFor('prior');
+  const diffCur = T.assetTotal - T.totalLiabEquity;
+  const diffPrior = P.assetTotal - P.totalLiabEquity;
+
   const data = currentClient.bsData || {
     companyName: currentClient.tradeName || currentClient.name || '',
     address: [currentClient.street, currentClient.barangay, currentClient.city, currentClient.zipCode].filter(Boolean).join(', ') || '',
@@ -89,20 +130,24 @@ export function BalanceSheet() {
   };
   const update = (field: 'companyName' | 'address' | 'reportName', value: string) =>
     saveFinancialReportSnapshot('Balance Sheet', { ...data, [field]: value });
-  // ---- T014: notes stub + AFS bundle export ----
+
+  // ---- notes stub + AFS bundle export (uses the SAME numbers the report shows) ----
   const [notes, setNotes] = useState<string>(data.notes || '');
   const saveNotes = () => saveFinancialReportSnapshot('Balance Sheet', { ...data, notes });
+  const rowsFor = (items: Line[], sign: 'debit' | 'credit'): AfsSheetRow[] =>
+    items.map(x => ({ account: `${x.account_id} — ${x.account_name}`, current: amt(x, sign, 'cur'), prior: amt(x, sign, 'prior') }));
   const handleExportBundle = () => {
     exportAfBundle({
       company: data.companyName,
       period: `As of December 31, ${year}`,
       balanceSheet: [
-        ...toComparativeRows(assets, 1),
-        { account: 'TOTAL ASSETS', current: assetTotal, prior: 0 },
-        ...toComparativeRows(liabilities, -1),
-        { account: 'TOTAL LIABILITIES', current: liabilityTotal, prior: 0 },
-        { account: 'Current Year Net Income', current: netIncome, prior: 0 },
-        { account: 'TOTAL EQUITY', current: totalEquity, prior: 0 },
+        ...rowsFor(assets, 'debit'),
+        { account: 'TOTAL ASSETS', current: T.assetTotal, prior: P.assetTotal },
+        ...rowsFor(liabilities, 'credit'),
+        { account: 'TOTAL LIABILITIES', current: T.liabilityTotal, prior: P.liabilityTotal },
+        ...rowsFor(equity, 'credit'),
+        { account: 'Current Year Net Income', current: T.netIncome, prior: P.netIncome },
+        { account: 'TOTAL EQUITY', current: T.totalEquity, prior: P.totalEquity },
       ],
       incomeStatement: [],
       cashFlow: [],
@@ -110,21 +155,36 @@ export function BalanceSheet() {
       filename: `AFS-bundle-${year}.xlsx`,
     });
   };
-  const renderAccounts = (items: typeof balances, sign: 'debit' | 'credit') => items.map(x => {
-    const amount = sign === 'debit' ? Math.max(0, x.balance) : Math.max(0, -x.balance);
-    return (
-      <tr key={x.account_id}>
-        <td className="pl-6 py-1.5">{x.account_id} — {x.account_name}</td>
-        <td className="w-40 py-1.5 text-right font-mono pr-2">{formatAccountAmount(amount)}</td>
-      </tr>
-    );
-  });
+
+  const money = 'w-32 py-1.5 text-right font-mono pr-2';
+  const colHeaders = (
+    <tr className="text-[10px] uppercase text-slate-400 font-bold">
+      <td className="pl-6 py-1"></td>
+      <td className="w-32 text-right pr-2">{year}{impCur ? ' ·imported' : ''}</td>
+      <td className="w-32 text-right pr-2">{year - 1}{impPrior ? ' ·imported' : ''}</td>
+    </tr>
+  );
+  const totalRow = (label: string, cur: number, prior: number, cls = 'font-bold border-t') => (
+    <tr className={cls}>
+      <td className="pl-6 py-2">{label}</td>
+      <td className="w-32 text-right font-mono pr-2">{formatAccountAmount(cur)}</td>
+      <td className="w-32 text-right font-mono pr-2 text-slate-400">{formatAccountAmount(prior)}</td>
+    </tr>
+  );
+  const renderAccounts = (items: Line[], sign: 'debit' | 'credit') => items.map(x => (
+    <tr key={x.account_id}>
+      <td className="pl-6 py-1.5">{x.account_id} — {x.account_name}</td>
+      <td className={money}>{formatAccountAmount(amt(x, sign, 'cur'))}</td>
+      <td className={`${money} text-slate-400`}>{formatAccountAmount(amt(x, sign, 'prior'))}</td>
+    </tr>
+  ));
+
   return (
     <div className="w-full flex flex-col">
       <PageHeader title="Balance Sheet" icon={<Landmark className="text-blue-500" />} centered />
 
-      {/* Import prior-year data toolbar */}
       <div className="no-print px-4 md:px-6 flex flex-wrap items-center gap-3 mb-2">
+        <ReportYearSelect year={year} glYear={glYear} importedYears={imported.years} onChange={setReportYear} />
         <ImportedDataToolbar api={imported} pageType="balance-sheet" onImportClick={() => setImportModalOpen(true)} />
       </div>
 
@@ -146,34 +206,42 @@ export function BalanceSheet() {
           <div className="max-w-3xl mx-auto space-y-6">
             <section>
               <div className="uppercase mb-2 font-bold">ASSETS</div>
-              <table className="w-full"><tbody>{renderAccounts(assets, 'debit')}
-                <tr className="font-bold border-t"><td className="pl-6 py-2">TOTAL ASSETS</td><td className="text-right font-mono pr-2">{formatAccountAmount(assetTotal)}</td></tr>
+              <table className="w-full"><tbody>{colHeaders}{renderAccounts(assets, 'debit')}
+                {totalRow('TOTAL ASSETS', T.assetTotal, P.assetTotal)}
               </tbody></table>
             </section>
             <section>
               <div className="uppercase mb-2 font-bold">LIABILITIES</div>
-              <table className="w-full"><tbody>{renderAccounts(liabilities, 'credit')}
-                <tr className="font-bold border-t"><td className="pl-6 py-2">TOTAL LIABILITIES</td><td className="text-right font-mono pr-2">{formatAccountAmount(liabilityTotal)}</td></tr>
+              <table className="w-full"><tbody>{colHeaders}{renderAccounts(liabilities, 'credit')}
+                {totalRow('TOTAL LIABILITIES', T.liabilityTotal, P.liabilityTotal)}
               </tbody></table>
             </section>
             <section>
               <div className="uppercase mb-2 font-bold">EQUITY</div>
-              <table className="w-full"><tbody>{renderAccounts(equity.filter(x => !((x.account_name || '').toLowerCase().includes('drawing'))), 'credit')}
+              <table className="w-full"><tbody>{colHeaders}{renderAccounts(equity, 'credit')}
                 {drawings.map(x => (
                   <tr key={x.account_id}>
                     <td className="pl-6 py-1.5">{x.account_id} — {x.account_name}</td>
-                    <td className="w-40 py-1.5 text-right font-mono pr-2">({formatAccountAmount(Math.max(0, x.balance))})</td>
+                    <td className={money}>({formatAccountAmount(drawAmt(x, 'cur'))})</td>
+                    <td className={`${money} text-slate-400`}>({formatAccountAmount(drawAmt(x, 'prior'))})</td>
                   </tr>
                 ))}
-                <tr><td className="pl-6 py-1.5">Current Year Net Income (Loss)</td><td className="text-right font-mono pr-2">{formatAccountAmount(netIncome)}</td></tr>
-                <tr className="font-bold border-t"><td className="pl-6 py-2">TOTAL EQUITY</td><td className="text-right font-mono pr-2">{formatAccountAmount(totalEquity)}</td></tr>
-                <tr className="font-bold border-t-2 border-slate-800"><td className="pl-6 py-2">TOTAL LIABILITIES &amp; EQUITY</td><td className="text-right font-mono pr-2">{formatAccountAmount(totalLiabEquity)}</td></tr>
+                <tr>
+                  <td className="pl-6 py-1.5">Current Year Net Income (Loss)</td>
+                  <td className={money}>{formatAccountAmount(T.netIncome)}</td>
+                  <td className={`${money} text-slate-400`}>{formatAccountAmount(P.netIncome)}</td>
+                </tr>
+                {totalRow('TOTAL EQUITY', T.totalEquity, P.totalEquity)}
+                {totalRow('TOTAL LIABILITIES & EQUITY', T.totalLiabEquity, P.totalLiabEquity, 'font-bold border-t-2 border-slate-800')}
               </tbody></table>
             </section>
-            <div className={`p-3 rounded-lg text-center font-bold ${Math.abs(assetTotal - totalLiabEquity) < 0.01 ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
-              {Math.abs(assetTotal - totalLiabEquity) < 0.01
-                ? 'BALANCED — Assets equal Liabilities & Equity'
-                : `UNBALANCED — Difference: ${formatAccountAmount(assetTotal - totalLiabEquity)}`}
+            <div className={`p-3 rounded-lg text-center font-bold ${Math.abs(diffCur) < 0.01 ? 'bg-emerald-50 text-emerald-700' : 'bg-amber-50 text-amber-700'}`}>
+              {Math.abs(diffCur) < 0.01
+                ? `BALANCED (${year}) — Assets equal Liabilities & Equity`
+                : `UNBALANCED (${year}) — Difference: ${formatAccountAmount(diffCur)}`}
+              {Math.abs(diffPrior) >= 0.01 && (
+                <div className="text-xs font-medium mt-1">{year - 1} column differs by {formatAccountAmount(diffPrior)}</div>
+              )}
             </div>
             <div className="flex justify-end">
               <button type="button" onClick={handleExportBundle} className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-sm">
@@ -201,9 +269,10 @@ export function BalanceSheet() {
         open={importModalOpen}
         onClose={() => setImportModalOpen(false)}
         pageLabel="Balance Sheet"
+        kind="balance-sheet"
         storageKey={importStorageKey}
         accounts={importAccounts}
-        onImported={(y) => { imported.reload(); imported.setSelectedYear(y); }}
+        onImported={(y) => { imported.reload(); imported.setSelectedYear(y); setReportYear(y); }}
       />
     </div>
   );

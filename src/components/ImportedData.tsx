@@ -89,7 +89,21 @@ export function useImportedData(storageKey: string) {
     if (selectedYear === year) setSelectedYear(null);
   };
 
-  return { store, years, changedYears, selectedYear, setSelectedYear, reload, updateCell, resetYear, removeYear };
+  /**
+   * Live amounts (account id -> amount) for an imported year, read from the current — possibly edited — sheet.
+   * Returns null when nothing was imported for that year, so callers fall back to the ledger.
+   */
+  const amountsFor = useCallback((year: number): Map<string, number> | null => {
+    const e = store[String(year)];
+    if (!e) return null;
+    const map = new Map<string, number>();
+    extractRows(e.sheets[e.activeSheet].grid, e.matches, year).forEach((r) => {
+      if (r.accountCode) map.set(r.accountCode, (map.get(r.accountCode) ?? 0) + r.amount);
+    });
+    return map;
+  }, [store]);
+
+  return { store, years, changedYears, selectedYear, setSelectedYear, reload, updateCell, resetYear, removeYear, amountsFor };
 }
 
 type ImportedApi = ReturnType<typeof useImportedData>;
@@ -139,6 +153,27 @@ export function ImportedDataToolbar({
         </button>
       )}
     </>
+  );
+}
+
+/** Report-year picker. Picking an imported year makes the report show that year (with the file's numbers). */
+export function ReportYearSelect({
+  year, glYear, importedYears, onChange,
+}: { year: number; glYear: number; importedYears: number[]; onChange: (y: number) => void }) {
+  const options = Array.from(new Set([glYear, glYear - 1, ...importedYears, ...importedYears.map((y) => y + 1)]))
+    .sort((a, b) => b - a);
+  return (
+    <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 dark:text-slate-400">
+      Report year
+      <select
+        value={year}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-1.5 text-xs font-bold text-slate-700 dark:text-slate-200 focus:border-cyan-500 focus:outline-none"
+        aria-label="Report year"
+      >
+        {options.map((y) => <option key={y} value={y}>{y}{importedYears.includes(y) ? ' (imported)' : ''}</option>)}
+      </select>
+    </label>
   );
 }
 
@@ -206,7 +241,7 @@ export function ImportedDataTable({ api, pageType }: { api: ImportedApi; pageTyp
                 <tr key={i} className="border-t border-slate-100 dark:border-slate-800">
                   <td className="px-3 py-1.5 text-slate-700 dark:text-slate-300">{m.fileTitle}</td>
                   <td className="px-3 py-1.5 text-slate-500">
-                    {m.accountId ? `${m.accountId} — ` : ''}{m.accountTitle}
+                    {m.accountId && !m.accountId.startsWith('__') ? `${m.accountId} — ` : ''}{m.accountTitle}
                     {m.matchType === 'fuzzy' && <span className="ml-1 text-[10px] text-amber-600">(approx.)</span>}
                   </td>
                   <td className={`p-0 ${edited ? 'bg-amber-50 dark:bg-amber-950/30' : ''}`}>

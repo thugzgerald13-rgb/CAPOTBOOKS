@@ -5,21 +5,25 @@ import { useAccounting } from '../context/AccountingContext';
 import { formatAccountAmount, getCurrentYear, getProfitAndLossTotals } from '../lib/accountingBalances';
 import { loadReportLayout, saveReportLayout, CASH_BASIS_NOTE, type ReportBasis } from '../lib/reportCustomizer';
 import ImportDataModal from './ImportDataModal';
-import { useImportedData, ImportedDataToolbar, ImportedDataTable } from './ImportedData';
+import { useImportedData, ImportedDataToolbar, ImportedDataTable, ReportYearSelect } from './ImportedData';
 
 type BalanceItem = { account_id: string; account_name: string; period_debit?: number; period_credit?: number; balance?: number };
 
 export function ProfitAndLoss() {
   const { currentClient, currentClientId, saveFinancialReportSnapshot, showToast } = useAccounting();
-  const year = getCurrentYear(currentClient || ({ glAccounts: [] } as any));
+  // Report year: defaults to the ledger's latest year; picking / importing another year switches the report to it.
+  const glYear = getCurrentYear(currentClient || ({ glAccounts: [] } as any));
+  const [reportYear, setReportYear] = useState<number | null>(null);
+  const year = reportYear ?? glYear;
+  useEffect(() => { setReportYear(null); }, [currentClientId]);
   const [reportError, setReportError] = useState<string | null>(null);
 
-  // ---- Import prior-year data (format of uploaded file is preserved) ----
+  // ---- Profit & Loss import (separate from Balance Sheet; only reads revenue / cost / expense accounts) ----
   const [importModalOpen, setImportModalOpen] = useState(false);
   const importStorageKey = `pl_import_${currentClientId}`;
   const imported = useImportedData(importStorageKey);
   const importAccounts = useMemo(
-    () => ((currentClient?.glAccounts || []) as any[]).map((a) => ({ id: String(a.accountId || a.id || ''), title: String(a.accountTitle || '') })),
+    () => ((currentClient?.glAccounts || []) as any[]).map((a) => ({ id: String(a.accountId || a.id || ''), title: String(a.accountTitle || ''), type: String(a.accountType || '') })),
     [currentClient],
   );
   // -----------------------------------------------------------------------
@@ -43,14 +47,29 @@ export function ProfitAndLoss() {
     setReportError(balances.length ? null : 'No accounts found.');
   }, [currentClientId, balances]);
   if (!currentClient || !currentClientId) return null;
-  const { revenue, costs, expenses, revenueTotal, costTotal, expenseTotal, grossIncome, netIncome } = totals;
-  // Prior-year (comparative) amount: cumulative balance minus current-period movement.
-  const cur = (x: BalanceItem, sign: 'revenue' | 'debit') =>
+  const { revenue, costs, expenses } = totals;
+  // Imported amounts (if any) for the two columns the report shows; otherwise numbers come from the ledger.
+  const impCur = imported.amountsFor(year);
+  const impPrior = imported.amountsFor(year - 1);
+  // Ledger-derived amounts.
+  const glCur = (x: BalanceItem, sign: 'revenue' | 'debit') =>
     sign === 'revenue'
       ? Math.max(0, Number(x.period_credit || 0) - Number(x.period_debit || 0))
       : Math.max(0, Number(x.period_debit || 0) - Number(x.period_credit || 0));
-  const prior = (x: BalanceItem, sign: 'revenue' | 'debit') =>
-    Math.max(0, Number(x.balance || 0) - cur(x, sign));
+  // Prior-year (comparative) amount: cumulative balance minus current-period movement.
+  const glPrior = (x: BalanceItem, sign: 'revenue' | 'debit') =>
+    Math.max(0, Number(x.balance || 0) - glCur(x, sign));
+  // Imported values win for a year that was imported. Revenue keeps its sign (contra-revenue can be negative);
+  // costs/expenses are shown as positive amounts even if the file writes them in parentheses.
+  const pick = (m: Map<string, number> | null, x: BalanceItem, sign: 'revenue' | 'debit', gl: number) =>
+    m ? (sign === 'revenue' ? (m.get(x.account_id) ?? 0) : Math.abs(m.get(x.account_id) ?? 0)) : gl;
+  const cur = (x: BalanceItem, sign: 'revenue' | 'debit') => pick(impCur, x, sign, glCur(x, sign));
+  const prior = (x: BalanceItem, sign: 'revenue' | 'debit') => pick(impPrior, x, sign, glPrior(x, sign));
+  const revenueTotal = revenue.reduce((n, x) => n + cur(x, 'revenue'), 0);
+  const costTotal = costs.reduce((n, x) => n + cur(x, 'debit'), 0);
+  const expenseTotal = expenses.reduce((n, x) => n + cur(x, 'debit'), 0);
+  const grossIncome = revenueTotal - costTotal;
+  const netIncome = grossIncome - expenseTotal;
   const priorRevenueTotal = revenue.reduce((n, x) => n + prior(x, 'revenue'), 0);
   const priorCostTotal = costs.reduce((n, x) => n + prior(x, 'debit'), 0);
   const priorExpenseTotal = expenses.reduce((n, x) => n + prior(x, 'debit'), 0);
@@ -95,8 +114,8 @@ export function ProfitAndLoss() {
   const colHeaders = (
     <tr className="text-[10px] uppercase text-slate-400 font-bold">
       <td className="pl-6 py-1"></td>
-      <td className="w-32 text-right pr-2">{year}</td>
-      <td className="w-32 text-right pr-2">{year - 1}</td>
+      <td className="w-32 text-right pr-2">{year}{impCur ? ' ·imported' : ''}</td>
+      <td className="w-32 text-right pr-2">{year - 1}{impPrior ? ' ·imported' : ''}</td>
     </tr>
   );
   return (
@@ -112,6 +131,7 @@ export function ProfitAndLoss() {
         <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 inline-flex items-center gap-1.5"><input type="checkbox" checked={!!showSections.costs} onChange={() => toggleSection('costs')} className="rounded" /> Cost of Revenue</label>
         <label className="text-xs font-semibold text-slate-500 dark:text-slate-400 inline-flex items-center gap-1.5"><input type="checkbox" checked={!!showSections.expenses} onChange={() => toggleSection('expenses')} className="rounded" /> Operating Expenses</label>
 
+        <ReportYearSelect year={year} glYear={glYear} importedYears={imported.years} onChange={setReportYear} />
         <ImportedDataToolbar api={imported} pageType="profit-loss" onImportClick={() => setImportModalOpen(true)} />
 
         <button type="button" onClick={handleSaveLayout} className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 hover:opacity-90">
@@ -209,9 +229,10 @@ export function ProfitAndLoss() {
         open={importModalOpen}
         onClose={() => setImportModalOpen(false)}
         pageLabel="Profit & Loss"
+        kind="profit-loss"
         storageKey={importStorageKey}
         accounts={importAccounts}
-        onImported={(y) => { imported.reload(); imported.setSelectedYear(y); }}
+        onImported={(y) => { imported.reload(); imported.setSelectedYear(y); setReportYear(y); }}
       />
     </div>
   );
