@@ -11,7 +11,30 @@ import { balanceFor } from '../lib/accountingBalances';
 import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide } from '../lib/journalDefaults';
 export { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide };
 
-const ACCOUNT_TYPES = ['Asset', 'Liabilities', 'Equity', 'Revenue', 'Costs', 'Expense'];
+const ACCOUNT_TYPES = ['Asset', 'Liabilities', 'Equity', 'Capital', 'Revenue', 'Costs', 'Expense'];
+
+// BIR taxpayer classification drives which ownership/equity account type is
+// valid for the client's Chart of Accounts. Existing CAPOT profiles use
+// `Individual` vs `Non-Individual`; sole-proprietor wording is also accepted
+// so the rule continues to work if the profile value is expanded later.
+function isIndividualTaxpayer(classification?: string): boolean {
+  const value = String(classification || '').trim().toLowerCase();
+  return value === 'individual' || value.includes('sole proprietor') || value.includes('sole proprietorship');
+}
+
+function ownershipAccountType(classification?: string): 'Equity' | 'Capital' {
+  return isIndividualTaxpayer(classification) ? 'Capital' : 'Equity';
+}
+
+function defaultAccountsFor(classification: string | undefined, format: 'numeric' | 'alphanumeric'): CoaAccount[] {
+  const ownershipType = ownershipAccountType(classification);
+  const source = format === 'alphanumeric' ? DEFAULT_ACCOUNTS_ALPHA : DEFAULT_ACCOUNTS;
+  return source.map(account =>
+    account.type === 'Equity' || account.type === 'Capital'
+      ? { ...account, type: ownershipType, normalSide: getNormalSide(ownershipType) }
+      : { ...account }
+  );
+}
 
 // Maps a free-text account type (from an uploaded file) to a canonical CoA type
 function normalizeUploadedType(raw: string): { type: string } {
@@ -19,6 +42,7 @@ function normalizeUploadedType(raw: string): { type: string } {
   if (t === 'asset' || t === 'assets') return { type: 'Asset' };
   if (t === 'liability' || t === 'liabilities') return { type: 'Liabilities' };
   if (t === 'equity') return { type: 'Equity' };
+  if (t === 'capital') return { type: 'Capital' };
   if (t === 'revenue' || t === 'income') return { type: 'Revenue' };
   if (t === 'cost' || t === 'costs') return { type: 'Costs' };
   if (t === 'expense' || t === 'expenses') return { type: 'Expense' };
@@ -30,6 +54,7 @@ const TYPE_BASE_CODE: Record<string, number> = {
   Asset: 1000,
   Liabilities: 2000,
   Equity: 3000,
+  Capital: 3000,
   Revenue: 4000,
   Costs: 5000,
   Expense: 5100,
@@ -418,10 +443,59 @@ export function ChartOfAccounts() {
   // after an early `return`) or React throws "Rendered more/fewer hooks than
   // during the previous render" the moment currentClient toggles between
   // null/defined.
+  const ownershipType = ownershipAccountType(currentClient?.taxpayerClassification);
+  const allowedAccountTypes = useMemo(
+    () => ACCOUNT_TYPES.filter(type => type !== (ownershipType === 'Capital' ? 'Equity' : 'Capital')),
+    [ownershipType]
+  );
+
   let accounts = currentClient?.accounts || [];
   if (accounts.length === 0) {
-    accounts = currentClient?.coaFormat === 'alphanumeric' ? [...DEFAULT_ACCOUNTS_ALPHA] : [...DEFAULT_ACCOUNTS];
+    accounts = defaultAccountsFor(
+      currentClient?.taxpayerClassification,
+      currentClient?.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric'
+    );
   }
+
+  // When taxpayer classification changes in Business Profile / Client Profile,
+  // automatically convert existing Equity <-> Capital account types so the COA
+  // follows the profile instead of relying on the user to repair it manually.
+  const classificationMigrationRef = useRef('');
+  useEffect(() => {
+    if (!currentClientId || !currentClient?.accounts?.length) return;
+
+    const rawAccounts = currentClient.accounts;
+    const mismatched = rawAccounts.some(account =>
+      (account.type === 'Equity' || account.type === 'Capital') && account.type !== ownershipType
+    );
+    if (!mismatched) {
+      classificationMigrationRef.current = '';
+      return;
+    }
+
+    const migrationKey = `${currentClientId}:${ownershipType}:${rawAccounts.map(a => `${a.id}:${a.type}`).join('|')}`;
+    if (classificationMigrationRef.current === migrationKey) return;
+    classificationMigrationRef.current = migrationKey;
+
+    const converted = rawAccounts.map(account =>
+      account.type === 'Equity' || account.type === 'Capital'
+        ? { ...account, type: ownershipType }
+        : account
+    );
+
+    void saveCoaAccounts(converted).catch(error => {
+      classificationMigrationRef.current = '';
+      console.error('Failed to synchronize Chart of Accounts with taxpayer classification:', error);
+    });
+  }, [currentClientId, currentClient?.accounts, ownershipType]);
+
+  useEffect(() => {
+    setNewType(prev => allowedAccountTypes.includes(prev) ? prev : ownershipType);
+  }, [allowedAccountTypes, ownershipType]);
+
+  useEffect(() => {
+    setEditType(prev => allowedAccountTypes.includes(prev) ? prev : ownershipType);
+  }, [allowedAccountTypes, ownershipType]);
 
   const parentCandidates = useMemo(() => {
     return accounts.filter(a => a.type === newType);
@@ -609,8 +683,8 @@ export function ChartOfAccounts() {
         return;
       }
     }
-    const newDefaults = format === 'alphanumeric' ? DEFAULT_ACCOUNTS_ALPHA : DEFAULT_ACCOUNTS;
-    handleSaveAccounts([...newDefaults], format);
+    const newDefaults = defaultAccountsFor(currentClient?.taxpayerClassification, format);
+    handleSaveAccounts(newDefaults, format);
     setShowPresets(false);
   };
 
@@ -1464,7 +1538,7 @@ export function ChartOfAccounts() {
                     onChange={e => setNewType(e.target.value)} 
                     className="w-full form-input"
                   >
-                    {ACCOUNT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                    {allowedAccountTypes.map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
                 <div>
@@ -1601,7 +1675,7 @@ export function ChartOfAccounts() {
                     onChange={e => setEditType(e.target.value)} 
                     className="w-full form-input"
                   >
-                    {ACCOUNT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                    {allowedAccountTypes.map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
                 <div>
