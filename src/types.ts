@@ -629,7 +629,7 @@ export interface ImportedAccountRow {
   accountName: string;
   amount: number;
   year: number;
-  original?: Record<string, string>;
+  original?: Record<string, string | number>;
 }
 
 /** Result returned by the file parser (src/utils/fileParser.ts). */
@@ -641,4 +641,5 @@ export interface ImportResult {
   warnings?: string[];
   originalFileName?: string;
   originalHeaders?: string[];
+  sheetName?: string;
 }
