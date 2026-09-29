@@ -190,7 +190,7 @@ create table if not exists public.coa_columns (
 create index if not exists idx_coa_columns_client_id on public.coa_columns(client_id);
 
 create table if not exists public.coa_accounts (
-  id text primary key,
+  id text not null,
   client_id text not null references public.clients(id) on delete cascade,
   name text,
   type text,
@@ -200,7 +200,8 @@ create table if not exists public.coa_accounts (
   opening_balance numeric(18,2),
   custom_values jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  constraint coa_accounts_pkey primary key (client_id, id)
 );
 
 create index if not exists idx_coa_accounts_client_id on public.coa_accounts(client_id);
