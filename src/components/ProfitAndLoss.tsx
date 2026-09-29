@@ -5,7 +5,7 @@ import { useAccounting } from '../context/AccountingContext';
 import { formatAccountAmount, getCurrentYear, getProfitAndLossTotals } from '../lib/accountingBalances';
 import { loadReportLayout, saveReportLayout, CASH_BASIS_NOTE, type ReportBasis } from '../lib/reportCustomizer';
 import ImportDataModal from './ImportDataModal';
-import { useImportedData, ImportedDataToolbar, ReportYearSelect, ReportAmount, UnmatchedRowsSection } from './ImportedData';
+import { useImportedData, ImportedDataToolbar, ReportYearSelect, ReportAmount } from './ImportedData';
 
 type BalanceItem = { account_id: string; account_name: string; period_debit?: number; period_credit?: number; balance?: number };
 
@@ -48,9 +48,18 @@ export function ProfitAndLoss() {
   }, [currentClientId, balances]);
   if (!currentClient || !currentClientId) return null;
   const { revenue, costs, expenses } = totals;
-  // Imported amounts (if any) for the two columns the report shows; otherwise numbers come from the ledger.
-  const impCur = imported.amountsFor(year);
-  const impPrior = imported.amountsFor(year - 1);
+  // Imported data is shown in its OWN column — it never replaces the ledger's current / prior year.
+  const impYear = imported.selectedYear ?? imported.years[0] ?? null;
+  const impMap = impYear !== null ? imported.amountsFor(impYear) : null;
+  const hasImport = impMap !== null;
+  const money = 'w-32 py-1.5 text-right font-mono pr-2';
+  // Prior-column amount cell: editable input when this account is in the import, else plain ledger text.
+  const priorCell = (accountId: string, value: number) => {
+    if (hasImport && impMap!.has(accountId)) {
+      return <ReportAmount api={imported} year={impYear as number} accountId={accountId} value={value} className={`${money} text-slate-400`} />;
+    }
+    return <td className={`${money} text-slate-400`}>{formatAccountAmount(value)}</td>;
+  };
   // Ledger-derived amounts.
   const glCur = (x: BalanceItem, sign: 'revenue' | 'debit') =>
     sign === 'revenue'
@@ -59,12 +68,14 @@ export function ProfitAndLoss() {
   // Prior-year (comparative) amount: cumulative balance minus current-period movement.
   const glPrior = (x: BalanceItem, sign: 'revenue' | 'debit') =>
     Math.max(0, Number(x.balance || 0) - glCur(x, sign));
-  // Imported values win for a year that was imported. Revenue keeps its sign (contra-revenue can be negative);
-  // costs/expenses are shown as positive amounts even if the file writes them in parentheses.
-  const pick = (m: Map<string, number> | null, x: BalanceItem, sign: 'revenue' | 'debit', gl: number) =>
-    m ? (sign === 'revenue' ? (m.get(x.account_id) ?? 0) : Math.abs(m.get(x.account_id) ?? 0)) : gl;
-  const cur = (x: BalanceItem, sign: 'revenue' | 'debit') => pick(impCur, x, sign, glCur(x, sign));
-  const prior = (x: BalanceItem, sign: 'revenue' | 'debit') => pick(impPrior, x, sign, glPrior(x, sign));
+  const cur = glCur;
+  // Prior column: imported value when that account is in the import, otherwise the ledger.
+  const prior = (x: BalanceItem, sign: 'revenue' | 'debit') => {
+    if (hasImport && impMap!.has(x.account_id)) {
+      return sign === 'revenue' ? (impMap!.get(x.account_id)!) : Math.abs(impMap!.get(x.account_id)!);
+    }
+    return glPrior(x, sign);
+  };
   const revenueTotal = revenue.reduce((n, x) => n + cur(x, 'revenue'), 0);
   const costTotal = costs.reduce((n, x) => n + cur(x, 'debit'), 0);
   const expenseTotal = expenses.reduce((n, x) => n + cur(x, 'debit'), 0);
@@ -92,8 +103,8 @@ export function ProfitAndLoss() {
   const renderAccounts = (items: BalanceItem[], sign: 'revenue' | 'debit') => items.length ? items.map(x => (
     <tr key={x.account_id}>
       <td className="pl-6 py-1.5">{x.account_id} — {x.account_name}</td>
-      <ReportAmount api={imported} year={year} accountId={x.account_id} value={cur(x, sign)} className="w-32 py-1.5 text-right font-mono pr-2" />
-      <ReportAmount api={imported} year={year - 1} accountId={x.account_id} value={prior(x, sign)} className="w-32 py-1.5 text-right font-mono pr-2 text-slate-400" />
+      <td className={money}>{formatAccountAmount(cur(x, sign))}</td>
+      {priorCell(x.account_id, prior(x, sign))}
     </tr>
   )) : <tr><td colSpan={3} className="pl-6 py-2 text-slate-400">No accounts in this category.</td></tr>;
   type CostLine = (typeof costs)[number];
@@ -107,15 +118,15 @@ export function ProfitAndLoss() {
   const costItemRow = (x: CostLine) => (
     <tr key={x.account_id}>
       <td className="pl-6 py-1.5">{x.account_id} — {x.account_name}</td>
-      <ReportAmount api={imported} year={year} accountId={x.account_id} value={costAmt(x)} className="w-32 py-1.5 text-right font-mono pr-2" />
-      <ReportAmount api={imported} year={year - 1} accountId={x.account_id} value={costPrior(x)} className="w-32 py-1.5 text-right font-mono pr-2 text-slate-400" />
+      <td className={money}>{formatAccountAmount(costAmt(x))}</td>
+      {priorCell(x.account_id, costPrior(x))}
     </tr>
   );
   const colHeaders = (
     <tr className="text-[10px] uppercase text-slate-400 font-bold">
       <td className="pl-6 py-1"></td>
-      <td className="w-32 text-right pr-2">{year}{impCur ? ' ·imported' : ''}</td>
-      <td className="w-32 text-right pr-2">{year - 1}{impPrior ? ' ·imported' : ''}</td>
+      <td className="w-32 text-right pr-2">{year}</td>
+      <td className="w-32 text-right pr-2">{hasImport ? `${impYear} ·imported` : year - 1}</td>
     </tr>
   );
   return (
@@ -220,7 +231,6 @@ export function ProfitAndLoss() {
               <div className="flex gap-6"><span className="w-32 text-right font-mono pr-2">{formatAccountAmount(netIncome)}</span><span className="w-32 text-right font-mono pr-2 text-slate-400">{formatAccountAmount(priorNetIncome)}</span></div>
             </div>
 
-            <UnmatchedRowsSection api={imported} year={year} priorYear={year - 1} />
           </div>
         </div>
       </div>
@@ -232,7 +242,7 @@ export function ProfitAndLoss() {
         kind="profit-loss"
         storageKey={importStorageKey}
         accounts={importAccounts}
-        onImported={(y) => { imported.reload(); imported.setSelectedYear(y); setReportYear(y); }}
+        onImported={(y) => { imported.reload(); imported.setSelectedYear(y); }}
       />
     </div>
   );

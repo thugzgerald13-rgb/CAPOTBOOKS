@@ -6,7 +6,7 @@ import { formatAccountAmount, getCurrentYear } from '../lib/accountingBalances';
 import { exportAfBundle, type AfsSheetRow } from '../lib/afsExport';
 import { NET_INCOME_ID } from '../utils/fileParser';
 import ImportDataModal from './ImportDataModal';
-import { useImportedData, ImportedDataToolbar, ReportYearSelect, ReportAmount, UnmatchedRowsSection } from './ImportedData';
+import { useImportedData, ImportedDataToolbar, ReportYearSelect, ReportAmount } from './ImportedData';
 
 type Line = {
   account_id: string; account_name: string; account_type: string;
@@ -40,9 +40,10 @@ export function BalanceSheet() {
     })),
     [currentClient],
   );
-  // Imported amounts (if any) for the two columns the report shows.
-  const impCur = imported.amountsFor(year);
-  const impPrior = imported.amountsFor(year - 1);
+  // Imported data is shown in its OWN column — it never replaces the ledger's current / prior year.
+  const impYear = imported.selectedYear ?? imported.years[0] ?? null;
+  const impMap = impYear !== null ? imported.amountsFor(impYear) : null;
+  const hasImport = impMap !== null;
   // -------------------------------------------------------------------------------------
 
   useEffect(() => {
@@ -82,17 +83,15 @@ export function BalanceSheet() {
   const drawings = equityAll.filter(isDrawing);
   const equity = equityAll.filter(x => !isDrawing(x));
 
-  const imp = (col: Col) => (col === 'cur' ? impCur : impPrior);
-  // One number per account per column: imported value when that year was imported, otherwise the ledger.
+  // Current column is always the ledger. Prior column is imported when a year was imported
+  // (accounts missing from the import fall back to the ledger so nothing disappears).
   const amt = (x: Line, sign: 'debit' | 'credit', col: Col) => {
-    const m = imp(col);
-    if (m) return m.get(x.account_id) ?? 0;
+    if (col === 'prior' && hasImport && impMap!.has(x.account_id)) return impMap!.get(x.account_id)!;
     const bal = col === 'cur' ? x.balance : x.balance - x.period_balance;
     return sign === 'debit' ? Math.max(0, bal) : Math.max(0, -bal);
   };
   const drawAmt = (x: Line, col: Col) => {
-    const m = imp(col);
-    if (m) return Math.abs(m.get(x.account_id) ?? 0);
+    if (col === 'prior' && hasImport && impMap!.has(x.account_id)) return Math.abs(impMap!.get(x.account_id)!);
     const bal = col === 'cur' ? x.balance : x.balance - x.period_balance;
     return Math.max(0, bal);
   };
@@ -103,7 +102,8 @@ export function BalanceSheet() {
     const exp = balances.filter(x => typeIs(x, ['cost', 'costs', 'expense', 'expenses'])).reduce((n, x) => n + Math.max(0, d(x) - c(x)), 0);
     return rev - exp;
   };
-  const netIncomeFor = (col: Col) => { const m = imp(col); return m ? (m.get(NET_INCOME_ID) ?? 0) : glNetIncome(col); };
+  const netIncomeFor = (col: Col) =>
+    col === 'prior' && hasImport && impMap!.has(NET_INCOME_ID) ? (impMap!.get(NET_INCOME_ID)!) : glNetIncome(col);
 
   const totalsFor = (col: Col) => {
     const assetTotal = assets.reduce((n, x) => n + amt(x, 'debit', col), 0);
@@ -157,11 +157,18 @@ export function BalanceSheet() {
   };
 
   const money = 'w-32 py-1.5 text-right font-mono pr-2';
+  // Prior-column amount cell: editable input when this account is in the import, else plain ledger text.
+  const priorCell = (accountId: string, value: number) => {
+    if (hasImport && impMap!.has(accountId)) {
+      return <ReportAmount api={imported} year={impYear as number} accountId={accountId} value={value} className={`${money} text-slate-400`} />;
+    }
+    return <td className={`${money} text-slate-400`}>{formatAccountAmount(value)}</td>;
+  };
   const colHeaders = (
     <tr className="text-[10px] uppercase text-slate-400 font-bold">
       <td className="pl-6 py-1"></td>
-      <td className="w-32 text-right pr-2">{year}{impCur ? ' ·imported' : ''}</td>
-      <td className="w-32 text-right pr-2">{year - 1}{impPrior ? ' ·imported' : ''}</td>
+      <td className="w-32 text-right pr-2">{year}</td>
+      <td className="w-32 text-right pr-2">{hasImport ? `${impYear} ·imported` : year - 1}</td>
     </tr>
   );
   const totalRow = (label: string, cur: number, prior: number, cls = 'font-bold border-t') => (
@@ -174,8 +181,8 @@ export function BalanceSheet() {
   const renderAccounts = (items: Line[], sign: 'debit' | 'credit') => items.map(x => (
     <tr key={x.account_id}>
       <td className="pl-6 py-1.5">{x.account_id} — {x.account_name}</td>
-      <ReportAmount api={imported} year={year} accountId={x.account_id} value={amt(x, sign, 'cur')} className={money} />
-      <ReportAmount api={imported} year={year - 1} accountId={x.account_id} value={amt(x, sign, 'prior')} className={`${money} text-slate-400`} />
+      <td className={money}>{formatAccountAmount(amt(x, sign, 'cur'))}</td>
+      {priorCell(x.account_id, amt(x, sign, 'prior'))}
     </tr>
   ));
 
@@ -223,13 +230,13 @@ export function BalanceSheet() {
                   <tr key={x.account_id}>
                     <td className="pl-6 py-1.5">{x.account_id} — {x.account_name}</td>
                     <td className={money}>({formatAccountAmount(drawAmt(x, 'cur'))})</td>
-                    <td className={`${money} text-slate-400`}>({formatAccountAmount(drawAmt(x, 'prior'))})</td>
+                    {priorCell(x.account_id, drawAmt(x, 'prior'))}
                   </tr>
                 ))}
                 <tr>
                   <td className="pl-6 py-1.5">Current Year Net Income (Loss)</td>
                   <td className={money}>{formatAccountAmount(T.netIncome)}</td>
-                  <td className={`${money} text-slate-400`}>{formatAccountAmount(P.netIncome)}</td>
+                  {priorCell(NET_INCOME_ID, P.netIncome)}
                 </tr>
                 {totalRow('TOTAL EQUITY', T.totalEquity, P.totalEquity)}
                 {totalRow('TOTAL LIABILITIES & EQUITY', T.totalLiabEquity, P.totalLiabEquity, 'font-bold border-t-2 border-slate-800')}
@@ -243,7 +250,6 @@ export function BalanceSheet() {
                 <div className="text-xs font-medium mt-1">{year - 1} column differs by {formatAccountAmount(diffPrior)}</div>
               )}
             </div>
-            <UnmatchedRowsSection api={imported} year={year} priorYear={year - 1} />
             <div className="flex justify-end">
               <button type="button" onClick={handleExportBundle} className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-sm">
                 <FileDown className="w-4 h-4" /> Export AFS Bundle (.xlsx)
@@ -272,7 +278,7 @@ export function BalanceSheet() {
         kind="balance-sheet"
         storageKey={importStorageKey}
         accounts={importAccounts}
-        onImported={(y) => { imported.reload(); imported.setSelectedYear(y); setReportYear(y); }}
+        onImported={(y) => { imported.reload(); imported.setSelectedYear(y); }}
       />
     </div>
   );
