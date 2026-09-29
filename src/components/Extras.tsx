@@ -15,7 +15,6 @@ export function Extras() {
     clients, 
     currentClientId, 
     setCurrentClientId, 
-    addClient, 
     navigateToPage, 
     currentClient, 
     activePage, 
@@ -64,6 +63,7 @@ export function Extras() {
   // Once a profile is saved, its fields lock (gray out/disabled) until the
   // Edit button is pressed again.
   const [isClientLocked, setIsClientLocked] = useState(false);
+  const [isNewClient, setIsNewClient] = useState(false);
 
   // Dedicated management state for own business profile
   const [editingBusiness, setEditingBusiness] = useState<BusinessProfile | null>(null);
@@ -102,12 +102,14 @@ export function Extras() {
       setEditingClient(null);
       setEditingBusiness(null);
       setIsClientLocked(false);
+      setIsNewClient(false);
       setIsBusinessLocked(false);
     }
   }, [activePage]);
 
   const handleEditClient = (client: Client) => {
     setEditingClient({ ...client });
+    setIsNewClient(false);
     // Existing profiles open read-only; the accountant must press Edit to change them.
     setIsClientLocked(true);
   };
@@ -117,6 +119,7 @@ export function Extras() {
     try {
       await saveClientProfile(editingClient.id, editingClient);
       // Stay on the form (grayed out) only after Supabase confirms the save.
+      setIsNewClient(false);
       setIsClientLocked(true);
     } catch (error) {
       console.error('Client profile save failed:', error);
@@ -165,15 +168,17 @@ export function Extras() {
     }
   };
 
-  const handleAddClient = async () => {
+  const handleAddClient = () => {
     const existingCount = Object.values(clients).filter((client: Client) => client.id !== ownerClientId).length;
     const nextName = `New Client ${existingCount + 1}`;
-    const createdId = await addClient(nextName);
-    if (!createdId) return;
+    const draftId = 'client_draft_' + Date.now();
 
-    const created: Client = {
-      id: createdId,
+    // Keep the new client entirely in the form until Save is clicked.
+    // No database write or client-map entry is created here.
+    const draft: Client = {
+      id: draftId,
       name: nextName,
+      userId: undefined,
       tinLibrary: { customers: [], suppliers: [] },
       sales: [],
       purchases: [],
@@ -183,9 +188,10 @@ export function Extras() {
         { id: 'folder_expense', name: 'Expense', isDefault: true, type: 'expense' },
       ],
       files: [],
-      userId: undefined,
     } as Client;
-    setEditingClient(created);
+
+    setEditingClient(draft);
+    setIsNewClient(true);
     setIsClientLocked(false);
   };
 
@@ -223,7 +229,10 @@ export function Extras() {
             <div className="bg-slate-300 dark:bg-slate-800 p-2 border-b border-slate-400 dark:border-slate-700 flex justify-between items-center mb-4">
               <span className="text-sm font-bold text-slate-700 dark:text-slate-300">Client's Information</span>
               <button 
-                onClick={() => setEditingClient(null)}
+                onClick={() => {
+                  setEditingClient(null);
+                  setIsNewClient(false);
+                }}
                 className="hover:bg-slate-400 dark:hover:bg-slate-700 rounded p-1"
               >
                 <X className="w-4 h-4" />
@@ -529,17 +538,24 @@ export function Extras() {
               </button>
               <button 
                 onClick={() => {
+                  if (isNewClient) {
+                    setEditingClient(null);
+                    setIsNewClient(false);
+                    setIsClientLocked(false);
+                    return;
+                  }
                   setEditingClient({...clients[editingClient.id]});
                   setIsClientLocked(true);
                 }}
                 disabled={isClientLocked}
                 className="bg-slate-200 dark:bg-slate-700 font-bold px-6 py-2 rounded border border-slate-400 dark:border-slate-600 shadow-sm hover:bg-slate-300 dark:hover:bg-slate-600 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                <RotateCcw className="w-4 h-4" /> Revert
+                <RotateCcw className="w-4 h-4" /> {isNewClient ? 'Discard' : 'Revert'}
               </button>
               <button 
                 onClick={() => {
                   setEditingClient(null);
+                  setIsNewClient(false);
                   setIsClientLocked(false);
                 }}
                 className="bg-slate-200 dark:bg-slate-700 font-bold px-6 py-2 rounded border border-slate-400 dark:border-slate-600 shadow-sm hover:bg-slate-300 dark:hover:bg-slate-600 flex items-center gap-2"
