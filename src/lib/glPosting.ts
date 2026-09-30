@@ -961,7 +961,16 @@ export function syncGeneralLedger(client: Client): Client {
     nextByAccount.set(g.accountId, g);
   });
 
-  const touchedAccountIds = new Set<string>([...nextByAccount.keys(), ...autoByAccount.keys()]);
+  // Every Chart of Accounts account must have a General Ledger record, even
+  // when it has no journal transactions yet. This is what makes a CoA opening
+  // balance immediately visible in the General Ledger. Previously we only
+  // created GL records for accounts that already had entries, so an account
+  // with an opening balance but no transaction rows appeared to have no GL.
+  const touchedAccountIds = new Set<string>([
+    ...accounts.map(a => a.id),
+    ...nextByAccount.keys(),
+    ...autoByAccount.keys(),
+  ]);
 
   const nextGlAccounts: GeneralLedgerAccount[] = [];
   touchedAccountIds.forEach(accountId => {

@@ -186,8 +186,8 @@ export function GeneralLedger() {
                   <td className="px-4 py-2"></td>
                   <td className="px-4 py-2 font-medium">Beginning Balance</td>
                   <td className="px-4 py-2"></td>
-                  <td className="px-4 py-2 text-right"></td>
-                  <td className="px-4 py-2 text-right"></td>
+                  <td className="px-4 py-2 text-right">{account.normalSide !== 'credit' && opening !== 0 ? formatAmount(Math.abs(opening)) : ''}</td>
+                  <td className="px-4 py-2 text-right">{account.normalSide === 'credit' && opening !== 0 ? formatAmount(Math.abs(opening)) : ''}</td>
                   <td className="px-4 py-2 text-right font-semibold whitespace-nowrap">{formatBalance(opening)}</td>
                 </tr>
                 {(() => {
