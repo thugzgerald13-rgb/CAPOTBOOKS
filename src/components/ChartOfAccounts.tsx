@@ -207,6 +207,92 @@ function detectHeaderRow(rawRows: any[][]): {
   };
 }
 
+function recodeImportedReviewAccounts(
+  reviewAccounts: CoaAccount[],
+  format: 'numeric' | 'alphanumeric',
+  occupiedAccounts: CoaAccount[] = []
+): CoaAccount[] {
+  const typeOrder = ['Asset', 'Liabilities', 'Equity', 'Capital', 'Revenue', 'Costs', 'Expense'];
+  const rank = (type: string) => {
+    const index = typeOrder.indexOf(type);
+    return index >= 0 ? index : typeOrder.length;
+  };
+
+  // Normalize review types to the supported account classes before assigning
+  // codes. This keeps imported/reviewed accounts compatible with the existing
+  // COA while still allowing Equity/Capital to remain distinct labels.
+  const normalized = reviewAccounts.map(account => {
+    const typeInfo = normalizeUploadedType(account.type);
+    return {
+      ...account,
+      type: typeInfo.type,
+      normalSide: getNormalSide(typeInfo.type),
+    };
+  });
+
+  // The review editor works in accounting order: Assets, Liabilities,
+  // Equity/Capital, Revenue, Costs, then Expenses. Within each section, the
+  // user's review order is preserved. Changing a type moves the account into
+  // that section; the code is then regenerated automatically.
+  const grouped = new Map<string, CoaAccount[]>();
+  normalized.forEach(account => {
+    const list = grouped.get(account.type) || [];
+    list.push(account);
+    grouped.set(account.type, list);
+  });
+  const ordered: CoaAccount[] = typeOrder
+    .flatMap(type => grouped.get(type) || [])
+    .concat(
+      Array.from(grouped.entries())
+        .filter(([type]) => !typeOrder.includes(type))
+        .flatMap(([, list]) => list)
+    );
+
+  const usedIds = new Set<string>(occupiedAccounts.map(a => String(a.id).toUpperCase()));
+  const nextByBase = new Map<number, number>();
+
+  const takeNumericCode = (type: string): string => {
+    const base = TYPE_BASE_CODE[type] ?? 900000;
+    let next = nextByBase.get(base) ?? base;
+    while (next <= base + 9900 && usedIds.has(String(next).padStart(6, '0'))) next += 100;
+    const code = String(Math.min(next, 999999)).padStart(6, '0');
+    nextByBase.set(base, next + 100);
+    usedIds.add(code);
+    return code;
+  };
+
+  const nextAlphaByPrefix = new Map<string, number>();
+  const takeAlphaCode = (type: string): string => {
+    const prefix = TYPE_ALPHA_PREFIX[type] || 'GN';
+    let next = nextAlphaByPrefix.get(prefix) ?? 1;
+    let code = `${prefix}${String(next).padStart(4, '0')}`;
+    while (usedIds.has(code)) {
+      next += 1;
+      code = `${prefix}${String(next).padStart(4, '0')}`;
+    }
+    nextAlphaByPrefix.set(prefix, next + 1);
+    usedIds.add(code);
+    return code;
+  };
+
+  // Generate a source-id -> new-id map first so parentId references can be
+  // updated in the same pass. Imported accounts do not have journal references
+  // yet, so changing these temporary review codes is safe.
+  const idMap = new Map<string, string>();
+  const resultWithIds = ordered.map(account => {
+    const newId = format === 'numeric'
+      ? takeNumericCode(account.type)
+      : takeAlphaCode(account.type);
+    idMap.set(String(account.id), newId);
+    return { ...account, id: newId };
+  });
+
+  return resultWithIds.map(account => ({
+    ...account,
+    parentId: account.parentId ? (idMap.get(String(account.parentId)) || account.parentId) : undefined,
+  }));
+}
+
 function normalizeImportedAccountCode(raw: any, type: string, usedIds: Set<string>, format: 'numeric' | 'alphanumeric'): { id: string; generated: boolean } {
   const source = String(raw ?? '').trim();
   const compact = source.replace(/[\s_-]/g, '');
@@ -629,6 +715,7 @@ export function ChartOfAccounts() {
   const [pendingUploadRows, setPendingUploadRows] = useState<any[][] | null>(null);
   const [pendingUploadFileName, setPendingUploadFileName] = useState('');
   const [pendingUploadAnalysis, setPendingUploadAnalysis] = useState<SmartCoaImportResult | null>(null);
+  const [pendingReviewAccounts, setPendingReviewAccounts] = useState<CoaAccount[]>([]);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editCode, setEditCode] = useState('');
@@ -1046,6 +1133,48 @@ export function ChartOfAccounts() {
     setNewCustomValues({});
   };
 
+  const clearPendingUploadReview = () => {
+    setShowUploadChoice(false);
+    setPendingUploadRows(null);
+    setPendingUploadFileName('');
+    setPendingUploadAnalysis(null);
+    setPendingReviewAccounts([]);
+  };
+
+  const updatePendingReviewType = (accountId: string, type: string) => {
+    setPendingReviewAccounts(prev => {
+      const edited = prev.map(account =>
+        account.id === accountId
+          ? { ...account, type, normalSide: getNormalSide(type) }
+          : account
+      );
+
+      // Re-group the edited account under its new type and automatically issue
+      // new six-character codes for the entire imported set. Moving the changed
+      // account to the end of the source list makes it land at the end of its
+      // new accounting section while preserving the order of the other rows.
+      const changed = edited.find(account => account.id === accountId);
+      const regrouped = changed
+        ? [...edited.filter(account => account.id !== accountId), changed]
+        : edited;
+      return recodeImportedReviewAccounts(regrouped, currentClient.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric');
+    });
+  };
+
+  const movePendingReviewAccount = (accountId: string, direction: -1 | 1) => {
+    setPendingReviewAccounts(prev => {
+      const index = prev.findIndex(account => account.id === accountId);
+      if (index < 0) return prev;
+      const target = index + direction;
+      if (target < 0 || target >= prev.length) return prev;
+      if (prev[target].type !== prev[index].type) return prev;
+
+      const next = [...prev];
+      [next[index], next[target]] = [next[target], next[index]];
+      return recodeImportedReviewAccounts(next, currentClient.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric');
+    });
+  };
+
   // Smart upload accepts CSV/XLS/XLSX files with or without headings. It identifies
   // an account title from row contents, infers its type when no type is supplied,
   // generates a six-character code when no usable code exists, and captures an
@@ -1081,6 +1210,7 @@ export function ChartOfAccounts() {
       setPendingUploadRows(rawRows);
       setPendingUploadFileName(file.name);
       setPendingUploadAnalysis(analysis);
+      setPendingReviewAccounts(recodeImportedReviewAccounts(analysis.accounts, format));
       setShowUploadChoice(true);
     } catch (err: any) {
       console.error('Failed to read Chart of Accounts upload:', err);
@@ -1091,38 +1221,38 @@ export function ChartOfAccounts() {
     }
   };
 
-  // Applies the smart import once the user chooses Override or Merge. The rows are
-  // analyzed again with the final base account set so generated codes cannot clash
-  // with existing accounts when Merge is selected.
+  // Applies the reviewed smart import once the user chooses Override or Merge.
+  // The review edits (account type and ordering) are the source of truth; codes
+  // are regenerated one final time against the existing COA for Merge mode.
   const applyPendingUpload = async (overwrite: boolean) => {
-    const rows = pendingUploadRows;
-    if (!rows) return;
+    const reviewAccounts = pendingReviewAccounts.length
+      ? pendingReviewAccounts
+      : (pendingUploadAnalysis?.accounts || []);
+    if (!reviewAccounts.length) return;
 
     const format = currentClient.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric';
     const baseAccounts = overwrite ? [] : accounts;
-    const analysis = smartImportAccounts(rows, coaColumns, format, baseAccounts);
+    const finalAccounts = recodeImportedReviewAccounts(reviewAccounts, format, baseAccounts);
+    const analysis = pendingUploadAnalysis;
 
-    setShowUploadChoice(false);
-    setPendingUploadRows(null);
-    setPendingUploadFileName('');
-    setPendingUploadAnalysis(null);
+    clearPendingUploadReview();
 
-    if (!analysis.accounts.length) {
+    if (!finalAccounts.length) {
       showToast('No valid account titles were found in the uploaded file.');
       return;
     }
 
-    const saved = await handleSaveAccounts([...baseAccounts, ...analysis.accounts]);
+    const saved = await handleSaveAccounts([...baseAccounts, ...finalAccounts]);
     if (!saved) return;
 
     const notes = [
-      analysis.generatedCodes ? `${analysis.generatedCodes} code${analysis.generatedCodes === 1 ? '' : 's'} generated` : '',
-      analysis.inferredTypes ? `${analysis.inferredTypes} type${analysis.inferredTypes === 1 ? '' : 's'} inferred` : '',
-      analysis.detectedOpeningBalances ? `${analysis.detectedOpeningBalances} opening balance${analysis.detectedOpeningBalances === 1 ? '' : 's'} detected` : '',
-      analysis.skipped ? `${analysis.skipped} row${analysis.skipped === 1 ? '' : 's'} skipped` : '',
+      analysis?.generatedCodes ? `${analysis.generatedCodes} detected/generated code${analysis.generatedCodes === 1 ? '' : 's'}` : '',
+      analysis?.inferredTypes ? `${analysis.inferredTypes} type${analysis.inferredTypes === 1 ? '' : 's'} inferred` : '',
+      analysis?.detectedOpeningBalances ? `${analysis.detectedOpeningBalances} opening balance${analysis.detectedOpeningBalances === 1 ? '' : 's'} detected` : '',
+      analysis?.skipped ? `${analysis.skipped} row${analysis.skipped === 1 ? '' : 's'} skipped` : '',
     ].filter(Boolean).join(' • ');
 
-    showToast(`${overwrite ? 'Chart of Accounts replaced with' : 'Uploaded'} ${analysis.accounts.length} account${analysis.accounts.length === 1 ? '' : 's'}${notes ? ` • ${notes}` : ''}.`);
+    showToast(`${overwrite ? 'Chart of Accounts replaced with' : 'Uploaded'} ${finalAccounts.length} account${finalAccounts.length === 1 ? '' : 's'}${notes ? ` • ${notes}` : ''}.`);
   };
 
   const handleDelete = async (id: string) => {
@@ -1648,7 +1778,7 @@ export function ChartOfAccounts() {
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{pendingUploadFileName || 'Uploaded file'}</p>
                 </div>
                 <button
-                  onClick={() => { setShowUploadChoice(false); setPendingUploadRows(null); setPendingUploadFileName(''); setPendingUploadAnalysis(null); }}
+                  onClick={clearPendingUploadReview}
                   className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg text-slate-400"
                   aria-label="Close upload review"
                 >
@@ -1669,22 +1799,68 @@ export function ChartOfAccounts() {
                 <div className="mt-1">Account code, account type, and opening-balance headings are optional. Missing information is inferred and generated automatically.</div>
               </div>
 
-              {pendingUploadAnalysis.accounts.length > 0 && (
+              {pendingReviewAccounts.length > 0 && (
                 <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden mb-5">
-                  <div className="grid grid-cols-[100px_minmax(0,1fr)_120px_150px] gap-2 px-3 py-2 bg-slate-100 dark:bg-slate-900 text-[10px] uppercase font-bold tracking-wide text-slate-500">
-                    <div>Code</div><div>Account Title</div><div>Type</div><div className="text-right">Opening Balance</div>
+                  <div className="px-3 py-2 bg-slate-100 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
+                    <div className="text-[10px] uppercase font-bold tracking-wide text-slate-500">Edit before applying</div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Change an account type or move it within its section. Codes are regenerated automatically and stay 6 characters.</div>
                   </div>
-                  <div className="max-h-72 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
-                    {pendingUploadAnalysis.accounts.slice(0, 20).map(account => (
-                      <div key={`${account.id}-${account.name}`} className="grid grid-cols-[100px_minmax(0,1fr)_120px_150px] gap-2 px-3 py-2 text-xs items-center">
-                        <div className="font-mono font-bold text-slate-700 dark:text-slate-200">{account.id}</div>
-                        <div className="font-semibold text-slate-800 dark:text-slate-100 truncate">{account.name}</div>
-                        <div><span className="inline-flex px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-[10px] font-bold text-slate-600 dark:text-slate-200">{account.type}</span></div>
-                        <div className="text-right font-mono text-slate-700 dark:text-slate-200">{account.openingBalance !== undefined ? account.openingBalance.toLocaleString('en-PH', { minimumFractionDigits: 2 }) : '—'}</div>
-                      </div>
-                    ))}
+                  <div className="grid grid-cols-[44px_105px_minmax(0,1fr)_150px_145px_86px] gap-2 px-3 py-2 bg-slate-50 dark:bg-slate-900/60 text-[10px] uppercase font-bold tracking-wide text-slate-500">
+                    <div>#</div><div>Code</div><div>Account Title</div><div>Type</div><div className="text-right">Opening Balance</div><div className="text-center">Move</div>
                   </div>
-                  {pendingUploadAnalysis.accounts.length > 20 && <div className="px-3 py-2 text-[10px] text-slate-400 bg-slate-50 dark:bg-slate-900/60">Showing first 20 of {pendingUploadAnalysis.accounts.length} detected accounts.</div>}
+                  <div className="max-h-96 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+                    {pendingReviewAccounts.map((account, index) => {
+                      const sameTypeIndexes = pendingReviewAccounts
+                        .map((item, itemIndex) => item.type === account.type ? itemIndex : -1)
+                        .filter(itemIndex => itemIndex >= 0);
+                      const positionInType = sameTypeIndexes.indexOf(index);
+                      const canMoveUp = positionInType > 0;
+                      const canMoveDown = positionInType >= 0 && positionInType < sameTypeIndexes.length - 1;
+                      return (
+                        <div key={`${account.id}-${index}`} className="grid grid-cols-[44px_105px_minmax(0,1fr)_150px_145px_86px] gap-2 px-3 py-2 items-center text-xs">
+                          <div className="text-[10px] text-slate-400 font-mono">{index + 1}</div>
+                          <div className="font-mono font-bold text-indigo-700 dark:text-indigo-300" title="Automatically assigned">{account.id}</div>
+                          <div className="font-semibold text-slate-800 dark:text-slate-100 truncate">{account.name}</div>
+                          <div>
+                            <select
+                              value={account.type}
+                              onChange={e => updatePendingReviewType(account.id, e.target.value)}
+                              className="w-full form-input text-xs py-1.5 px-2 bg-white dark:bg-slate-800"
+                            >
+                              {ACCOUNT_TYPES.map(type => (
+                                <option key={type} value={type}>{type}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div className="text-right font-mono text-slate-700 dark:text-slate-200">
+                            {account.openingBalance !== undefined
+                              ? account.openingBalance.toLocaleString('en-PH', { minimumFractionDigits: 2 })
+                              : '—'}
+                          </div>
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => movePendingReviewAccount(account.id, -1)}
+                              disabled={!canMoveUp}
+                              className="p-1.5 rounded-md border border-slate-200 dark:border-slate-700 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 disabled:opacity-30 disabled:cursor-not-allowed"
+                              title={canMoveUp ? 'Move up within account type' : 'Already first in this section'}
+                            >
+                              <ArrowUp className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => movePendingReviewAccount(account.id, 1)}
+                              disabled={!canMoveDown}
+                              className="p-1.5 rounded-md border border-slate-200 dark:border-slate-700 text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-900/30 disabled:opacity-30 disabled:cursor-not-allowed"
+                              title={canMoveDown ? 'Move down within account type' : 'Already last in this section'}
+                            >
+                              <ArrowDown className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
 
@@ -1702,7 +1878,7 @@ export function ChartOfAccounts() {
                 <button onClick={() => applyPendingUpload(false)} className="sm:flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm px-4 py-2.5 rounded-lg transition-colors">
                   Merge — Keep Existing + Add
                 </button>
-                <button onClick={() => { setShowUploadChoice(false); setPendingUploadRows(null); setPendingUploadFileName(''); setPendingUploadAnalysis(null); }} className="bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-200 font-bold text-sm px-4 py-2.5 rounded-lg transition-colors">
+                <button onClick={clearPendingUploadReview} className="bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-200 font-bold text-sm px-4 py-2.5 rounded-lg transition-colors">
                   Cancel
                 </button>
               </div>
