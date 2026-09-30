@@ -1,5 +1,5 @@
 import { Client, CoaAccount, GeneralLedgerAccount, GeneralLedgerEntry, JournalColumn, JournalEntry } from '../types';
-import { getDefaultAccountsForIndustry, getNormalSide, DEFAULT_CRJ_COLUMNS, DEFAULT_CDJ_COLUMNS, CDJ_SUNDRY_ACCOUNT_TITLE_ID, CDJ_SUNDRY_AMOUNT_ID, DEFAULT_PJ_COLUMNS, DEFAULT_SJ_COLUMNS } from './journalDefaults';
+import { getDefaultAccountsForIndustry, getNormalSide, DEFAULT_CRJ_COLUMNS, DEFAULT_CDJ_COLUMNS, CDJ_CASH_ON_HAND_BANK_ID, CDJ_SUNDRY_ACCOUNT_TITLE_ID, CDJ_SUNDRY_AMOUNT_ID, DEFAULT_PJ_COLUMNS, DEFAULT_SJ_COLUMNS } from './journalDefaults';
 
 /**
  * Automatic General Ledger posting.
@@ -73,6 +73,20 @@ export function findAccountByLabel(label: string, accounts: CoaAccount[]): CoaAc
   const exact = accounts.find(a => normalize(a.name) === target);
   if (exact) return exact;
 
+  // Journal users may enter a six-character COA code instead of the title.
+  // Resolve the code before doing fuzzy title matching so a valid account is
+  // never dropped just because its numeric/alphanumeric code was entered.
+  const exactId = accounts.find(a => normalize(String(a.id)) === target);
+  if (exactId) return exactId;
+
+  // Also recognize `CODE - Account Title` / `CODE Account Title` labels often
+  // produced by CSV imports or pasted journal data.
+  const leadingCode = target.match(/^([a-z0-9]{6})(?:\s|[-:|])/i)?.[1];
+  if (leadingCode) {
+    const codeMatch = accounts.find(a => normalize(String(a.id)) === leadingCode);
+    if (codeMatch) return codeMatch;
+  }
+
   const labelTokens = new Set(tokenize(label));
   if (labelTokens.size === 0) return undefined;
 
@@ -101,7 +115,12 @@ function getCoaAccounts(client: Client): CoaAccount[] {
   const list = client.accounts && client.accounts.length > 0
     ? client.accounts
     : getDefaultAccountsForIndustry(client.industry, client.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric');
-  return list.filter(a => !a.hidden);
+
+  // The COA hide/archive action was removed from the UI. Keep legacy `hidden`
+  // records available to posting so historical journal rows can never vanish
+  // from the General Ledger merely because an old client record still carries
+  // the flag. The COA itself controls visibility; GL integrity controls posting.
+  return list;
 }
 
 // Per-journal, per-column overrides for labels that don't literally match an
@@ -114,58 +133,11 @@ interface Posting {
 }
 
 const parseAmount = (value: unknown): number => {
-  const raw = String(value ?? '')
-    .replace(/,/g, '')
-    .replace(/[₱$P]/gi, '')
-    .trim();
+  const raw = String(value ?? '').replace(/,/g, '').replace(/[₱$]/g, '').trim();
   if (!raw) return 0;
-  const negative = /^\(.*\)$/.test(raw);
-  const cleaned = raw.replace(/^\(|\)$/g, '');
-  const n = Number(cleaned);
-  if (!Number.isFinite(n)) return 0;
-  return negative ? -Math.abs(n) : n;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : 0;
 };
-
-/**
- * Resolve a journal account cell by the account id/code, exact title,
- * `CODE - TITLE`, or a close text match. Code/id resolution is preferred
- * because labels such as "Cash" can be ambiguous when a client has
- * Cash on Hand and Cash in Bank.
- */
-function findAccountByReference(reference: unknown, accounts: CoaAccount[]): CoaAccount | undefined {
-  const raw = String(reference ?? '').trim();
-  if (!raw) return undefined;
-
-  const exactId = accounts.find(a => String(a.id).trim() === raw);
-  if (exactId) return exactId;
-
-  const normalizedRaw = normalize(raw);
-  const exactName = accounts.find(a => normalize(a.name) === normalizedRaw);
-  if (exactName) return exactName;
-
-  const codeTitle = raw.match(/^([A-Za-z0-9]{4,})\s*(?:[-–—:]\s*)?(.+)$/);
-  if (codeTitle) {
-    const byCode = accounts.find(a => String(a.id).trim() === codeTitle[1]);
-    if (byCode) return byCode;
-    const titlePart = codeTitle[2].trim();
-    const byTitle = accounts.find(a => normalize(a.name) === normalize(titlePart));
-    if (byTitle) return byTitle;
-  }
-
-  return findAccountByLabel(raw, accounts);
-}
-
-function resolveJournalColumnAccount(column: JournalColumn, accounts: CoaAccount[]): CoaAccount | undefined {
-  const encoded =
-    column.id.startsWith('pj_coa_') ? column.id.slice('pj_coa_'.length) :
-    column.id.startsWith('cdj_coa_') ? column.id.slice('cdj_coa_'.length) :
-    undefined;
-  if (encoded) {
-    const exact = accounts.find(a => String(a.id) === encoded);
-    if (exact) return exact;
-  }
-  return findAccountByReference(column.name, accounts);
-}
 
 /**
  * General Journal rows are free-form: the account title is normally embedded
@@ -261,7 +233,17 @@ function postColumnarJournal(
 
       const label = opts.overrides?.[col.id] || col.name;
 
-      const account = findAccountByLabel(label, accounts);
+      // CDJ/PJ account columns created by the journal UIs encode the actual
+      // COA id in the column id. Prefer that exact identity before falling back
+      // to title matching; this prevents ambiguous labels such as `Cash` from
+      // disappearing when the client has both Cash on Hand and Cash in Bank.
+      const encodedAccountId =
+        col.id.startsWith('cdj_coa_') ? col.id.slice('cdj_coa_'.length) :
+        col.id.startsWith('pj_coa_') ? col.id.slice('pj_coa_'.length) :
+        undefined;
+      const account = encodedAccountId
+        ? accounts.find(a => String(a.id) === encodedAccountId)
+        : findAccountByLabel(label, accounts);
       if (!account) return;
 
       const side: 'debit' | 'credit' = col.category === 'Dr' ? 'debit' : 'credit';
@@ -290,30 +272,137 @@ function postColumnarJournal(
 
 function postCdjSundry(entries: JournalEntry[], accounts: CoaAccount[]): Posting[] {
   const postings: Posting[] = [];
+  const whtAccount = findAccountByLabel('Expanded Withholding Tax Payable', accounts)
+    || findAccountByLabel('Withholding Tax Payable - Expanded', accounts)
+    || findAccountByLabel('Withholding Tax Payable', accounts)
+    || findAccountByLabel('Withholding Tax', accounts);
 
   entries.forEach(entry => {
     const values = entry.values || {};
     const date = String(values.date || '');
-    const particulars = String(values.payee || '');
-    const title = String(values[CDJ_SUNDRY_ACCOUNT_TITLE_ID] ?? '').trim();
-    const raw = String(values[CDJ_SUNDRY_AMOUNT_ID] ?? '').replace(/,/g, '');
-    const amount = parseFloat(raw);
-    if (!title || !raw || isNaN(amount) || amount === 0) return;
+    const particulars = String(values.payee || values.description || 'Cash Disbursement');
+    const ref = String(values.reference || values.invoice_no || values.check_number || '');
 
-    const account = findAccountByLabel(title, accounts);
+    const newSundryTitle = String(values[CDJ_SUNDRY_ACCOUNT_TITLE_ID] ?? '').trim();
+    const newSundryRaw = values[CDJ_SUNDRY_AMOUNT_ID];
+    const newSundryAmount = parseAmount(newSundryRaw);
+    const hasNewSundry = !!newSundryTitle && newSundryAmount !== 0;
+
+    // Legacy CDJ rows and source-derived CDJ rows use account_title + amount.
+    // Read these as a real debit allocation when no new Sundry pair was saved.
+    // For auto rows we intentionally keep this legacy path even when a WHT
+    // Sundry pair was migrated, because the source row still carries the
+    // purchase/expense debit in account_title + amount.
+    const legacyTitle = String(values.account_title ?? values.accountTitle ?? '').trim();
+    const legacyAmount = parseAmount(values.amount ?? values.debitAmount ?? values.debit_amount);
+    const shouldPostLegacyAllocation = !!legacyTitle && legacyAmount !== 0 && (
+      !!entry.auto || !hasNewSundry
+    );
+
+    if (shouldPostLegacyAllocation) {
+      const account = findAccountByLabel(legacyTitle, accounts);
+      if (account) {
+        postings.push({
+          accountId: account.id,
+          entry: makeLeg(`cdj:${entry.id}:allocation`, 'debit', Math.abs(legacyAmount), date, particulars, ref, 'Cash Disbursements Journal'),
+        });
+      }
+    }
+
+    if (hasNewSundry) {
+      const account = findAccountByLabel(newSundryTitle, accounts);
+      if (account) {
+        const side: 'debit' | 'credit' = newSundryAmount > 0 ? 'debit' : 'credit';
+        postings.push({
+          accountId: account.id,
+          entry: makeLeg(`cdj:${entry.id}:sundry`, side, Math.abs(newSundryAmount), date, particulars, ref, 'Cash Disbursements Journal'),
+        });
+      }
+    }
+
+    // Auto-generated purchase/check-voucher rows may carry withholding tax as
+    // a separate `wht` field. If the migrated Sundry pair already represents
+    // the withholding account, do not post it a second time.
+    const wht = parseAmount(values.wht ?? values.withholding_tax ?? values.whtAmount);
+    const sundryIsWht = hasNewSundry && whtAccount
+      ? (() => {
+          const sundryAccount = findAccountByLabel(newSundryTitle, accounts);
+          return sundryAccount?.id === whtAccount.id;
+        })()
+      : false;
+    if (wht !== 0 && whtAccount && !sundryIsWht) {
+      postings.push({
+        accountId: whtAccount.id,
+        entry: makeLeg(`cdj:${entry.id}:wht`, 'credit', Math.abs(wht), date, particulars, ref, 'Cash Disbursements Journal'),
+      });
+    }
+  });
+
+  return postings;
+}
+
+function findCashAccountForCdj(entry: JournalEntry, accounts: CoaAccount[]): CoaAccount | undefined {
+  const values = entry.values || {};
+  const explicitId = String(values.cash_account_id ?? values.cashAccountId ?? '').trim();
+  if (explicitId) {
+    const exact = accounts.find(a => String(a.id) === explicitId);
+    if (exact) return exact;
+  }
+
+  const explicitTitle = String(values.cash_account_title ?? values.cashAccountTitle ?? '').trim();
+  if (explicitTitle) {
+    const exact = findAccountByLabel(explicitTitle, accounts);
+    if (exact) return exact;
+  }
+
+  const paymentMethod = String(values.payment_method ?? values.paymentMethod ?? '').trim().toLowerCase();
+  if (paymentMethod.includes('check') || paymentMethod.includes('bank') || paymentMethod.includes('gcash') || paymentMethod.includes('e-wallet') || paymentMethod.includes('ewallet') || paymentMethod.includes('electronic') || paymentMethod.includes('transfer')) {
+    const bank = findAccountByLabel('Cash in Bank', accounts);
+    if (bank) return bank;
+  }
+
+  // Prefer a dedicated combined column/account when a legacy chart has one.
+  const combined = accounts.find(a => normalize(a.name) === normalize('Cash on Hand/Bank'));
+  if (combined) return combined;
+
+  // The fixed CDJ column is labelled Cash on Hand/Bank but has no account-id
+  // of its own. Use a deterministic fallback rather than the old ambiguous
+  // `Cash` fuzzy match that ties between Cash on Hand and Cash in Bank.
+  return findAccountByLabel('Cash on Hand', accounts)
+    || findAccountByLabel('Cash in Bank', accounts)
+    || accounts.find(a => tokenize(a.name).includes('cash'));
+}
+
+function postCdjCash(entries: JournalEntry[], accounts: CoaAccount[]): Posting[] {
+  const postings: Posting[] = [];
+
+  entries.forEach(entry => {
+    const values = entry.values || {};
+    const amount = parseAmount(
+      values[CDJ_CASH_ON_HAND_BANK_ID]
+      ?? values.cash_on_hand_bank
+      ?? values.cash
+      ?? values.cashAmount
+      ?? values.cash_amount
+    );
+    if (amount === 0) return;
+
+    const account = findCashAccountForCdj(entry, accounts);
     if (!account) return;
 
-    const side: 'debit' | 'credit' = amount > 0 ? 'debit' : 'credit';
+    const date = String(values.date || '');
+    const particulars = String(values.payee || values.description || 'Cash Disbursement');
+    const ref = String(values.reference || values.invoice_no || values.check_number || '');
     postings.push({
       accountId: account.id,
-      entry: makeLeg(`cdj:${entry.id}:sundry`, side, Math.abs(amount), date, particulars, '', 'Cash Disbursements Journal'),
+      entry: makeLeg(`cdj:${entry.id}:cash`, 'credit', Math.abs(amount), date, particulars, ref, 'Cash Disbursements Journal'),
     });
   });
 
   return postings;
 }
 
-function postCdjAutoInputTax(entries: JournalEntry[], accounts: CoaAccount[]): Posting[] {
+function postCdjAutoInputTax(entries: JournalEntry[], accounts: CoaAccount[], columns: JournalColumn[]): Posting[] {
   const postings: Posting[] = [];
   const inputTaxAccount = findAccountByLabel('Input Tax', accounts)
     || findAccountByLabel('VAT Input Receivable', accounts)
@@ -322,13 +411,24 @@ function postCdjAutoInputTax(entries: JournalEntry[], accounts: CoaAccount[]): P
 
   if (!inputTaxAccount) return postings;
 
+  const inputTaxColumns = columns.filter(c =>
+    c.type === 'number' && (
+      (c.id.startsWith('cdj_coa_') && c.id.slice('cdj_coa_'.length) === String(inputTaxAccount.id))
+      || normalize(c.name) === normalize(inputTaxAccount.name)
+    )
+  );
+
   entries.filter(e => e.auto).forEach(entry => {
-    const raw = String(entry.values?.input_tax ?? entry.values?.inputTax ?? '').replace(/,/g, '');
-    const amount = parseFloat(raw);
-    if (!Number.isFinite(amount) || amount === 0) return;
+    const hasPersistedInputTaxColumn = inputTaxColumns.some(col => parseAmount(entry.values?.[col.id]) !== 0);
+    if (hasPersistedInputTaxColumn) return;
+
+    const raw = entry.values?.input_tax ?? entry.values?.inputTax ?? '';
+    const amount = parseAmount(raw);
+    if (amount === 0) return;
 
     const date = String(entry.values?.date || '');
-    const particulars = String(entry.values?.payee || '');
+    const particulars = String(entry.values?.payee || entry.values?.description || 'Cash Disbursement');
+    const ref = String(entry.values?.reference || entry.values?.invoice_no || '');
     postings.push({
       accountId: inputTaxAccount.id,
       entry: makeLeg(
@@ -337,7 +437,7 @@ function postCdjAutoInputTax(entries: JournalEntry[], accounts: CoaAccount[]): P
         Math.abs(amount),
         date,
         particulars,
-        '',
+        ref,
         'Cash Disbursements Journal'
       ),
     });
@@ -570,183 +670,54 @@ function postGeneralJournalEntries(client: Client, accounts: CoaAccount[]): Post
 // actual debit account for the purchase and must not be ignored.
 // ---------------------------------------------------------------------------
 
-function postPurchasesJournal(entries: JournalEntry[], columns: JournalColumn[], accounts: CoaAccount[]): Posting[] {
+function postManualPurchasesJournal(entries: JournalEntry[], columns: JournalColumn[], accounts: CoaAccount[]): Posting[] {
   const postings: Posting[] = [];
-  const systemIds = new Set(DEFAULT_PJ_COLUMNS.map(x => x.id));
-
-  const amountFrom = (values: Record<string, any>, aliases: string[]) => {
-    for (const alias of aliases) {
-      const n = parseAmount(values[alias]);
-      if (n !== 0) return n;
-    }
-    return 0;
-  };
+  const customColumns = columns.filter(c => !new Set(DEFAULT_PJ_COLUMNS.map(x => x.id)).has(c.id) && c.type === 'number' && c.category !== 'None');
 
   entries.forEach(entry => {
     const v = entry.values || {};
-    const date = String(v.date || v.transaction_date || '');
-    const particulars = String(
-      v.description ||
-      v.nature_of_purchase ||
-      v.particulars ||
-      v.supplier_name ||
-      v.account_title ||
-      v.debit_account ||
-      'Purchase'
-    );
-    const ref = String(v.invoice_no || v.invoice || v.reference || v.ref_no || '');
+    const date = String(v.date || '');
+    const particulars = String(v.description || v.supplier_name || v.debit_account || 'Purchase');
+    const ref = String(v.invoice_no || '');
+    const debitAccount = findAccountByLabel(String(v.debit_account || ''), accounts) || findAccountByLabel('Purchases', accounts);
 
-    // PJ's Account Title is the account receiving the purchase-base debit.
-    // Accept both the current key and legacy/imported variants.
-    const debitReference = String(
-      v.debit_account ||
-      v.account_title ||
-      v.accountTitle ||
-      v.debitAccount ||
-      v.account ||
-      v.expense_type ||
-      v.expenseType ||
-      ''
-    ).trim();
+    const net = parseAmount(v.net_purchase);
+    const exempt = parseAmount(v.exempt_zero_rated);
+    const inputTax = parseAmount(v.input_tax);
+    const ap = parseAmount(v.accounts_payable);
+    const wht = parseAmount(v.withholding_tax);
 
-    const debitAccount =
-      findAccountByReference(debitReference, accounts) ||
-      (debitReference ? findAccountFromParticulars(debitReference, accounts) : undefined);
-
-    const explicitNet = amountFrom(v, [
-      'net_purchase',
-      'net_of_vat',
-      'net_purchase_amount',
-      'purchase_amount',
-    ]);
-    const explicitExempt = parseAmount(v.exempt_zero_rated);
-    const legacyExempt = parseAmount(v.exempt);
-    const legacyZeroRated = parseAmount(v.zero_rated);
-    const exemptZero = explicitExempt !== 0
-      ? explicitExempt
-      : legacyExempt + legacyZeroRated;
-
-    // Support older/imported PJ rows with a single amount/purchases column,
-    // but only when the dedicated purchase-base columns are not populated.
-    const fallbackPurchaseBase = explicitNet === 0 && exemptZero === 0
-      ? amountFrom(v, ['purchases', 'amount', 'debit_amount'])
-      : 0;
-    const purchaseBase = explicitNet + exemptZero || fallbackPurchaseBase;
-
-    const inputTax = amountFrom(v, ['input_tax', 'input_vat', 'vat_input', 'vat_amount']);
-    const ap = amountFrom(v, ['accounts_payable', 'accountsPayable', 'ap', 'a_p', 'payables']);
-    const wht = amountFrom(v, [
-      'withholding_tax',
-      'withholding',
-      'wht',
-      'wht_amount',
-      'whtAmount',
-    ]);
-
-    if (debitAccount && purchaseBase !== 0) {
-      postings.push({
-        accountId: debitAccount.id,
-        entry: makeLeg(
-          `pj:${entry.id}:purchase`,
-          'debit',
-          Math.abs(purchaseBase),
-          date,
-          particulars,
-          ref,
-          'Purchases Journal'
-        ),
-      });
+    if (debitAccount && net + exempt !== 0) {
+      postings.push({ accountId: debitAccount.id, entry: makeLeg(`pj:${entry.id}:purchase`, 'debit', Math.abs(net + exempt), date, particulars, ref, 'Purchases Journal') });
     }
 
     if (inputTax !== 0) {
-      const acct =
-        findAccountByReference(v.input_tax_account || v.inputTaxAccount, accounts) ||
-        findAccountByLabel('Input Tax', accounts) ||
-        findAccountByLabel('Input VAT', accounts) ||
-        findAccountByLabel('VAT Input Receivable', accounts);
-      if (acct) {
-        postings.push({
-          accountId: acct.id,
-          entry: makeLeg(
-            `pj:${entry.id}:inputtax`,
-            'debit',
-            Math.abs(inputTax),
-            date,
-            particulars,
-            ref,
-            'Purchases Journal'
-          ),
-        });
-      }
+      const acct = findAccountByLabel('Input Tax', accounts) || findAccountByLabel('VAT Input Receivable', accounts);
+      if (acct) postings.push({ accountId: acct.id, entry: makeLeg(`pj:${entry.id}:inputtax`, 'debit', Math.abs(inputTax), date, particulars, ref, 'Purchases Journal') });
     }
 
     if (ap !== 0) {
-      const acct =
-        findAccountByReference(v.ap_account || v.accounts_payable_account, accounts) ||
-        findAccountByLabel('Accounts Payable', accounts) ||
-        findAccountByLabel('Trade Payables', accounts);
-      if (acct) {
-        postings.push({
-          accountId: acct.id,
-          entry: makeLeg(
-            `pj:${entry.id}:ap`,
-            'credit',
-            Math.abs(ap),
-            date,
-            particulars,
-            ref,
-            'Purchases Journal'
-          ),
-        });
-      }
+      const acct = findAccountByLabel('Accounts Payable', accounts);
+      if (acct) postings.push({ accountId: acct.id, entry: makeLeg(`pj:${entry.id}:ap`, 'credit', Math.abs(ap), date, particulars, ref, 'Purchases Journal') });
     }
 
     if (wht !== 0) {
-      const acct =
-        findAccountByReference(v.wht_account || v.withholding_account, accounts) ||
-        findAccountByLabel('Expanded Withholding Tax Payable', accounts) ||
-        findAccountByLabel('Withholding Tax Payable - Expanded', accounts) ||
-        findAccountByLabel('Withholding Tax Payable', accounts) ||
-        findAccountByLabel('Withholding Tax', accounts);
-      if (acct) {
-        postings.push({
-          accountId: acct.id,
-          entry: makeLeg(
-            `pj:${entry.id}:wht`,
-            'credit',
-            Math.abs(wht),
-            date,
-            particulars,
-            ref,
-            'Purchases Journal'
-          ),
-        });
-      }
+      const acct = findAccountByLabel('Withholding Tax Payable - Expanded', accounts)
+        || findAccountByLabel('Withholding Tax Payable', accounts)
+        || findAccountByLabel('Withholding Tax', accounts);
+      if (acct) postings.push({ accountId: acct.id, entry: makeLeg(`pj:${entry.id}:wht`, 'credit', Math.abs(wht), date, particulars, ref, 'Purchases Journal') });
     }
 
-    // Custom PJ account columns are also real GL postings.
-    columns
-      .filter(c => !systemIds.has(c.id) && c.type === 'number' && c.category !== 'None')
-      .forEach(col => {
-        const amount = parseAmount(v[col.id]);
-        if (amount === 0) return;
-
-        const acct = resolveJournalColumnAccount(col, accounts);
-        if (!acct) return;
-
-        postings.push({
-          accountId: acct.id,
-          entry: makeLeg(
-            `pj:${entry.id}:${col.id}`,
-            col.category === 'Dr' ? 'debit' : 'credit',
-            Math.abs(amount),
-            date,
-            particulars,
-            ref,
-            'Purchases Journal'
-          ),
-        });
+    customColumns.forEach(col => {
+      const amount = parseAmount(v[col.id]);
+      if (amount === 0) return;
+      const acct = findAccountByLabel(col.name, accounts);
+      if (!acct) return;
+      postings.push({
+        accountId: acct.id,
+        entry: makeLeg(`pj:${entry.id}:${col.id}`, col.category === 'Dr' ? 'debit' : 'credit', Math.abs(amount), date, particulars, ref, 'Purchases Journal'),
       });
+    });
   });
 
   return postings;
@@ -791,10 +762,21 @@ function postCrjSundry(entries: JournalEntry[], accounts: CoaAccount[]): Posting
 // Source: Journal Vouchers — already structured with an accountId per line.
 // ---------------------------------------------------------------------------
 
-function postJournalVouchers(client: Client): Posting[] {
+function postJournalVouchers(client: Client, accounts: CoaAccount[]): Posting[] {
   const postings: Posting[] = [];
+  const cashIds = new Set(accounts.filter(a => {
+    const n = normalize(a.name);
+    return n === 'cash' || n.includes('cash on hand') || n.includes('cash in bank') || n.includes('cash on hand bank');
+  }).map(a => String(a.id)));
+
   (client.journalVouchers || []).forEach(v => {
-    v.lines.forEach(line => {
+    const creditLines = (v.lines || []).filter(line => Number(line.credit || 0) > 0);
+    const cashCreditLines = creditLines.filter(line => cashIds.has(String(line.accountId)));
+    // Exactly one cash credit line is regenerated into CDJ. Skip the direct JV
+    // GL posting in that case so the transaction is not double-posted.
+    if (creditLines.length > 0 && creditLines.length === cashCreditLines.length && cashCreditLines.length === 1) return;
+
+    (v.lines || []).forEach(line => {
       if (line.debit > 0) {
         postings.push({
           accountId: line.accountId,
@@ -819,9 +801,17 @@ function postJournalVouchers(client: Client): Posting[] {
 function postPurchases(client: Client, accounts: CoaAccount[]): Posting[] {
   const postings: Posting[] = [];
   (client.purchases || []).forEach(p => {
+    const paymentMethod = String(p.paymentMethod ?? '').trim().toLowerCase();
+    // Credit purchases remain a direct source posting (Purchases Journal),
+    // while cash/check/e-payment purchases are represented by the CDJ and are
+    // posted from that journal exactly once. An empty payment method is kept
+    // here as a defensive fallback for legacy records that predate the CDJ.
+    if (paymentMethod && paymentMethod !== 'on account') return;
     const particulars = p.supplierName + (p.transactionDetails ? ` - ${p.transactionDetails}` : '');
     const ref = p.invoiceNo || '';
-    const netAmount = Number(p.amount) || 0;
+    const netAmount = (Number(p.amount) || 0)
+      + (Number(p.exemptAmount) || 0)
+      + (Number(p.zeroRatedAmount) || 0);
     const inputTax = Number(p.inputTax) || 0;
 
     const debitAcct = findAccountByLabel(p.accountTitle, accounts);
@@ -896,13 +886,17 @@ function cashPurchasesToCdjEntries(client: Client): JournalEntry[] {
     .filter(p => !!p.paymentMethod && p.paymentMethod !== 'On Account')
     .map(p => {
       // "Other Payments" stores its actual payment amount in exemptAmount
-      // (amount is intentionally 0 there). Use that field so those cash
-      // payments are not silently omitted from the CDJ.
+      // (amount is intentionally 0 there). For ordinary purchases, VATable,
+      // exempt and zero-rated bases are stored separately, so the CDJ debit
+      // allocation must combine all three instead of silently dropping the
+      // exempt/zero-rated portion.
       const isOtherPayment = p.vatType === 'non-vat' && (Number(p.amount) || 0) === 0
         && (Number(p.exemptAmount) || 0) > 0;
       const net = isOtherPayment ? (Number(p.exemptAmount) || 0) : (Number(p.amount) || 0);
+      const exemptZero = isOtherPayment ? 0 : (Number(p.exemptAmount) || 0) + (Number(p.zeroRatedAmount) || 0);
+      const debitAmount = net + exemptZero;
       const tax = Number(p.inputTax) || 0;
-      const total = net + tax;
+      const total = debitAmount + tax;
       const wht = p.withholdingOption === 'with' ? (Number(p.whtAmount) || 0) : 0;
       const cashDue = total - wht;
       if (cashDue <= 0) return null;
@@ -915,8 +909,10 @@ function cashPurchasesToCdjEntries(client: Client): JournalEntry[] {
           date: p.date,
           payee: p.supplierName,
           account_title: p.accountTitle || p.expenseType || 'Expense',
-          amount: net > 0 ? two(net) : '',
+          amount: debitAmount > 0 ? two(debitAmount) : '',
           cash: two(cashDue),
+          payment_method: p.paymentMethod || '',
+          cash_account_title: /check|bank|gcash|e.?wallet|transfer/i.test(String(p.paymentMethod || '')) ? 'Cash in Bank' : 'Cash on Hand',
           input_tax: tax > 0 ? two(tax) : '',
           wht: wht > 0 ? two(wht) : '',
         },
@@ -927,21 +923,27 @@ function cashPurchasesToCdjEntries(client: Client): JournalEntry[] {
 }
 
 function cashJournalVouchersToCdjEntries(client: Client, accounts: CoaAccount[]): JournalEntry[] {
-  const cashAccount = findAccountByLabel('Cash', accounts);
-  if (!cashAccount) return [];
+  const cashAccountIds = new Set(
+    accounts
+      .filter(a => {
+        const n = normalize(a.name);
+        return n === 'cash' || n.includes('cash on hand') || n.includes('cash in bank') || n.includes('cash on hand bank');
+      })
+      .map(a => String(a.id))
+  );
+  if (cashAccountIds.size === 0) return [];
 
   const entries: JournalEntry[] = [];
   (client.journalVouchers || []).forEach(v => {
-    const creditLines = v.lines.filter(l => l.credit > 0);
-    if (creditLines.length === 0) return;
+    const creditLines = (v.lines || []).filter(l => Number(l.credit || 0) > 0);
+    const cashCreditLines = creditLines.filter(l => cashAccountIds.has(String(l.accountId)));
+    // A single cash credit line gives us an unambiguous cash account for the
+    // generated CDJ rows. Mixed credits or multiple cash credit lines stay in
+    // the General Journal instead of being guessed into the CDJ.
+    if (cashCreditLines.length !== 1 || cashCreditLines.length !== creditLines.length) return;
 
-    // Only treat this voucher as a cash disbursement when every credit line
-    // on it is the Cash account. Mixed-credit vouchers are left for manual
-    // CDJ entry rather than guessing which portion was paid in cash.
-    const isCashOnlyCredit = creditLines.every(l => l.accountId === cashAccount.id);
-    if (!isCashOnlyCredit) return;
-
-    v.lines.filter(l => l.debit > 0).forEach(l => {
+    const cashLine = cashCreditLines[0];
+    (v.lines || []).filter(l => Number(l.debit || 0) > 0).forEach(l => {
       entries.push({
         id: `cdj-auto:jv:${v.id}:${l.id}`,
         auto: true,
@@ -952,6 +954,7 @@ function cashJournalVouchersToCdjEntries(client: Client, accounts: CoaAccount[])
           account_title: l.accountName,
           amount: two(l.debit),
           cash: two(l.debit),
+          cash_account_id: cashLine.accountId,
         },
       });
     });
@@ -976,6 +979,7 @@ function cashCheckVouchersToCdjEntries(client: Client): JournalEntry[] {
             : 'Accounts Payable',
         amount: two(Number(v.amount) || 0),
         cash: two(Number(v.amount) || 0),
+        cash_account_title: 'Cash in Bank',
       },
     }));
 }
@@ -1000,6 +1004,7 @@ function cashMiscellaneousPaymentsToCdjEntries(client: Client): JournalEntry[] {
         account_title: m.expenseCategory || 'Expense',
         amount: two(Number(m.amount) || 0),
         cash: two(Number(m.amount) || 0),
+        cash_account_title: 'Cash on Hand',
       },
     }));
 }
@@ -1073,10 +1078,7 @@ export function syncCashReceiptsJournal(client: Client): Client {
 
 function purchasesToPjEntries(client: Client): JournalEntry[] {
   return (client.purchases || [])
-    .filter(p => {
-      const method = String(p.paymentMethod ?? '').trim().toLowerCase();
-      return method === '' || method === 'on account' || method === 'accounts payable';
-    })
+    .filter(p => p.paymentMethod !== 'Cash' && p.paymentMethod !== 'Check')
     .map(p => {
       const net = Number(p.amount) || 0;
       const exemptZero = (Number(p.exemptAmount) || 0) + (Number(p.zeroRatedAmount) || 0);
@@ -1256,9 +1258,13 @@ export function computeAutoPostings(client: Client): Posting[] {
   // CDJ screen could show the transaction while the General Ledger captured
   // none of it.
   const cdjEntries = client.cdjEntries || [];
+  const cdjColumns = useColumns(client.cdjColumns, DEFAULT_CDJ_COLUMNS);
   const cdj = postColumnarJournal(
     cdjEntries,
-    useColumns(client.cdjColumns, DEFAULT_CDJ_COLUMNS),
+    // The fixed Cash on Hand/Bank column is posted by postCdjCash(), which can
+    // resolve the actual cash account deterministically. Do not let the
+    // generic label matcher turn `Cash` into an ambiguous account.
+    cdjColumns.filter(c => c.id !== CDJ_CASH_ON_HAND_BANK_ID),
     accounts,
     {
       prefix: 'cdj',
@@ -1268,6 +1274,7 @@ export function computeAutoPostings(client: Client): Posting[] {
       overrides: CDJ_LABEL_OVERRIDES,
     }
   );
+  const cdjCash = postCdjCash(cdjEntries, accounts);
   // The Sundry Account Title / Amount Dr(Cr) pair has no fixed Dr/Cr column
   // category (its side depends on the amount's sign), so it's posted
   // separately rather than through postColumnarJournal's per-column loop.
@@ -1276,27 +1283,26 @@ export function computeAutoPostings(client: Client): Posting[] {
   // Their values are read-only/source-derived and are not present in the
   // normalized account-column ids.
   const cdjSundry = postCdjSundry(cdjEntries, accounts);
-  const cdjInputTax = postCdjAutoInputTax(cdjEntries, accounts);
+  const cdjInputTax = postCdjAutoInputTax(cdjEntries, accounts, cdjColumns);
 
-  // The Purchases Journal is the authoritative GL source for on-account
-  // purchases. Rebuild source-derived rows here so the GL is complete even
-  // when the generated PJ rows have not yet been persisted to Supabase, then
-  // add any manually-entered PJ rows.
-  const generatedPj = purchasesToPjEntries(client);
+  // Auto PJ rows are display-only (the originating Purchases records are
+  // already posted by postPurchases). Manual PJ rows, however, are an actual
+  // book of original entry and must post using their Account Title field.
   const manualPj = (client.pjEntries || []).filter(e => !e.auto);
-  const pj = postPurchasesJournal(
-    [...generatedPj, ...manualPj],
+  const pj = postManualPurchasesJournal(
+    manualPj,
     useColumns(client.pjColumns, DEFAULT_PJ_COLUMNS),
     accounts
   );
 
-  const jv = postJournalVouchers(client);
+  const jv = postJournalVouchers(client, accounts);
   const gj = postGeneralJournalEntries(client, accounts);
+  const purchases = postPurchases(client, accounts);
 
   return [
     ...crj, ...crjSundry, ...sjPostings,
-    ...cdj, ...cdjSundry, ...cdjInputTax,
-    ...pj, ...jv, ...gj,
+    ...cdj, ...cdjCash, ...cdjSundry, ...cdjInputTax,
+    ...pj, ...jv, ...gj, ...purchases,
   ];
 }
 

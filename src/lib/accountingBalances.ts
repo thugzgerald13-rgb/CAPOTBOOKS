@@ -18,33 +18,12 @@ const num = (v: any) => {
   return String(v).includes('(') ? -Math.abs(n) : n;
 };
 
-function normalizeAccountingDate(date: unknown): string {
-  const raw = String(date ?? '').trim();
-  if (!raw) return '';
-
-  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(raw);
-  if (iso) {
-    return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
-  }
-
-  const mdy = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/.exec(raw);
-  if (mdy) {
-    return `${mdy[3]}-${mdy[1].padStart(2, '0')}-${mdy[2].padStart(2, '0')}`;
-  }
-
-  const parsed = new Date(raw);
-  if (!Number.isNaN(parsed.getTime())) {
-    return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
-  }
-
-  return raw.slice(0, 10);
-}
-
 function entryYear(date: string): number | null {
-  const normalized = normalizeAccountingDate(date);
-  if (!normalized) return null;
-  const m = /^(\d{4})-/.exec(normalized);
-  return m ? Number(m[1]) : null;
+  if (!date) return null;
+  const m = String(date).match(/(?:^|[-/])(\d{4})(?:[-/]|$)/);
+  if (m) return Number(m[1]);
+  const d = new Date(date);
+  return Number.isNaN(d.getTime()) ? null : d.getFullYear();
 }
 
 export function getCurrentYear(client: Client): number {
@@ -181,38 +160,33 @@ export interface ProfitAndLossTotals {
  * need to be displayed so the figures always agree with that report.
  */
 export function getProfitAndLossTotals(client: Client, year = getCurrentYear(client)): ProfitAndLossTotals {
-  const start = `${year}-01-01`;
-  const end = `${year + 1}-01-01`;
-
-  const balances: ProfitAndLossAccountLine[] = (client.glAccounts || []).map((account: any) => {
-    const entries = Array.isArray(account.entries) ? account.entries : [];
-    const periodEntries = entries.filter((entry: any) => {
-      const d = normalizeAccountingDate(entry.date || entry.dateDr || entry.dateCr);
-      return d >= start && d < end;
-    });
-    const period_debit = periodEntries.reduce((n: number, entry: any) => n + Number(String(entry.debit ?? '').replace(/,/g, '') || 0), 0);
-    const period_credit = periodEntries.reduce((n: number, entry: any) => n + Number(String(entry.credit ?? '').replace(/,/g, '') || 0), 0);
-    const allEntries = entries.filter((entry: any) => normalizeAccountingDate(entry.date || entry.dateDr || entry.dateCr) < end);
-    const totalDebit = allEntries.reduce((n: number, entry: any) => n + Number(String(entry.debit ?? '').replace(/,/g, '') || 0), 0);
-    const totalCredit = allEntries.reduce((n: number, entry: any) => n + Number(String(entry.credit ?? '').replace(/,/g, '') || 0), 0);
-    return {
-      account_id: String(account.accountId || account.id),
-      account_name: String(account.accountTitle || ''),
-      account_type: String(account.accountType || ''),
-      period_debit,
-      period_credit,
-      period_balance: period_debit - period_credit,
-      balance: totalDebit - totalCredit,
-    };
-  });
+  // Financial statements must use the SAME year-end balances shown by the
+  // Trial Balance.  getAccountBalances() includes each account's opening
+  // balance plus the current-year General Ledger movements, so an account
+  // with an opening balance is included even when it has no journal entries.
+  const accountBalances = getAccountBalances(client, year);
+  const balances: ProfitAndLossAccountLine[] = accountBalances
+    .filter(({ account }) => ['revenue', 'cost', 'costs', 'expense', 'expenses'].includes(String(account.type || '').toLowerCase()))
+    .map(({ account, currentYearDebit, currentYearCredit, currentYearBalance }) => ({
+      account_id: String(account.id),
+      account_name: String(account.name || ''),
+      account_type: String(account.type || ''),
+      period_debit: currentYearDebit,
+      period_credit: currentYearCredit,
+      period_balance: currentYearDebit - currentYearCredit,
+      // This is the Trial Balance ending balance for the selected year.
+      balance: currentYearBalance,
+    }));
 
   const revenue = balances.filter(x => (x.account_type || '').toLowerCase() === 'revenue');
   const costs = balances.filter(x => ['cost', 'costs'].includes((x.account_type || '').toLowerCase()));
   const expenses = balances.filter(x => ['expense', 'expenses'].includes((x.account_type || '').toLowerCase()));
 
-  const revenueTotal = revenue.reduce((n, x) => n + Math.max(0, x.period_credit - x.period_debit), 0);
-  const costTotal = costs.reduce((n, x) => n + Math.max(0, x.period_debit - x.period_credit), 0);
-  const expenseTotal = expenses.reduce((n, x) => n + Math.max(0, x.period_debit - x.period_credit), 0);
+  // Credit-normal P&L accounts have positive ending amounts when their
+  // signed TB balance is negative; debit-normal costs/expenses are positive.
+  const revenueTotal = revenue.reduce((n, x) => n + Math.max(0, -x.balance), 0);
+  const costTotal = costs.reduce((n, x) => n + Math.max(0, x.balance), 0);
+  const expenseTotal = expenses.reduce((n, x) => n + Math.max(0, x.balance), 0);
   const grossIncome = revenueTotal - costTotal;
   const netIncome = grossIncome - expenseTotal;
 
@@ -236,7 +210,7 @@ export function getProfitAndLossForPeriod(client: Client, startISO: string, endE
   const balances = (client.glAccounts || []).map((account: any) => {
     const entries = Array.isArray(account.entries) ? account.entries : [];
     const periodEntries = entries.filter((entry: any) => {
-      const d = normalizeAccountingDate(entry.date || entry.dateDr || entry.dateCr);
+      const d = String(entry.date || entry.dateDr || entry.dateCr || '').slice(0, 10);
       return d >= startISO && d < endExclusiveISO;
     });
     const period_debit = periodEntries.reduce((n: number, e: any) => n + Number(String(e.debit ?? '').replace(/,/g, '') || 0), 0);
@@ -275,7 +249,7 @@ export function getMonthlyPnL(client: Client, monthsBack = 6): { label: string; 
 // cards) must agree exactly, so they share this same balance formula.
 
 const entryDateKey = (entry: Pick<GeneralLedgerEntry, 'dateDr' | 'dateCr'>) =>
-  normalizeAccountingDate(entry.dateDr || entry.dateCr);
+  String(entry.dateDr || entry.dateCr || '').slice(0, 10);
 
 const glAmount = (value: unknown) => {
   const n = parseFloat(String(value ?? '').replace(/,/g, ''));
