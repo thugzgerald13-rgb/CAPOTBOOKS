@@ -58,6 +58,7 @@ create table if not exists public.clients (
   accounting_type text not null default 'Calendar',
   fiscal_month_end integer not null default 12,
   coa_format text not null default 'numeric',
+  industry text not null default 'general-services',
 
   -- Temporary legacy compatibility payload.
   -- Remove only after migration verification + rollback window.
@@ -73,7 +74,9 @@ create table if not exists public.clients (
   constraint clients_fiscal_month_end_check
     check (fiscal_month_end between 1 and 12),
   constraint clients_coa_format_check
-    check (coa_format in ('numeric', 'alphanumeric'))
+    check (coa_format in ('numeric', 'alphanumeric')),
+  constraint clients_industry_check
+    check (industry in ('retail', 'general-services', 'manufacturing', 'construction'))
 );
 
 create index if not exists idx_clients_user_id

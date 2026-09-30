@@ -8,7 +8,7 @@ import { CoaAccount } from '../types';
 import { cn } from '../lib/utils';
 import { balanceFor } from '../lib/accountingBalances';
 
-import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide } from '../lib/journalDefaults';
+import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide, getDefaultAccountsForIndustry } from '../lib/journalDefaults';
 export { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide };
 
 const ACCOUNT_TYPES = ['Asset', 'Liabilities', 'Equity', 'Capital', 'Revenue', 'Costs', 'Expense'];
@@ -26,10 +26,13 @@ function ownershipAccountType(classification?: string): 'Equity' | 'Capital' {
   return isIndividualTaxpayer(classification) ? 'Capital' : 'Equity';
 }
 
-function defaultAccountsFor(classification: string | undefined, format: 'numeric' | 'alphanumeric'): CoaAccount[] {
+function defaultAccountsFor(
+  classification: string | undefined,
+  format: 'numeric' | 'alphanumeric',
+  industry?: import('../types').ClientIndustry
+): CoaAccount[] {
   const ownershipType = ownershipAccountType(classification);
-  const source = format === 'alphanumeric' ? DEFAULT_ACCOUNTS_ALPHA : DEFAULT_ACCOUNTS;
-  return source.map(account =>
+  return getDefaultAccountsForIndustry(industry, format).map(account =>
     account.type === 'Equity' || account.type === 'Capital'
       ? { ...account, type: ownershipType, normalSide: getNormalSide(ownershipType) }
       : { ...account }
@@ -453,7 +456,8 @@ export function ChartOfAccounts() {
   if (accounts.length === 0) {
     accounts = defaultAccountsFor(
       currentClient?.taxpayerClassification,
-      currentClient?.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric'
+      currentClient?.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric',
+      currentClient?.industry
     );
   }
 
@@ -683,7 +687,7 @@ export function ChartOfAccounts() {
         return;
       }
     }
-    const newDefaults = defaultAccountsFor(currentClient?.taxpayerClassification, format);
+    const newDefaults = defaultAccountsFor(currentClient?.taxpayerClassification, format, currentClient?.industry);
     handleSaveAccounts(newDefaults, format);
     setShowPresets(false);
   };

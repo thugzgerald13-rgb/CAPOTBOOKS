@@ -7,6 +7,7 @@ import { useAccounting } from '../context/AccountingContext';
 import { formatTIN, generateCSV, MONTHS, getMonthName } from '../lib/utils';
 import { ShoppingCart, Plus, Trash2, X, Paperclip, Upload, FileText, Image as ImageIcon } from 'lucide-react';
 import { DEFAULT_ACCOUNTS, getNormalSide, resequenceAccounts } from './ChartOfAccounts';
+import { getDefaultAccountsForIndustry } from '../lib/journalDefaults';
 import { ATC_SCHEDULE } from '../lib/atcSchedule';
 
 
@@ -156,7 +157,7 @@ export function Purchases() {
   // Derive available accounts from Chart of Accounts
   const coaAccounts = useMemo(() => {
     let accs = (currentClient?.accounts || []).filter(a => !a.hidden);
-    if (accs.length === 0) accs = DEFAULT_ACCOUNTS;
+    if (accs.length === 0) accs = getDefaultAccountsForIndustry(currentClient?.industry, currentClient?.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric');
     if (currentDat) {
       return accs.filter(a => expenseType === 'Capital Goods' ? (a.type.toLowerCase() === 'asset' || a.type.toLowerCase() === 'assets') : (a.type.toLowerCase() === 'expense' || a.type.toLowerCase() === 'expenses'));
     } else {
@@ -188,7 +189,8 @@ export function Purchases() {
   const generatePaymentAccountId = (type: string, format: 'numeric' | 'alphanumeric'): string => {
     const baseByType: Record<string, number> = { Asset: 1000, Costs: 5000, Expense: 5100 };
     const base = baseByType[type] ?? 9000;
-    const existingIds = new Set((currentClient?.accounts && currentClient.accounts.length > 0 ? currentClient.accounts : DEFAULT_ACCOUNTS).map(a => a.id));
+    const fallbackAccounts = getDefaultAccountsForIndustry(currentClient?.industry, currentClient?.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric');
+    const existingIds = new Set((currentClient?.accounts && currentClient.accounts.length > 0 ? currentClient.accounts : fallbackAccounts).map(a => a.id));
     let n = base;
     while (existingIds.has(String(n))) n += 10;
     if (format === 'alphanumeric') {
@@ -210,7 +212,7 @@ export function Purchases() {
       alert('Please enter an account name.');
       return;
     }
-    const baseAccounts = currentClient.accounts && currentClient.accounts.length > 0 ? currentClient.accounts : DEFAULT_ACCOUNTS;
+    const baseAccounts = currentClient.accounts && currentClient.accounts.length > 0 ? currentClient.accounts : getDefaultAccountsForIndustry(currentClient.industry, currentClient.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric');
     if (baseAccounts.some(a => a.name.toLowerCase() === name.toLowerCase())) {
       alert('An account with this name already exists.');
       return;

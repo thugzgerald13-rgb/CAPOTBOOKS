@@ -121,6 +121,8 @@ export interface JournalVoucher {
   lines: JournalVoucherLine[];
 }
 
+export type ClientIndustry = 'retail' | 'general-services' | 'manufacturing' | 'construction';
+
 export interface Client {
   id: string;
   name: string; // Display name
@@ -145,6 +147,7 @@ export interface Client {
   accountingType?: 'Calendar' | 'Fiscal';
   fiscalMonthEnd?: number;
   coaFormat?: 'numeric' | 'alphanumeric';
+  industry?: ClientIndustry;
   tinLibrary: {
     customers: TinEntry[];
     suppliers: TinEntry[];

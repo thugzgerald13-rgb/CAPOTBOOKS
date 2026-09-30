@@ -1,5 +1,5 @@
 import { Client, CoaAccount, GeneralLedgerAccount, GeneralLedgerEntry } from '../types';
-import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide } from './journalDefaults';
+import { getNormalSide, getDefaultAccountsForIndustry } from './journalDefaults';
 
 export interface AccountBalance {
   account: CoaAccount;
@@ -36,7 +36,7 @@ export function getCurrentYear(client: Client): number {
 export function getCoaAccounts(client: Client): CoaAccount[] {
   const list = client.accounts && client.accounts.length > 0
     ? client.accounts
-    : (client.coaFormat === 'alphanumeric' ? DEFAULT_ACCOUNTS_ALPHA : DEFAULT_ACCOUNTS);
+    : getDefaultAccountsForIndustry(client.industry, client.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric');
   return list.filter(a => !a.hidden);
 }
 

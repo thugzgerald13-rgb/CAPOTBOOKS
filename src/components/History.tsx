@@ -9,6 +9,7 @@ import { getAttachmentViewUrl } from '../lib/supabaseUtils';
 import { supabase } from '../lib/supabase';
 import { getCachedQuery, cacheQuery, invalidateQueries } from '../db/localDb';
 import { DEFAULT_ACCOUNTS } from './ChartOfAccounts';
+import { getDefaultAccountsForIndustry } from '../lib/journalDefaults';
 import * as XLSX from 'xlsx';
 
 // Default pixel widths for the Expense History columns. The user can widen or
@@ -275,7 +276,7 @@ export function History() {
   // Chart of Accounts (with the built-in defaults as a fallback).
   const paymentAccountOptions = useMemo(() => {
     let accs = (currentClient?.accounts || []).filter((a: any) => !a.hidden);
-    if (accs.length === 0) accs = DEFAULT_ACCOUNTS;
+    if (accs.length === 0) accs = getDefaultAccountsForIndustry(currentClient?.industry, currentClient?.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric');
     return accs
       .filter((a: any) => {
         const at = String(a.type || '').toLowerCase();

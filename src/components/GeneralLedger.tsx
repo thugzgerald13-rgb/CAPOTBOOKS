@@ -5,6 +5,7 @@ import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { GeneralLedgerAccount, GeneralLedgerEntry } from '../types';
 import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide } from './ChartOfAccounts';
+import { getDefaultAccountsForIndustry } from '../lib/journalDefaults';
 import { supabase } from '../lib/supabase';
 import { generateCSV } from '../lib/utils';
 import { glAccountBalanceBefore } from '../lib/accountingBalances';
@@ -49,7 +50,7 @@ export function GeneralLedger() {
     if (!currentClient) return [];
     const list = currentClient.accounts && currentClient.accounts.length > 0
       ? currentClient.accounts
-      : (currentClient.coaFormat === 'alphanumeric' ? DEFAULT_ACCOUNTS_ALPHA : DEFAULT_ACCOUNTS);
+      : getDefaultAccountsForIndustry(currentClient.industry, currentClient.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric');
     return list.filter(a => !a.hidden);
   }, [currentClient]);
 
