@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { BookOpen, Plus, Trash2, RefreshCcw, Edit2, ClipboardList, Check, X, Columns, ArrowUp, ArrowDown, Upload, Eye, EyeOff, MoreVertical, CheckSquare, Square, Layers } from 'lucide-react';
+import { BookOpen, Plus, Trash2, RefreshCcw, Edit2, ClipboardList, Check, X, Columns, ArrowUp, ArrowDown, Upload, MoreVertical } from 'lucide-react';
 import { flattenCoaHierarchy } from '../lib/coaImport';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
@@ -667,7 +667,7 @@ export function ChartOfAccounts() {
   const { currentClient, currentClientId, saveCoaAccounts, saveCoaColumns, showToast } = useAccounting();
   const [isAdding, setIsAdding] = useState(false);
   const [typeFilter, setTypeFilter] = useState('All');
-  const [showHidden, setShowHidden] = useState(false);
+  const [hierarchyMode, setHierarchyMode] = useState(false);
   
   const [newCode, setNewCode] = useState('');
   const [newName, setNewName] = useState('');
@@ -684,27 +684,6 @@ export function ChartOfAccounts() {
   const [editCustomValues, setEditCustomValues] = useState<Record<string, string>>({});
 
   const [showPresets, setShowPresets] = useState(false);
-  // Bulk select / import-export / hierarchy (Run 006 / T006)
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [hierarchyMode, setHierarchyMode] = useState(false);
-  const toggleSelect = (id: string) => {
-    setSelectedIds(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
-  };
-  const toggleSelectAllFiltered = () => {
-    const allSelected = filteredAccounts.length > 0 && filteredAccounts.every(a => selectedIds.has(a.id));
-    setSelectedIds(prev => {
-      const next = new Set(prev);
-      if (allSelected) filteredAccounts.forEach(a => next.delete(a.id));
-      else filteredAccounts.forEach(a => next.add(a.id));
-      return next;
-    });
-  };
-  const handleBulkHide = async (hide: boolean) => {
-    if (!selectedIds.size) return;
-    const updated = accounts.map(a => selectedIds.has(a.id) ? { ...a, hidden: hide } : a);
-    await handleSaveAccounts(updated);
-    setSelectedIds(new Set());
-  };
   const presetsRef = useRef<HTMLDivElement>(null);
 
   const [isUploading, setIsUploading] = useState(false);
@@ -725,7 +704,7 @@ export function ChartOfAccounts() {
   const [editParentId, setEditParentId] = useState('');
   const [editOpeningBalance, setEditOpeningBalance] = useState('');
   const [editModalTab, setEditModalTab] = useState<'details' | 'openingBalance'>('details');
-  // Which row's actions dropdown (Edit/Delete/Move/Hide) is currently open.
+  // Which row's actions dropdown (Edit/Delete/Move) is currently open.
   const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
   const actionMenuRef = useRef<HTMLDivElement | null>(null);
 
@@ -921,13 +900,9 @@ export function ChartOfAccounts() {
 
   if (!currentClient || !currentClientId) return null;
 
-  const filteredAccounts = (typeFilter === 'All'
+  const filteredAccounts = typeFilter === 'All'
     ? accounts
-    : accounts.filter(a => a.type.toLowerCase() === typeFilter.toLowerCase())
-  )
-    .filter(a => showHidden || !a.hidden);
-
-  const hiddenCount = accounts.filter(a => a.hidden).length;
+    : accounts.filter(a => a.type.toLowerCase() === typeFilter.toLowerCase());
 
   const handleSaveAccounts = async (updatedAccounts: CoaAccount[], coaFormat?: 'numeric' | 'alphanumeric'): Promise<boolean> => {
     const format = coaFormat || currentClient.coaFormat || 'numeric';
@@ -1062,11 +1037,6 @@ export function ChartOfAccounts() {
         return { ...a, id: newId, parentId };
       });
     return { accounts: shifted, renames };
-  };
-
-  const handleToggleHidden = async (id: string) => {
-    const updatedAccounts = accounts.map(a => a.id === id ? { ...a, hidden: !a.hidden } : a);
-    await handleSaveAccounts(updatedAccounts);
   };
 
   const applyPreset = (format: 'numeric' | 'alphanumeric') => {
@@ -1578,15 +1548,6 @@ export function ChartOfAccounts() {
     <div className="w-full flex flex-col">
       <PageHeader title="Chart of Accounts" icon={<BookOpen />} actions={
         <div className="flex flex-wrap items-center gap-2">
-          {selectedIds.size > 0 && (
-            <>
-              <span className="text-xs font-bold text-blue-600 dark:text-blue-400">{selectedIds.size} selected</span>
-              <button type="button" onClick={() => handleBulkHide(true)} className="px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200">Hide</button>
-              <button type="button" onClick={() => handleBulkHide(false)} className="px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200">Unhide</button>
-              <button type="button" onClick={() => setSelectedIds(new Set())} className="px-2.5 py-1.5 text-xs font-semibold rounded-lg text-slate-500 hover:text-slate-700 dark:hover:text-slate-200">Clear</button>
-              <span className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-1" />
-            </>
-          )}
           <input
             ref={uploadInputRef}
             type="file"
@@ -2178,23 +2139,6 @@ export function ChartOfAccounts() {
                 </select>
               </div>
 
-              {hiddenCount > 0 && (
-                <button
-                  onClick={() => setShowHidden(!showHidden)}
-                  className={cn(
-                    "text-xs font-bold py-1.5 px-3 rounded-lg flex items-center gap-1.5 transition-colors border",
-                    showHidden
-                      ? "bg-blue-50 dark:bg-blue-950/30 border-blue-200 dark:border-blue-900/50 text-blue-600 dark:text-blue-400"
-                      : "bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300"
-                  )}
-                  title={showHidden ? "Hide hidden accounts from the list" : "Show hidden accounts"}
-                >
-                  {showHidden ? <Eye className="w-3.5 h-3.5" /> : <EyeOff className="w-3.5 h-3.5" />}
-                  {showHidden ? `Showing Hidden (${hiddenCount})` : `${hiddenCount} Hidden`}
-                </button>
-              )}
-
-
               <button 
                 id="add-account-btn"
                 onClick={() => setIsAdding(true)}
@@ -2210,9 +2154,6 @@ export function ChartOfAccounts() {
             <table className="w-full min-w-[860px] text-left border-collapse">
               <thead>
                 <tr className="bg-slate-100 dark:bg-slate-800 border-b border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide">
-                  <th className="px-2 py-3.5 w-8">
-                    <input type="checkbox" aria-label="Select all" checked={filteredAccounts.length > 0 && filteredAccounts.every(a => selectedIds.has(a.id))} onChange={toggleSelectAllFiltered} className="w-3.5 h-3.5 accent-blue-600" />
-                  </th>
                   {coaColumns.map(col => {
                     let widthClass = "";
                     if (col.id === 'id') widthClass = "w-[100px]";
@@ -2230,7 +2171,7 @@ export function ChartOfAccounts() {
               <tbody className="divide-y divide-slate-200 dark:divide-slate-700/80">
                 {filteredAccounts.length === 0 ? (
                   <tr>
-                    <td colSpan={coaColumns.length + 1} className="px-4 py-12 text-center text-slate-500 text-sm">
+                    <td colSpan={coaColumns.length} className="px-4 py-12 text-center text-slate-500 text-sm">
                       No accounts found matching the filter criteria.
                     </td>
                   </tr>
@@ -2245,12 +2186,8 @@ export function ChartOfAccounts() {
                         key={account.id} 
                         className={cn(
                           "group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors",
-                          account.hidden && "opacity-50"
                         )}
                       >
-                        <td className="px-2 py-3.5 w-8">
-                          <input type="checkbox" aria-label={`Select ${account.id}`} checked={selectedIds.has(account.id)} onChange={() => toggleSelect(account.id)} className="w-3.5 h-3.5 accent-blue-600" />
-                        </td>
                         {coaColumns.map(col => {
                           if (col.id === 'id') {
                             return (
@@ -2382,16 +2319,6 @@ export function ChartOfAccounts() {
                                   >
                                     <ArrowDown className="w-3.5 h-3.5" />
                                     Move Down
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      handleToggleHidden(account.id);
-                                      setOpenActionMenuId(null);
-                                    }}
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                                  >
-                                    {account.hidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                                    {account.hidden ? "Unhide Account" : "Hide Account"}
                                   </button>
                                   <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
                                   <button
