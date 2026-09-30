@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { BookOpen, Plus, Trash2, RefreshCcw, Edit2, ClipboardList, Check, X, Columns, ArrowUp, ArrowDown, Upload, Eye, EyeOff, MoreVertical, Download, CheckSquare, Square, Layers } from 'lucide-react';
-import { parseCoaCsv, downloadCoaCsv, flattenCoaHierarchy } from '../lib/coaImport';
+import { BookOpen, Plus, Trash2, RefreshCcw, Edit2, ClipboardList, Check, X, Columns, ArrowUp, ArrowDown, Upload, Eye, EyeOff, MoreVertical, CheckSquare, Square, Layers } from 'lucide-react';
+import { flattenCoaHierarchy } from '../lib/coaImport';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { supabase } from '../lib/supabase';
@@ -39,52 +39,373 @@ function defaultAccountsFor(
   );
 }
 
-// Maps a free-text account type (from an uploaded file) to a canonical CoA type
-function normalizeUploadedType(raw: string): { type: string } {
-  const t = (raw || '').trim().toLowerCase();
-  if (t === 'asset' || t === 'assets') return { type: 'Asset' };
-  if (t === 'liability' || t === 'liabilities') return { type: 'Liabilities' };
-  if (t === 'equity') return { type: 'Equity' };
-  if (t === 'capital') return { type: 'Capital' };
-  if (t === 'revenue' || t === 'income') return { type: 'Revenue' };
-  if (t === 'cost' || t === 'costs') return { type: 'Costs' };
-  if (t === 'expense' || t === 'expenses') return { type: 'Expense' };
-  // Fallback: keep whatever was typed, capitalized, so it isn't silently dropped
-  return { type: raw.trim() ? raw.trim() : 'Asset' };
+// Smart Chart of Accounts import helpers.
+// The uploader intentionally does not require headers. When headers are present,
+// they are used; otherwise CAPOT infers the account title, account type, code and
+// opening balance from the contents of each row.
+function normalizeHeaderToken(value: any): string {
+  return String(value ?? '').trim().toLowerCase().replace(/[^a-z0-9]/g, '');
 }
+
+const IMPORT_TITLE_ALIASES = [
+  'accounttitle', 'accountname', 'account', 'acctname', 'accttitle', 'ledgeraccount',
+  'ledgername', 'particular', 'particulars', 'description', 'accountdescription',
+  'ledger'
+];
+const IMPORT_TYPE_ALIASES = [
+  'accounttype', 'type', 'category', 'classification', 'accountclassification',
+  'class', 'group'
+];
+const IMPORT_CODE_ALIASES = [
+  'accountcode', 'acctcode', 'code', 'accountno', 'accountnumber', 'acctno',
+  'accountid', 'ledgercode', 'glcode', 'glaccount'
+];
+const IMPORT_OPENING_ALIASES = [
+  'openingbalance', 'openbalance', 'beginningbalance', 'opening', 'balance',
+  'openingamount', 'openingdebit', 'openingcredit', 'debitbalance', 'creditbalance'
+];
+const IMPORT_LEVEL_ALIASES = [
+  'accountlevel', 'level', 'accountclass', 'hierarchylevel', 'subaccount'
+];
+const IMPORT_DEBIT_ALIASES = ['openingdebit', 'debitbalance'];
+const IMPORT_CREDIT_ALIASES = ['openingcredit', 'creditbalance'];
+
+const ACCOUNT_TYPE_LABELS: Array<{ label: string; type: string }> = [
+  { label: 'asset', type: 'Asset' }, { label: 'assets', type: 'Asset' },
+  { label: 'currentasset', type: 'Asset' }, { label: 'noncurrentasset', type: 'Asset' },
+  { label: 'liability', type: 'Liabilities' }, { label: 'liabilities', type: 'Liabilities' },
+  { label: 'currentliability', type: 'Liabilities' }, { label: 'noncurrentliability', type: 'Liabilities' },
+  { label: 'equity', type: 'Equity' }, { label: 'ownersequity', type: 'Equity' },
+  { label: 'capital', type: 'Capital' }, { label: 'income', type: 'Revenue' },
+  { label: 'revenue', type: 'Revenue' }, { label: 'sales', type: 'Revenue' },
+  { label: 'cost', type: 'Costs' }, { label: 'costs', type: 'Costs' },
+  { label: 'costofsales', type: 'Costs' }, { label: 'cogs', type: 'Costs' },
+  { label: 'expense', type: 'Expense' }, { label: 'expenses', type: 'Expense' },
+];
 
 const TYPE_BASE_CODE: Record<string, number> = {
-  Asset: 1000,
-  Liabilities: 2000,
-  Equity: 3000,
-  Capital: 3000,
-  Revenue: 4000,
-  Costs: 5000,
-  Expense: 5100,
+  Asset: 100000,
+  Liabilities: 200000,
+  Equity: 300000,
+  Capital: 300000,
+  Revenue: 400000,
+  Costs: 500000,
+  Expense: 600000,
 };
 
-// Generates a unique account code for an uploaded row, following the client's numeric/alphanumeric preference
-function generateUploadedAccountId(name: string, type: string, usedIds: Set<string>, format: 'numeric' | 'alphanumeric'): string {
-  const base = TYPE_BASE_CODE[type] ?? 9000;
-  let num = base;
-  while (usedIds.has(String(num))) num += 10;
+const TYPE_ALPHA_PREFIX: Record<string, string> = {
+  Asset: 'AS', Liabilities: 'LI', Equity: 'EQ', Capital: 'EQ', Revenue: 'RE', Costs: 'CO', Expense: 'EX'
+};
 
-  if (format === 'alphanumeric') {
-    const letters = name.replace(/[^a-zA-Z]/g, '').toUpperCase().padEnd(3, 'X').slice(0, 3) || 'GEN';
-    let candidate = `${letters}-${num}`;
-    while (usedIds.has(candidate)) {
-      num += 10;
-      candidate = `${letters}-${num}`;
-    }
-    return candidate;
-  }
-
-  return String(num);
+function normalizeUploadedType(raw: string): { type: string; inferred: boolean } {
+  const t = normalizeHeaderToken(raw);
+  if (!t) return { type: 'Expense', inferred: true };
+  const exact = ACCOUNT_TYPE_LABELS.find(item => item.label === t);
+  if (exact) return { type: exact.type, inferred: false };
+  if (t.includes('liabil')) return { type: 'Liabilities', inferred: false };
+  if (t.includes('equity')) return { type: 'Equity', inferred: false };
+  if (t.includes('capital')) return { type: 'Capital', inferred: false };
+  if (t.includes('asset')) return { type: 'Asset', inferred: false };
+  if (t.includes('revenue') || t.includes('income') || t === 'sales') return { type: 'Revenue', inferred: false };
+  if (t.includes('cogs') || t.includes('costofsales') || t === 'cost' || t === 'costs') return { type: 'Costs', inferred: false };
+  if (t.includes('expense')) return { type: 'Expense', inferred: false };
+  return { type: raw.trim() ? raw.trim() : 'Expense', inferred: true };
 }
 
-// Finds a column key in an uploaded row object matching one of the given normalized aliases
-function findColumnKey(row: Record<string, any>, aliases: string[]): string | undefined {
-  return Object.keys(row).find(key => aliases.includes(key.toLowerCase().replace(/[^a-z]/g, '')));
+function parseOpeningBalanceValue(value: any): number | undefined {
+  if (value === null || value === undefined) return undefined;
+  const original = String(value).trim();
+  if (!original) return undefined;
+  const cleaned = original.replace(/[₱$€£¥]/g, '').replace(/\s/g, '').replace(/,/g, '');
+  const negative = /^\(.*\)$/.test(cleaned);
+  const numeric = cleaned.replace(/[()]/g, '').replace(/^\+/, '');
+  if (!/^-?\d+(?:\.\d+)?$/.test(numeric)) return undefined;
+  const parsed = Number(numeric);
+  if (!Number.isFinite(parsed)) return undefined;
+  return negative ? -Math.abs(parsed) : parsed;
+}
+
+function looksLikeDate(value: any): boolean {
+  const s = String(value ?? '').trim();
+  return !!s && (/^\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}$/.test(s) || /^\d{4}[\/-]\d{1,2}[\/-]\d{1,2}$/.test(s));
+}
+
+function looksLikeAccountCode(value: any): boolean {
+  const s = String(value ?? '').trim().replace(/[\s-]/g, '');
+  if (!s || looksLikeDate(s)) return false;
+  return /^\d{4,8}$/.test(s) || /^[A-Za-z]{1,4}\d{2,8}$/.test(s);
+}
+
+function inferAccountTypeFromTitle(title: string): string {
+  const t = title.toLowerCase();
+  if (/(payable|accrued|loan|note payable|mortgage|lease liability|withholding|vat payable|tax payable|sss payable|philhealth payable|pag[- ]?ibig payable|customer deposit|contract liabil)/i.test(t)) return 'Liabilities';
+  if (/(capital|owner'?s? equity|share capital|retained earnings|partner'?s? capital|drawings?|owner'?s? withdrawal|dividend)/i.test(t)) return 'Equity';
+  if (/(cost of (goods|sales)|cogs|direct (materials?|labor)|factory overhead|manufacturing overhead|subcontractor|project cost|job cost|purchases)/i.test(t)) return 'Costs';
+  if (/(expense|salary|wages?|rent|utilities|electricity|water|telephone|internet|insurance|depreciation|amortization|repairs?|maintenance|advertising|marketing|professional fee|bank charge|interest expense|tax expense|office supplies)/i.test(t)) return 'Expense';
+  if (/(revenue|sales|income|service fee|service income|professional fees|consulting fee|rental income|interest income|other income|gain on)/i.test(t)) return 'Revenue';
+  if (/(cash|bank|receivable|inventory|inventories|supplies|prepaid|deposit|advance|equipment|property|plant|building|land|vehicle|computer|furniture|fixture|asset|input vat|creditable withholding)/i.test(t)) return 'Asset';
+  return 'Expense';
+}
+
+function scoreAccountTitle(value: any): number {
+  const s = String(value ?? '').trim();
+  if (!s || s.length < 2 || s.length > 100 || looksLikeDate(s)) return -100;
+  if (parseOpeningBalanceValue(s) !== undefined || looksLikeAccountCode(s)) return -80;
+  const normalized = normalizeHeaderToken(s);
+  if (ACCOUNT_TYPE_LABELS.some(x => x.label === normalized) || /^(debit|credit|dr|cr)$/i.test(s)) return -80;
+  let score = 2 + (/[A-Za-z]/.test(s) ? 2 : 0) + (/\s/.test(s) ? 1 : 0);
+  const hints = ['cash','bank','receivable','inventory','supplies','prepaid','equipment','property','building','land','vehicle','payable','loan','capital','equity','retained','sales','revenue','income','cost','cogs','salary','wage','rent','utilities','insurance','depreciation','repairs','maintenance','advertising','professional fee','tax'];
+  if (hints.some(h => s.toLowerCase().includes(h))) score += 4;
+  if (isSummaryAccountTitle(s)) score -= 20;
+  return score;
+}
+
+function isSummaryAccountTitle(value: string): boolean {
+  return /^(total|subtotal|grandtotal|netincome|netloss|grossprofit|grossloss|totalassets|totalliabilities|totalequity|totalrevenue|totalexpenses)/.test(normalizeHeaderToken(value));
+}
+
+function inferHeaderIndex(headers: any[], aliases: string[]): number {
+  const normalized = headers.map(normalizeHeaderToken);
+  return normalized.findIndex(h => aliases.includes(h));
+}
+
+function detectHeaderRow(rawRows: any[][]): {
+  headerRowIndex: number;
+  headers: string[];
+  titleIndex?: number;
+  typeIndex?: number;
+  codeIndex?: number;
+  openingIndex?: number;
+  levelIndex?: number;
+  debitIndex?: number;
+  creditIndex?: number;
+} {
+  const scanCount = Math.min(rawRows.length, 8);
+  let best = { headerRowIndex: -1, headers: [] as string[], score: -1 };
+  for (let i = 0; i < scanCount; i++) {
+    const headers = (rawRows[i] || []).map(v => String(v ?? '').trim());
+    let score = 0;
+    if (inferHeaderIndex(headers, IMPORT_TITLE_ALIASES) >= 0) score += 4;
+    if (inferHeaderIndex(headers, IMPORT_TYPE_ALIASES) >= 0) score += 3;
+    if (inferHeaderIndex(headers, IMPORT_CODE_ALIASES) >= 0) score += 2;
+    if (inferHeaderIndex(headers, IMPORT_OPENING_ALIASES) >= 0) score += 2;
+    if (inferHeaderIndex(headers, IMPORT_DEBIT_ALIASES) >= 0) score += 1;
+    if (inferHeaderIndex(headers, IMPORT_CREDIT_ALIASES) >= 0) score += 1;
+    if (inferHeaderIndex(headers, IMPORT_LEVEL_ALIASES) >= 0) score += 1;
+    if (score > best.score) best = { headerRowIndex: i, headers, score };
+  }
+  if (best.score < 2) return { headerRowIndex: -1, headers: [] };
+  return {
+    headerRowIndex: best.headerRowIndex, headers: best.headers,
+    titleIndex: inferHeaderIndex(best.headers, IMPORT_TITLE_ALIASES),
+    typeIndex: inferHeaderIndex(best.headers, IMPORT_TYPE_ALIASES),
+    codeIndex: inferHeaderIndex(best.headers, IMPORT_CODE_ALIASES),
+    openingIndex: inferHeaderIndex(best.headers, IMPORT_OPENING_ALIASES),
+    levelIndex: inferHeaderIndex(best.headers, IMPORT_LEVEL_ALIASES),
+    debitIndex: inferHeaderIndex(best.headers, IMPORT_DEBIT_ALIASES),
+    creditIndex: inferHeaderIndex(best.headers, IMPORT_CREDIT_ALIASES),
+  };
+}
+
+function normalizeImportedAccountCode(raw: any, type: string, usedIds: Set<string>, format: 'numeric' | 'alphanumeric'): { id: string; generated: boolean } {
+  const source = String(raw ?? '').trim();
+  const compact = source.replace(/[\s_-]/g, '');
+  const isNumeric = /^\d+$/.test(compact);
+  if (source) {
+    if (format === 'numeric' && isNumeric && compact.length === 6) {
+      const candidate = compact;
+      if (!usedIds.has(candidate)) return { id: candidate, generated: false };
+    }
+    if (/^[A-Za-z0-9]{6}$/.test(compact)) {
+      const candidate = compact.toUpperCase();
+      if (!usedIds.has(candidate)) return { id: candidate, generated: false };
+    }
+  }
+  const base = TYPE_BASE_CODE[type] ?? 900000;
+  if (format === 'numeric') {
+    for (let i = 0; i < 1000; i++) {
+      const candidate = String(base + i * 100).slice(-6).padStart(6, '0');
+      if (!usedIds.has(candidate)) return { id: candidate, generated: true };
+    }
+  } else {
+    const prefix = TYPE_ALPHA_PREFIX[type] || 'GN';
+    for (let i = 1; i <= 9999; i++) {
+      const candidate = `${prefix}${String(i).padStart(4, '0')}`;
+      if (!usedIds.has(candidate)) return { id: candidate, generated: true };
+    }
+  }
+  return { id: `GN${String(Date.now()).slice(-4)}`, generated: true };
+}
+
+type SmartCoaImportResult = {
+  accounts: CoaAccount[];
+  skipped: number;
+  warnings: string[];
+  detectedMode: 'headers' | 'headerless';
+  detectedColumns: string[];
+  generatedCodes: number;
+  inferredTypes: number;
+  detectedOpeningBalances: number;
+};
+
+function smartImportAccounts(
+  rawRows: any[][],
+  coaColumns: Array<{ id: string; name: string; isSystem: boolean }>,
+  format: 'numeric' | 'alphanumeric',
+  baseAccounts: CoaAccount[]
+): SmartCoaImportResult {
+  const headerInfo = detectHeaderRow(rawRows);
+  const headered = headerInfo.headerRowIndex >= 0;
+  const headers = headered ? headerInfo.headers : [];
+  const rows = headered ? rawRows.slice(headerInfo.headerRowIndex + 1) : rawRows;
+  const usedIds = new Set<string>(baseAccounts.map(a => String(a.id)));
+  const newAccounts: CoaAccount[] = [];
+  const warnings: string[] = [];
+  let skipped = 0, generatedCodes = 0, inferredTypes = 0, detectedOpeningBalances = 0;
+  let currentMainId: string | undefined;
+
+  const customColumnIndexes = new Map<string, number>();
+  if (headered) {
+    coaColumns.filter(col => !['id', 'name', 'type'].includes(col.id)).forEach(col => {
+      const aliases = new Set([normalizeHeaderToken(col.name), normalizeHeaderToken(col.id)]);
+      if (col.id === 'normalSide') { aliases.add('normalentry'); aliases.add('normalside'); aliases.add('entry'); }
+      const idx = headers.findIndex(h => aliases.has(normalizeHeaderToken(h)));
+      if (idx >= 0) customColumnIndexes.set(col.id, idx);
+    });
+  }
+
+  const extractCell = (row: any[], index?: number) => index === undefined || index < 0 ? '' : String(row[index] ?? '').trim();
+
+  rows.forEach((row, rowOffset) => {
+    const cells = Array.isArray(row) ? row : Object.values(row || {});
+    if (!cells.some(cell => String(cell ?? '').trim() !== '')) return;
+
+    let title = '', rawType = '', rawCode = '', openingRaw: any = undefined, levelRaw = '';
+    let titleIndex = -1;
+
+    if (headered) {
+      titleIndex = headerInfo.titleIndex ?? -1;
+      title = extractCell(cells, titleIndex);
+      rawType = extractCell(cells, headerInfo.typeIndex);
+      rawCode = extractCell(cells, headerInfo.codeIndex);
+      levelRaw = extractCell(cells, headerInfo.levelIndex);
+      if (headerInfo.openingIndex !== undefined && headerInfo.openingIndex >= 0) openingRaw = cells[headerInfo.openingIndex];
+      if ((openingRaw === undefined || openingRaw === '') && headerInfo.debitIndex !== undefined && headerInfo.debitIndex >= 0) {
+        const debit = parseOpeningBalanceValue(cells[headerInfo.debitIndex]) || 0;
+        const credit = headerInfo.creditIndex !== undefined && headerInfo.creditIndex >= 0
+          ? (parseOpeningBalanceValue(cells[headerInfo.creditIndex]) || 0)
+          : 0;
+        if (debit !== 0 || credit !== 0 || String(cells[headerInfo.debitIndex] ?? '').trim() === '0' || (headerInfo.creditIndex !== undefined && String(cells[headerInfo.creditIndex] ?? '').trim() === '0')) {
+          openingRaw = String(debit - credit);
+        }
+      }
+      if (titleIndex < 0) {
+        let bestScore = -Infinity;
+        cells.forEach((cell, idx) => {
+          const score = scoreAccountTitle(cell);
+          if (score > bestScore) { bestScore = score; titleIndex = idx; title = String(cell ?? '').trim(); }
+        });
+      }
+    } else {
+      let bestScore = -Infinity;
+      cells.forEach((cell, idx) => {
+        const score = scoreAccountTitle(cell);
+        if (score > bestScore) { bestScore = score; titleIndex = idx; }
+      });
+      if (titleIndex >= 0) title = String(cells[titleIndex] ?? '').trim();
+    }
+
+    const decoratedRaw = String(title ?? '').replace(/\u00a0/g, ' ');
+    const decoratedIndented = /^\s{2,}/.test(decoratedRaw) || /^\s*(?:↳|->|=>|›|»|└|├|─|•|·)/.test(decoratedRaw);
+    title = decoratedRaw.trim().replace(/^(?:↳|->|=>|›|»|└|├|─|•|·)+\s*/, '').replace(/^\d+(?:\.\d+)*\s*[-.)]\s*/, '').trim();
+    if (!title || isSummaryAccountTitle(title)) { skipped++; return; }
+
+    if (!rawType) {
+      for (let i = 0; i < cells.length; i++) {
+        if (i === titleIndex) continue;
+        const normalized = normalizeHeaderToken(cells[i]);
+        const match = ACCOUNT_TYPE_LABELS.find(item => item.label === normalized);
+        if (match) { rawType = String(cells[i]); break; }
+      }
+    }
+    const typeInfo = rawType ? normalizeUploadedType(rawType) : { type: inferAccountTypeFromTitle(title), inferred: true };
+    if (typeInfo.inferred) inferredTypes++;
+
+    if (!rawCode) {
+      for (let i = 0; i < cells.length; i++) {
+        if (i === titleIndex) continue;
+        const value = String(cells[i] ?? '').trim();
+        if (value && looksLikeAccountCode(value) && parseOpeningBalanceValue(value) === undefined) { rawCode = value; break; }
+      }
+    }
+
+    if (openingRaw === undefined || openingRaw === '') {
+      const numericCandidates: Array<{ idx: number; value: number }> = [];
+      cells.forEach((cell, idx) => {
+        if (idx === titleIndex) return;
+        const value = String(cell ?? '').trim();
+        if (!value || (rawCode && value === rawCode) || looksLikeDate(value)) return;
+        const parsed = parseOpeningBalanceValue(value);
+        if (parsed !== undefined) numericCandidates.push({ idx, value: parsed });
+      });
+      if (numericCandidates.length > 0) {
+        const selected = numericCandidates[numericCandidates.length - 1];
+        openingRaw = cells[selected.idx];
+      }
+    }
+
+    const openingBalance = parseOpeningBalanceValue(openingRaw);
+    if (openingBalance !== undefined) detectedOpeningBalances++;
+    const codeResult = normalizeImportedAccountCode(rawCode, typeInfo.type, usedIds, format);
+    const id = codeResult.id;
+    if (codeResult.generated) generatedCodes++;
+    usedIds.add(id);
+
+    const matchedValues: Record<string, any> = {};
+    customColumnIndexes.forEach((idx, colId) => {
+      const rawValue = String(cells[idx] ?? '').trim();
+      if (!rawValue) return;
+      if (colId === 'normalSide') {
+        const normal = rawValue.toLowerCase();
+        if (normal === 'debit' || normal === 'credit') matchedValues.normalSide = normal;
+      } else matchedValues[colId] = rawValue;
+    });
+
+    const account: CoaAccount = {
+      id, name: title, type: typeInfo.type, normalSide: getNormalSide(typeInfo.type),
+      ...(openingBalance !== undefined ? { openingBalance } : {}), ...matchedValues,
+    };
+
+    const level = normalizeHeaderToken(levelRaw);
+    const explicitSub = /subaccount|child|detail/.test(level);
+    if ((decoratedIndented || explicitSub) && currentMainId) account.parentId = currentMainId;
+    else currentMainId = id;
+
+    newAccounts.push(account);
+    if (typeInfo.inferred || codeResult.generated || openingBalance !== undefined) {
+      warnings.push(`Row ${headered ? headerInfo.headerRowIndex + rowOffset + 2 : rowOffset + 1}: ${[
+        typeInfo.inferred ? `type inferred as ${typeInfo.type}` : '',
+        codeResult.generated ? 'code generated' : '',
+        openingBalance !== undefined ? `opening balance ${openingBalance.toLocaleString('en-PH')}` : '',
+      ].filter(Boolean).join(', ')}`);
+    }
+  });
+
+  const detectedColumns: string[] = [];
+  if (headered) {
+    if (headerInfo.titleIndex !== undefined && headerInfo.titleIndex >= 0) detectedColumns.push(`Account Title: ${headers[headerInfo.titleIndex]}`);
+    if (headerInfo.typeIndex !== undefined && headerInfo.typeIndex >= 0) detectedColumns.push(`Account Type: ${headers[headerInfo.typeIndex]}`);
+    if (headerInfo.codeIndex !== undefined && headerInfo.codeIndex >= 0) detectedColumns.push(`Account Code: ${headers[headerInfo.codeIndex]}`);
+    if (headerInfo.openingIndex !== undefined && headerInfo.openingIndex >= 0) detectedColumns.push(`Opening Balance: ${headers[headerInfo.openingIndex]}`);
+    if (headerInfo.openingIndex === undefined && headerInfo.debitIndex !== undefined && headerInfo.debitIndex >= 0) detectedColumns.push(`Opening Debit: ${headers[headerInfo.debitIndex]}`);
+    if (headerInfo.openingIndex === undefined && headerInfo.creditIndex !== undefined && headerInfo.creditIndex >= 0) detectedColumns.push(`Opening Credit: ${headers[headerInfo.creditIndex]}`);
+  } else detectedColumns.push('No headings required — fields inferred from row contents');
+
+  return {
+    accounts: newAccounts, skipped, warnings: warnings.slice(0, 25),
+    detectedMode: headered ? 'headers' : 'headerless', detectedColumns,
+    generatedCodes, inferredTypes, detectedOpeningBalances,
+  };
 }
 
 // Shifts an entire account-code sequence forward by one position when a new
@@ -280,7 +601,6 @@ export function ChartOfAccounts() {
   // Bulk select / import-export / hierarchy (Run 006 / T006)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [hierarchyMode, setHierarchyMode] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const toggleSelect = (id: string) => {
     setSelectedIds(prev => { const next = new Set(prev); if (next.has(id)) next.delete(id); else next.add(id); return next; });
   };
@@ -293,20 +613,6 @@ export function ChartOfAccounts() {
       return next;
     });
   };
-  const handleExportCsv = () => downloadCoaCsv(accounts);
-  const handleImportFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const text = await file.text();
-    const { accounts: parsed, errors } = parseCoaCsv(text);
-    if (errors.length) alert(`Import completed with warnings:\n${errors.slice(0, 5).join('\n')}`);
-    if (parsed.length) {
-      const existing = new Set(accounts.map(a => a.id));
-      const merged = [...accounts, ...parsed.filter(p => !existing.has(p.id))];
-      await handleSaveAccounts(merged);
-    }
-    e.target.value = '';
-  };
   const handleBulkHide = async (hide: boolean) => {
     if (!selectedIds.size) return;
     const updated = accounts.map(a => selectedIds.has(a.id) ? { ...a, hidden: hide } : a);
@@ -318,20 +624,11 @@ export function ChartOfAccounts() {
   const [isUploading, setIsUploading] = useState(false);
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
-  // Holds a parsed upload waiting on the user's Override-vs-Merge choice (see the modal
-  // rendered near the bottom of this component). A native window.confirm() was used here
-  // previously, but it's unreliable inside embedded/sandboxed preview frames (it can be
-  // auto-dismissed and silently return false), which made "Override" appear broken.
+  // Holds a smart-import source file while the user reviews the detected accounts.
   const [showUploadChoice, setShowUploadChoice] = useState(false);
-  const [pendingUploadRows, setPendingUploadRows] = useState<Record<string, any>[] | null>(null);
-  const [pendingUploadKeys, setPendingUploadKeys] = useState<{
-    titleKey: string;
-    typeKey: string;
-    codeKey?: string;
-    openingBalanceKey?: string;
-    accountLevelKey?: string;
-    matchedColumnKeys: Record<string, string>;
-  } | null>(null);
+  const [pendingUploadRows, setPendingUploadRows] = useState<any[][] | null>(null);
+  const [pendingUploadFileName, setPendingUploadFileName] = useState('');
+  const [pendingUploadAnalysis, setPendingUploadAnalysis] = useState<SmartCoaImportResult | null>(null);
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editCode, setEditCode] = useState('');
@@ -749,191 +1046,83 @@ export function ChartOfAccounts() {
     setNewCustomValues({});
   };
 
-  // Parses an uploaded CSV/XLSX/XLS file for "Account Title" and "Account Type" columns.
-  // Any other columns in the file that share a header/column name with an existing
-  // Chart of Accounts column (Normal Entry or any custom column) are matched
-  // and their values are imported too.
-  // Prompts the user to choose whether to overwrite (replace) the current Chart of Accounts
-  // entirely, or just merge in the new accounts alongside the existing ones.
+  // Smart upload accepts CSV/XLS/XLSX files with or without headings. It identifies
+  // an account title from row contents, infers its type when no type is supplied,
+  // generates a six-character code when no usable code exists, and captures an
+  // opening balance when a numeric balance appears on the same row.
   const handleUploadFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    const XLSX = await import('xlsx');
-
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      try {
-        const data = evt.target?.result;
-        const workbook = XLSX.read(data, { type: 'array' });
-        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows: Record<string, any>[] = XLSX.utils.sheet_to_json(firstSheet, { defval: '' });
-
-        if (rows.length === 0) {
-          alert("The uploaded file appears to be empty.");
-          return;
-        }
-
-        const titleKey = findColumnKey(rows[0], ['accounttitle', 'accountname', 'title', 'name']);
-        const typeKey = findColumnKey(rows[0], ['accounttype', 'type']);
-
-        if (!titleKey || !typeKey) {
-          alert('Could not find "Account Title" and "Account Type" columns in the uploaded file. Please check the header row and try again.');
-          return;
-        }
-
-        // Account Code column — read separately since "id" is intentionally excluded from
-        // matchedColumnKeys below (it's handled specially so codes aren't blindly overwritten).
-        const codeKey = findColumnKey(rows[0], ['code', 'accountcode', 'accountno', 'accountnumber', 'acctcode', 'accountid']);
-
-        // Opening Balance column — not part of coaColumns (it's a dedicated field on the account),
-        // so it needs its own lookup rather than relying on the coaColumns matching loop below.
-        const openingBalanceKey = findColumnKey(rows[0], ['openingbalance', 'openbalance', 'beginningbalance', 'balance']);
-
-        // Account Level is used to preserve the source hierarchy. This is especially
-        // important when the same account title occurs more than once (for example,
-        // Packaging Supplies can legitimately exist under Inventories and COGS).
-        const accountLevelKey = findColumnKey(rows[0], ['accountlevel', 'level', 'accountclass']);
-
-        // Match any remaining uploaded columns (Normal Entry, custom columns, etc.)
-        // to the Chart of Accounts columns that share the same header/column name.
-        const otherColumns = coaColumns.filter(col => col.id !== 'id' && col.id !== 'name' && col.id !== 'type');
-        const matchedColumnKeys: Record<string, string> = {}; // coaColumn.id -> uploaded file header key
-        otherColumns.forEach(col => {
-          const aliases = new Set<string>([
-            col.name.toLowerCase().replace(/[^a-z]/g, ''),
-            col.id.toLowerCase().replace(/[^a-z]/g, ''),
-          ]);
-          if (col.id === 'normalSide') { aliases.add('normalentry'); aliases.add('normalside'); aliases.add('entry'); }
-          const fileKey = findColumnKey(rows[0], Array.from(aliases));
-          if (fileKey) matchedColumnKeys[col.id] = fileKey;
-        });
-
-        // Defer applying the import until the user picks Override or Merge in the modal below.
-        // (Previously this used window.confirm(), which can silently auto-resolve to "false"
-        // in embedded/sandboxed preview frames — making the Override option look broken.)
-        setPendingUploadRows(rows);
-        setPendingUploadKeys({ titleKey, typeKey, codeKey, openingBalanceKey, accountLevelKey, matchedColumnKeys });
-        setShowUploadChoice(true);
-      } catch (err) {
-        alert("Couldn't read that file. Please upload a CSV, XLS, or XLSX file with 'Account Title' and 'Account Type' columns.");
-      } finally {
-        setIsUploading(false);
-        if (uploadInputRef.current) uploadInputRef.current.value = '';
-      }
-    };
     setIsUploading(true);
-    reader.readAsArrayBuffer(file);
+    try {
+      const XLSX = await import('xlsx');
+      const buffer = await file.arrayBuffer();
+      const workbook = XLSX.read(buffer, { type: 'array', cellDates: false });
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rawRows = XLSX.utils.sheet_to_json(firstSheet, {
+        header: 1,
+        defval: '',
+        raw: true,
+        blankrows: false,
+      }) as any[][];
+
+      if (!rawRows.length) {
+        alert('The uploaded file appears to be empty.');
+        return;
+      }
+
+      const format = currentClient.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric';
+      const analysis = smartImportAccounts(rawRows, coaColumns, format, accounts);
+      if (analysis.accounts.length === 0) {
+        alert('No account titles could be detected. Upload a CSV/Excel file containing account names, one account per row. Headings are optional.');
+        return;
+      }
+
+      setPendingUploadRows(rawRows);
+      setPendingUploadFileName(file.name);
+      setPendingUploadAnalysis(analysis);
+      setShowUploadChoice(true);
+    } catch (err: any) {
+      console.error('Failed to read Chart of Accounts upload:', err);
+      alert("Couldn't read that file. Please upload a CSV, XLS, or XLSX file.");
+    } finally {
+      setIsUploading(false);
+      if (uploadInputRef.current) uploadInputRef.current.value = '';
+    }
   };
 
-  // Applies the parsed upload once the user has chosen Override or Merge in the modal.
+  // Applies the smart import once the user chooses Override or Merge. The rows are
+  // analyzed again with the final base account set so generated codes cannot clash
+  // with existing accounts when Merge is selected.
   const applyPendingUpload = async (overwrite: boolean) => {
     const rows = pendingUploadRows;
-    const keys = pendingUploadKeys;
+    if (!rows) return;
+
+    const format = currentClient.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric';
+    const baseAccounts = overwrite ? [] : accounts;
+    const analysis = smartImportAccounts(rows, coaColumns, format, baseAccounts);
+
     setShowUploadChoice(false);
     setPendingUploadRows(null);
-    setPendingUploadKeys(null);
-    if (!rows || !keys) return;
+    setPendingUploadFileName('');
+    setPendingUploadAnalysis(null);
 
-    const { titleKey, typeKey, codeKey, openingBalanceKey, accountLevelKey, matchedColumnKeys } = keys;
-    const format = currentClient.coaFormat || 'numeric';
-    const baseAccounts = overwrite ? [] : accounts;
-    const usedIds = new Set<string>(baseAccounts.map((a: CoaAccount) => String(a.id)));
-
-    // Do not use account name as a uniqueness key. The imported COA can legitimately
-    // contain the same title more than once under different parents/types.
-    const newAccounts: CoaAccount[] = [];
-    let skipped = 0;
-    let currentMainId: string | undefined;
-    const occurrenceByKey = new Map<string, number>();
-
-    const cleanAccountName = (value: any) => String(value ?? '')
-      .trim()
-      .replace(/^(?:↳|->|=>|›|»)+\s*/, '')
-      .trim();
-
-    const normalizeLevel = (value: any) => String(value ?? '').trim().toLowerCase();
-    const isSubAccount = (value: any) => /sub[- ]?account|subaccount|child|detail/.test(normalizeLevel(value));
-
-    const parseOpeningBalance = (value: any): number | undefined => {
-      if (value === null || value === undefined || value === '') return undefined;
-      const raw = String(value).trim().replace(/[₱$\s,]/g, '');
-      if (!raw) return undefined;
-      const negative = /^\(.*\)$/.test(raw);
-      const numeric = raw.replace(/[()]/g, '');
-      const parsed = Number(numeric);
-      return Number.isFinite(parsed) ? (negative ? -Math.abs(parsed) : parsed) : undefined;
-    };
-
-    rows.forEach((row, rowIndex) => {
-      const name = cleanAccountName(row[titleKey]);
-      const rawType = String(row[typeKey] || '').trim();
-      if (!name || !rawType) { skipped++; return; }
-
-      const { type } = normalizeUploadedType(rawType);
-      const level = accountLevelKey ? row[accountLevelKey] : '';
-      const subAccount = accountLevelKey ? isSubAccount(level) : /^↳/.test(String(row[titleKey] ?? '').trim());
-
-      // Prefer a source code when supplied. Otherwise generate a stable unique code
-      // for this imported row. The row identity includes type + hierarchy so duplicate
-      // titles remain distinct.
-      const explicitCode = codeKey ? String(row[codeKey] ?? '').trim() : '';
-      const hierarchyKey = subAccount
-        ? `${currentMainId || 'root'}|${type}|${name.toLowerCase()}`
-        : `root|${type}|${name.toLowerCase()}`;
-      const occurrence = (occurrenceByKey.get(hierarchyKey) || 0) + 1;
-      occurrenceByKey.set(hierarchyKey, occurrence);
-      let id = explicitCode && !usedIds.has(explicitCode) ? explicitCode : '';
-      if (!id) {
-        id = generateUploadedAccountId(`${name}-${occurrence}-${rowIndex + 1}`, type, usedIds, format);
-      }
-      usedIds.add(id);
-
-      const matchedValues: Record<string, any> = {};
-      Object.keys(matchedColumnKeys).forEach((colId) => {
-		const key = String(matchedColumnKeys[colId]);
-		const rawValue = String(row[key] ?? '').trim();
-
-		if (!rawValue) return;
-
-		if (colId === 'normalSide') {
-		const v = rawValue.toLowerCase();
-		if (v === 'debit' || v === 'credit') matchedValues.normalSide = v;
-		} else {
-		matchedValues[colId] = rawValue;
-		}
-	});
-
-      const openingBalance = openingBalanceKey ? parseOpeningBalance(row[openingBalanceKey]) : undefined;
-      const account: CoaAccount = {
-        id,
-        name,
-        type,
-        normalSide: getNormalSide(type),
-        ...(openingBalance !== undefined ? { openingBalance } : {}),
-        ...matchedValues,
-      };
-
-      if (subAccount && currentMainId) account.parentId = currentMainId;
-      else if (!subAccount) currentMainId = id;
-
-      newAccounts.push(account);
-    });
-
-    if (newAccounts.length === 0) {
-      showToast(skipped > 0 ? "No accounts added — all rows were incomplete or invalid." : "No valid rows found in the file.");
+    if (!analysis.accounts.length) {
+      showToast('No valid account titles were found in the uploaded file.');
       return;
     }
 
-    // Imported opening balances are source data. Do not create a balancing plug or
-    // silently alter any account. The source file may itself be unbalanced; preserve
-    // those amounts exactly and let the reconciliation/B/S report expose the difference.
-    const saved = await handleSaveAccounts([...baseAccounts, ...newAccounts]);
+    const saved = await handleSaveAccounts([...baseAccounts, ...analysis.accounts]);
     if (!saved) return;
-    showToast(
-      overwrite
-        ? `Chart of Accounts overridden with ${newAccounts.length} account${newAccounts.length === 1 ? '' : 's'}${skipped > 0 ? ` (${skipped} skipped)` : ''}.`
-        : `Uploaded ${newAccounts.length} account${newAccounts.length === 1 ? '' : 's'}${skipped > 0 ? ` (${skipped} skipped)` : ''}.`
-    );
+
+    const notes = [
+      analysis.generatedCodes ? `${analysis.generatedCodes} code${analysis.generatedCodes === 1 ? '' : 's'} generated` : '',
+      analysis.inferredTypes ? `${analysis.inferredTypes} type${analysis.inferredTypes === 1 ? '' : 's'} inferred` : '',
+      analysis.detectedOpeningBalances ? `${analysis.detectedOpeningBalances} opening balance${analysis.detectedOpeningBalances === 1 ? '' : 's'} detected` : '',
+      analysis.skipped ? `${analysis.skipped} row${analysis.skipped === 1 ? '' : 's'} skipped` : '',
+    ].filter(Boolean).join(' • ');
+
+    showToast(`${overwrite ? 'Chart of Accounts replaced with' : 'Uploaded'} ${analysis.accounts.length} account${analysis.accounts.length === 1 ? '' : 's'}${notes ? ` • ${notes}` : ''}.`);
   };
 
   const handleDelete = async (id: string) => {
@@ -1268,16 +1457,22 @@ export function ChartOfAccounts() {
               <span className="w-px h-5 bg-slate-200 dark:bg-slate-700 mx-1" />
             </>
           )}
-          <button type="button" onClick={() => setHierarchyMode(v => !v)} className={hierarchyMode ? 'px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 text-white' : 'px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200'}>
-            <span className="inline-flex items-center gap-1.5"><Layers className="w-3.5 h-3.5" />{hierarchyMode ? 'Tree view' : 'Flat view'}</span>
+          <input
+            ref={uploadInputRef}
+            type="file"
+            accept=".csv,.xlsx,.xls"
+            className="hidden"
+            onChange={handleUploadFile}
+          />
+          <button
+            type="button"
+            onClick={() => uploadInputRef.current?.click()}
+            disabled={isUploading}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 shadow-sm"
+            title="Upload a Chart of Accounts. Headings are optional; CAPOT can infer account titles, types, codes and opening balances."
+          >
+            <Upload className="w-3.5 h-3.5" /> {isUploading ? 'Reading…' : 'Upload Chart of Accounts'}
           </button>
-          <button type="button" onClick={() => fileInputRef.current?.click()} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200">
-            <Upload className="w-3.5 h-3.5" /> Import CSV
-          </button>
-          <button type="button" onClick={handleExportCsv} className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-blue-600 hover:bg-blue-700 text-white">
-            <Download className="w-3.5 h-3.5" /> Export CSV
-          </button>
-          <input ref={fileInputRef} type="file" accept=".csv" className="hidden" onChange={handleImportFile} />
         </div>
       } />
       <div className="p-4 md:p-6 flex-1">
@@ -1322,23 +1517,6 @@ export function ChartOfAccounts() {
             </div>
           </div>
           
-          <div className="flex items-center gap-2 w-full sm:w-auto shrink-0 justify-end self-stretch sm:self-auto">
-            <input
-              ref={uploadInputRef}
-              type="file"
-              accept=".csv,.xlsx,.xls"
-              onChange={handleUploadFile}
-              className="hidden"
-            />
-            <button
-              onClick={() => uploadInputRef.current?.click()}
-              disabled={isUploading}
-              className="text-xs font-bold text-slate-600 dark:text-slate-300 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors disabled:opacity-50"
-              title="Upload a CSV or Excel file with 'Account Title' and 'Account Type' columns"
-            >
-              <Upload className="w-3.5 h-3.5" /> {isUploading ? 'Uploading...' : 'Upload Chart of Accounts'}
-            </button>
-          </div>
         </div>
 
         {/* Dynamic Column/Category Manager Section */}
@@ -1461,41 +1639,70 @@ export function ChartOfAccounts() {
           </div>
         )}
 
-        {showUploadChoice && (
+        {showUploadChoice && pendingUploadAnalysis && (
           <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
-            <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl w-full max-w-md shadow-2xl border border-slate-200 dark:border-slate-700">
-              <div className="flex justify-between items-center mb-3">
-                <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">
-                  Apply Uploaded Chart of Accounts
-                </h3>
+            <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl w-full max-w-4xl shadow-2xl border border-slate-200 dark:border-slate-700 max-h-[90vh] overflow-y-auto">
+              <div className="flex justify-between items-start gap-4 mb-4">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Review Uploaded Chart of Accounts</h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{pendingUploadFileName || 'Uploaded file'}</p>
+                </div>
                 <button
-                  onClick={() => { setShowUploadChoice(false); setPendingUploadRows(null); setPendingUploadKeys(null); }}
+                  onClick={() => { setShowUploadChoice(false); setPendingUploadRows(null); setPendingUploadFileName(''); setPendingUploadAnalysis(null); }}
                   className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg text-slate-400"
+                  aria-label="Close upload review"
                 >
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              <p className="text-sm text-slate-500 dark:text-slate-400 mb-6">
-                You currently have {accounts.length} account{accounts.length === 1 ? '' : 's'} in your Chart of Accounts.
-                Choose whether to override (replace everything) or merge (keep existing accounts and add the new ones).
-              </p>
-              <div className="flex flex-col gap-2.5">
-                <button
-                  onClick={() => applyPendingUpload(true)}
-                  className="w-full bg-red-600 hover:bg-red-700 text-white font-bold text-sm px-4 py-2.5 rounded-lg transition-colors"
-                >
-                  Override — Replace Current Chart of Accounts
+
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 mb-4">
+                <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 bg-slate-50 dark:bg-slate-900/50"><div className="text-[10px] uppercase font-bold text-slate-400">Accounts found</div><div className="text-lg font-bold text-slate-800 dark:text-slate-100">{pendingUploadAnalysis.accounts.length}</div></div>
+                <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 bg-slate-50 dark:bg-slate-900/50"><div className="text-[10px] uppercase font-bold text-slate-400">Types inferred</div><div className="text-lg font-bold text-amber-600">{pendingUploadAnalysis.inferredTypes}</div></div>
+                <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 bg-slate-50 dark:bg-slate-900/50"><div className="text-[10px] uppercase font-bold text-slate-400">Codes generated</div><div className="text-lg font-bold text-indigo-600">{pendingUploadAnalysis.generatedCodes}</div></div>
+                <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3 bg-slate-50 dark:bg-slate-900/50"><div className="text-[10px] uppercase font-bold text-slate-400">Opening balances</div><div className="text-lg font-bold text-emerald-600">{pendingUploadAnalysis.detectedOpeningBalances}</div></div>
+              </div>
+
+              <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 dark:border-blue-900/50 dark:bg-blue-950/20 p-3 text-xs text-blue-800 dark:text-blue-200">
+                <div className="font-bold mb-1">Smart import</div>
+                <div>{pendingUploadAnalysis.detectedColumns.join(' • ')}</div>
+                <div className="mt-1">Account code, account type, and opening-balance headings are optional. Missing information is inferred and generated automatically.</div>
+              </div>
+
+              {pendingUploadAnalysis.accounts.length > 0 && (
+                <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden mb-5">
+                  <div className="grid grid-cols-[100px_minmax(0,1fr)_120px_150px] gap-2 px-3 py-2 bg-slate-100 dark:bg-slate-900 text-[10px] uppercase font-bold tracking-wide text-slate-500">
+                    <div>Code</div><div>Account Title</div><div>Type</div><div className="text-right">Opening Balance</div>
+                  </div>
+                  <div className="max-h-72 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
+                    {pendingUploadAnalysis.accounts.slice(0, 20).map(account => (
+                      <div key={`${account.id}-${account.name}`} className="grid grid-cols-[100px_minmax(0,1fr)_120px_150px] gap-2 px-3 py-2 text-xs items-center">
+                        <div className="font-mono font-bold text-slate-700 dark:text-slate-200">{account.id}</div>
+                        <div className="font-semibold text-slate-800 dark:text-slate-100 truncate">{account.name}</div>
+                        <div><span className="inline-flex px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-[10px] font-bold text-slate-600 dark:text-slate-200">{account.type}</span></div>
+                        <div className="text-right font-mono text-slate-700 dark:text-slate-200">{account.openingBalance !== undefined ? account.openingBalance.toLocaleString('en-PH', { minimumFractionDigits: 2 }) : '—'}</div>
+                      </div>
+                    ))}
+                  </div>
+                  {pendingUploadAnalysis.accounts.length > 20 && <div className="px-3 py-2 text-[10px] text-slate-400 bg-slate-50 dark:bg-slate-900/60">Showing first 20 of {pendingUploadAnalysis.accounts.length} detected accounts.</div>}
+                </div>
+              )}
+
+              {pendingUploadAnalysis.warnings.length > 0 && (
+                <details className="mb-5 rounded-xl border border-amber-200 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/20 p-3">
+                  <summary className="cursor-pointer text-xs font-bold text-amber-800 dark:text-amber-200">Show detection notes ({pendingUploadAnalysis.warnings.length})</summary>
+                  <div className="mt-2 space-y-1 text-[11px] text-amber-700 dark:text-amber-300">{pendingUploadAnalysis.warnings.map((warning, idx) => <div key={idx}>• {warning}</div>)}</div>
+                </details>
+              )}
+
+              <div className="flex flex-col sm:flex-row gap-2.5">
+                <button onClick={() => applyPendingUpload(true)} className="sm:flex-1 bg-red-600 hover:bg-red-700 text-white font-bold text-sm px-4 py-2.5 rounded-lg transition-colors">
+                  Override — Replace Current COA
                 </button>
-                <button
-                  onClick={() => applyPendingUpload(false)}
-                  className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm px-4 py-2.5 rounded-lg transition-colors"
-                >
-                  Merge — Keep Existing and Add New Accounts
+                <button onClick={() => applyPendingUpload(false)} className="sm:flex-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm px-4 py-2.5 rounded-lg transition-colors">
+                  Merge — Keep Existing + Add
                 </button>
-                <button
-                  onClick={() => { setShowUploadChoice(false); setPendingUploadRows(null); setPendingUploadKeys(null); }}
-                  className="w-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-200 font-bold text-sm px-4 py-2.5 rounded-lg transition-colors"
-                >
+                <button onClick={() => { setShowUploadChoice(false); setPendingUploadRows(null); setPendingUploadFileName(''); setPendingUploadAnalysis(null); }} className="bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-200 font-bold text-sm px-4 py-2.5 rounded-lg transition-colors">
                   Cancel
                 </button>
               </div>
