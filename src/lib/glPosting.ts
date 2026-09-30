@@ -107,21 +107,54 @@ function getCoaAccounts(client: Client): CoaAccount[] {
 // Per-journal, per-column overrides for labels that don't literally match an
 // account title (e.g. the CDJ's generic "Amount Dr(Cr)" column, whose actual
 // account is typed into the companion "Account Title" field).
-const CRJ_LABEL_OVERRIDES: Record<string, string> = { sundry: 'Output Tax' };
 const CDJ_LABEL_OVERRIDES: Record<string, string> = { cash: 'Cash', input_tax: 'Input Tax' };
-// PJ columns whose fixed account is known. "Net of VAT" and "Exempt / 0-Rated"
-// both debit the Purchases account.
-const PJ_LABEL_OVERRIDES: Record<string, string> = {
-  net_purchase: 'Purchases',
-  exempt_zero_rated: 'Purchases',
-  input_tax: 'Input Tax',
-  accounts_payable: 'Accounts Payable',
-  withholding_tax: 'Withholding Tax Payable',
-};
-
 interface Posting {
   accountId: string;
   entry: GeneralLedgerEntry;
+}
+
+const parseAmount = (value: unknown): number => {
+  const raw = String(value ?? '').replace(/,/g, '').replace(/[₱$]/g, '').trim();
+  if (!raw) return 0;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : 0;
+};
+
+/**
+ * General Journal rows are free-form: the account title is normally embedded
+ * in the particulars cell (for example `Rent Expense - Office lease`).
+ * Resolve the actual account title without requiring a separate Account Title
+ * column.
+ */
+function findAccountFromParticulars(particulars: string, accounts: CoaAccount[]): CoaAccount | undefined {
+  const raw = String(particulars || '').trim();
+  if (!raw) return undefined;
+
+  const candidates = [
+    raw,
+    raw.split(/\s[-:|]\s/)[0].trim(),
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    const exact = accounts.find(a => normalize(a.name) === normalize(candidate));
+    if (exact) return exact;
+  }
+
+  // Prefer a title that appears at the beginning of the particulars text.
+  let best: CoaAccount | undefined;
+  let bestLength = 0;
+  const lower = normalize(raw);
+  for (const acct of accounts) {
+    const acctName = normalize(acct.name);
+    if (!acctName) continue;
+    if ((lower === acctName || lower.startsWith(`${acctName} `)) && acctName.length > bestLength) {
+      best = acct;
+      bestLength = acctName.length;
+    }
+  }
+  if (best) return best;
+
+  return findAccountByLabel(raw, accounts);
 }
 
 function makeLeg(
@@ -358,9 +391,10 @@ function postIncomeHistory(client: Client, accounts: CoaAccount[]): Posting[] {
     ...incomeSalesToCrjEntries(client),
     ...(client.crjEntries || []).filter((entry: any) => !entry.auto),
   ];
+  const crjColumns = useColumns(client.crjColumns, DEFAULT_CRJ_COLUMNS);
   const crj = postColumnarJournal(
     crjEntries,
-    useColumns(client.crjColumns, DEFAULT_CRJ_COLUMNS),
+    crjColumns.filter(c => c.id !== 'sundry'),
     accounts,
     {
       prefix: 'crj',
@@ -368,9 +402,9 @@ function postIncomeHistory(client: Client, accounts: CoaAccount[]): Posting[] {
       dateCol: 'date',
       particularsCol: 'description',
       refCol: 'reference',
-      overrides: CRJ_LABEL_OVERRIDES,
     }
   );
+  const crjSundry = postCrjSundry(crjEntries, accounts);
 
   // Use the same account-title and payment split displayed by the Sales Journal.
   const sjEntries = [
@@ -427,7 +461,154 @@ function postIncomeHistory(client: Client, accounts: CoaAccount[]): Posting[] {
     });
   });
 
-  return [...crj, ...sjPostings];
+  return [...crj, ...crjSundry, ...sjPostings];
+}
+
+// ---------------------------------------------------------------------------
+// Source: manual General Journal rows. The General Journal UI stores its
+// entries in `journal_entries` with journal_type='GJ'. These rows are distinct
+// from the structured Journal Vouchers and must be posted independently.
+// Voucher-derived/auto GJ rows are skipped here because their voucher lines are
+// already posted by postJournalVouchers(), which prevents double posting.
+// ---------------------------------------------------------------------------
+
+function postGeneralJournalEntries(client: Client, accounts: CoaAccount[]): Posting[] {
+  const postings: Posting[] = [];
+  const columns = useColumns((client as any).gjColumns, [
+    { id: 'date', name: 'DATE', type: 'text', category: 'None', isSystem: true },
+    { id: 'particulars', name: 'ACCOUNT TITLES & DESCRIPTION', type: 'text', category: 'None', isSystem: true },
+    { id: 'ref_no', name: 'PR', type: 'text', category: 'None', isSystem: true },
+    { id: 'debit', name: 'DEBIT', type: 'number', category: 'Dr', isSystem: true },
+    { id: 'credit', name: 'CREDIT', type: 'number', category: 'Cr', isSystem: true },
+  ]);
+  const systemAmountIds = new Set(['debit', 'credit']);
+
+  (client.gjEntries || []).filter((entry: any) => !entry.auto).forEach((entry: any) => {
+    const v = entry.values || {};
+    const date = String(v.date || '');
+    const particulars = String(v.particulars || v.account_title || v.description || '');
+    const ref = String(v.ref_no || v.reference || '');
+
+    const postAmount = (amount: number, side: 'debit' | 'credit', account: CoaAccount | undefined, suffix: string) => {
+      if (!account || amount === 0) return;
+      postings.push({
+        accountId: account.id,
+        entry: makeLeg(`gj:${entry.id}:${suffix}`, side, Math.abs(amount), date, particulars, ref, 'General Journal'),
+      });
+    };
+
+    const dr = parseAmount(v.debit);
+    const cr = parseAmount(v.credit);
+    const particularsAccount = findAccountFromParticulars(particulars, accounts);
+    if (dr !== 0) postAmount(dr, 'debit', particularsAccount, 'dr');
+    if (cr !== 0) postAmount(cr, 'credit', particularsAccount, 'cr');
+
+    // A customized GJ can have additional account-specific numeric columns.
+    columns
+      .filter((c: JournalColumn) => c.type === 'number' && !systemAmountIds.has(c.id) && c.category !== 'None')
+      .forEach((col: JournalColumn) => {
+        const amount = parseAmount(v[col.id]);
+        if (amount === 0) return;
+        const account = findAccountByLabel(col.name, accounts);
+        if (!account) return;
+        postAmount(amount, col.category === 'Dr' ? 'debit' : 'credit', account, col.id);
+      });
+  });
+
+  return postings;
+}
+
+// ---------------------------------------------------------------------------
+// Source: manual Purchases Journal rows. The `Account Title` field is the
+// actual debit account for the purchase and must not be ignored.
+// ---------------------------------------------------------------------------
+
+function postManualPurchasesJournal(entries: JournalEntry[], columns: JournalColumn[], accounts: CoaAccount[]): Posting[] {
+  const postings: Posting[] = [];
+  const customColumns = columns.filter(c => !new Set(DEFAULT_PJ_COLUMNS.map(x => x.id)).has(c.id) && c.type === 'number' && c.category !== 'None');
+
+  entries.forEach(entry => {
+    const v = entry.values || {};
+    const date = String(v.date || '');
+    const particulars = String(v.description || v.supplier_name || v.debit_account || 'Purchase');
+    const ref = String(v.invoice_no || '');
+    const debitAccount = findAccountByLabel(String(v.debit_account || ''), accounts) || findAccountByLabel('Purchases', accounts);
+
+    const net = parseAmount(v.net_purchase);
+    const exempt = parseAmount(v.exempt_zero_rated);
+    const inputTax = parseAmount(v.input_tax);
+    const ap = parseAmount(v.accounts_payable);
+    const wht = parseAmount(v.withholding_tax);
+
+    if (debitAccount && net + exempt !== 0) {
+      postings.push({ accountId: debitAccount.id, entry: makeLeg(`pj:${entry.id}:purchase`, 'debit', Math.abs(net + exempt), date, particulars, ref, 'Purchases Journal') });
+    }
+
+    if (inputTax !== 0) {
+      const acct = findAccountByLabel('Input Tax', accounts) || findAccountByLabel('VAT Input Receivable', accounts);
+      if (acct) postings.push({ accountId: acct.id, entry: makeLeg(`pj:${entry.id}:inputtax`, 'debit', Math.abs(inputTax), date, particulars, ref, 'Purchases Journal') });
+    }
+
+    if (ap !== 0) {
+      const acct = findAccountByLabel('Accounts Payable', accounts);
+      if (acct) postings.push({ accountId: acct.id, entry: makeLeg(`pj:${entry.id}:ap`, 'credit', Math.abs(ap), date, particulars, ref, 'Purchases Journal') });
+    }
+
+    if (wht !== 0) {
+      const acct = findAccountByLabel('Withholding Tax Payable - Expanded', accounts)
+        || findAccountByLabel('Withholding Tax Payable', accounts)
+        || findAccountByLabel('Withholding Tax', accounts);
+      if (acct) postings.push({ accountId: acct.id, entry: makeLeg(`pj:${entry.id}:wht`, 'credit', Math.abs(wht), date, particulars, ref, 'Purchases Journal') });
+    }
+
+    customColumns.forEach(col => {
+      const amount = parseAmount(v[col.id]);
+      if (amount === 0) return;
+      const acct = findAccountByLabel(col.name, accounts);
+      if (!acct) return;
+      postings.push({
+        accountId: acct.id,
+        entry: makeLeg(`pj:${entry.id}:${col.id}`, col.category === 'Dr' ? 'debit' : 'credit', Math.abs(amount), date, particulars, ref, 'Purchases Journal'),
+      });
+    });
+  });
+
+  return postings;
+}
+
+// ---------------------------------------------------------------------------
+// Source: Cash Receipts Journal sundry amounts. A manual CRJ row can use its
+// description/account-credited cell to identify the actual sundry account.
+// For auto sales rows, Output Tax remains the fallback.
+// ---------------------------------------------------------------------------
+
+function postCrjSundry(entries: JournalEntry[], accounts: CoaAccount[]): Posting[] {
+  const postings: Posting[] = [];
+  entries.forEach(entry => {
+    const v = entry.values || {};
+    const amount = parseAmount(v.sundry);
+    if (amount === 0) return;
+
+    // Income History rows are auto-generated for cash-basis sales, where the
+    // Sundry amount is specifically Output VAT/Tax. Manual CRJ rows may use
+    // the Description / Account Credited field to identify another account.
+    const manualLabel = String(v.account_title || v.description || '');
+    const account = (entry as any).auto
+      ? (findAccountByLabel('Output Tax', accounts) || findAccountByLabel('Output VAT', accounts))
+      : (findAccountByLabel(manualLabel, accounts)
+        || findAccountByLabel('Output Tax', accounts)
+        || findAccountByLabel('Output VAT', accounts));
+    if (!account) return;
+
+    const date = String(v.date || '');
+    const particulars = String(v.description || v.payor || 'Cash Receipt');
+    const ref = String(v.reference || '');
+    postings.push({
+      accountId: account.id,
+      entry: makeLeg(`crj:${entry.id}:sundry`, 'credit', Math.abs(amount), date, particulars, ref, 'Cash Receipts Journal'),
+    });
+  });
+  return postings;
 }
 
 // ---------------------------------------------------------------------------
@@ -786,9 +967,11 @@ export function computeAutoPostings(client: Client): Posting[] {
   // is used to populate the CRJ/SJ screens, but it is NOT a direct GL source.
   // Once a transaction is in the Cash Receipts Journal or Sales Journal, the
   // GL posts that journal entry — exactly as it appears in the journal.
+  const crjEntries = client.crjEntries || [];
+  const crjColumns = useColumns(client.crjColumns, DEFAULT_CRJ_COLUMNS);
   const crj = postColumnarJournal(
-    client.crjEntries || [],
-    useColumns(client.crjColumns, DEFAULT_CRJ_COLUMNS),
+    crjEntries,
+    crjColumns.filter(c => c.id !== 'sundry'),
     accounts,
     {
       prefix: 'crj',
@@ -796,9 +979,9 @@ export function computeAutoPostings(client: Client): Posting[] {
       dateCol: 'date',
       particularsCol: 'description',
       refCol: 'reference',
-      overrides: CRJ_LABEL_OVERRIDES,
     }
   );
+  const crjSundry = postCrjSundry(crjEntries, accounts);
 
   // Sales Journal has a system Account Title column, plus AR/Credit Card
   // debit columns and Output VAT/Revenue credit columns. Post the actual
@@ -916,22 +1099,25 @@ export function computeAutoPostings(client: Client): Posting[] {
   const cdjSundry = postCdjSundry(cdjEntries, accounts);
   const cdjInputTax = postCdjAutoInputTax(cdjEntries, accounts);
 
-  // Auto PJ rows are display-only (on-account purchases already reach the
-  // ledger via postPurchases); only manually-typed PJ rows post here.
+  // Auto PJ rows are display-only (the originating Purchases records are
+  // already posted by postPurchases). Manual PJ rows, however, are an actual
+  // book of original entry and must post using their Account Title field.
   const manualPj = (client.pjEntries || []).filter(e => !e.auto);
-  const pj = postColumnarJournal(manualPj, useColumns(client.pjColumns, DEFAULT_PJ_COLUMNS), accounts, {
-    prefix: 'pj',
-    sourceLabel: 'Purchases Journal',
-    dateCol: 'date',
-    particularsCol: 'supplier_name',
-    refCol: 'invoice_no',
-    overrides: PJ_LABEL_OVERRIDES,
-  });
+  const pj = postManualPurchasesJournal(
+    manualPj,
+    useColumns(client.pjColumns, DEFAULT_PJ_COLUMNS),
+    accounts
+  );
 
   const jv = postJournalVouchers(client);
+  const gj = postGeneralJournalEntries(client, accounts);
   const purchases = postPurchases(client, accounts);
 
-  return [...crj, ...sjPostings, ...cdj, ...cdjSundry, ...cdjInputTax, ...pj, ...jv, ...purchases];
+  return [
+    ...crj, ...crjSundry, ...sjPostings,
+    ...cdj, ...cdjSundry, ...cdjInputTax,
+    ...pj, ...jv, ...gj, ...purchases,
+  ];
 }
 
 /**
