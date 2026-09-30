@@ -27,27 +27,7 @@ const formatBalance = (n: number) => {
   return n < 0 ? `-${formatted}` : formatted;
 };
 
-const entryDate = (entry: GeneralLedgerEntry) => {
-  const raw = String(entry.dateDr || entry.dateCr || '').trim();
-  if (!raw) return '';
-
-  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(raw);
-  if (iso) {
-    return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
-  }
-
-  const mdy = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/.exec(raw);
-  if (mdy) {
-    return `${mdy[3]}-${mdy[1].padStart(2, '0')}-${mdy[2].padStart(2, '0')}`;
-  }
-
-  const parsed = new Date(raw);
-  if (!Number.isNaN(parsed.getTime())) {
-    return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, '0')}-${String(parsed.getDate()).padStart(2, '0')}`;
-  }
-
-  return raw.slice(0, 10);
-};
+const entryDate = (entry: GeneralLedgerEntry) => String(entry.dateDr || entry.dateCr || '').slice(0, 10);
 
 export function GeneralLedger() {
   const { currentClient, currentClientId } = useAccounting();
