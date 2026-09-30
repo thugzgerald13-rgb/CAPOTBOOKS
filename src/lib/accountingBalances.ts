@@ -160,38 +160,33 @@ export interface ProfitAndLossTotals {
  * need to be displayed so the figures always agree with that report.
  */
 export function getProfitAndLossTotals(client: Client, year = getCurrentYear(client)): ProfitAndLossTotals {
-  const start = `${year}-01-01`;
-  const end = `${year + 1}-01-01`;
-
-  const balances: ProfitAndLossAccountLine[] = (client.glAccounts || []).map((account: any) => {
-    const entries = Array.isArray(account.entries) ? account.entries : [];
-    const periodEntries = entries.filter((entry: any) => {
-      const d = String(entry.date || entry.dateDr || entry.dateCr || '').slice(0, 10);
-      return d >= start && d < end;
-    });
-    const period_debit = periodEntries.reduce((n: number, entry: any) => n + Number(String(entry.debit ?? '').replace(/,/g, '') || 0), 0);
-    const period_credit = periodEntries.reduce((n: number, entry: any) => n + Number(String(entry.credit ?? '').replace(/,/g, '') || 0), 0);
-    const allEntries = entries.filter((entry: any) => String(entry.date || entry.dateDr || entry.dateCr || '').slice(0, 10) < end);
-    const totalDebit = allEntries.reduce((n: number, entry: any) => n + Number(String(entry.debit ?? '').replace(/,/g, '') || 0), 0);
-    const totalCredit = allEntries.reduce((n: number, entry: any) => n + Number(String(entry.credit ?? '').replace(/,/g, '') || 0), 0);
-    return {
-      account_id: String(account.accountId || account.id),
-      account_name: String(account.accountTitle || ''),
-      account_type: String(account.accountType || ''),
-      period_debit,
-      period_credit,
-      period_balance: period_debit - period_credit,
-      balance: totalDebit - totalCredit,
-    };
-  });
+  // Financial statements must use the SAME year-end balances shown by the
+  // Trial Balance.  getAccountBalances() includes each account's opening
+  // balance plus the current-year General Ledger movements, so an account
+  // with an opening balance is included even when it has no journal entries.
+  const accountBalances = getAccountBalances(client, year);
+  const balances: ProfitAndLossAccountLine[] = accountBalances
+    .filter(({ account }) => ['revenue', 'cost', 'costs', 'expense', 'expenses'].includes(String(account.type || '').toLowerCase()))
+    .map(({ account, currentYearDebit, currentYearCredit, currentYearBalance }) => ({
+      account_id: String(account.id),
+      account_name: String(account.name || ''),
+      account_type: String(account.type || ''),
+      period_debit: currentYearDebit,
+      period_credit: currentYearCredit,
+      period_balance: currentYearDebit - currentYearCredit,
+      // This is the Trial Balance ending balance for the selected year.
+      balance: currentYearBalance,
+    }));
 
   const revenue = balances.filter(x => (x.account_type || '').toLowerCase() === 'revenue');
   const costs = balances.filter(x => ['cost', 'costs'].includes((x.account_type || '').toLowerCase()));
   const expenses = balances.filter(x => ['expense', 'expenses'].includes((x.account_type || '').toLowerCase()));
 
-  const revenueTotal = revenue.reduce((n, x) => n + Math.max(0, x.period_credit - x.period_debit), 0);
-  const costTotal = costs.reduce((n, x) => n + Math.max(0, x.period_debit - x.period_credit), 0);
-  const expenseTotal = expenses.reduce((n, x) => n + Math.max(0, x.period_debit - x.period_credit), 0);
+  // Credit-normal P&L accounts have positive ending amounts when their
+  // signed TB balance is negative; debit-normal costs/expenses are positive.
+  const revenueTotal = revenue.reduce((n, x) => n + Math.max(0, -x.balance), 0);
+  const costTotal = costs.reduce((n, x) => n + Math.max(0, x.balance), 0);
+  const expenseTotal = expenses.reduce((n, x) => n + Math.max(0, x.balance), 0);
   const grossIncome = revenueTotal - costTotal;
   const netIncome = grossIncome - expenseTotal;
 

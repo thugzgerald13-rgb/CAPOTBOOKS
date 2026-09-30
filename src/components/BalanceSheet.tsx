@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Landmark, FileDown } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
-import { formatAccountAmount, getCurrentYear } from '../lib/accountingBalances';
+import { formatAccountAmount, getCurrentYear, getAccountBalances } from '../lib/accountingBalances';
 import { exportAfBundle, type AfsSheetRow } from '../lib/afsExport';
 import { NET_INCOME_ID } from '../utils/fileParser';
 import ImportDataModal from './ImportDataModal';
@@ -48,30 +48,31 @@ export function BalanceSheet() {
 
   useEffect(() => {
     if (!currentClientId) { setBalances([]); setReportError(null); return; }
-    const start = `${year}-01-01`;
-    const end = `${year + 1}-01-01`;
-    const pStart = `${year - 1}-01-01`;
-    const fallback: Line[] = (currentClient.glAccounts || []).map((account: any) => {
-      const entries = Array.isArray(account.entries) ? account.entries : [];
-      const inRange = (a: string, b: string) => entries.filter((e: any) => { const d = dateOf(e); return d >= a && d < b; });
-      const cur = inRange(start, end);
-      const prv = inRange(pStart, start);
-      const sum = (list: any[], k: 'debit' | 'credit') => list.reduce((n: number, e: any) => n + numOf(e[k]), 0);
-      const all = entries.filter((e: any) => dateOf(e) < end);
+
+    // Balance Sheet current/prior columns come directly from the same
+    // account-balance engine used by Trial Balance. This includes opening
+    // balances even when an account has no journal entries.
+    const currentBalances = getAccountBalances(currentClient, year);
+    const priorBalances = getAccountBalances(currentClient, year - 1);
+    const priorById = new Map(priorBalances.map(b => [String(b.account.id), b]));
+
+    const mapped: Line[] = currentBalances.map(b => {
+      const prior = priorById.get(String(b.account.id));
       return {
-        account_id: String(account.accountId || account.id),
-        account_name: String(account.accountTitle || ''),
-        account_type: String(account.accountType || ''),
-        balance: sum(all, 'debit') - sum(all, 'credit'),
-        period_debit: sum(cur, 'debit'),
-        period_credit: sum(cur, 'credit'),
-        period_balance: sum(cur, 'debit') - sum(cur, 'credit'),
-        prior_period_debit: sum(prv, 'debit'),
-        prior_period_credit: sum(prv, 'credit'),
+        account_id: String(b.account.id),
+        account_name: String(b.account.name || ''),
+        account_type: String(b.account.type || ''),
+        // balance is the selected-year Trial Balance ending balance.
+        balance: b.currentYearBalance,
+        period_debit: b.currentYearDebit,
+        period_credit: b.currentYearCredit,
+        period_balance: b.currentYearDebit - b.currentYearCredit,
+        prior_period_debit: prior?.currentYearDebit || 0,
+        prior_period_credit: prior?.currentYearCredit || 0,
       };
     });
-    setBalances(fallback);
-    setReportError(fallback.length ? null : 'No accounts found.');
+    setBalances(mapped);
+    setReportError(mapped.length ? null : 'No accounts found.');
   }, [currentClientId, currentClient, year]);
 
   if (!currentClient || !currentClientId) return null;

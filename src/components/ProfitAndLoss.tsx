@@ -60,14 +60,20 @@ export function ProfitAndLoss() {
     }
     return <td className={`${money} text-slate-400`}>{formatAccountAmount(value)}</td>;
   };
-  // Ledger-derived amounts.
+  // Ledger-derived amounts.  The current column follows the Trial Balance
+  // ending balance (opening balance + current-year activity), rather than
+  // only the current-year journal movement. This keeps P&L tied to the same
+  // ending balances shown by the Trial Balance.
   const glCur = (x: BalanceItem, sign: 'revenue' | 'debit') =>
     sign === 'revenue'
-      ? Math.max(0, Number(x.period_credit || 0) - Number(x.period_debit || 0))
-      : Math.max(0, Number(x.period_debit || 0) - Number(x.period_credit || 0));
-  // Prior-year (comparative) amount: cumulative balance minus current-period movement.
-  const glPrior = (x: BalanceItem, sign: 'revenue' | 'debit') =>
-    Math.max(0, Number(x.balance || 0) - glCur(x, sign));
+      ? Math.max(0, -Number(x.balance || 0))
+      : Math.max(0, Number(x.balance || 0));
+  // Beginning/prior balance = Trial Balance ending balance less current-year
+  // movement, which corresponds to the stored opening balance.
+  const glPrior = (x: BalanceItem, sign: 'revenue' | 'debit') => {
+    const priorSigned = Number(x.balance || 0) - (Number(x.period_debit || 0) - Number(x.period_credit || 0));
+    return sign === 'revenue' ? Math.max(0, -priorSigned) : Math.max(0, priorSigned);
+  };
   const cur = glCur;
   // Prior column: imported value when that account is in the import, otherwise the ledger.
   const prior = (x: BalanceItem, sign: 'revenue' | 'debit') => {
