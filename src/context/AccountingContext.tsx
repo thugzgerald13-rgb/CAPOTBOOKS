@@ -483,7 +483,8 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
   return result;
 };
 
-const persistNormalizedClient = async (client: Client, userId: string) => {
+const persistNormalizedClient = async (client: Client, userId: string, options: { initialCreate?: boolean } = {}) => {
+  const initialCreate = options.initialCreate === true;
   const clientId = client.id;
   const parent = {
     id: clientId, user_id: userId, name: client.name,
@@ -506,6 +507,22 @@ const persistNormalizedClient = async (client: Client, userId: string) => {
   // exist in the client aggregate.
   const syncMany = async (table:string, rows:any[]) => {
     const normalizedRows = rows.map(r => ({ ...r, client_id: clientId }));
+
+    // A brand-new client cannot have stale child rows to reconcile. Skipping
+    // the existence SELECT and ignoring empty tables removes the large number
+    // of unnecessary round trips that previously made New Client > Save slow.
+    // Existing-client saves continue to use the full non-destructive sync path.
+    if (initialCreate) {
+      if (!normalizedRows.length) return;
+      const conflictTarget = table === 'coa_accounts' ? 'client_id,id' : 'id';
+      for (const part of chunk(normalizedRows)) {
+        if (!part.length) continue;
+        const { error } = await supabase.from(table).upsert(part, { onConflict: conflictTarget });
+        if (error) throw error;
+      }
+      return;
+    }
+
     const { data: existingRows, error: existingError } = await supabase
       .from(table)
       .select('id')
@@ -1610,7 +1627,7 @@ export function AccountingProvider({
       // Persist first. Do not advertise a successful save or leave a local-only
       // client visible when Supabase rejected the write (for example because
       // the account's RLS policy is not yet deployed).
-      await persistNormalizedClient(updatedClient, dataOwnerId);
+      await persistNormalizedClient(updatedClient, dataOwnerId, { initialCreate: !previousClient });
       setClients((prev) => ({ ...prev, [id]: updatedClient }));
       showToast('Client saved');
     } catch (error) {
@@ -1785,7 +1802,7 @@ export function AccountingProvider({
     try {
       // The authenticated accountant owns the newly-created client row. This
       // matches clients_insert_own RLS without granting cross-user access.
-      await persistNormalizedClient(newClient, dataOwnerId);
+      await persistNormalizedClient(newClient, dataOwnerId, { initialCreate: true });
       setClients((prev) => ({ ...prev, [newId]: newClient }));
       setCurrentClientId(newId);
       showToast('Client added');
