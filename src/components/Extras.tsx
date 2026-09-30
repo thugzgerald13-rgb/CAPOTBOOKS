@@ -26,6 +26,7 @@ export function Extras() {
     saveClientProfile,
     ownerClientId,
     showToast,
+    saveFile,
   } = useAccounting();
   const { userRole } = useAuth();
   const [editingClient, setEditingClient] = useState<Client | null>(null);
@@ -66,7 +67,6 @@ export function Extras() {
   // Edit button is pressed again.
   const [isClientLocked, setIsClientLocked] = useState(false);
   const [isNewClient, setIsNewClient] = useState(false);
-  const [isSavingClient, setIsSavingClient] = useState(false);
   const [birCorFile, setBirCorFile] = useState<File | null>(null);
   const [birCorExtraction, setBirCorExtraction] = useState<BirCorExtractionResult | null>(null);
   const [birCorStatus, setBirCorStatus] = useState<string | null>(null);
@@ -196,53 +196,47 @@ export function Extras() {
     });
     if (uploadError) throw uploadError;
 
-    const { error: rowError } = await supabase.from('app_files').upsert({
-      id,
-      client_id: clientId,
-      name: file.name,
-      type: file.type || 'application/octet-stream',
-      size: file.size,
-      uploaded_at: new Date().toISOString(),
-      folder_id: folderId || null,
-      storage_path: storagePath,
-      description: 'BIR Certificate of Registration (COR / BIR Form 2303) used to populate client profile',
-    }, { onConflict: 'id' });
-    if (rowError) {
+    try {
+      await saveFile({
+        id,
+        name: file.name,
+        type: file.type || 'application/octet-stream',
+        size: file.size,
+        uploadedAt: new Date().toISOString(),
+        folderId: folderId || '',
+        storagePath,
+        description: 'BIR Certificate of Registration (COR / BIR Form 2303) used to populate client profile',
+      });
+    } catch (error) {
       await supabase.storage.from('client-files').remove([storagePath]);
-      throw rowError;
+      throw error;
     }
   };
 
   const handleSaveProfile = async () => {
-    if (!editingClient || isSavingClient) return;
+    if (!editingClient) return;
     const wasNewClient = isNewClient;
     const fileToAttach = birCorFile;
-    const registrationFolderId = editingClient.folders?.find((folder) => folder.name === 'BIR Registration')?.id;
-    setIsSavingClient(true);
     try {
-      // The client record is the critical save operation. Do not make the user
-      // wait for a potentially large COR/2303 upload before the form becomes
-      // saved/locked. The attachment continues in the background after the
-      // client row and starter data have been committed.
       await saveClientProfile(editingClient.id, editingClient);
+      if (wasNewClient && fileToAttach) {
+        setBirCorStatus('Saving the COR / 2303 with the client record…');
+        try {
+          const registrationFolderId = editingClient.folders?.find((folder) => folder.name === 'BIR Registration')?.id;
+          await uploadBirCorAttachment(editingClient.id, fileToAttach, registrationFolderId);
+          setBirCorStatus('COR / 2303 saved with this client.');
+        } catch (attachmentError) {
+          console.error('BIR COR attachment upload failed:', attachmentError);
+          setBirCorError('Client was saved, but the COR / 2303 file could not be attached.');
+          setBirCorStatus(null);
+          showToast('Client saved, but the COR / 2303 attachment failed to upload.');
+        }
+      }
+      // Stay on the form (grayed out) only after Supabase confirms the save.
       setIsNewClient(false);
       setIsClientLocked(true);
-      if (wasNewClient && fileToAttach) {
-        setBirCorStatus('Uploading the COR / 2303 in the background…');
-        void uploadBirCorAttachment(editingClient.id, fileToAttach, registrationFolderId)
-          .then(() => setBirCorStatus('COR / 2303 saved with this client.'))
-          .catch((attachmentError) => {
-            console.error('BIR COR attachment upload failed:', attachmentError);
-            setBirCorError('Client was saved, but the COR / 2303 file could not be attached.');
-            setBirCorStatus(null);
-            showToast('Client saved, but the COR / 2303 attachment failed to upload.');
-          });
-      }
     } catch (error) {
       console.error('Client profile save failed:', error);
-      showToast('Client could not be saved. Please try again.');
-    } finally {
-      setIsSavingClient(false);
     }
   };
 
@@ -766,10 +760,10 @@ export function Extras() {
             <div className="border-t border-slate-300 dark:border-slate-700 pt-4 flex justify-end gap-3 px-4">
               <button 
                 onClick={handleSaveProfile}
-                disabled={isClientLocked || isSavingClient}
+                disabled={isClientLocked}
                 className="bg-slate-200 dark:bg-slate-700 font-bold px-6 py-2 rounded border border-slate-400 dark:border-slate-600 shadow-sm hover:bg-slate-300 dark:hover:bg-slate-600 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isSavingClient ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />} {isSavingClient ? 'Saving…' : 'Save'}
+                <Save className="w-4 h-4" /> Save
               </button>
               <button
                 onClick={() => setIsClientLocked(false)}

@@ -7,7 +7,7 @@ import { Search, Trash2, Receipt, ShoppingCart, FolderClock, History as HistoryI
 import { cn, MONTHS, generateCSV, formatTIN } from '../lib/utils';
 import { getAttachmentViewUrl } from '../lib/supabaseUtils';
 import { supabase } from '../lib/supabase';
-import { getCachedQuery, cacheQuery, invalidateQueries } from '../db/localDb';
+import { getCachedQuery, cacheQuery } from '../db/localDb';
 import { DEFAULT_ACCOUNTS } from './ChartOfAccounts';
 import { getDefaultAccountsForIndustry } from '../lib/journalDefaults';
 import * as XLSX from 'xlsx';
@@ -45,7 +45,7 @@ const MIN_EXPENSE_COLUMN_WIDTH = 60;
 type HistoryTab = 'expenses' | 'income' | 'slp' | 'sls';
 
 export function History() {
-  const { currentClient, currentClientId, saveTinEntry, showToast, navigateToPage, historyTab, setHistoryTab, activeDevice } = useAccounting();
+  const { currentClient, currentClientId, savePurchase, deletePurchase, saveSale, deleteSale, saveTinEntry, showToast, navigateToPage, historyTab, setHistoryTab, activeDevice } = useAccounting();
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState('');
   const [localHistoryPurchases, setLocalHistoryPurchases] = useState<any[]>([]);
@@ -653,11 +653,14 @@ export function History() {
 
   const handleDeleteExpense = async (id: string | number) => {
     if (!currentClientId) return;
-    const { error } = await supabase.from('purchases').delete().eq('client_id', currentClientId).eq('id', id);
-    if (error) { console.error(error); showToast('Unable to delete expense'); return; }
-    setLocalHistoryPurchases(prev => prev.filter(p => String(p.id) !== String(id)));
-    invalidateQueries('purchases', currentClientId).catch(() => {});
-    showToast('Expense deleted');
+    try {
+      await deletePurchase(String(id));
+      setLocalHistoryPurchases(prev => prev.filter(p => String(p.id) !== String(id)));
+      showToast('Expense deleted');
+    } catch (error) {
+      console.error(error);
+      showToast('Unable to delete expense');
+    }
   };
 
   const handleEditExpense = (purchase: typeof purchases[number]) => {
@@ -681,21 +684,18 @@ export function History() {
     // No-op if the value didn't actually change.
     if (trimmed === (purchase.accountTitle || '')) return;
     setSavingAccountId(idKey);
-    const { error } = await supabase
-      .from('purchases')
-      .update({ account_title: trimmed || null })
-      .eq('client_id', currentClientId)
-      .eq('id', id);
-    setSavingAccountId(null);
-    if (error) {
+    try {
+      await savePurchase(idKey, { ...purchase, accountTitle: trimmed || undefined });
+    } catch (error) {
+      setSavingAccountId(null);
       console.error('Account title update failed:', error);
       showToast('Unable to update account title');
       return;
     }
+    setSavingAccountId(null);
     setLocalHistoryPurchases(prev =>
       prev.map(p => String(p.id) === idKey ? { ...p, accountTitle: trimmed || undefined } : p)
     );
-    invalidateQueries('purchases', currentClientId).catch(() => {});
     showToast(trimmed ? `Account title updated to “${trimmed}”` : 'Account title cleared');
   };
 
@@ -706,11 +706,14 @@ export function History() {
 
   const handleDeleteIncome = async (id: number) => {
     if (!currentClientId) return;
-    const { error } = await supabase.from('sales').delete().eq('client_id', currentClientId).eq('id', id);
-    if (error) { console.error(error); showToast('Unable to delete income'); return; }
-    setLocalHistorySales(prev => prev.filter(s => s.id !== id));
-    invalidateQueries('sales', currentClientId).catch(() => {});
-    showToast('Income deleted');
+    try {
+      await deleteSale(String(id));
+      setLocalHistorySales(prev => prev.filter(s => String(s.id) !== String(id)));
+      showToast('Income deleted');
+    } catch (error) {
+      console.error(error);
+      showToast('Unable to delete income');
+    }
   };
 
   const purchases = localHistoryPurchases;
@@ -757,13 +760,16 @@ export function History() {
     const idValues = localHistoryPurchases.filter(p => targetIds.has(String(p.id))).map(p => p.id);
     if (idValues.length === 0) { clearBulkSelection(); return; }
     setBulkSaving(true);
-    const { error } = await supabase
-      .from('purchases')
-      .update({ account_title: trimmed || null })
-      .eq('client_id', currentClientId)
-      .in('id', idValues);
+    try {
+      const selectedPurchases = localHistoryPurchases.filter(p => targetIds.has(String(p.id)));
+      await Promise.all(selectedPurchases.map(p => savePurchase(String(p.id), { ...p, accountTitle: trimmed || undefined })));
+    } catch (error) {
+      setBulkSaving(false);
+      console.error('Bulk account title update failed:', error);
+      showToast('Unable to update selected expenses');
+      return;
+    }
     setBulkSaving(false);
-    if (error) { console.error('Bulk account title update failed:', error); showToast('Unable to update selected expenses'); return; }
     setLocalHistoryPurchases(prev => prev.map(p => targetIds.has(String(p.id)) ? { ...p, accountTitle: trimmed || undefined } : p));
     showToast(`Updated ${idValues.length} expense${idValues.length === 1 ? '' : 's'} to “${trimmed || '(no account title)'}”`);
     clearBulkSelection();

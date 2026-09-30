@@ -46,6 +46,7 @@ interface AccountingContextType {
   savePurchase: (id: string, purchase: any) => Promise<void>;
   deletePurchase: (id: string) => Promise<void>;
   saveSale: (id: string, sale: any) => Promise<void>;
+  deleteSale: (id: string) => Promise<void>;
   saveCoaColumns: (columns: any[]) => Promise<void>;
   saveCoaAccounts: (accounts: any[], format?: 'numeric' | 'alphanumeric') => Promise<void>;
   saveJournalColumn: (...args: any[]) => Promise<void>;
@@ -310,6 +311,36 @@ export const clearNormalizedClientCache = (clientId?: string) => {
   if (clientId) deltaSyncCache.delete(clientId);
   else deltaSyncCache.clear();
   clearCachedRows(clientId).catch(() => {}); // best-effort
+  // History and other period-scoped screens have their own read-through
+  // query cache. Never let an authoritative re-sync leave those views stale.
+  invalidateQueries('purchases', clientId).catch(() => {});
+  invalidateQueries('sales', clientId).catch(() => {});
+};
+
+/** Keep the browser-side cache aligned with a confirmed Supabase mutation.
+ * The UI state is updated by the caller, but IndexedDB/in-memory cache must
+ * change too or a refresh can resurrect deleted rows or hide newly-saved rows.
+ */
+const recordNormalizedMutation = async (
+  table: string,
+  clientId: string,
+  op: 'put' | 'delete',
+  row: Record<string, any>,
+) => {
+  if (!clientId || !row?.id) return;
+  const entry = deltaSyncCache.get(clientId);
+  if (entry) {
+    let map = entry.rows.get(table);
+    if (!map) { map = new Map(); entry.rows.set(table, map); }
+    if (op === 'delete') map.delete(String(row.id));
+    else map.set(String(row.id), row);
+  }
+  try {
+    await applyCachedRowDelta(table, clientId, op, row);
+    await clearCachedCursor(clientId);
+  } catch (e) {
+    console.warn(`[localDb] mutation cache update failed for ${table}`, e);
+  }
 };
 
 
@@ -340,23 +371,12 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
   const requestStartedAt = new Date().toISOString();
   let cacheEntry = deltaSyncCache.get(clientId);
 
-  // Cold start (fresh tab): rebuild the in-memory delta cache from IndexedDB
-  // so we issue a tiny `updated_at >= cursor` delta query instead of a full
-  // re-download of every normalized table. This is what cuts PostgREST egress.
-  if (!cacheEntry) {
-    const persistedCursor = await getCachedCursor(clientId);
-    if (persistedCursor) {
-      const hydrated: DeltaCacheEntry = { cursor: persistedCursor, rows: new Map() };
-      let rowCount = 0;
-      for (const { table } of DELTA_SYNC_TABLES) {
-        const rows = await getCachedRows(table, clientId);
-        if (rows.length) { upsertDeltaRows(hydrated, table, rows); rowCount += rows.length; }
-      }
-      deltaSyncCache.set(clientId, hydrated);
-      cacheEntry = hydrated;
-      recordCacheHit(rowCount * 256);
-    }
-  }
+  // Cold start / hard refresh: Supabase is authoritative. Do not hydrate the
+  // in-memory delta cache from IndexedDB first. A cached row cannot tell us
+  // that the corresponding Supabase row was deleted while the tab was closed,
+  // and a persisted watermark can hide rows created/changed outside this tab.
+  // A fresh tab therefore performs a full fetch for the delta tables. Realtime
+  // plus in-memory deltas are used only after that authoritative load.
 
   const deltaQueryPromises = DELTA_SYNC_TABLES.map(({ table, columns }) => {
     let query = supabase.from(table).select(`${columns},updated_at`).eq('client_id', clientId);
@@ -677,10 +697,11 @@ export function AccountingProvider({
     try {
       const { data, error } = await supabase.from('clients').select(CLIENTS_LIST_COLUMNS).eq('user_id', dataOwnerId);
       if (error) throw error;
-      const cloudClients: Record<string, Client> = {};
-      for (const row of data || []) {
+      // A manual sync means "give me exactly what Supabase has now".
+      clearNormalizedClientCache();
+      const cloudEntries = await Promise.all((data || []).map(async (row: any) => {
         const normalized = await loadNormalizedClient(row.id);
-        cloudClients[row.id] = {
+        const client = {
           id: row.id, name: row.name || 'Client',
           tin: row.tin, taxpayerClassification: row.taxpayer_classification, registeredName: row.registered_name,
           lastName: row.last_name, firstName: row.first_name, middleName: row.middle_name, tradeName: row.trade_name,
@@ -692,7 +713,9 @@ export function AccountingProvider({
           sales: normalized.sales ?? [], purchases: normalized.purchases ?? [], expenses: purchasesToExpenses(normalized.purchases ?? []),
           ...(normalized as any)
         } as Client;
-      }
+        return [row.id, client] as const;
+      }));
+      const cloudClients: Record<string, Client> = Object.fromEntries(cloudEntries);
       setClients(cloudClients);
       showToast('Cloud sync complete');
     } catch (e) {
@@ -878,10 +901,9 @@ export function AccountingProvider({
         if (error) throw error;
 
         clearTimeout(timeout);
-        const cloudClients: Record<string, Client> = {};
-        for (const row of data || []) {
+        const cloudEntries = await Promise.all((data || []).map(async (row: any) => {
           const normalized = await loadNormalizedClient(row.id);
-          cloudClients[row.id] = { id: row.id, name: row.name || 'Client',
+          const client = { id: row.id, name: row.name || 'Client',
             tin: row.tin, taxpayerClassification: row.taxpayer_classification, registeredName: row.registered_name,
             lastName: row.last_name, firstName: row.first_name, middleName: row.middle_name, tradeName: row.trade_name,
             substreet: row.substreet, street: row.street, barangay: row.barangay, district: row.district, city: row.city,
@@ -889,7 +911,9 @@ export function AccountingProvider({
             hasMultipleBusinessLines: row.has_multiple_business_lines, accountingType: row.accounting_type,
             fiscalMonthEnd: row.fiscal_month_end, coaFormat: row.coa_format, industry: row.industry || 'general-services',
             tinLibrary: normalized.tinLibrary ?? {customers:[], suppliers:[]}, sales: normalized.sales ?? [], purchases: normalized.purchases ?? [], expenses: purchasesToExpenses(normalized.purchases ?? []), ...(normalized as any) } as Client;
-        }
+          return [row.id, client] as const;
+        }));
+        const cloudClients: Record<string, Client> = Object.fromEntries(cloudEntries);
         mergeCloudClients(cloudClients);
         setIsSyncing(false);
         setIsReady(true);
@@ -1286,8 +1310,20 @@ export function AccountingProvider({
       if (error) throw error;
     });
     invalidateQueries('sales', currentClientId).catch(() => {});
+    await recordNormalizedMutation('sales', currentClientId, 'put', row);
     const next = [...(clients[currentClientId]?.sales || []).filter((x: any) => String(x.id) !== String(id)), sale];
     updateClientState(currentClientId, { sales: next });
+  };
+
+  const deleteSale = async (id: string) => {
+    if (!user || !currentClientId) return;
+    const { error } = await supabase.from('sales').delete().eq('client_id', currentClientId).eq('id', String(id));
+    if (error) throw error;
+    await recordNormalizedMutation('sales', currentClientId, 'delete', { id: String(id) });
+    invalidateQueries('sales', currentClientId).catch(() => {});
+    updateClientState(currentClientId, {
+      sales: (clients[currentClientId]?.sales || []).filter((s: any) => String(s.id) !== String(id)),
+    });
   };
 
   const saveCoaColumns = async (columns: any[]) => {
@@ -1378,6 +1414,7 @@ export function AccountingProvider({
     const row = { id: String(payload.id), client_id: clientId, journal_type: journalType, name: payload.name || '', type: payload.type || 'text', category: payload.category || 'None', is_system: !!payload.isSystem };
     const { error } = await supabase.from('journal_columns').upsert(row, { onConflict: 'id' });
     if (error) throw error;
+    await recordNormalizedMutation('journal_columns', clientId, 'put', row);
     const key = `${String(journalType).toLowerCase()}Columns`;
     const existing = ((clients[clientId] as any)?.[key] || []).filter((c: any) => String(c.id) !== String(payload.id));
     updateClientState(clientId, { [key]: [...existing, payload] } as any);
@@ -1415,6 +1452,7 @@ export function AccountingProvider({
     const row = journalEntryRow(clientId, journalType, payload);
     const { error } = await supabase.from('journal_entries').upsert(row, { onConflict: 'id' });
     if (error) throw error;
+    await recordNormalizedMutation('journal_entries', clientId, 'put', row);
     const key = `${String(journalType).toLowerCase()}Entries`;
     const existing = ((clients[clientId] as any)?.[key] || []).filter((e: any) => String(e.id) !== String(payload.id));
     updateClientState(clientId, { [key]: [...existing, payload] } as any);
@@ -1452,6 +1490,7 @@ export function AccountingProvider({
     if (!clientId || !journalType || !id) return;
     const { error } = await supabase.from('journal_columns').delete().eq('client_id', clientId).eq('journal_type', journalType).eq('id', String(id));
     if (error) throw error;
+    await recordNormalizedMutation('journal_columns', clientId, 'delete', { id: String(id) });
     const key = `${String(journalType).toLowerCase()}Columns`;
     updateClientState(clientId, { [key]: (((clients[clientId] as any)?.[key] || []).filter((c: any) => String(c.id) !== String(id))) } as any);
   };
@@ -1464,6 +1503,7 @@ export function AccountingProvider({
     if (!clientId || !journalType || !id) return;
     const { error } = await supabase.from('journal_entries').delete().eq('client_id', clientId).eq('journal_type', journalType).eq('id', String(id));
     if (error) throw error;
+    await recordNormalizedMutation('journal_entries', clientId, 'delete', { id: String(id) });
     const key = `${String(journalType).toLowerCase()}Entries`;
     updateClientState(clientId, { [key]: (((clients[clientId] as any)?.[key] || []).filter((e: any) => String(e.id) !== String(id))) } as any);
   };
@@ -1618,6 +1658,25 @@ export function AccountingProvider({
     updateClientState(currentClientId, { billingInvoices: ((clients[currentClientId]?.billingInvoices || []) as any[]).filter(i => String(i.id) !== String(id)) });
   };
 
+  const persistClientProfileOnly = async (id: string, clientData: Client) => {
+    const row = {
+      id, user_id: dataOwnerId, name: clientData.name || 'Client',
+      tin: clientData.tin || null, taxpayer_classification: clientData.taxpayerClassification || null,
+      registered_name: clientData.registeredName || null, last_name: clientData.lastName || null,
+      first_name: clientData.firstName || null, middle_name: clientData.middleName || null, trade_name: clientData.tradeName || null,
+      substreet: clientData.substreet || null, street: clientData.street || null, barangay: clientData.barangay || null,
+      district: clientData.district || null, city: clientData.city || null, zip_code: clientData.zipCode || null,
+      rdo_code: clientData.rdoCode || null, phone: clientData.phone || null, email: clientData.email || null,
+      category: clientData.category || 'private', has_multiple_business_lines: !!clientData.hasMultipleBusinessLines,
+      accounting_type: clientData.accountingType || 'Calendar', fiscal_month_end: clientData.fiscalMonthEnd || 12,
+      coa_format: clientData.coaFormat || 'numeric', industry: clientData.industry || 'general-services',
+      updated_at: new Date().toISOString(),
+    };
+    const { error } = await supabase.from('clients').upsert(row, { onConflict: 'id' });
+    if (error) throw error;
+    clearNormalizedClientCache(id);
+  };
+
   const saveClient = async (id: string, clientData: Client) => {
     if (!user) return;
 
@@ -1635,7 +1694,13 @@ export function AccountingProvider({
       // Persist first. Do not advertise a successful save or leave a local-only
       // client visible when Supabase rejected the write (for example because
       // the account's RLS policy is not yet deployed).
-      await persistNormalizedClient(updatedClient, dataOwnerId, { initialCreate: !previousClient });
+      if (previousClient) {
+        // Profile edits should never reconcile child tables from the browser's
+        // aggregate. Only the new-client path writes the initial child set.
+        await persistClientProfileOnly(id, updatedClient);
+      } else {
+        await persistNormalizedClient(updatedClient, dataOwnerId, { initialCreate: true });
+      }
       setClients((prev) => ({ ...prev, [id]: updatedClient }));
       showToast('Client saved');
     } catch (error) {
@@ -1715,6 +1780,7 @@ export function AccountingProvider({
     const { error } = await supabase.from('purchases').upsert(row, { onConflict: 'id' });
     if (error) throw error;
     invalidateQueries('purchases', currentClientId).catch(() => {});
+    await recordNormalizedMutation('purchases', currentClientId, 'put', row);
 
     // ======================================================================
     // AUTO-ADD SUPPLIER TO TIN LIBRARY
@@ -1743,10 +1809,12 @@ export function AccountingProvider({
     const path = existing?.attachment?.storagePath;
     const { error } = await supabase.from('purchases').delete().eq('client_id', currentClientId).eq('id', String(id));
     if (error) throw error;
+    invalidateQueries('purchases', currentClientId).catch(() => {});
     if (path) {
       const { error: storageError } = await supabase.storage.from('client-files').remove([path]);
       if (storageError) console.warn('Purchase attachment cleanup failed', storageError);
     }
+    await recordNormalizedMutation('purchases', currentClientId, 'delete', { id: String(id) });
     setClients(prev => ({ ...prev, [currentClientId]: { ...prev[currentClientId], purchases: (prev[currentClientId]?.purchases || []).filter((p:any)=>String(p.id)!==String(id)) } as Client }));
   };
 
@@ -1823,6 +1891,18 @@ export function AccountingProvider({
   };
 
   const deleteClient = async (id: string) => {
+    if (user) {
+      try {
+        const { error } = await supabase.from('clients').delete().eq('id', id).eq('user_id', dataOwnerId);
+        if (error) throw error;
+      } catch (error) {
+        console.error('Client deletion failed:', error);
+        await handleSupabaseError(error, OperationType.DELETE, `clients/${id}`);
+        throw error;
+      }
+    }
+
+    clearNormalizedClientCache(id);
     setClients((prev) => {
       const updated = { ...prev };
       delete updated[id];
@@ -1830,29 +1910,14 @@ export function AccountingProvider({
     });
 
     if (currentClientId === id) {
-      setClients((currentMerged) => {
-        const remainingIds = Object.keys(currentMerged).filter((cid) => cid !== id);
-        setCurrentClientId(remainingIds.length > 0 ? remainingIds[0] : null);
-        return currentMerged;
+      setCurrentClientId((currentId) => {
+        if (currentId !== id) return currentId;
+        const remainingIds = Object.keys(clients).filter((cid) => cid !== id);
+        return remainingIds.length > 0 ? remainingIds[0] : null;
       });
     }
 
-    // Drop the delta-sync raw cache for this client so it doesn't sit around
-    // in memory (and so a client id reused later, e.g. undo/recreate, starts
-    // from a clean full load instead of stale cached rows).
-    clearNormalizedClientCache(id);
-
-    if (user) {
-      try {
-        const { error } = await supabase.from('clients').delete().eq('id', id);
-        if (error) throw error;
-        showToast('Client profile deleted');
-      } catch (error) {
-        await handleSupabaseError(error, OperationType.DELETE, `clients/${id}`);
-      }
-    } else {
-      showToast('Client profile deleted');
-    }
+    showToast('Client profile deleted');
   };
 
   const saveBusinessProfile = async (profileData: BusinessProfile) => {
@@ -1872,7 +1937,11 @@ export function AccountingProvider({
         const existing = clients[ownerId];
         const matchingClient = buildMatchingClient(profileData, existing, ownerId);
 
-        await persistNormalizedClient(matchingClient, dataOwnerId);
+        if (existing) {
+          await persistClientProfileOnly(ownerId, matchingClient);
+        } else {
+          await persistNormalizedClient(matchingClient, dataOwnerId, { initialCreate: true });
+        }
 
         setClients((prev) => ({
           ...prev,
@@ -2287,6 +2356,7 @@ export function AccountingProvider({
         savePurchase,
         deletePurchase,
         saveSale,
+        deleteSale,
         saveCoaColumns,
         saveCoaAccounts,
         saveJournalColumn,

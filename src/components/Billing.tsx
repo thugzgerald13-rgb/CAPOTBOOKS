@@ -6,7 +6,6 @@ import { CreditCard, Plus, Trash2, RefreshCw, CheckCircle2, FileDown, Link2, Bel
 import { EmptyState } from './ui/EmptyState';
 import { DEFAULT_CRJ_COLUMNS } from './CashReceiptsJournal';
 import { BillingInvoice, JournalEntry } from '../types';
-import { supabase } from '../lib/supabase';
 import { downloadInvoicePdf, copyPaymentMessage, openPaymentReminderEmail } from '../lib/invoicePdf';
 import { toast } from './ui/Toast';
 
@@ -21,7 +20,7 @@ function addInterval(dateStr: string, frequency: 'Monthly' | 'Quarterly' | 'Annu
 }
 
 export function Billing() {
-  const { currentClient, currentClientId, saveBillingInvoice, deleteBillingInvoice, saveSale, showToast, businessProfile } = useAccounting();
+  const { currentClient, currentClientId, saveBillingInvoice, deleteBillingInvoice, saveSale, saveJournalEntry, showToast, businessProfile } = useAccounting();
 
   const today = new Date().toISOString().split('T')[0];
 
@@ -170,19 +169,14 @@ export function Billing() {
       desc: inv.description ? `Billing: ${inv.description}` : `Billing invoice ${inv.invoiceNo}`
     };
 
+    const crjEntry = CASH_RECEIPT_PAYMENT_TYPES.includes(payPaymentType)
+      ? { ...buildCashReceiptEntry(inv, payPaymentType), auto: true, autoSource: 'billing' }
+      : null;
+
     Promise.all([
       saveBillingInvoice(updatedInvoice.id, updatedInvoice),
       saveSale(String(newSale.id), newSale),
-      ...(CASH_RECEIPT_PAYMENT_TYPES.includes(payPaymentType) ? [
-        supabase.from('journal_entries').upsert({
-          id: buildCashReceiptEntry(inv, payPaymentType).id,
-          client_id: currentClientId,
-          journal_type: 'CRJ',
-          values: buildCashReceiptEntry(inv, payPaymentType).values,
-          auto: true,
-          auto_source: 'billing'
-        }, { onConflict: 'id' })
-      ] : [])
+      ...(crjEntry ? [saveJournalEntry('CRJ', crjEntry)] : [])
     ]).then(() => {
       showToast('Invoice marked as paid and recorded as income');
       setPayingId(null);
