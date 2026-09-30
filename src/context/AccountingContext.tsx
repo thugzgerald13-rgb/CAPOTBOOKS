@@ -7,6 +7,7 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 import { useAuth } from './AuthContext';
 import { handleSupabaseError, OperationType } from '../lib/supabaseUtils';
 import { syncGeneralLedger, syncCashDisbursementsJournal, syncSalesJournal, syncCashReceiptsJournal, syncPurchasesJournal } from '../lib/glPosting';
+import { sortAccountsChronologically } from '../lib/journalDefaults';
 import {
   getCachedCursor, setCachedCursor, clearCachedCursor, putCachedRows, getCachedRows,
   applyCachedRowDelta, clearCachedRows, queueDirtyWrite, flushDirtyQueue,
@@ -451,7 +452,7 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
     sales: sRows.map((r:any) => ({ id:Number(r.id)||r.id, datMonthYear:r.dat_month_year||'', date:rowDate(r.date), ref:r.ref||'', paymentType:r.payment_type||'', buyerTin:r.buyer_tin||'', buyerName:r.buyer_name||'', buyerAddress:r.buyer_address||'', vatType:r.vat_type||'', amount:Number(r.amount||0), netOfVat:Number(r.net_of_vat||0), outputTax:Number(r.output_tax||0), incomeType:r.income_type||'', desc:r.description||'' })),
      expenses: purchasesToExpenses(pRows),
     coaColumns: ccRows.map((r:any) => ({ id:strId(r.id), name:r.name, isSystem:!!r.is_system })),
-    accounts: caRows.map((r:any) => ({ id:strId(r.id), name:r.name, type:r.type, normalSide:r.normal_side, parentId:r.parent_id, hidden:!!r.hidden, openingBalance:Number(r.opening_balance||0), ...(r.custom_values||{}) })),
+    accounts: sortAccountsChronologically(caRows.map((r:any) => ({ id:strId(r.id), name:r.name, type:r.type, normalSide:r.normal_side, parentId:r.parent_id, hidden:!!r.hidden, openingBalance:Number(r.opening_balance||0), ...(r.custom_values||{}) }))),
     crjColumns: jcRows.filter((r:any)=>r.journal_type==='CRJ').map((r:any)=>({id:strId(r.id),name:r.name,type:r.type,category:r.category,isSystem:!!r.is_system})),
     cdjColumns: jcRows.filter((r:any)=>r.journal_type==='CDJ').map((r:any)=>({id:strId(r.id),name:r.name,type:r.type,category:r.category,isSystem:!!r.is_system})),
     pjColumns: jcRows.filter((r:any)=>r.journal_type==='PJ').map((r:any)=>({id:strId(r.id),name:r.name,type:r.type,category:r.category,isSystem:!!r.is_system})),
@@ -1620,7 +1621,14 @@ export function AccountingProvider({
   const saveClient = async (id: string, clientData: Client) => {
     if (!user) return;
 
-    const updatedClient = { ...clientData, id, userId: dataOwnerId } as Client;
+    const updatedClient = {
+      ...clientData,
+      id,
+      userId: dataOwnerId,
+      accounts: clientData.accounts?.length
+        ? sortAccountsChronologically(clientData.accounts)
+        : clientData.accounts,
+    } as Client;
     const previousClient = clients[id];
 
     try {

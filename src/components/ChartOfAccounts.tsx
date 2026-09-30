@@ -8,7 +8,7 @@ import { CoaAccount } from '../types';
 import { cn } from '../lib/utils';
 import { balanceFor } from '../lib/accountingBalances';
 
-import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide, getDefaultAccountsForIndustry } from '../lib/journalDefaults';
+import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide, getDefaultAccountsForIndustry, sortAccountsChronologically } from '../lib/journalDefaults';
 export { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide };
 
 const ACCOUNT_TYPES = ['Asset', 'Liabilities', 'Equity', 'Capital', 'Revenue', 'Costs', 'Expense'];
@@ -459,6 +459,10 @@ export function ChartOfAccounts() {
       currentClient?.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric',
       currentClient?.industry
     );
+  } else {
+    // Database row order is not guaranteed after insert/refresh. Keep the
+    // account table in stable chronological order without mutating stored data.
+    accounts = sortAccountsChronologically(accounts);
   }
 
   // When taxpayer classification changes in Business Profile / Client Profile,

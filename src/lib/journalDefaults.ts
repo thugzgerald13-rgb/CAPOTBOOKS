@@ -153,13 +153,67 @@ const INDUSTRY_ACCOUNT_SEEDS: Record<ClientIndustry, AccountSeed[]> = {
   ],
 };
 
+const ACCOUNT_TYPE_ORDER: Record<string, number> = {
+  Asset: 1,
+  Liabilities: 2,
+  Capital: 3,
+  Equity: 3,
+  Revenue: 4,
+  Costs: 5,
+  Expense: 6,
+};
+
+const DEFAULT_CODE_ORDER = new Map<string, number>(
+  [...COMMON_ACCOUNT_SEEDS, ...Object.values(INDUSTRY_ACCOUNT_SEEDS).flat()]
+    .map((seed) => [seed.alphaId, Number(seed.numericId)] as const)
+);
+
+/**
+ * Keeps starter accounts in accounting-code order instead of declaration order.
+ * This is especially important because PostgreSQL does not guarantee row order
+ * after an INSERT/UPSERT; without an explicit sort a freshly-created client's
+ * default COA can appear scrambled after the save/refresh cycle.
+ */
+export function sortAccountsChronologically(accounts: CoaAccount[]): CoaAccount[] {
+  return [...accounts].sort((a, b) => {
+    const aId = String(a.id || '').trim();
+    const bId = String(b.id || '').trim();
+
+    const aDefaultOrder = DEFAULT_CODE_ORDER.get(aId);
+    const bDefaultOrder = DEFAULT_CODE_ORDER.get(bId);
+    if (aDefaultOrder != null || bDefaultOrder != null) {
+      if (aDefaultOrder == null) return 1;
+      if (bDefaultOrder == null) return -1;
+      if (aDefaultOrder !== bDefaultOrder) return aDefaultOrder - bDefaultOrder;
+    }
+
+    const aNumeric = /^\d{6}$/.test(aId) ? Number(aId) : Number.POSITIVE_INFINITY;
+    const bNumeric = /^\d{6}$/.test(bId) ? Number(bId) : Number.POSITIVE_INFINITY;
+    if (aNumeric !== bNumeric) return aNumeric - bNumeric;
+
+    const aType = ACCOUNT_TYPE_ORDER[a.type] ?? 99;
+    const bType = ACCOUNT_TYPE_ORDER[b.type] ?? 99;
+    if (aType !== bType) return aType - bType;
+
+    const aSuffix = aId.match(/(\d+)$/)?.[1];
+    const bSuffix = bId.match(/(\d+)$/)?.[1];
+    if (aSuffix && bSuffix) {
+      const suffixDiff = Number(aSuffix) - Number(bSuffix);
+      if (suffixDiff !== 0) return suffixDiff;
+    }
+
+    return aId.localeCompare(bId, undefined, { numeric: true, sensitivity: 'base' });
+  });
+}
+
 function toAccounts(seeds: AccountSeed[], format: 'numeric' | 'alphanumeric'): CoaAccount[] {
-  return seeds.map(({ numericId, alphaId, name, type, normalSide }) => ({
+  const accounts = seeds.map(({ numericId, alphaId, name, type, normalSide }) => ({
     id: format === 'alphanumeric' ? alphaId : numericId,
     name,
     type,
     normalSide,
   }));
+  return sortAccountsChronologically(accounts);
 }
 
 export function getDefaultAccountsForIndustry(
