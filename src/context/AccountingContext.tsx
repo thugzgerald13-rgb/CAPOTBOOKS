@@ -1126,6 +1126,31 @@ export function AccountingProvider({
           });
         };
 
+        // Batch rapid-fire realtime events (bulk imports / syncs) so all
+        // setClients updates land in one synchronous flush — React 19
+        // auto-batches them into a single render, eliminating jank. Side
+        // effects (delta-cache eviction, IndexedDB writes) still run per
+        // event in order; only the React re-render is coalesced.
+        let realtimeBatch: Array<{ table: string; payload: any }> = [];
+        let realtimeBatchTimer: ReturnType<typeof setTimeout> | null = null;
+        const REALTIME_BATCH_MS = 250;
+        const REALTIME_BATCH_MAX = 50;
+        const flushRealtimeBatch = () => {
+          realtimeBatchTimer = null;
+          const batch = realtimeBatch;
+          realtimeBatch = [];
+          for (const { table, payload } of batch) updateRealtimeClient(table, payload);
+        };
+        const enqueueRealtimeEvent = (table: string, payload: any) => {
+          realtimeBatch.push({ table, payload });
+          if (realtimeBatch.length >= REALTIME_BATCH_MAX) {
+            if (realtimeBatchTimer) { clearTimeout(realtimeBatchTimer); realtimeBatchTimer = null; }
+            flushRealtimeBatch();
+          } else if (realtimeBatchTimer == null) {
+            realtimeBatchTimer = setTimeout(flushRealtimeBatch, REALTIME_BATCH_MS);
+          }
+        };
+
         clientsChannel = supabase.channel(`normalized-${dataOwnerId}`)
           .on('postgres_changes', {
             event: '*', schema: 'public', table: 'clients', filter: `user_id=eq.${dataOwnerId}`
@@ -1169,7 +1194,7 @@ export function AccountingProvider({
           for (const table of normalizedRealtimeTables) {
             clientsChannel = clientsChannel.on('postgres_changes', {
               event: '*', schema: 'public', table, filter: `client_id=in.(${clientIdList})`
-            }, (payload) => updateRealtimeClient(table, payload));
+            }, (payload) => enqueueRealtimeEvent(table, payload));
           }
         }
         clientsChannel.subscribe();
