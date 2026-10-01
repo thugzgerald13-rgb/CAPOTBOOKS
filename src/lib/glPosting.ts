@@ -1,5 +1,5 @@
 import { Client, CoaAccount, GeneralLedgerAccount, GeneralLedgerEntry, JournalColumn, JournalEntry } from '../types';
-import { getDefaultAccountsForIndustry, getNormalSide, DEFAULT_CRJ_COLUMNS, DEFAULT_CDJ_COLUMNS, CDJ_SUNDRY_ACCOUNT_TITLE_ID, CDJ_SUNDRY_AMOUNT_ID, DEFAULT_PJ_COLUMNS, DEFAULT_SJ_COLUMNS } from './journalDefaults';
+import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide, DEFAULT_CRJ_COLUMNS, DEFAULT_CDJ_COLUMNS, CDJ_SUNDRY_ACCOUNT_TITLE_ID, CDJ_SUNDRY_AMOUNT_ID, DEFAULT_PJ_COLUMNS, DEFAULT_SJ_COLUMNS } from './journalDefaults';
 
 /**
  * Automatic General Ledger posting.
@@ -100,108 +100,51 @@ export function findAccountByLabel(label: string, accounts: CoaAccount[]): CoaAc
 function getCoaAccounts(client: Client): CoaAccount[] {
   const list = client.accounts && client.accounts.length > 0
     ? client.accounts
-    : getDefaultAccountsForIndustry(client.industry, client.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric');
+    : (client.coaFormat === 'alphanumeric' ? DEFAULT_ACCOUNTS_ALPHA : DEFAULT_ACCOUNTS);
   return list.filter(a => !a.hidden);
+}
+
+function findWithholdingTaxAccount(accounts: CoaAccount[]): CoaAccount | undefined {
+  const exactLabels = [
+    'Expanded Withholding Tax Payable',
+    'Withholding Tax Payable - Expanded',
+    'Withholding Tax Payable',
+    'Creditable Withholding Tax Payable',
+    'Withholding Tax',
+    'Expanded Withholding Tax',
+  ];
+  for (const label of exactLabels) {
+    const exact = accounts.find(a => normalize(a.name) === normalize(label));
+    if (exact) return exact;
+  }
+
+  // Last resort: require all core WHT words so a generic Tax Payable or Output
+  // Tax account cannot accidentally receive the withholding amount.
+  const candidates = accounts.filter(a => {
+    const n = normalize(a.name);
+    return n.includes('withholding') && n.includes('tax') && (n.includes('payable') || n.includes('tax'));
+  });
+  return candidates.length === 1 ? candidates[0] : undefined;
 }
 
 // Per-journal, per-column overrides for labels that don't literally match an
 // account title (e.g. the CDJ's generic "Amount Dr(Cr)" column, whose actual
 // account is typed into the companion "Account Title" field).
+const CRJ_LABEL_OVERRIDES: Record<string, string> = { sundry: 'Output Tax' };
 const CDJ_LABEL_OVERRIDES: Record<string, string> = { cash: 'Cash', input_tax: 'Input Tax' };
+// PJ columns whose fixed account is known. "Net of VAT" and "Exempt / 0-Rated"
+// both debit the Purchases account.
+const PJ_LABEL_OVERRIDES: Record<string, string> = {
+  net_purchase: 'Purchases',
+  exempt_zero_rated: 'Purchases',
+  input_tax: 'Input Tax',
+  accounts_payable: 'Accounts Payable',
+  withholding_tax: 'Expanded Withholding Tax Payable',
+};
+
 interface Posting {
   accountId: string;
   entry: GeneralLedgerEntry;
-}
-
-const parseAmount = (value: unknown): number => {
-  const raw = String(value ?? '')
-    .replace(/,/g, '')
-    .replace(/[₱$P]/gi, '')
-    .trim();
-  if (!raw) return 0;
-  const negative = /^\(.*\)$/.test(raw);
-  const cleaned = raw.replace(/^\(|\)$/g, '');
-  const n = Number(cleaned);
-  if (!Number.isFinite(n)) return 0;
-  return negative ? -Math.abs(n) : n;
-};
-
-/**
- * Resolve a journal account cell by the account id/code, exact title,
- * `CODE - TITLE`, or a close text match. Code/id resolution is preferred
- * because labels such as "Cash" can be ambiguous when a client has
- * Cash on Hand and Cash in Bank.
- */
-function findAccountByReference(reference: unknown, accounts: CoaAccount[]): CoaAccount | undefined {
-  const raw = String(reference ?? '').trim();
-  if (!raw) return undefined;
-
-  const exactId = accounts.find(a => String(a.id).trim() === raw);
-  if (exactId) return exactId;
-
-  const normalizedRaw = normalize(raw);
-  const exactName = accounts.find(a => normalize(a.name) === normalizedRaw);
-  if (exactName) return exactName;
-
-  const codeTitle = raw.match(/^([A-Za-z0-9]{4,})\s*(?:[-–—:]\s*)?(.+)$/);
-  if (codeTitle) {
-    const byCode = accounts.find(a => String(a.id).trim() === codeTitle[1]);
-    if (byCode) return byCode;
-    const titlePart = codeTitle[2].trim();
-    const byTitle = accounts.find(a => normalize(a.name) === normalize(titlePart));
-    if (byTitle) return byTitle;
-  }
-
-  return findAccountByLabel(raw, accounts);
-}
-
-function resolveJournalColumnAccount(column: JournalColumn, accounts: CoaAccount[]): CoaAccount | undefined {
-  const encoded =
-    column.id.startsWith('pj_coa_') ? column.id.slice('pj_coa_'.length) :
-    column.id.startsWith('cdj_coa_') ? column.id.slice('cdj_coa_'.length) :
-    undefined;
-  if (encoded) {
-    const exact = accounts.find(a => String(a.id) === encoded);
-    if (exact) return exact;
-  }
-  return findAccountByReference(column.name, accounts);
-}
-
-/**
- * General Journal rows are free-form: the account title is normally embedded
- * in the particulars cell (for example `Rent Expense - Office lease`).
- * Resolve the actual account title without requiring a separate Account Title
- * column.
- */
-function findAccountFromParticulars(particulars: string, accounts: CoaAccount[]): CoaAccount | undefined {
-  const raw = String(particulars || '').trim();
-  if (!raw) return undefined;
-
-  const candidates = [
-    raw,
-    raw.split(/\s[-:|]\s/)[0].trim(),
-  ].filter(Boolean);
-
-  for (const candidate of candidates) {
-    const exact = accounts.find(a => normalize(a.name) === normalize(candidate));
-    if (exact) return exact;
-  }
-
-  // Prefer a title that appears at the beginning of the particulars text.
-  let best: CoaAccount | undefined;
-  let bestLength = 0;
-  const lower = normalize(raw);
-  for (const acct of accounts) {
-    const acctName = normalize(acct.name);
-    if (!acctName) continue;
-    if ((lower === acctName || lower.startsWith(`${acctName} `)) && acctName.length > bestLength) {
-      best = acct;
-      bestLength = acctName.length;
-    }
-  }
-  if (best) return best;
-
-  return findAccountByLabel(raw, accounts);
 }
 
 function makeLeg(
@@ -261,7 +204,12 @@ function postColumnarJournal(
 
       const label = opts.overrides?.[col.id] || col.name;
 
-      const account = findAccountByLabel(label, accounts);
+      // Purchases Journal WHT is a liability credit. Do not rely solely on
+      // fuzzy title matching here: clients may use either Expanded Withholding
+      // Tax Payable, Withholding Tax Payable - Expanded, or a shorter WHT title.
+      const account = (opts.prefix === 'pj' && /^(withholding_tax|wht)$/i.test(col.id))
+        ? findWithholdingTaxAccount(accounts)
+        : findAccountByLabel(label, accounts);
       if (!account) return;
 
       const side: 'debit' | 'credit' = col.category === 'Dr' ? 'debit' : 'credit';
@@ -438,10 +386,9 @@ function postIncomeHistory(client: Client, accounts: CoaAccount[]): Posting[] {
     ...incomeSalesToCrjEntries(client),
     ...(client.crjEntries || []).filter((entry: any) => !entry.auto),
   ];
-  const crjColumns = useColumns(client.crjColumns, DEFAULT_CRJ_COLUMNS);
   const crj = postColumnarJournal(
     crjEntries,
-    crjColumns.filter(c => c.id !== 'sundry'),
+    useColumns(client.crjColumns, DEFAULT_CRJ_COLUMNS),
     accounts,
     {
       prefix: 'crj',
@@ -449,9 +396,9 @@ function postIncomeHistory(client: Client, accounts: CoaAccount[]): Posting[] {
       dateCol: 'date',
       particularsCol: 'description',
       refCol: 'reference',
+      overrides: CRJ_LABEL_OVERRIDES,
     }
   );
-  const crjSundry = postCrjSundry(crjEntries, accounts);
 
   // Use the same account-title and payment split displayed by the Sales Journal.
   const sjEntries = [
@@ -508,283 +455,7 @@ function postIncomeHistory(client: Client, accounts: CoaAccount[]): Posting[] {
     });
   });
 
-  return [...crj, ...crjSundry, ...sjPostings];
-}
-
-// ---------------------------------------------------------------------------
-// Source: manual General Journal rows. The General Journal UI stores its
-// entries in `journal_entries` with journal_type='GJ'. These rows are distinct
-// from the structured Journal Vouchers and must be posted independently.
-// Voucher-derived/auto GJ rows are skipped here because their voucher lines are
-// already posted by postJournalVouchers(), which prevents double posting.
-// ---------------------------------------------------------------------------
-
-function postGeneralJournalEntries(client: Client, accounts: CoaAccount[]): Posting[] {
-  const postings: Posting[] = [];
-  const columns = useColumns((client as any).gjColumns, [
-    { id: 'date', name: 'DATE', type: 'text', category: 'None', isSystem: true },
-    { id: 'particulars', name: 'ACCOUNT TITLES & DESCRIPTION', type: 'text', category: 'None', isSystem: true },
-    { id: 'ref_no', name: 'PR', type: 'text', category: 'None', isSystem: true },
-    { id: 'debit', name: 'DEBIT', type: 'number', category: 'Dr', isSystem: true },
-    { id: 'credit', name: 'CREDIT', type: 'number', category: 'Cr', isSystem: true },
-  ]);
-  const systemAmountIds = new Set(['debit', 'credit']);
-
-  (client.gjEntries || []).filter((entry: any) => !entry.auto).forEach((entry: any) => {
-    const v = entry.values || {};
-    const date = String(v.date || '');
-    const particulars = String(v.particulars || v.account_title || v.description || '');
-    const ref = String(v.ref_no || v.reference || '');
-
-    const postAmount = (amount: number, side: 'debit' | 'credit', account: CoaAccount | undefined, suffix: string) => {
-      if (!account || amount === 0) return;
-      postings.push({
-        accountId: account.id,
-        entry: makeLeg(`gj:${entry.id}:${suffix}`, side, Math.abs(amount), date, particulars, ref, 'General Journal'),
-      });
-    };
-
-    const dr = parseAmount(v.debit);
-    const cr = parseAmount(v.credit);
-    const particularsAccount = findAccountFromParticulars(particulars, accounts);
-    if (dr !== 0) postAmount(dr, 'debit', particularsAccount, 'dr');
-    if (cr !== 0) postAmount(cr, 'credit', particularsAccount, 'cr');
-
-    // A customized GJ can have additional account-specific numeric columns.
-    columns
-      .filter((c: JournalColumn) => c.type === 'number' && !systemAmountIds.has(c.id) && c.category !== 'None')
-      .forEach((col: JournalColumn) => {
-        const amount = parseAmount(v[col.id]);
-        if (amount === 0) return;
-        const account = findAccountByLabel(col.name, accounts);
-        if (!account) return;
-        postAmount(amount, col.category === 'Dr' ? 'debit' : 'credit', account, col.id);
-      });
-  });
-
-  return postings;
-}
-
-// ---------------------------------------------------------------------------
-// Source: manual Purchases Journal rows. The `Account Title` field is the
-// actual debit account for the purchase and must not be ignored.
-// ---------------------------------------------------------------------------
-
-function postPurchasesJournal(entries: JournalEntry[], columns: JournalColumn[], accounts: CoaAccount[]): Posting[] {
-  const postings: Posting[] = [];
-  const systemIds = new Set(DEFAULT_PJ_COLUMNS.map(x => x.id));
-
-  const amountFrom = (values: Record<string, any>, aliases: string[]) => {
-    for (const alias of aliases) {
-      const n = parseAmount(values[alias]);
-      if (n !== 0) return n;
-    }
-    return 0;
-  };
-
-  entries.forEach(entry => {
-    const v = entry.values || {};
-    const date = String(v.date || v.transaction_date || '');
-    const particulars = String(
-      v.description ||
-      v.nature_of_purchase ||
-      v.particulars ||
-      v.supplier_name ||
-      v.account_title ||
-      v.debit_account ||
-      'Purchase'
-    );
-    const ref = String(v.invoice_no || v.invoice || v.reference || v.ref_no || '');
-
-    // PJ's Account Title is the account receiving the purchase-base debit.
-    // Accept both the current key and legacy/imported variants.
-    const debitReference = String(
-      v.debit_account ||
-      v.account_title ||
-      v.accountTitle ||
-      v.debitAccount ||
-      v.account ||
-      v.expense_type ||
-      v.expenseType ||
-      ''
-    ).trim();
-
-    const debitAccount =
-      findAccountByReference(debitReference, accounts) ||
-      (debitReference ? findAccountFromParticulars(debitReference, accounts) : undefined);
-
-    const explicitNet = amountFrom(v, [
-      'net_purchase',
-      'net_of_vat',
-      'net_purchase_amount',
-      'purchase_amount',
-    ]);
-    const explicitExempt = parseAmount(v.exempt_zero_rated);
-    const legacyExempt = parseAmount(v.exempt);
-    const legacyZeroRated = parseAmount(v.zero_rated);
-    const exemptZero = explicitExempt !== 0
-      ? explicitExempt
-      : legacyExempt + legacyZeroRated;
-
-    // Support older/imported PJ rows with a single amount/purchases column,
-    // but only when the dedicated purchase-base columns are not populated.
-    const fallbackPurchaseBase = explicitNet === 0 && exemptZero === 0
-      ? amountFrom(v, ['purchases', 'amount', 'debit_amount'])
-      : 0;
-    const purchaseBase = explicitNet + exemptZero || fallbackPurchaseBase;
-
-    const inputTax = amountFrom(v, ['input_tax', 'input_vat', 'vat_input', 'vat_amount']);
-    const ap = amountFrom(v, ['accounts_payable', 'accountsPayable', 'ap', 'a_p', 'payables']);
-    const wht = amountFrom(v, [
-      'withholding_tax',
-      'withholding',
-      'wht',
-      'wht_amount',
-      'whtAmount',
-    ]);
-
-    if (debitAccount && purchaseBase !== 0) {
-      postings.push({
-        accountId: debitAccount.id,
-        entry: makeLeg(
-          `pj:${entry.id}:purchase`,
-          'debit',
-          Math.abs(purchaseBase),
-          date,
-          particulars,
-          ref,
-          'Purchases Journal'
-        ),
-      });
-    }
-
-    if (inputTax !== 0) {
-      const acct =
-        findAccountByReference(v.input_tax_account || v.inputTaxAccount, accounts) ||
-        findAccountByLabel('Input Tax', accounts) ||
-        findAccountByLabel('Input VAT', accounts) ||
-        findAccountByLabel('VAT Input Receivable', accounts);
-      if (acct) {
-        postings.push({
-          accountId: acct.id,
-          entry: makeLeg(
-            `pj:${entry.id}:inputtax`,
-            'debit',
-            Math.abs(inputTax),
-            date,
-            particulars,
-            ref,
-            'Purchases Journal'
-          ),
-        });
-      }
-    }
-
-    if (ap !== 0) {
-      const acct =
-        findAccountByReference(v.ap_account || v.accounts_payable_account, accounts) ||
-        findAccountByLabel('Accounts Payable', accounts) ||
-        findAccountByLabel('Trade Payables', accounts);
-      if (acct) {
-        postings.push({
-          accountId: acct.id,
-          entry: makeLeg(
-            `pj:${entry.id}:ap`,
-            'credit',
-            Math.abs(ap),
-            date,
-            particulars,
-            ref,
-            'Purchases Journal'
-          ),
-        });
-      }
-    }
-
-    if (wht !== 0) {
-      const acct =
-        findAccountByReference(v.wht_account || v.withholding_account, accounts) ||
-        findAccountByLabel('Expanded Withholding Tax Payable', accounts) ||
-        findAccountByLabel('Withholding Tax Payable - Expanded', accounts) ||
-        findAccountByLabel('Withholding Tax Payable', accounts) ||
-        findAccountByLabel('Withholding Tax', accounts);
-      if (acct) {
-        postings.push({
-          accountId: acct.id,
-          entry: makeLeg(
-            `pj:${entry.id}:wht`,
-            'credit',
-            Math.abs(wht),
-            date,
-            particulars,
-            ref,
-            'Purchases Journal'
-          ),
-        });
-      }
-    }
-
-    // Custom PJ account columns are also real GL postings.
-    columns
-      .filter(c => !systemIds.has(c.id) && c.type === 'number' && c.category !== 'None')
-      .forEach(col => {
-        const amount = parseAmount(v[col.id]);
-        if (amount === 0) return;
-
-        const acct = resolveJournalColumnAccount(col, accounts);
-        if (!acct) return;
-
-        postings.push({
-          accountId: acct.id,
-          entry: makeLeg(
-            `pj:${entry.id}:${col.id}`,
-            col.category === 'Dr' ? 'debit' : 'credit',
-            Math.abs(amount),
-            date,
-            particulars,
-            ref,
-            'Purchases Journal'
-          ),
-        });
-      });
-  });
-
-  return postings;
-}
-
-// ---------------------------------------------------------------------------
-// Source: Cash Receipts Journal sundry amounts. A manual CRJ row can use its
-// description/account-credited cell to identify the actual sundry account.
-// For auto sales rows, Output Tax remains the fallback.
-// ---------------------------------------------------------------------------
-
-function postCrjSundry(entries: JournalEntry[], accounts: CoaAccount[]): Posting[] {
-  const postings: Posting[] = [];
-  entries.forEach(entry => {
-    const v = entry.values || {};
-    const amount = parseAmount(v.sundry);
-    if (amount === 0) return;
-
-    // Income History rows are auto-generated for cash-basis sales, where the
-    // Sundry amount is specifically Output VAT/Tax. Manual CRJ rows may use
-    // the Description / Account Credited field to identify another account.
-    const manualLabel = String(v.account_title || v.description || '');
-    const account = (entry as any).auto
-      ? (findAccountByLabel('Output Tax', accounts) || findAccountByLabel('Output VAT', accounts))
-      : (findAccountByLabel(manualLabel, accounts)
-        || findAccountByLabel('Output Tax', accounts)
-        || findAccountByLabel('Output VAT', accounts));
-    if (!account) return;
-
-    const date = String(v.date || '');
-    const particulars = String(v.description || v.payor || 'Cash Receipt');
-    const ref = String(v.reference || '');
-    postings.push({
-      accountId: account.id,
-      entry: makeLeg(`crj:${entry.id}:sundry`, 'credit', Math.abs(amount), date, particulars, ref, 'Cash Receipts Journal'),
-    });
-  });
-  return postings;
+  return [...crj, ...sjPostings];
 }
 
 // ---------------------------------------------------------------------------
@@ -861,7 +532,7 @@ function postPurchases(client: Client, accounts: CoaAccount[]): Posting[] {
     }
 
     if (wht > 0) {
-      const whtAcct = findAccountByLabel('Withholding Tax Payable - Expanded', accounts);
+      const whtAcct = findWithholdingTaxAccount(accounts);
       if (whtAcct) {
         postings.push({
           accountId: whtAcct.id,
@@ -1073,10 +744,7 @@ export function syncCashReceiptsJournal(client: Client): Client {
 
 function purchasesToPjEntries(client: Client): JournalEntry[] {
   return (client.purchases || [])
-    .filter(p => {
-      const method = String(p.paymentMethod ?? '').trim().toLowerCase();
-      return method === '' || method === 'on account' || method === 'accounts payable';
-    })
+    .filter(p => p.paymentMethod !== 'Cash' && p.paymentMethod !== 'Check')
     .map(p => {
       const net = Number(p.amount) || 0;
       const exemptZero = (Number(p.exemptAmount) || 0) + (Number(p.zeroRatedAmount) || 0);
@@ -1146,11 +814,9 @@ export function computeAutoPostings(client: Client): Posting[] {
   // is used to populate the CRJ/SJ screens, but it is NOT a direct GL source.
   // Once a transaction is in the Cash Receipts Journal or Sales Journal, the
   // GL posts that journal entry — exactly as it appears in the journal.
-  const crjEntries = client.crjEntries || [];
-  const crjColumns = useColumns(client.crjColumns, DEFAULT_CRJ_COLUMNS);
   const crj = postColumnarJournal(
-    crjEntries,
-    crjColumns.filter(c => c.id !== 'sundry'),
+    client.crjEntries || [],
+    useColumns(client.crjColumns, DEFAULT_CRJ_COLUMNS),
     accounts,
     {
       prefix: 'crj',
@@ -1158,9 +824,9 @@ export function computeAutoPostings(client: Client): Posting[] {
       dateCol: 'date',
       particularsCol: 'description',
       refCol: 'reference',
+      overrides: CRJ_LABEL_OVERRIDES,
     }
   );
-  const crjSundry = postCrjSundry(crjEntries, accounts);
 
   // Sales Journal has a system Account Title column, plus AR/Credit Card
   // debit columns and Output VAT/Revenue credit columns. Post the actual
@@ -1278,26 +944,22 @@ export function computeAutoPostings(client: Client): Posting[] {
   const cdjSundry = postCdjSundry(cdjEntries, accounts);
   const cdjInputTax = postCdjAutoInputTax(cdjEntries, accounts);
 
-  // The Purchases Journal is the authoritative GL source for on-account
-  // purchases. Rebuild source-derived rows here so the GL is complete even
-  // when the generated PJ rows have not yet been persisted to Supabase, then
-  // add any manually-entered PJ rows.
-  const generatedPj = purchasesToPjEntries(client);
+  // Auto PJ rows are display-only (on-account purchases already reach the
+  // ledger via postPurchases); only manually-typed PJ rows post here.
   const manualPj = (client.pjEntries || []).filter(e => !e.auto);
-  const pj = postPurchasesJournal(
-    [...generatedPj, ...manualPj],
-    useColumns(client.pjColumns, DEFAULT_PJ_COLUMNS),
-    accounts
-  );
+  const pj = postColumnarJournal(manualPj, useColumns(client.pjColumns, DEFAULT_PJ_COLUMNS), accounts, {
+    prefix: 'pj',
+    sourceLabel: 'Purchases Journal',
+    dateCol: 'date',
+    particularsCol: 'supplier_name',
+    refCol: 'invoice_no',
+    overrides: PJ_LABEL_OVERRIDES,
+  });
 
   const jv = postJournalVouchers(client);
-  const gj = postGeneralJournalEntries(client, accounts);
+  const purchases = postPurchases(client, accounts);
 
-  return [
-    ...crj, ...crjSundry, ...sjPostings,
-    ...cdj, ...cdjSundry, ...cdjInputTax,
-    ...pj, ...jv, ...gj,
-  ];
+  return [...crj, ...sjPostings, ...cdj, ...cdjSundry, ...cdjInputTax, ...pj, ...jv, ...purchases];
 }
 
 /**
@@ -1327,16 +989,7 @@ export function syncGeneralLedger(client: Client): Client {
     nextByAccount.set(g.accountId, g);
   });
 
-  // Every Chart of Accounts account must have a General Ledger record, even
-  // when it has no journal transactions yet. This is what makes a CoA opening
-  // balance immediately visible in the General Ledger. Previously we only
-  // created GL records for accounts that already had entries, so an account
-  // with an opening balance but no transaction rows appeared to have no GL.
-  const touchedAccountIds = new Set<string>([
-    ...accounts.map(a => a.id),
-    ...nextByAccount.keys(),
-    ...autoByAccount.keys(),
-  ]);
+  const touchedAccountIds = new Set<string>([...nextByAccount.keys(), ...autoByAccount.keys()]);
 
   const nextGlAccounts: GeneralLedgerAccount[] = [];
   touchedAccountIds.forEach(accountId => {
