@@ -1,5 +1,5 @@
 import { Client, CoaAccount, GeneralLedgerAccount, GeneralLedgerEntry, JournalColumn, JournalEntry } from '../types';
-import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide, DEFAULT_CRJ_COLUMNS, DEFAULT_CDJ_COLUMNS, CDJ_SUNDRY_ACCOUNT_TITLE_ID, CDJ_SUNDRY_AMOUNT_ID, DEFAULT_PJ_COLUMNS, DEFAULT_SJ_COLUMNS } from './journalDefaults';
+import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide, DEFAULT_CRJ_COLUMNS, DEFAULT_CDJ_COLUMNS, CDJ_CASH_ON_HAND_BANK_ID, CDJ_SUNDRY_ACCOUNT_TITLE_ID, CDJ_SUNDRY_AMOUNT_ID, DEFAULT_PJ_COLUMNS, DEFAULT_SJ_COLUMNS } from './journalDefaults';
 
 /**
  * Automatic General Ledger posting.
@@ -346,6 +346,75 @@ function postCdjAutoInputTax(entries: JournalEntry[], accounts: CoaAccount[]): P
 
 
 // ---------------------------------------------------------------------------
+// CDJ value normalization for posting. Legacy CDJ rows (and source-derived
+// auto rows before the CDJ screen's normalization effect has persisted them)
+// store amounts under field names that don't match the current column ids:
+//   cash credit ........ cash / cashAmount / cash_amount  (now cash_on_hand_bank)
+//   sundry account title  account_title / accountTitle    (now sundry_account_title)
+//   sundry amount ...... amount / debitAmount / debit_amount (now sundry_amount)
+//   input tax .......... input_tax / inputTax             (now a per-account column)
+//   withholding tax .... wht / whtAmount                  (now a negative sundry credit)
+// postColumnarJournal reads only values[col.id], so without this mapping a
+// row recorded under `cash` is silently dropped from the cash credit side.
+// Map the legacy keys onto the standard column ids (without overwriting any
+// value already present under the standard id) before posting.
+// ---------------------------------------------------------------------------
+const CDJ_ACCOUNT_COLUMN_PREFIX = 'cdj_coa_';
+function normalizeCdjValuesForPosting(values: Record<string, any>, columns: JournalColumn[]): Record<string, any> {
+  const v: Record<string, any> = { ...(values || {}) };
+  const firstNonEmpty = (...keys: string[]): any => {
+    for (const k of keys) {
+      const val = v[k];
+      if (val !== undefined && val !== null && String(val).trim() !== '') return val;
+    }
+    return undefined;
+  };
+  if (v[CDJ_CASH_ON_HAND_BANK_ID] === undefined || String(v[CDJ_CASH_ON_HAND_BANK_ID]).trim() === '') {
+    const cash = firstNonEmpty('cash', 'cashAmount', 'cash_amount');
+    if (cash !== undefined) v[CDJ_CASH_ON_HAND_BANK_ID] = cash;
+  }
+  if (v[CDJ_SUNDRY_ACCOUNT_TITLE_ID] === undefined || String(v[CDJ_SUNDRY_ACCOUNT_TITLE_ID]).trim() === '') {
+    const title = firstNonEmpty('account_title', 'accountTitle');
+    if (title !== undefined) v[CDJ_SUNDRY_ACCOUNT_TITLE_ID] = title;
+  }
+  if (v[CDJ_SUNDRY_AMOUNT_ID] === undefined || String(v[CDJ_SUNDRY_AMOUNT_ID]).trim() === '') {
+    const amt = firstNonEmpty('amount', 'debitAmount', 'debit_amount');
+    if (amt !== undefined) v[CDJ_SUNDRY_AMOUNT_ID] = amt;
+  }
+  // Input tax: copy the legacy input_tax value into whichever CDJ numeric
+  // column represents Input Tax (a per-account cdj_coa_* column, or a column
+  // whose name contains "Input" / "VAT"), if that column is currently empty.
+  const inputTax = firstNonEmpty('input_tax', 'inputTax');
+  if (inputTax !== undefined) {
+    const inputTaxCol = columns.find(c => {
+      if (c.type !== 'number') return false;
+      if (c.id.startsWith(CDJ_ACCOUNT_COLUMN_PREFIX)) {
+        // Linked to a specific COA account; match by name keywords.
+        return /input|vat/i.test(c.name);
+      }
+      return /input tax|input vat|vat input/i.test(c.name || '');
+    });
+    if (inputTaxCol && (v[inputTaxCol.id] === undefined || String(v[inputTaxCol.id]).trim() === '')) {
+      v[inputTaxCol.id] = inputTax;
+    }
+  }
+  // Withholding tax: recorded in the CDJ as a negative (credit) sundry amount.
+  // Only map it in when the sundry amount slot is empty, so we don't clobber a
+  // real debit already recorded there.
+  const wht = firstNonEmpty('wht', 'whtAmount');
+  if (wht !== undefined && (v[CDJ_SUNDRY_AMOUNT_ID] === undefined || String(v[CDJ_SUNDRY_AMOUNT_ID]).trim() === '')) {
+    const whtNum = parseFloat(String(wht).replace(/,/g, ''));
+    if (Number.isFinite(whtNum) && whtNum > 0) {
+      v[CDJ_SUNDRY_AMOUNT_ID] = String(-whtNum);
+      if (v[CDJ_SUNDRY_ACCOUNT_TITLE_ID] === undefined || String(v[CDJ_SUNDRY_ACCOUNT_TITLE_ID]).trim() === '') {
+        v[CDJ_SUNDRY_ACCOUNT_TITLE_ID] = 'Expanded Withholding Tax Payable';
+      }
+    }
+  }
+  return v;
+}
+
+// ---------------------------------------------------------------------------
 // Source: Income History (`client.sales`) -> CRJ / Sales Journal.
 //
 // Income History is the authoritative source for the Income workflow. The UI
@@ -613,7 +682,11 @@ function postCheckVouchers(client: Client, accounts: CoaAccount[]): Posting[] {
       if (v.paymentType === 'Invoice Clearance') debitLabel = 'Accounts Payable';
       else if (v.paymentType === 'Advance') debitLabel = 'Advances to Suppliers';
       else if (v.paymentType === 'Miscellaneous' && v.miscDetails) debitLabel = v.miscDetails;
-      const debitAcct = findAccountByLabel(debitLabel, accounts);
+      // "Advance" vouchers debit a supplier-prepayment account; the COA may
+      // name it "Advances to Suppliers" or "Supplier Advances". Try both.
+      const debitAcct = v.paymentType === 'Advance'
+        ? (findAccountByLabel('Advances to Suppliers', accounts) || findAccountByLabel('Supplier Advances', accounts))
+        : findAccountByLabel(debitLabel, accounts);
       if (debitAcct) {
         postings.push({
           accountId: debitAcct.id,
@@ -1167,10 +1240,16 @@ export function computeAutoPostings(client: Client): Posting[] {
   // reach the ledger via postPurchases / postJournalVouchers, and Check
   // Vouchers / Miscellaneous Payments post directly below. Including the auto
   // rows here would double-post the same cash-out (and their input tax).
-  const manualCdj = (client.cdjEntries || []).filter(e => !e.auto);
+  // Legacy manual rows may store amounts under old field names; normalize
+  // their values onto the standard column ids before posting so nothing is
+  // dropped for using a legacy key.
+  const cdjColumns = useColumns(client.cdjColumns, DEFAULT_CDJ_COLUMNS);
+  const manualCdj = (client.cdjEntries || [])
+    .filter(e => !e.auto)
+    .map(e => ({ ...e, values: normalizeCdjValuesForPosting(e.values || {}, cdjColumns) }));
   const cdj = postColumnarJournal(
     manualCdj,
-    useColumns(client.cdjColumns, DEFAULT_CDJ_COLUMNS),
+    cdjColumns,
     accounts,
     {
       prefix: 'cdj',
