@@ -368,16 +368,22 @@ export function Purchases() {
   }, [withholdingOption, atcCode]);
 
   // Re-compute withholding tax amount (per the BIR Schedule of Alphanumeric
-  // Tax Codes) whenever the net amount, withholding option, or selected ATC
-  // changes.
+  // Tax Codes) whenever the purchase base, withholding option, or selected
+  // ATC changes. The expanded withholding tax base is the full purchase cost
+  // EXCLUDING VAT — VATable net PLUS the exempt and zero-rated portions — not
+  // just the VATable net. Otherwise non-VAT / zero-rated / mixed purchases
+  // with an exempt amount compute zero (or understated) withholding tax.
   useEffect(() => {
     if (withholdingOption === 'with' && atcCode) {
       const entry = ATC_SCHEDULE.find(e => e.code === atcCode);
-      setWhtAmount(entry ? netAmount * entry.rate : 0);
+      const exempt = parseFloat(String(exemptAmount).replace(/,/g, '')) || 0;
+      const zeroRated = parseFloat(String(zeroRatedAmount).replace(/,/g, '')) || 0;
+      const ewtBase = netAmount + exempt + zeroRated;
+      setWhtAmount(entry ? ewtBase * entry.rate : 0);
     } else {
       setWhtAmount(0);
     }
-  }, [withholdingOption, atcCode, netAmount]);
+  }, [withholdingOption, atcCode, netAmount, exemptAmount, zeroRatedAmount]);
 
   // Auto-fill from supplier library
   useEffect(() => {
