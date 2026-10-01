@@ -337,7 +337,13 @@ const recordNormalizedMutation = async (
   }
   try {
     await applyCachedRowDelta(table, clientId, op, row);
-    await clearCachedCursor(clientId);
+    // Do NOT clear the delta-sync cursor here. applyCachedRowDelta already
+    // keeps the row cache honest, and Realtime evicts deleted rows. Clearing
+    // the watermark on every save forces the next page (re)load to re-download
+    // every row of every delta table — a full ~20-table fetch instead of an
+    // incremental pull — which is the single biggest source of Supabase API
+    // log volume. A manual Sync still does a full authoritative refresh via
+    // clearNormalizedClientCache().
   } catch (e) {
     console.warn(`[localDb] mutation cache update failed for ${table}`, e);
   }
