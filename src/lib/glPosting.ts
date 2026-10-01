@@ -893,11 +893,11 @@ function cashPurchasesToCdjEntries(client: Client): JournalEntry[] {
     .filter(p => !!p.paymentMethod && p.paymentMethod !== 'On Account')
     .map(p => {
       // "Other Payments" stores its actual payment amount in exemptAmount
-      // (amount is intentionally 0 there). Use that field so those cash
-      // payments are not silently omitted from the CDJ.
-      const isOtherPayment = p.vatType === 'non-vat' && (Number(p.amount) || 0) === 0
-        && (Number(p.exemptAmount) || 0) > 0;
-      const net = isOtherPayment ? (Number(p.exemptAmount) || 0) : (Number(p.amount) || 0);
+      // (amount is intentionally 0 there). Zero-rated purchases likewise
+      // carry their value in zeroRatedAmount. The full purchase cost
+      // (excluding VAT) is the sum of all three — using only p.amount drops
+      // non-VAT and zero-rated cash disbursements from the CDJ entirely.
+      const net = (Number(p.amount) || 0) + (Number(p.exemptAmount) || 0) + (Number(p.zeroRatedAmount) || 0);
       const tax = Number(p.inputTax) || 0;
       const total = net + tax;
       const wht = p.withholdingOption === 'with' ? (Number(p.whtAmount) || 0) : 0;
