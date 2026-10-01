@@ -127,11 +127,51 @@ function findWithholdingTaxAccount(accounts: CoaAccount[]): CoaAccount | undefin
   return candidates.length === 1 ? candidates[0] : undefined;
 }
 
+// The cash journals (CRJ/CDJ) post to a cash account, but a client's Chart of
+// Accounts may split cash into "Cash on Hand", "Cash in Bank", "Petty Cash
+// Fund", etc. A fuzzy match on "Cash on Hand/Bank" ties between Cash on Hand
+// and Cash in Bank (both score 2) and silently drops the whole column. Resolve
+// deterministically: prefer the exact "Cash on Hand" account, then
+// "Cash in Bank", then a bare "Cash", then any uniquely-named non-petty cash
+// account; fall back to undefined only when there is no unambiguous cash
+// account at all.
+function resolveCashAccount(accounts: CoaAccount[]): CoaAccount | undefined {
+  const exact = (label: string) => accounts.find(a => normalize(a.name) === normalize(label));
+  const direct = exact('Cash on Hand') || exact('Cash in Bank') || exact('Cash');
+  if (direct) return direct;
+  const candidates = accounts.filter(a => {
+    const n = normalize(a.name);
+    return n.includes('cash') && !n.includes('petty');
+  });
+  return candidates.length === 1 ? candidates[0] : undefined;
+}
+
+// The CRJ "Sales" column credits the primary revenue account. Industry preset
+// charts ship with several revenue accounts (Retail Sales, Service Revenue,
+// …), so fuzzy-matching the bare word "Sales" ties and drops the column.
+// Prefer an account literally named "Sales", otherwise a single Revenue-type
+// account, otherwise a single revenue account whose name contains "sales".
+function resolvePrimaryRevenueAccount(accounts: CoaAccount[]): CoaAccount | undefined {
+  const exact = accounts.find(a => normalize(a.name) === 'sales');
+  if (exact) return exact;
+  const revenueAccounts = accounts.filter(a => {
+    const t = (a.type || '').toLowerCase();
+    return t === 'revenue' || t === 'income';
+  });
+  if (revenueAccounts.length === 1) return revenueAccounts[0];
+  const salesNamed = revenueAccounts.filter(a => normalize(a.name).includes('sales'));
+  return salesNamed.length === 1 ? salesNamed[0] : undefined;
+}
+
+// Column ids whose account is resolved specially (not by fuzzy label match).
+const CASH_COLUMN_IDS = new Set(['cash', 'cash_on_hand_bank']);
+const SALES_COLUMN_IDS = new Set(['sales']);
+
 // Per-journal, per-column overrides for labels that don't literally match an
 // account title (e.g. the CDJ's generic "Amount Dr(Cr)" column, whose actual
 // account is typed into the companion "Account Title" field).
 const CRJ_LABEL_OVERRIDES: Record<string, string> = { sundry: 'Output Tax' };
-const CDJ_LABEL_OVERRIDES: Record<string, string> = { cash: 'Cash', input_tax: 'Input Tax' };
+const CDJ_LABEL_OVERRIDES: Record<string, string> = { cash: 'Cash', cash_on_hand_bank: 'Cash', input_tax: 'Input Tax' };
 // PJ columns whose fixed account is known. "Net of VAT" and "Exempt / 0-Rated"
 // both debit the Purchases account.
 const PJ_LABEL_OVERRIDES: Record<string, string> = {
@@ -204,12 +244,20 @@ function postColumnarJournal(
 
       const label = opts.overrides?.[col.id] || col.name;
 
-      // Purchases Journal WHT is a liability credit. Do not rely solely on
-      // fuzzy title matching here: clients may use either Expanded Withholding
-      // Tax Payable, Withholding Tax Payable - Expanded, or a shorter WHT title.
-      const account = (opts.prefix === 'pj' && /^(withholding_tax|wht)$/i.test(col.id))
-        ? findWithholdingTaxAccount(accounts)
-        : findAccountByLabel(label, accounts);
+      // Resolve the account for this column. Cash and primary-sales columns
+      // need deterministic resolution (see resolveCashAccount /
+      // resolvePrimaryRevenueAccount) because fuzzy matching ties and drops
+      // them. PJ WHT likewise needs an explicit resolver.
+      let account: CoaAccount | undefined;
+      if (CASH_COLUMN_IDS.has(col.id)) {
+        account = resolveCashAccount(accounts);
+      } else if (SALES_COLUMN_IDS.has(col.id)) {
+        account = resolvePrimaryRevenueAccount(accounts);
+      } else if (opts.prefix === 'pj' && /^(withholding_tax|wht)$/i.test(col.id)) {
+        account = findWithholdingTaxAccount(accounts);
+      } else {
+        account = findAccountByLabel(label, accounts);
+      }
       if (!account) return;
 
       const side: 'debit' | 'credit' = col.category === 'Dr' ? 'debit' : 'credit';
@@ -243,8 +291,10 @@ function postCdjSundry(entries: JournalEntry[], accounts: CoaAccount[]): Posting
     const values = entry.values || {};
     const date = String(values.date || '');
     const particulars = String(values.payee || '');
-    const title = String(values[CDJ_SUNDRY_ACCOUNT_TITLE_ID] ?? '').trim();
-    const raw = String(values[CDJ_SUNDRY_AMOUNT_ID] ?? '').replace(/,/g, '');
+    // Accept both the standard sundry column ids and the legacy keys used by
+    // older auto-generated CDJ rows (account_title / amount).
+    const title = String(values[CDJ_SUNDRY_ACCOUNT_TITLE_ID] ?? values.account_title ?? '').trim();
+    const raw = String(values[CDJ_SUNDRY_AMOUNT_ID] ?? values.amount ?? '').replace(/,/g, '');
     const amount = parseFloat(raw);
     if (!title || !raw || isNaN(amount) || amount === 0) return;
 
@@ -540,6 +590,202 @@ function postPurchases(client: Client, accounts: CoaAccount[]): Posting[] {
         });
       }
     }
+  });
+  return postings;
+}
+
+// ---------------------------------------------------------------------------
+// Source: Check Vouchers — every non-reversed check voucher is a cash
+// disbursement. Unlike cash-basis Purchases and cash Journal Vouchers (which
+// post to the ledger directly via postPurchases / postJournalVouchers), check
+// vouchers have no other posting path, so they are posted here directly.
+// ---------------------------------------------------------------------------
+function postCheckVouchers(client: Client, accounts: CoaAccount[]): Posting[] {
+  const postings: Posting[] = [];
+  const cashAccount = resolveCashAccount(accounts);
+  (client.checkVouchers || [])
+    .filter(v => v.status !== 'Reversed' && Number(v.amount) > 0)
+    .forEach(v => {
+      const amount = Number(v.amount) || 0;
+      const particulars = v.payeeName || '';
+      const ref = v.checkNumber || v.id || '';
+      let debitLabel = 'Miscellaneous Expense';
+      if (v.paymentType === 'Invoice Clearance') debitLabel = 'Accounts Payable';
+      else if (v.paymentType === 'Advance') debitLabel = 'Advances to Suppliers';
+      else if (v.paymentType === 'Miscellaneous' && v.miscDetails) debitLabel = v.miscDetails;
+      const debitAcct = findAccountByLabel(debitLabel, accounts);
+      if (debitAcct) {
+        postings.push({
+          accountId: debitAcct.id,
+          entry: makeLeg(`check-voucher:${v.id}:dr`, 'debit', amount, v.date, particulars, ref, 'Check Voucher'),
+        });
+      }
+      if (cashAccount) {
+        postings.push({
+          accountId: cashAccount.id,
+          entry: makeLeg(`check-voucher:${v.id}:cr`, 'credit', amount, v.date, particulars, ref, 'Check Voucher'),
+        });
+      }
+    });
+  return postings;
+}
+
+// ---------------------------------------------------------------------------
+// Source: Miscellaneous Payments — same as check vouchers: a cash
+// disbursement with no other posting path. A misc payment that is duplicated
+// by a matching check voucher (same date/check number/amount) is excluded
+// from the CDJ sync and likewise skipped here to avoid double-posting.
+// ---------------------------------------------------------------------------
+function postMiscellaneousPayments(client: Client, accounts: CoaAccount[]): Posting[] {
+  const postings: Posting[] = [];
+  const cashAccount = resolveCashAccount(accounts);
+  const vouchers = client.checkVouchers || [];
+  (client.miscellaneousPayments || [])
+    .filter(m => Number(m.amount) > 0)
+    .filter(m => !vouchers.some(v =>
+      v.status !== 'Reversed'
+      && v.date === m.date
+      && v.checkNumber === m.checkNumber
+      && Math.abs(Number(v.amount) - Number(m.amount)) < 0.01
+    ))
+    .forEach(m => {
+      const amount = Number(m.amount) || 0;
+      const particulars = m.payeeName || '';
+      const ref = m.checkNumber || '';
+      const debitAcct = findAccountByLabel(m.expenseCategory || 'Miscellaneous Expense', accounts);
+      if (debitAcct) {
+        postings.push({
+          accountId: debitAcct.id,
+          entry: makeLeg(`misc-payment:${m.id}:dr`, 'debit', amount, m.date, particulars, ref, 'Miscellaneous Payment'),
+        });
+      }
+      if (cashAccount) {
+        postings.push({
+          accountId: cashAccount.id,
+          entry: makeLeg(`misc-payment:${m.id}:cr`, 'credit', amount, m.date, particulars, ref, 'Miscellaneous Payment'),
+        });
+      }
+    });
+  return postings;
+}
+
+// ---------------------------------------------------------------------------
+// Source: General Journal (manual entries). Auto GJ rows are derived from
+// Journal Vouchers (auto_source = journal_voucher:*) and are already posted
+// via postJournalVouchers, so only non-auto (manually-typed) GJ rows are
+// posted here. Each GJ row carries the debited/credited account title in the
+// particulars column; we match it against the Chart of Accounts and post the
+// debit/credit side accordingly.
+// ---------------------------------------------------------------------------
+function postGeneralJournal(client: Client, accounts: CoaAccount[]): Posting[] {
+  const postings: Posting[] = [];
+  const manualGj = (client.gjEntries || []).filter((e: any) => !e.auto);
+  manualGj.forEach(entry => {
+    const v = entry.values || {};
+    const date = String(v.date || '');
+    const ref = String(v.ref_no || v.reference || '');
+    const particularsRaw = String(v.particulars || '');
+    // Derived/legacy GJ rows embed the account name after the last " - ".
+    // Manual rows typically type the account title directly. Try both.
+    const accountName = particularsRaw.includes(' - ')
+      ? particularsRaw.split(' - ').pop()!.trim()
+      : particularsRaw.trim();
+    const account = findAccountByLabel(accountName, accounts);
+    if (!account) return;
+    const debitRaw = String(v.debit || '').replace(/,/g, '');
+    const creditRaw = String(v.credit || '').replace(/,/g, '');
+    const debit = parseFloat(debitRaw);
+    const credit = parseFloat(creditRaw);
+    if (Number.isFinite(debit) && debit > 0) {
+      postings.push({
+        accountId: account.id,
+        entry: makeLeg(`gj:${entry.id}:dr`, 'debit', debit, date, particularsRaw, ref, 'General Journal'),
+      });
+    }
+    if (Number.isFinite(credit) && credit > 0) {
+      postings.push({
+        accountId: account.id,
+        entry: makeLeg(`gj:${entry.id}:cr`, 'credit', credit, date, particularsRaw, ref, 'General Journal'),
+      });
+    }
+  });
+  return postings;
+}
+
+// ---------------------------------------------------------------------------
+// Source: manually-typed Purchases Journal rows. Unlike auto PJ rows (on-
+// account purchases, already posted via postPurchases), manual PJ rows have no
+// other source. The debit side is determined by the "Account Title"
+// (debit_account) text column — NOT forced to a generic "Purchases" account —
+// because a purchases journal can debit expense/asset accounts too.
+// ---------------------------------------------------------------------------
+function postManualPurchasesJournal(entries: JournalEntry[], columns: JournalColumn[], accounts: CoaAccount[]): Posting[] {
+  const postings: Posting[] = [];
+  const num = (id: string, v: Record<string, any>) => {
+    const n = parseFloat(String(v[id] ?? '').replace(/,/g, ''));
+    return Number.isFinite(n) ? Math.abs(n) : 0;
+  };
+  entries.forEach(entry => {
+    const v = entry.values || {};
+    const date = String(v.date || '');
+    const ref = String(v.invoice_no || '');
+    const particulars = String(v.supplier_name || v.description || '');
+    const debitLabel = String(v.debit_account || '').trim() || 'Purchases';
+    const debitAcct = findAccountByLabel(debitLabel, accounts);
+    const debitAmount = num('net_purchase', v) + num('exempt_zero_rated', v);
+    if (debitAcct && debitAmount > 0) {
+      postings.push({
+        accountId: debitAcct.id,
+        entry: makeLeg(`pj:${entry.id}:debit`, 'debit', debitAmount, date, particulars, ref, 'Purchases Journal'),
+      });
+    }
+    const inputTax = num('input_tax', v);
+    if (inputTax > 0) {
+      const taxAcct = findAccountByLabel('Input Tax', accounts)
+        || findAccountByLabel('Input VAT', accounts)
+        || findAccountByLabel('VAT Input Receivable', accounts);
+      if (taxAcct) {
+        postings.push({
+          accountId: taxAcct.id,
+          entry: makeLeg(`pj:${entry.id}:inputtax`, 'debit', inputTax, date, particulars, ref, 'Purchases Journal'),
+        });
+      }
+    }
+    const ap = num('accounts_payable', v);
+    if (ap > 0) {
+      const apAcct = findAccountByLabel('Accounts Payable', accounts);
+      if (apAcct) {
+        postings.push({
+          accountId: apAcct.id,
+          entry: makeLeg(`pj:${entry.id}:ap`, 'credit', ap, date, particulars, ref, 'Purchases Journal'),
+        });
+      }
+    }
+    const wht = num('withholding_tax', v) + num('wht', v);
+    if (wht > 0) {
+      const whtAcct = findWithholdingTaxAccount(accounts);
+      if (whtAcct) {
+        postings.push({
+          accountId: whtAcct.id,
+          entry: makeLeg(`pj:${entry.id}:wht`, 'credit', wht, date, particulars, ref, 'Purchases Journal'),
+        });
+      }
+    }
+    // Any additional user-configured numeric PJ columns (not the system ones
+    // handled above) post to their matching account by name.
+    const systemIds = new Set(DEFAULT_PJ_COLUMNS.map(c => c.id));
+    columns
+      .filter(c => !systemIds.has(c.id) && c.type === 'number' && c.category !== 'None')
+      .forEach(col => {
+        const amount = num(col.id, v);
+        if (amount === 0) return;
+        const acct = findAccountByLabel(col.name, accounts);
+        if (!acct) return;
+        postings.push({
+          accountId: acct.id,
+          entry: makeLeg(`pj:${entry.id}:${col.id}`, col.category === 'Dr' ? 'debit' : 'credit', amount, date, particulars, ref, 'Purchases Journal'),
+        });
+      });
   });
   return postings;
 }
@@ -916,14 +1162,14 @@ export function computeAutoPostings(client: Client): Posting[] {
       });
   });
 
-  // Post every CDJ row, including source-derived auto rows. Auto CDJ rows
-  // are the bridge for cash-basis Purchases, cash Journal Vouchers, Check
-  // Vouchers, and Miscellaneous Payments. Filtering them out here meant the
-  // CDJ screen could show the transaction while the General Ledger captured
-  // none of it.
-  const cdjEntries = client.cdjEntries || [];
+  // Only manually-typed CDJ rows post through the CDJ pass. Auto CDJ rows are
+  // source-derived: cash-basis Purchases and cash Journal Vouchers already
+  // reach the ledger via postPurchases / postJournalVouchers, and Check
+  // Vouchers / Miscellaneous Payments post directly below. Including the auto
+  // rows here would double-post the same cash-out (and their input tax).
+  const manualCdj = (client.cdjEntries || []).filter(e => !e.auto);
   const cdj = postColumnarJournal(
-    cdjEntries,
+    manualCdj,
     useColumns(client.cdjColumns, DEFAULT_CDJ_COLUMNS),
     accounts,
     {
@@ -937,29 +1183,22 @@ export function computeAutoPostings(client: Client): Posting[] {
   // The Sundry Account Title / Amount Dr(Cr) pair has no fixed Dr/Cr column
   // category (its side depends on the amount's sign), so it's posted
   // separately rather than through postColumnarJournal's per-column loop.
-  // Manual CDJ sundries use the normal journal values. Auto CDJ rows also use
-  // the legacy account_title/amount pair, so include those rows here as well.
-  // Their values are read-only/source-derived and are not present in the
-  // normalized account-column ids.
-  const cdjSundry = postCdjSundry(cdjEntries, accounts);
-  const cdjInputTax = postCdjAutoInputTax(cdjEntries, accounts);
+  const cdjSundry = postCdjSundry(manualCdj, accounts);
 
   // Auto PJ rows are display-only (on-account purchases already reach the
-  // ledger via postPurchases); only manually-typed PJ rows post here.
+  // ledger via postPurchases); only manually-typed PJ rows post here, with
+  // their debit account read from the "Account Title" column rather than
+  // forced to a generic Purchases account.
   const manualPj = (client.pjEntries || []).filter(e => !e.auto);
-  const pj = postColumnarJournal(manualPj, useColumns(client.pjColumns, DEFAULT_PJ_COLUMNS), accounts, {
-    prefix: 'pj',
-    sourceLabel: 'Purchases Journal',
-    dateCol: 'date',
-    particularsCol: 'supplier_name',
-    refCol: 'invoice_no',
-    overrides: PJ_LABEL_OVERRIDES,
-  });
+  const pj = postManualPurchasesJournal(manualPj, useColumns(client.pjColumns, DEFAULT_PJ_COLUMNS), accounts);
 
   const jv = postJournalVouchers(client);
   const purchases = postPurchases(client, accounts);
+  const checkVouchers = postCheckVouchers(client, accounts);
+  const miscPayments = postMiscellaneousPayments(client, accounts);
+  const generalJournal = postGeneralJournal(client, accounts);
 
-  return [...crj, ...sjPostings, ...cdj, ...cdjSundry, ...cdjInputTax, ...pj, ...jv, ...purchases];
+  return [...crj, ...sjPostings, ...cdj, ...cdjSundry, ...pj, ...jv, ...purchases, ...checkVouchers, ...miscPayments, ...generalJournal];
 }
 
 /**
