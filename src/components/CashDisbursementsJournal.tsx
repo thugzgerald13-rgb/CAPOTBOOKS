@@ -479,10 +479,23 @@ export function CashDisbursementsJournal() {
   };
 
   const totals = getTotals();
-  const totalDr = columns.filter(c => c.category === 'Dr').reduce((s, c) => s + (totals[c.id] || 0), 0)
-    + Math.max(0, totals[CDJ_SUNDRY_AMOUNT_ID] || 0);
-  const totalCr = columns.filter(c => c.category === 'Cr').reduce((s, c) => s + (totals[c.id] || 0), 0)
-    + Math.max(0, -(totals[CDJ_SUNDRY_AMOUNT_ID] || 0));
+  // The Sundry Amount Dr/Cr column carries both positive (debit) and negative
+  // (credit) values. Summing them to a net first (totals[CDJ_SUNDRY_AMOUNT_ID])
+  // and then taking max(0, …) understates both sides whenever both signs are
+  // present — accumulate debits and credits per row instead.
+  let sundryDr = 0;
+  let sundryCr = 0;
+  const sundryAmountCol = columns.find(c => c.id === CDJ_SUNDRY_AMOUNT_ID);
+  if (sundryAmountCol) {
+    filteredEntries.forEach(e => {
+      const raw = getCdjDisplayValue(e, sundryAmountCol, columns, accounts).replace(/,/g, '');
+      const n = parseFloat(raw);
+      if (!Number.isFinite(n) || n === 0) return;
+      if (n > 0) sundryDr += n; else sundryCr += -n;
+    });
+  }
+  const totalDr = columns.filter(c => c.category === 'Dr').reduce((s, c) => s + (totals[c.id] || 0), 0) + sundryDr;
+  const totalCr = columns.filter(c => c.category === 'Cr').reduce((s, c) => s + (totals[c.id] || 0), 0) + sundryCr;
   const isBalanced = Math.abs(totalDr - totalCr) < 0.01;
 
   return (
@@ -755,18 +768,30 @@ export function CashDisbursementsJournal() {
               {filteredEntries.length > 0 && (
                 <tfoot className="bg-slate-50 dark:bg-slate-800/80 font-bold border-t-2 border-slate-200 dark:border-slate-700">
                   <tr>
-                    <td className="px-3 py-3 text-right" colSpan={columns.filter(c => c.type !== 'number').length + 1}>Total</td>
-                    {columns.map(col => {
-                      if (col.type === 'number') {
-                        return (
-                          <td key={col.id} className="px-3 py-3 text-right text-slate-800 dark:text-slate-200 font-mono text-[11px]">
-                            {totals[col.id]?.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </td>
-                        );
-                      }
-                      return null;
-                    })}
-                    <td></td>
+                    {(() => {
+                      // The "Total" label spans the leading index column plus
+                      // every text column before the first number column.
+                      // Rendering a cell for EVERY remaining column (empty
+                      // for text columns like Account Title) keeps totals
+                      // aligned with their headers — skipping text columns in
+                      // the middle shifted every total one cell left.
+                      const firstNumIdx = columns.findIndex(c => c.type === 'number');
+                      const labelSpan = 1 + (firstNumIdx < 0 ? columns.length : firstNumIdx);
+                      const tailColumns = firstNumIdx < 0 ? [] : columns.slice(firstNumIdx);
+                      return (
+                        <>
+                          <td className="px-3 py-3 text-right" colSpan={labelSpan}>Total</td>
+                          {tailColumns.map(col => (
+                            <td key={col.id} className="px-3 py-3 text-right text-slate-800 dark:text-slate-200 font-mono text-[11px]">
+                              {col.type === 'number'
+                                ? (totals[col.id] || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+                                : ''}
+                            </td>
+                          ))}
+                          <td></td> {/* Action column */}
+                        </>
+                      );
+                    })()}
                   </tr>
                 </tfoot>
               )}
