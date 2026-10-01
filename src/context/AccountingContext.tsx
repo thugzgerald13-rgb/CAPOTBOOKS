@@ -13,6 +13,7 @@ import {
   applyCachedRowDelta, clearCachedRows, queueDirtyWrite, flushDirtyQueue,
   pendingDirtyCount, recordCacheHit, invalidateQueries, validateCacheSchema,
 } from '../db/localDb';
+import { loadInitialViaRpc } from '../lib/initialLoad';
 
 interface AccountingContextType {
   clients: Record<string, Client>;
@@ -384,32 +385,60 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
   // A fresh tab therefore performs a full fetch for the delta tables. Realtime
   // plus in-memory deltas are used only after that authoritative load.
 
-  const deltaQueryPromises = DELTA_SYNC_TABLES.map(({ table, columns }) => {
-    let query = supabase.from(table).select(`${columns},updated_at`).eq('client_id', clientId);
-    if (cacheEntry) query = query.gte('updated_at', cacheEntry.cursor);
-    return query;
-  });
+  // Consolidated RPC fast path: 1 POST replaces the 19 parallel GETs below.
+  // Any failure (function not deployed, RLS, network, empty payload) returns
+  // null and we fall through to the original per-table fetch path — deploying
+  // scripts/initial_load_rpc.sql is always optional and never breaks the app.
+  const rpcLoad = await loadInitialViaRpc(supabase, clientId);
 
-  // These 11 tables are lower-volume/lower-churn (settings, folders,
-  // deadlines, etc.) and aren't covered by the Realtime subscription, so
-  // they're kept as plain full fetches - already column-trimmed above.
-  const fullQueryPromises = [
-    supabase.from('inventory_columns').select(INVENTORY_COLUMNS_COLUMNS).eq('client_id', clientId),
-    supabase.from('inventory_items').select(INVENTORY_ITEMS_COLUMNS).eq('client_id', clientId),
-    supabase.from('inventory_movements').select(INVENTORY_MOVEMENTS_COLUMNS).eq('client_id', clientId),
-    supabase.from('app_folders').select(APP_FOLDERS_COLUMNS).eq('client_id', clientId),
-    supabase.from('app_files').select(APP_FILES_COLUMNS).eq('client_id', clientId),
-    supabase.from('tin_entries').select(TIN_ENTRIES_COLUMNS).eq('client_id', clientId),
-    supabase.from('tax_deadlines').select(TAX_DEADLINES_COLUMNS).eq('client_id', clientId),
-    supabase.from('bank_accounts').select(BANK_ACCOUNTS_COLUMNS).eq('client_id', clientId),
-    supabase.from('asset_lapsing_schedule').select(ASSET_LAPSING_COLUMNS).eq('client_id', clientId),
-    supabase.from('billing_invoices').select(BILLING_INVOICES_COLUMNS).eq('client_id', clientId),
-    supabase.from('financial_report_snapshots').select(SNAPSHOTS_COLUMNS).eq('client_id', clientId),
-  ];
+  let deltaResults: any[];
+  let inventoryColumns: any, inventoryItems: any, inventoryMovements: any, folders: any, files: any,
+    tinEntries: any, taxDeadlines: any, bankAccounts: any, assetLapsingSchedule: any, billingInvoices: any, snapshots: any;
 
-  const [deltaResults, inventoryColumns, inventoryItems, inventoryMovements, folders, files,
-    tinEntries, taxDeadlines, bankAccounts, assetLapsingSchedule, billingInvoices, snapshots] =
-    await Promise.all([Promise.all(deltaQueryPromises), ...fullQueryPromises]);
+  if (rpcLoad) {
+    deltaResults = rpcLoad.deltaResults;
+    inventoryColumns = rpcLoad.full.inventory_columns;
+    inventoryItems = rpcLoad.full.inventory_items;
+    inventoryMovements = rpcLoad.full.inventory_movements;
+    folders = rpcLoad.full.app_folders;
+    files = rpcLoad.full.app_files;
+    tinEntries = rpcLoad.full.tin_entries;
+    taxDeadlines = rpcLoad.full.tax_deadlines;
+    bankAccounts = rpcLoad.full.bank_accounts;
+    assetLapsingSchedule = rpcLoad.full.asset_lapsing_schedule;
+    billingInvoices = rpcLoad.full.billing_invoices;
+    snapshots = rpcLoad.full.financial_report_snapshots;
+    // RPC payload is authoritative — merge as a full load so the in-memory
+    // delta cache and the persisted IndexedDB watermark are set correctly.
+    cacheEntry = undefined;
+  } else {
+    const deltaQueryPromises = DELTA_SYNC_TABLES.map(({ table, columns }) => {
+      let query = supabase.from(table).select(`${columns},updated_at`).eq('client_id', clientId);
+      if (cacheEntry) query = query.gte('updated_at', cacheEntry.cursor);
+      return query;
+    });
+
+    // These 11 tables are lower-volume/lower-churn (settings, folders,
+    // deadlines, etc.) and aren't covered by the Realtime subscription, so
+    // they're kept as plain full fetches - already column-trimmed above.
+    const fullQueryPromises = [
+      supabase.from('inventory_columns').select(INVENTORY_COLUMNS_COLUMNS).eq('client_id', clientId),
+      supabase.from('inventory_items').select(INVENTORY_ITEMS_COLUMNS).eq('client_id', clientId),
+      supabase.from('inventory_movements').select(INVENTORY_MOVEMENTS_COLUMNS).eq('client_id', clientId),
+      supabase.from('app_folders').select(APP_FOLDERS_COLUMNS).eq('client_id', clientId),
+      supabase.from('app_files').select(APP_FILES_COLUMNS).eq('client_id', clientId),
+      supabase.from('tin_entries').select(TIN_ENTRIES_COLUMNS).eq('client_id', clientId),
+      supabase.from('tax_deadlines').select(TAX_DEADLINES_COLUMNS).eq('client_id', clientId),
+      supabase.from('bank_accounts').select(BANK_ACCOUNTS_COLUMNS).eq('client_id', clientId),
+      supabase.from('asset_lapsing_schedule').select(ASSET_LAPSING_COLUMNS).eq('client_id', clientId),
+      supabase.from('billing_invoices').select(BILLING_INVOICES_COLUMNS).eq('client_id', clientId),
+      supabase.from('financial_report_snapshots').select(SNAPSHOTS_COLUMNS).eq('client_id', clientId),
+    ];
+
+    [deltaResults, inventoryColumns, inventoryItems, inventoryMovements, folders, files,
+      tinEntries, taxDeadlines, bankAccounts, assetLapsingSchedule, billingInvoices, snapshots] =
+      await Promise.all([Promise.all(deltaQueryPromises), ...fullQueryPromises]);
+  }
 
   const responses = [...deltaResults, inventoryColumns, inventoryItems, inventoryMovements,
     folders, files, tinEntries, taxDeadlines, bankAccounts, assetLapsingSchedule, billingInvoices, snapshots];
