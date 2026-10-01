@@ -490,6 +490,24 @@ export function Purchases() {
       attachment
     };
 
+    // Duplicate guard: the same supplier (TIN) cannot invoice twice with the
+    // same invoice number. Check across ALL periods (not just the currently
+    // selected one) and exclude the record currently being edited. Skip when
+    // there is no invoice number (e.g. miscellaneous payments without one).
+    const trimmedInvoice = String(invoiceNo || '').trim();
+    const trimmedTin = String(supplierTin || '').trim();
+    if (trimmedInvoice) {
+      const duplicate = (currentClient.purchases || []).find(p =>
+        String(p.invoiceNo || '').trim().toLowerCase() === trimmedInvoice.toLowerCase()
+        && String(p.supplierTin || '').trim() === trimmedTin
+        && String(p.id) !== String(purchaseData.id)
+      );
+      if (duplicate) {
+        alert(`Duplicate invoice: Invoice #${trimmedInvoice} is already recorded for supplier TIN ${trimmedTin}. Please verify the invoice number before saving.`);
+        return;
+      }
+    }
+
     // Persist the purchase directly to the normalized `purchases` table.
     // Do not rebuild the whole Client aggregate from the currently loaded page/list;
     // that can overwrite transactions that are not present in the browser.
