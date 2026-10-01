@@ -23,6 +23,14 @@ import {
   SubusersNotEnabledError,
 } from '../lib/subusers';
 import type { MemberRole, TeamMember } from '../types';
+import { ALL_PERMISSIONS } from '../lib/accessControl';
+import {
+  MEMBER_ROLE_PERMISSIONS,
+  PERMISSION_LABELS,
+  MATRIX_ROLES,
+  roleHasPermission,
+  MEMBER_ROLE_LABELS,
+} from '../lib/teamPermissions';
 
 const ROLE_OPTIONS: { value: MemberRole; label: string; desc: string }[] = [
   { value: 'accountant', label: 'Accountant', desc: 'Full access to books, reports and compliance.' },
@@ -292,6 +300,23 @@ export function TeamSettings() {
                   </div>
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-3">{ROLE_OPTIONS.find((r) => r.value === memberRole)?.desc}</p>
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {ALL_PERMISSIONS.map((p) => {
+                    const allowed = (MEMBER_ROLE_PERMISSIONS[memberRole] || []).includes(p.key);
+                    return (
+                      <span
+                        key={p.key}
+                        className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold border ${
+                          allowed
+                            ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
+                            : 'bg-slate-50 dark:bg-slate-900/40 text-slate-400 border-slate-200 dark:border-slate-700 line-through'
+                        }`}
+                      >
+                        {allowed ? '✓' : '✕'} {p.label}
+                      </span>
+                    );
+                  })}
+                </div>
                 <div className="mt-4 flex items-center gap-3">
                   <button type="submit" disabled={busy}
                     className="flex items-center gap-2 px-6 py-3 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl font-bold shadow-md transition-all active:scale-95 disabled:opacity-50">
@@ -301,6 +326,47 @@ export function TeamSettings() {
                   <span className="text-xs text-slate-400">Signed in as {user?.email}</span>
                 </div>
               </form>
+
+              <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <ShieldCheck className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
+                  <h3 className="font-bold text-slate-800 dark:text-slate-100">What each role can do</h3>
+                </div>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+                  Invited users keep their own CAPOT account permanently — removing them only revokes access to your
+                  books; their login and history elsewhere are untouched. Permissions are enforced server-side.
+                </p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="text-left text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                        <th className="py-2 pr-3 font-bold">Permission</th>
+                        {MATRIX_ROLES.map((r) => (
+                          <th key={r} className="py-2 px-2 font-bold text-center capitalize">
+                            {r === 'owner' ? 'Owner (you)' : MEMBER_ROLE_LABELS[r as MemberRole]}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60">
+                      {ALL_PERMISSIONS.map((p) => (
+                        <tr key={p.key}>
+                          <td className="py-2 pr-3 text-slate-700 dark:text-slate-200 font-medium">{p.label}</td>
+                          {MATRIX_ROLES.map((r) => (
+                            <td key={r} className="py-2 px-2 text-center">
+                              {roleHasPermission(r, p.key) ? (
+                                <span className="inline-flex w-5 h-5 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 font-bold">✓</span>
+                              ) : (
+                                <span className="inline-flex w-5 h-5 items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 font-bold">—</span>
+                              )}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
 
               <div>
                 <div className="flex items-center justify-between mb-3">
