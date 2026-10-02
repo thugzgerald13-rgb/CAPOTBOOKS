@@ -11,6 +11,7 @@ import type { TeamMember, AccountMembership } from '../types';
 interface AuthContextType {
   user: User | null;
   loading: boolean;
+  pendingApproval: boolean;
   isAdmin: boolean;
   userRole: string | null;
   permissions: Record<string, boolean>;
@@ -28,7 +29,7 @@ interface AuthContextType {
 
 const DEFAULT_MEMBERSHIP: AccountMembership = { isSubuser: false };
 const AuthContext = createContext<AuthContextType>({
-  user: null, loading: true, isAdmin: false, userRole: null, permissions: {},
+  user: null, loading: true, pendingApproval: false, isAdmin: false, userRole: null, permissions: {},
   hasPermission: () => false, setUserRole: () => {}, signOut: async () => {},
   needsAccountSetup: false, completeAccountSetup: async () => {},
   subusersEnabled: false, membership: DEFAULT_MEMBERSHIP, isSubuser: false,
@@ -48,6 +49,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [subusersEnabled, setSubusersEnabled] = useState(false);
   const [membership, setMembership] = useState<AccountMembership>(DEFAULT_MEMBERSHIP);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [pendingApproval, setPendingApproval] = useState(false);
 
   const DEVELOPER_EMAIL =
     (import.meta.env.VITE_ADMIN_EMAIL || 'thugz.gerald13@gmail.com').trim().toLowerCase();
@@ -77,6 +79,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setMembership(DEFAULT_MEMBERSHIP);
       setTeamMembers([]);
       setSubusersEnabled(false);
+      setPendingApproval(false);
     };
 
     const syncUser = async (usr: User) => {
@@ -102,7 +105,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
         const { data, error: roleError } = await supabase
           .from('profiles')
-          .select('user_role')
+          .select('user_role, approved')
           .eq('id', usr.id)
           .maybeSingle();
 
@@ -112,6 +115,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
         if (!active) return;
         setUserRoleState(data?.user_role ?? null);
+        // Developer-approval gate: the developer email is always approved;
+        // everyone else is blocked until an admin flips profiles.approved.
+        const isDeveloper = !!usr.email && usr.email.trim().toLowerCase() === DEVELOPER_EMAIL;
+        setPendingApproval(!isDeveloper && !(data?.approved ?? false));
 
         const { data: permissionData, error: permissionError } =
           await supabase.rpc('get_my_account_permissions');
@@ -262,9 +269,33 @@ export function AuthProvider({ children }: AuthProviderProps) {
     await supabase.auth.signOut();
   };
 
+  // Developer-approval gate: a signed-in but not-yet-approved user sees only
+  // this screen. Nothing in the app (data loads, writes, AccountingContext)
+  // is reachable until an admin flips profiles.approved = true.
+  if (pendingApproval) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0f172a', padding: 24, fontFamily: 'system-ui, sans-serif' }}>
+        <div style={{ maxWidth: 420, width: '100%', background: '#1e293b', border: '1px solid #334155', borderRadius: 16, padding: 32, textAlign: 'center' }}>
+          <div style={{ width: 56, height: 56, margin: '0 auto 16px', borderRadius: '50%', background: '#f59e0b22', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>⏳</div>
+          <h1 style={{ color: '#f1f5f9', fontSize: 20, fontWeight: 700, margin: '0 0 8px' }}>Account Pending Approval</h1>
+          <p style={{ color: '#94a3b8', fontSize: 14, lineHeight: 1.6, margin: '0 0 24px' }}>
+            Your account <strong style={{ color: '#e2e8f0' }}>{user?.email}</strong> has been created and is waiting for the developer to approve it.
+            You will be able to use the app once approval is granted — this usually takes less than 24 hours.
+          </p>
+          <button
+            onClick={() => { void signOut(); }}
+            style={{ background: '#0ea5e9', color: '#fff', border: 'none', borderRadius: 10, padding: '10px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+          >
+            Sign Out
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <AuthContext.Provider value={{
-      user, loading, isAdmin, userRole, permissions, hasPermission, setUserRole, signOut,
+      user, loading, pendingApproval, isAdmin, userRole, permissions, hasPermission, setUserRole, signOut,
       needsAccountSetup, completeAccountSetup,
       subusersEnabled, membership, isSubuser: membership.isSubuser, teamMembers, refreshTeamMembers,
     }}>
