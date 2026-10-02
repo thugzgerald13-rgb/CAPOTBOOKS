@@ -352,22 +352,22 @@ export function AdminSettings() {
   
   const handleToggleApproval = async (uid: string, approve: boolean) => {
     try {
-      // SECURITY DEFINER RPC bypasses RLS (a direct UPDATE on another user's
-      // row is silently blocked by RLS — PostgREST returns 200 with zero rows
-      // affected, which looks like "revoke did nothing"). Falls back to a
-      // direct update if the RPC hasn't been deployed yet.
-      const { error: rpcError } = await supabase.rpc('set_user_approved', { target_user_id: uid, approve });
-      if (rpcError) {
-        const { error } = await supabase
-          .from('profiles')
-          .update({ approved: approve, approved_at: approve ? new Date().toISOString() : null })
-          .eq('id', uid);
-        if (error) throw error;
-      }
+      // Approval changes must go through the SECURITY DEFINER RPC because the
+      // developer is intentionally editing another user's profile. A direct
+      // PostgREST UPDATE is subject to profiles RLS and can affect zero rows.
+      const { data, error } = await supabase.rpc('set_user_approved', {
+        target_user_id: uid,
+        approve,
+      });
+
+      if (error) throw error;
+      if (data !== true) throw new Error('Approval update was not applied.');
+
       await fetchUsers();
     } catch (err) {
       console.error('Approval toggle failed:', err);
-      alert('Failed to update approval. Run the latest supabase_user_approval.sql in the Supabase SQL Editor to add the set_user_approved function.');
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      alert(`Failed to ${approve ? 'approve' : 'revoke'} user: ${message}`);
     }
   };
 
