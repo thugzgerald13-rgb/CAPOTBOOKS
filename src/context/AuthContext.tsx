@@ -14,6 +14,7 @@ interface AuthContextType {
   loading: boolean;
   accountReady: boolean;
   pendingApproval: boolean;
+  accountBlocked: boolean;
   isAdmin: boolean;
   userRole: string | null;
   permissions: Record<string, boolean>;
@@ -32,7 +33,7 @@ interface AuthContextType {
 
 const DEFAULT_MEMBERSHIP: AccountMembership = { isSubuser: false };
 const AuthContext = createContext<AuthContextType>({
-  user: null, loading: true, accountReady: false, pendingApproval: false, isAdmin: false, userRole: null, permissions: {},
+  user: null, loading: true, accountReady: false, pendingApproval: false, accountBlocked: false, isAdmin: false, userRole: null, permissions: {},
   hasPermission: () => false, setUserRole: () => {}, signOut: async () => {},
   needsAccountSetup: false, completeAccountSetup: async () => {},
   subusersEnabled: false, membership: DEFAULT_MEMBERSHIP, isSubuser: false,
@@ -56,6 +57,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [membership, setMembership] = useState<AccountMembership>(DEFAULT_MEMBERSHIP);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [pendingApproval, setPendingApproval] = useState(false);
+  const [accountBlocked, setAccountBlocked] = useState(false);
 
   const DEVELOPER_EMAIL =
     (import.meta.env.VITE_ADMIN_EMAIL || 'thugz.gerald13@gmail.com').trim().toLowerCase();
@@ -89,6 +91,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setTeamMembers([]);
       setSubusersEnabled(false);
       setPendingApproval(false);
+      setAccountBlocked(false);
     };
 
     const syncUser = async (usr: User) => {
@@ -112,22 +115,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
           console.error('Profile sync error:', profileUpsertError);
         }
 
-        // An independent invitation is claimed only after the invitee has
-        // authenticated. This prevents creating a second CAPOT workspace for
-        // an invited email and binds the membership to the authenticated user.
-        try {
-          const claimedMembership = await claimTeamInvitation();
-          if (claimedMembership?.isSubuser) {
-            setMembership(claimedMembership);
-            setSubusersEnabled(true);
-          }
-        } catch (claimError) {
-          console.error('Invitation claim error:', claimError);
-        }
-
         const { data, error: roleError } = await supabase
           .from('profiles')
-          .select('user_role, approved')
+          .select('user_role, approved, blocked')
           .eq('id', usr.id)
           .maybeSingle();
 
@@ -137,10 +127,38 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
         if (!active) return;
         setUserRoleState(data?.user_role ?? null);
+
+        // A developer can hard-block an account from System Config. The
+        // blocked flag takes precedence over approval and must be checked
+        // before invitation claiming or loading any account data.
+        const isBlocked = Boolean(data?.blocked);
+        setAccountBlocked(isBlocked);
+        if (isBlocked) {
+          setPendingApproval(false);
+          setPermissions({});
+          setRolePermissions({});
+          setMembership(DEFAULT_MEMBERSHIP);
+          setTeamMembers([]);
+          setSubusersEnabled(false);
+          return;
+        }
+
         // Developer-approval gate: the developer email is always approved;
         // everyone else is blocked until an admin flips profiles.approved.
         const isDeveloper = !!usr.email && usr.email.trim().toLowerCase() === DEVELOPER_EMAIL;
         setPendingApproval(!isDeveloper && !(data?.approved ?? false));
+
+        // Claim the invitation only after the profile has been checked. A
+        // blocked account must never gain access by claiming a pending invite.
+        try {
+          const claimedMembership = await claimTeamInvitation();
+          if (claimedMembership?.isSubuser) {
+            setMembership(claimedMembership);
+            setSubusersEnabled(true);
+          }
+        } catch (claimError) {
+          console.error('Invitation claim error:', claimError);
+        }
 
         const { data: permissionData, error: permissionError } =
           await supabase.rpc('get_my_account_permissions');
@@ -353,6 +371,26 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // Developer-approval gate: a signed-in but not-yet-approved user sees only
   // this screen. Nothing in the app (data loads, writes, AccountingContext)
   // is reachable until an admin flips profiles.approved = true.
+  if (accountBlocked) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0f172a', padding: 24, fontFamily: 'system-ui, sans-serif' }}>
+        <div style={{ maxWidth: 420, width: '100%', background: '#1e293b', border: '1px solid #7f1d1d', borderRadius: 16, padding: 32, textAlign: 'center' }}>
+          <div style={{ width: 56, height: 56, margin: '0 auto 16px', borderRadius: '50%', background: '#ef444422', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 28 }}>🚫</div>
+          <h1 style={{ color: '#f1f5f9', fontSize: 20, fontWeight: 700, margin: '0 0 8px' }}>Account Blocked</h1>
+          <p style={{ color: '#94a3b8', fontSize: 14, lineHeight: 1.6, margin: '0 0 24px' }}>
+            Access to CAPOT has been blocked for <strong style={{ color: '#e2e8f0' }}>{user?.email}</strong>. Please contact the system developer if you believe this is a mistake.
+          </p>
+          <button
+            onClick={() => { void signOut(); }}
+            style={{ background: '#0ea5e9', color: '#fff', border: 'none', borderRadius: 10, padding: '10px 20px', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}
+          >
+            Sign Out
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (pendingApproval) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0f172a', padding: 24, fontFamily: 'system-ui, sans-serif' }}>
@@ -376,7 +414,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   return (
     <AuthContext.Provider value={{
-      user, loading, pendingApproval, isAdmin, userRole, permissions, hasPermission, setUserRole, signOut,
+      user, loading, pendingApproval, accountBlocked, isAdmin, userRole, permissions, hasPermission, setUserRole, signOut,
       needsAccountSetup, completeAccountSetup,
       subusersEnabled, membership, isSubuser: membership.isSubuser, teamMembers, refreshTeamMembers, setActivePermissionClientId,
     }}>

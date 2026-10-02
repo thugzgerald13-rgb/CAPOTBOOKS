@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ShieldAlert, Download, Users, RefreshCw, Mail, Calendar, LineChart, CheckCircle2, XCircle, Copy, Check } from 'lucide-react';
+import { ShieldAlert, Download, Users, RefreshCw, Mail, Calendar, LineChart, CheckCircle2, XCircle, Copy, Check, Ban, Trash2 } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { getEgressMetrics } from '../db/localDb';
@@ -19,6 +19,7 @@ interface UserProfile {
   lastLogin?: any;
   updatedAt?: any;
   approved?: boolean;
+  blocked?: boolean;
 }
 
 type AdminTab = 'users' | 'diagnostics';
@@ -285,6 +286,7 @@ export function AdminSettings() {
     a.href = url; a.download = `capot-backup-${new Date().toISOString().split('T')[0]}.json`; a.click(); URL.revokeObjectURL(url);
   };
   const [loading, setLoading] = useState(false);
+  const [actionUserId, setActionUserId] = useState<string | null>(null);
   const [dbConnectionOk, setDbConnectionOk] = useState<boolean | null>(null);
 
   // Which tab shows is driven by the URL path itself
@@ -312,7 +314,7 @@ export function AdminSettings() {
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, email, display_name, user_role, last_login, updated_at, approved')
+        .select('id, email, display_name, user_role, last_login, updated_at, approved, blocked')
         .order('updated_at', { ascending: false });
       if (error) throw error;
       const userList = (data || []).map((row) => ({
@@ -323,6 +325,7 @@ export function AdminSettings() {
         lastLogin: row.last_login,
         updatedAt: row.updated_at,
         approved: !!row.approved,
+        blocked: !!row.blocked,
       })) as UserProfile[];
       setUsers(userList);
     } catch (err) {
@@ -351,6 +354,7 @@ export function AdminSettings() {
   };
   
   const handleToggleApproval = async (uid: string, approve: boolean) => {
+    setActionUserId(uid);
     try {
       // Approval changes must go through the SECURITY DEFINER RPC because the
       // developer is intentionally editing another user's profile. A direct
@@ -365,8 +369,50 @@ export function AdminSettings() {
       await fetchUsers();
     } catch (err) {
       console.error('Approval toggle failed:', err);
-      const message = err instanceof Error ? err.message : 'Unknown error';
+      const message = err instanceof Error ? err.message : String(err);
       alert(`Failed to ${approve ? 'approve' : 'revoke'} user: ${message}`);
+    } finally {
+      setActionUserId(null);
+    }
+  };
+
+  const handleToggleBlocked = async (uid: string, blocked: boolean) => {
+    setActionUserId(uid);
+    try {
+      const { error } = await supabase.rpc('set_user_blocked', {
+        p_target_user_id: uid,
+        p_blocked: blocked,
+      });
+      if (error) throw error;
+      await fetchUsers();
+    } catch (err) {
+      console.error('Block toggle failed:', err);
+      const message = err instanceof Error ? err.message : String(err);
+      alert(`Failed to ${blocked ? 'block' : 'unblock'} user: ${message}`);
+    } finally {
+      setActionUserId(null);
+    }
+  };
+
+  const handleDeleteUser = async (user: UserProfile) => {
+    const confirmed = window.confirm(
+      `Delete ${user.email}?\n\nThis permanently deletes the webapp account and its associated CAPOT data. This cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setActionUserId(user.uid);
+    try {
+      const { error } = await supabase.rpc('delete_user_account', {
+        p_target_user_id: user.uid,
+      });
+      if (error) throw error;
+      await fetchUsers();
+    } catch (err) {
+      console.error('User deletion failed:', err);
+      const message = err instanceof Error ? err.message : String(err);
+      alert(`Failed to delete user: ${message}`);
+    } finally {
+      setActionUserId(null);
     }
   };
 
@@ -521,7 +567,7 @@ export function AdminSettings() {
                   <th className="px-4 py-3 font-bold text-slate-600 dark:text-slate-400">User</th>
                   <th className="px-4 py-3 font-bold text-slate-600 dark:text-slate-400">Role</th>
                   <th className="px-4 py-3 font-bold text-slate-600 dark:text-slate-400 text-right">Last Sync</th>
-                  <th className="px-4 py-3 font-bold text-slate-600 dark:text-slate-400 text-right">Approval</th>
+                  <th className="px-4 py-3 font-bold text-slate-600 dark:text-slate-400 text-right">Account Status / Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -552,24 +598,54 @@ export function AdminSettings() {
                     <td className="px-4 py-3 text-right">
                       {u.email?.toLowerCase() === 'thugz.gerald13@gmail.com' ? (
                         <span className="text-[10px] px-2 py-1 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 font-bold uppercase tracking-wide">Developer</span>
-                      ) : u.approved ? (
-                        <div className="flex items-center justify-end gap-2">
-                          <span className="text-[10px] px-2 py-1 rounded bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 font-bold uppercase tracking-wide">Approved</span>
-                          <button
-                            onClick={() => handleToggleApproval(u.uid, false)}
-                            className="text-[10px] px-2 py-1 rounded border border-slate-300 dark:border-slate-600 text-slate-500 hover:text-red-500 hover:border-red-300 dark:hover:border-red-700 font-bold uppercase tracking-wide transition-colors"
-                          >
-                            Revoke
-                          </button>
-                        </div>
                       ) : (
-                        <div className="flex items-center justify-end gap-2">
-                          <span className="text-[10px] px-2 py-1 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 font-bold uppercase tracking-wide animate-pulse">Pending</span>
+                        <div className="flex items-center justify-end gap-2 flex-wrap">
+                          {u.blocked ? (
+                            <span className="text-[10px] px-2 py-1 rounded bg-rose-100 dark:bg-rose-900/30 text-rose-700 dark:text-rose-300 font-bold uppercase tracking-wide">Blocked</span>
+                          ) : u.approved ? (
+                            <span className="text-[10px] px-2 py-1 rounded bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 font-bold uppercase tracking-wide">Approved</span>
+                          ) : (
+                            <span className="text-[10px] px-2 py-1 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 font-bold uppercase tracking-wide animate-pulse">Pending</span>
+                          )}
+
+                          {!u.blocked && !u.approved && (
+                            <button
+                              onClick={() => handleToggleApproval(u.uid, true)}
+                              disabled={actionUserId === u.uid}
+                              className="text-[10px] px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-wait text-white font-bold uppercase tracking-wide transition-colors"
+                            >
+                              Approve
+                            </button>
+                          )}
+
+                          {!u.blocked && u.approved && (
+                            <button
+                              onClick={() => handleToggleApproval(u.uid, false)}
+                              disabled={actionUserId === u.uid}
+                              className="text-[10px] px-2 py-1 rounded border border-slate-300 dark:border-slate-600 text-slate-500 hover:text-red-500 hover:border-red-300 dark:hover:border-red-700 disabled:opacity-50 disabled:cursor-wait font-bold uppercase tracking-wide transition-colors"
+                            >
+                              Revoke
+                            </button>
+                          )}
+
                           <button
-                            onClick={() => handleToggleApproval(u.uid, true)}
-                            className="text-[10px] px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold uppercase tracking-wide transition-colors"
+                            onClick={() => handleToggleBlocked(u.uid, !u.blocked)}
+                            disabled={actionUserId === u.uid}
+                            title={u.blocked ? 'Unblock account' : 'Block account'}
+                            className={`inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded border font-bold uppercase tracking-wide transition-colors disabled:opacity-50 disabled:cursor-wait ${u.blocked ? 'border-emerald-300 text-emerald-600 hover:bg-emerald-50 dark:border-emerald-700 dark:hover:bg-emerald-900/20' : 'border-rose-300 text-rose-600 hover:bg-rose-50 dark:border-rose-700 dark:hover:bg-rose-900/20'}`}
                           >
-                            Approve
+                            <Ban className="w-3 h-3" />
+                            {u.blocked ? 'Unblock' : 'Block'}
+                          </button>
+
+                          <button
+                            onClick={() => handleDeleteUser(u)}
+                            disabled={actionUserId === u.uid}
+                            title="Permanently delete account"
+                            className="inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded border border-slate-300 dark:border-slate-600 text-slate-500 hover:text-rose-600 hover:border-rose-300 dark:hover:border-rose-700 disabled:opacity-50 disabled:cursor-wait font-bold uppercase tracking-wide transition-colors"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            Delete
                           </button>
                         </div>
                       )}
