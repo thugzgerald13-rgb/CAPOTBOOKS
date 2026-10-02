@@ -202,8 +202,8 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   const pagePermission = (pageId: string | null): Permission | null => {
     switch (pageId) {
       case 'team': return 'manage_users';
-      case 'business':
-      case 'clients':
+      case 'business': return 'manage_settings';
+      case 'clients': return isSubuser ? 'manage_settings' : null;
       case 'tinlibrary':
       case 'coa': return 'manage_settings';
       case 'account-settings': return null;

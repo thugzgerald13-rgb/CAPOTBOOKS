@@ -73,7 +73,7 @@ export async function claimTeamInvitation(): Promise<AccountMembership | null> {
     const r = await callRpc<Record<string, unknown> | null>('claim_team_invitation', {});
     if (!r) return null;
     return {
-      isSubuser: true,
+      isSubuser: Boolean(r.is_subuser),
       ownerId: r.owner_id ? String(r.owner_id) : null,
       ownerEmail: r.owner_email ? String(r.owner_email) : null,
       memberRole: (r.member_role as MemberRole) || 'staff',

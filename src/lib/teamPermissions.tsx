@@ -6,7 +6,7 @@
  *      — what an OWNER assigns when inviting a subuser.
  *   2. accessControl.ts Permission: manage_users, edit_transactions, ...
  *      — the granular capabilities checked by hasPermission() in AuthContext
- *        (sourced server-side from the get_my_account_permissions RPC).
+ *        (sourced server-side from the current client's permission RPC).
  *
  * This matrix defines which capabilities each MemberRole grants. It MUST stay
  * in sync with the server-side get_my_account_permissions RPC (in
@@ -89,8 +89,11 @@ export function roleHasPermission(role: 'owner' | MemberRole, permission: Permis
 
 /** Hook: current signed-in user's capability check (from AuthContext). */
 export function usePermission(permission: Permission): boolean {
-  const { hasPermission, isSubuser } = useAuth();
-  if (!isSubuser) return true; // owner / account holder — full access
+  // AuthContext distinguishes a true Business Owner from a standalone
+  // Accountant/Bookkeeper account and from a client-scoped team subuser.
+  // Always use the effective server-sourced permission result here so the UI
+  // cannot silently grant owner-level capabilities to professional accounts.
+  const { hasPermission } = useAuth();
   return hasPermission(permission);
 }
 

@@ -37,11 +37,18 @@ import {
 } from '../lib/teamPermissions';
 
 const ROLE_OPTIONS: { value: MemberRole; label: string; desc: string }[] = [
-  { value: 'accountant', label: 'Accountant', desc: 'Full access to books, reports and compliance.' },
-  { value: 'bookkeeper', label: 'Bookkeeper', desc: 'Data entry across sales, purchases and journals.' },
+  { value: 'accountant', label: 'Accountant', desc: 'Professional accounting access for multiple client businesses.' },
+  { value: 'bookkeeper', label: 'Bookkeeper', desc: 'Professional bookkeeping and transaction-entry access.' },
   { value: 'staff', label: 'Staff', desc: 'Limited day-to-day transaction entry.' },
   { value: 'viewer', label: 'Viewer', desc: 'Read-only access to reports and records.' },
 ];
+
+// A Business Owner invitation creates an accountant/client relationship, not
+// a shared-ownership/team membership. Only professional accountant roles are
+// valid targets for that relationship.
+const OWNER_INVITE_ROLE_OPTIONS = ROLE_OPTIONS.filter((role) =>
+  role.value === 'accountant' || role.value === 'bookkeeper'
+);
 
 function roleLabel(role: string) {
   return ROLE_OPTIONS.find((r) => r.value === role)?.label ?? role;
@@ -52,12 +59,14 @@ function SecretReveal({
   password,
   existingUser,
   invitationPending = false,
+  ownerClientRelationship = false,
   onDismiss,
 }: {
   email: string;
   password: string | null;
   existingUser: boolean;
   invitationPending?: boolean;
+  ownerClientRelationship?: boolean;
   onDismiss: () => void;
 }) {
   const [copied, setCopied] = useState(false);
@@ -81,11 +90,20 @@ function SecretReveal({
           </p>
           <p className="text-sm text-emerald-800 dark:text-emerald-300 mt-1 break-all">
             {invitationPending ? (
-              <>
-                <span className="font-semibold">{email}</span> has a pending invitation. They must
-                sign in or create a CAPOT account using this exact email address. Once authenticated,
-                CAPOT will automatically connect their account to your team and apply the selected role.
-              </>
+              ownerClientRelationship ? (
+                <>
+                  <span className="font-semibold">{email}</span> has a pending professional invitation. They
+                  keep their own CAPOT account. After they sign in or create their Accountant/Bookkeeper account,
+                  your business profile will be added to their <span className="font-semibold">Client Profiles</span>
+                  and kept synchronized with your business profile.
+                </>
+              ) : (
+                <>
+                  <span className="font-semibold">{email}</span> has a pending team invitation. They must
+                  sign in or create a CAPOT account using this exact email address. Once authenticated,
+                  CAPOT will connect their account to your team and apply the selected role.
+                </>
+              )
             ) : existingUser ? (
               <>
                 <span className="font-semibold">{email}</span> already has a CAPOT login. They now
@@ -130,6 +148,9 @@ export function TeamSettings() {
     useAuth();
   const { clients, ownerClientId } = useAccounting();
   const clientList = Object.values(clients).filter((client) => client.id !== ownerClientId).sort((a, b) => a.name.localeCompare(b.name));
+  const isBusinessOwner = userRole === 'owner';
+  const canInvite = isBusinessOwner || userRole === 'accountant' || userRole === 'bookkeeper';
+  const inviteRoleOptions = isBusinessOwner ? OWNER_INVITE_ROLE_OPTIONS : ROLE_OPTIONS;
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [memberRole, setMemberRole] = useState<MemberRole>('bookkeeper');
@@ -216,6 +237,14 @@ export function TeamSettings() {
     e.preventDefault();
     setError('');
     setSecret(null);
+    if (!canInvite) {
+      setError('Only a Business Owner or an Accountant/Bookkeeper can send team invitations.');
+      return;
+    }
+    if (isBusinessOwner && memberRole !== 'accountant' && memberRole !== 'bookkeeper') {
+      setError('Business Owners can invite only Accountant or Bookkeeper accounts.');
+      return;
+    }
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) {
       setError('Enter a valid email address.');
       return;
@@ -352,10 +381,18 @@ export function TeamSettings() {
             </div>
           )}
 
-          {!isSubuser && (
+          {!isSubuser && !canInvite && (
+            <div className="rounded-2xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-900/20 p-5">
+              <p className="font-bold text-indigo-900 dark:text-indigo-100">Team invitations are managed from your professional account relationship.</p>
+              <p className="mt-1 text-sm text-indigo-800 dark:text-indigo-300">Only a Business Owner can invite an Accountant or Bookkeeper as their professional accounting user.
+                Accountant and Bookkeeper accounts can manage their own client profiles and can invite their own team members according to their permissions.</p>
+            </div>
+          )}
+
+          {!isSubuser && canInvite && (
             <>
               {secret && (
-                <SecretReveal email={secret.email} password={secret.password} existingUser={secret.existingUser} invitationPending={secret.invitationPending} onDismiss={() => setSecret(null)} />
+                <SecretReveal email={secret.email} password={secret.password} existingUser={secret.existingUser} invitationPending={secret.invitationPending} ownerClientRelationship={isBusinessOwner} onDismiss={() => setSecret(null)} />
               )}
               {resetSecret && (
                 <SecretReveal email={resetSecret.email} password={resetSecret.password} existingUser={false} onDismiss={() => setResetSecret(null)} />
@@ -364,12 +401,12 @@ export function TeamSettings() {
               <form onSubmit={handleInvite} className="rounded-2xl border border-slate-200 dark:border-slate-700 p-5">
                 <div className="flex items-center gap-2 mb-4">
                   <UserPlus className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
-                  <h3 className="font-bold text-slate-800 dark:text-slate-100">Invite a subuser</h3>
+                  <h3 className="font-bold text-slate-800 dark:text-slate-100">{isBusinessOwner ? 'Invite an Accountant / Bookkeeper' : 'Invite a team member'}</h3>
                 </div>
                 <div className="grid md:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Email *</label>
-                    <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="teammate@company.com"
+                    <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder={isBusinessOwner ? 'accountant@company.com' : 'teammate@company.com'}
                       className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500" />
                   </div>
                   <div>
@@ -381,12 +418,12 @@ export function TeamSettings() {
                     <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Role</label>
                     <select value={memberRole} onChange={(e) => setMemberRole(e.target.value as MemberRole)}
                       className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500">
-                      {ROLE_OPTIONS.map((r) => (<option key={r.value} value={r.value}>{r.label}</option>))}
+                      {inviteRoleOptions.map((r) => (<option key={r.value} value={r.value}>{r.label}</option>))}
                     </select>
                   </div>
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-3">{ROLE_OPTIONS.find((r) => r.value === memberRole)?.desc}</p>
-                <p className="text-xs text-cyan-600 dark:text-cyan-400 mt-2">Client access is assigned separately after the invited user has an active account.</p>
+                <p className="text-xs text-cyan-600 dark:text-cyan-400 mt-2">{isBusinessOwner ? 'The invited professional keeps their own CAPOT account. After acceptance, your business is added to their Client Profiles and synchronized there.' : 'Client access is assigned separately after the invited team member has an active account.'}</p>
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   {ALL_PERMISSIONS.map((p) => {
                     const allowed = (MEMBER_ROLE_PERMISSIONS[memberRole] || []).includes(p.key);

@@ -31,7 +31,12 @@ export function Extras() {
     showToast,
     saveFile,
   } = useAccounting();
-  const { userRole } = useAuth();
+  const { userRole, isSubuser } = useAuth();
+  // Standalone Accountant/Bookkeeper accounts own their workspace and must be
+  // able to maintain the Business Owner client profile created by an accepted
+  // professional invitation. Team subusers remain subject to their granted
+  // permissions.
+  const canManageClientProfiles = canManageSettings || (!isSubuser && (userRole === 'owner' || userRole === 'accountant' || userRole === 'bookkeeper'));
   const [editingClient, setEditingClient] = useState<Client | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [trialBalances, setTrialBalances] = useState<any[]>([]);
@@ -877,9 +882,9 @@ export function Extras() {
                       ) : (
                         <button 
                           onClick={() => setDeleteConfirmId(client.id)}
-                          disabled={!canManageSettings}
+                          disabled={!canManageClientProfiles}
                           className="p-1.5 hover:bg-red-50 dark:hover:bg-red-950/25 rounded-lg text-red-500 hover:text-red-700 transition disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed"
-                          title={canManageSettings ? 'Delete Profile' : 'Manage Settings permission not granted'}
+                          title={canManageClientProfiles ? 'Delete Profile' : 'Manage client profiles permission not granted'}
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>
