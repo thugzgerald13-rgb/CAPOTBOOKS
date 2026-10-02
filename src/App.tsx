@@ -164,7 +164,7 @@ function AppLayout() {
 
 
 function MainApp() {
-  const { user, loading, accountReady, userRole, setUserRole } = useAuth();
+  const { user, loading, userRole, setUserRole } = useAuth();
 
   if (loading) {
     return (
@@ -176,18 +176,6 @@ function MainApp() {
 
   if (!user) {
     return <AuthContainer />;
-  }
-
-  // Wait for the profile/membership sync to finish before showing onboarding.
-  // This is important for invited users: their pending invitation must be
-  // claimed first, otherwise they could select a new owner role and create a
-  // separate workspace before the inviter relationship is resolved.
-  if (!accountReady) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 font-sans">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-600"></div>
-      </div>
-    );
   }
 
   const handleRoleSelect = (selectedRole: string) => {
