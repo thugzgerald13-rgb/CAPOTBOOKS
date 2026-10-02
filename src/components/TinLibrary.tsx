@@ -1,11 +1,14 @@
 import { useState, useRef } from 'react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
+import { usePermission } from '../lib/teamPermissions';
 import { formatTIN } from '../lib/utils';
 import { Building2, Search, Trash2, Plus, Users, Factory, Upload } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 export function TinLibrary() {
+  const canDelete = usePermission('delete_transactions');
+
   const { currentClient, currentClientId, saveTinEntry, deleteTinEntry, showToast } = useAccounting();
   const [activeTab, setActiveTab] = useState<'customers' | 'suppliers'>('customers');
   
@@ -325,7 +328,9 @@ export function TinLibrary() {
                   <td className="text-center">
                     <button 
                       onClick={() => handleDelete(record.id)}
-                      className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors"
+                      disabled={!canDelete}
+                      title={canDelete ? 'Delete record' : 'Delete Transactions permission not granted'}
+                      className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>

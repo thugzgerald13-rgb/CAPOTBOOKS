@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
+import { usePermission } from '../lib/teamPermissions';
 import { useAuth } from '../context/AuthContext';
 import { Users, TrendingUp, Key, Lightbulb, BookOpen, BookText, LineChart, Scale, Plus, Building2, Save, X, RotateCcw, Library, FileText, Receipt, ShoppingCart, Banknote, Wallet, CreditCard, Trash2, Pencil, Upload, Loader2, CheckCircle2, AlertTriangle, FileImage } from 'lucide-react';
 import { Client, BusinessProfile, ClientIndustry } from '../types';
@@ -13,6 +14,8 @@ import { DEFAULT_INDUSTRY, INDUSTRY_OPTIONS, getDefaultAccountsForIndustry } fro
 import { parseBirCorDocument, BirCorExtractionResult } from '../lib/birCorParser';
 
 export function Extras() {
+  const canManageSettings = usePermission('manage_settings');
+
   const { 
     clients, 
     currentClientId, 
@@ -874,8 +877,9 @@ export function Extras() {
                       ) : (
                         <button 
                           onClick={() => setDeleteConfirmId(client.id)}
-                          className="p-1.5 hover:bg-red-50 dark:hover:bg-red-950/25 rounded-lg text-red-500 hover:text-red-700 transition"
-                          title="Delete Profile"
+                          disabled={!canManageSettings}
+                          className="p-1.5 hover:bg-red-50 dark:hover:bg-red-950/25 rounded-lg text-red-500 hover:text-red-700 transition disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed"
+                          title={canManageSettings ? 'Delete Profile' : 'Manage Settings permission not granted'}
                         >
                           <Trash2 className="w-4 h-4" />
                         </button>

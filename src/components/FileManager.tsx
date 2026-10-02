@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
+import { usePermission } from '../lib/teamPermissions';
 import { AppFolder, AppFile } from '../types';
 import { parsePdf } from '../lib/pdfParser';
 import { parseBankStatement, type BankTxn } from '../lib/bankImport';
@@ -25,6 +26,8 @@ export interface StagedFile {
 }
 
 export function FileManager() {
+  const canDelete = usePermission('delete_transactions');
+
   const { currentClient, saveFolder, deleteFolder, saveFile, deleteFile, showToast } = useAccounting();
   const [selectedFolderId, setSelectedFolderId] = useState<string>('folder_revenue');
   const [newFolderName, setNewFolderName] = useState('');
@@ -435,8 +438,9 @@ export function FileManager() {
                           {!folder.isDefault && (
                             <button
                               onClick={() => handleDeleteFolder(folder)}
-                              className="p-1 hover:bg-red-50 dark:hover:bg-red-950/20 rounded text-red-500"
-                              title="Delete folder and files"
+                              disabled={!canDelete}
+                              className="p-1 hover:bg-red-50 dark:hover:bg-red-950/20 rounded text-red-500 disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed"
+                              title={canDelete ? 'Delete folder and files' : 'Delete Transactions permission not granted'}
                             >
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
@@ -716,8 +720,9 @@ export function FileManager() {
                       </button>
                       <button
                         onClick={() => handleDeleteFile(file.id)}
-                        className="p-2 hover:bg-red-50 dark:hover:bg-red-950/25 rounded-xl text-red-500 hover:text-red-600 transition-colors"
-                        title="Remove document"
+                        disabled={!canDelete}
+                        className="p-2 hover:bg-red-50 dark:hover:bg-red-950/25 rounded-xl text-red-500 hover:text-red-600 transition-colors disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed"
+                        title={canDelete ? 'Remove document' : 'Delete Transactions permission not granted'}
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>

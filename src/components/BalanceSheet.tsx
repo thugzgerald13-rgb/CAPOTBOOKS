@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Landmark, FileDown } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
+import { usePermission } from '../lib/teamPermissions';
 import { formatAccountAmount, getCurrentYear, getAccountBalances } from '../lib/accountingBalances';
 import { exportAfBundle, type AfsSheetRow } from '../lib/afsExport';
 import { NET_INCOME_ID } from '../utils/fileParser';
@@ -20,6 +21,9 @@ const numOf = (v: any) => Number(String(v ?? '').replace(/,/g, '') || 0);
 const dateOf = (e: any) => String(e.date || e.dateDr || e.dateCr || '').slice(0, 10);
 
 export function BalanceSheet() {
+  const canExport = usePermission('export_data');
+  const canEdit = usePermission('edit_transactions');
+
   const { currentClient, currentClientId, saveFinancialReportSnapshot } = useAccounting();
   const [balances, setBalances] = useState<Line[]>([]);
   const [reportError, setReportError] = useState<string | null>(null);
@@ -199,12 +203,12 @@ export function BalanceSheet() {
       <div className="p-4 md:p-6 flex-1">
         <div className="p-8 text-sm">
           <div className="text-center mb-8">
-            <input value={data.companyName} onChange={e => update('companyName', e.target.value)}
+            <input disabled={!canEdit} title={canEdit ? undefined : 'Edit Transactions permission not granted'} value={data.companyName} onChange={e => update('companyName', e.target.value)}
               className="text-xl font-bold text-center uppercase tracking-wide bg-transparent border-b border-transparent hover:border-slate-300 focus:border-cyan-500 focus:outline-none block w-full max-w-md mx-auto" />
-            <input value={data.address} onChange={e => update('address', e.target.value)}
+            <input disabled={!canEdit} title={canEdit ? undefined : 'Edit Transactions permission not granted'} value={data.address} onChange={e => update('address', e.target.value)}
               className="text-center bg-transparent border-b border-transparent hover:border-slate-300 focus:border-cyan-500 focus:outline-none block w-full max-w-md mx-auto mt-1" />
             <div className="mt-6">
-              <input value={data.reportName} onChange={e => update('reportName', e.target.value)}
+              <input disabled={!canEdit} title={canEdit ? undefined : 'Edit Transactions permission not granted'} value={data.reportName} onChange={e => update('reportName', e.target.value)}
                 className="text-lg font-medium text-center uppercase bg-transparent border-b border-transparent hover:border-slate-300 focus:border-cyan-500 focus:outline-none block w-full max-w-md mx-auto" />
               <div className="text-center font-medium mt-1">As of December 31, {year}</div>
             </div>
@@ -252,13 +256,15 @@ export function BalanceSheet() {
               )}
             </div>
             <div className="flex justify-end">
-              <button type="button" onClick={handleExportBundle} className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-sm">
+              <button type="button" onClick={handleExportBundle} disabled={!canExport} className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-sm disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed" title={canExport ? 'Export AFS Bundle' : 'Export Data permission not granted'}>
                 <FileDown className="w-4 h-4" /> Export AFS Bundle (.xlsx)
               </button>
             </div>
             <div className="mt-4">
               <div className="text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Notes to Financial Statements (stub)</div>
               <textarea
+                disabled={!canEdit}
+                title={canEdit ? undefined : 'Edit Transactions permission not granted'}
                 value={notes}
                 onChange={e => setNotes(e.target.value)}
                 onBlur={saveNotes}

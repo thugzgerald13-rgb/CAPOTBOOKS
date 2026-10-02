@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { UserCircle, CheckCircle2, Shield, Bell, CreditCard, Download, Smartphone } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useAccounting } from '../context/AccountingContext';
+import { usePermission } from '../lib/teamPermissions';
 
 type NotifPrefs = { complianceReminders: boolean; weeklyDigest: boolean; productUpdates: boolean };
 const DEFAULT_PREFS: NotifPrefs = { complianceReminders: true, weeklyDigest: true, productUpdates: false };
@@ -12,6 +13,8 @@ const PLANS = [
 ];
 
 export function AccountSettings() {
+  const canExport = usePermission('export_data');
+
   const { user, userRole, needsAccountSetup, completeAccountSetup } = useAuth();
   const { currentClient, showToast } = useAccounting();
   const [password, setPassword] = useState('');
@@ -146,7 +149,7 @@ export function AccountSettings() {
       {section(<Download className="w-4 h-4" />, 'Data Export', 'Download your accounting data as JSON.', (
         <div className="flex items-center justify-between">
           <span className="text-sm text-slate-600 dark:text-slate-300">Export all data for the active entity (JSON).</span>
-          <button type="button" onClick={handleExportData} className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 hover:opacity-90"><Download className="w-3.5 h-3.5" /> Export Data</button>
+          <button type="button" onClick={handleExportData} disabled={!canExport} className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 hover:opacity-90 disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed" title={canExport ? 'Export Data' : 'Export Data permission not granted'}><Download className="w-3.5 h-3.5" /> Export Data</button>
         </div>
       ))}
     </div>

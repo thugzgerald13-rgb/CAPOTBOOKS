@@ -1,11 +1,14 @@
 import { useState } from 'react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
+import { usePermission } from '../lib/teamPermissions';
 import { Wrench, Plus, Trash2, Calculator, X, Check } from 'lucide-react';
 import { AssetLapsingEntry } from '../types';
 import { accumulatedDepreciation, netBookValue, disposalGainLoss, buildDepreciationJE, DEPRECIATION_METHODS, type DepreciableAsset } from '../lib/depreciation';
 
 export function AssetLapsing() {
+  const canDelete = usePermission('delete_transactions');
+
   const { currentClient, currentClientId, saveAssetLapsingSchedule, showToast } = useAccounting();
   const [asOfDate, setAsOfDate] = useState(new Date().toISOString().split('T')[0]);
   const [showJE, setShowJE] = useState(false);
@@ -145,7 +148,7 @@ export function AssetLapsing() {
                           <Trash2 className="w-4 h-4" />
                         </button>
                       )}
-                      <button onClick={() => handleDeleteRow(row.id)} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all" title="Delete asset">
+                      <button onClick={() => handleDeleteRow(row.id)} disabled={!canDelete} title={canDelete ? 'Delete asset' : 'Delete Transactions permission not granted'} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed">
                         <X className="w-4 h-4" />
                       </button>
                     </td>

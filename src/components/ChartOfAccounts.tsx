@@ -3,6 +3,7 @@ import { BookOpen, Plus, Trash2, RefreshCcw, Edit2, ClipboardList, Check, X, Col
 import { flattenCoaHierarchy } from '../lib/coaImport';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
+import { usePermission } from '../lib/teamPermissions';
 import { supabase } from '../lib/supabase';
 import { CoaAccount } from '../types';
 import { cn } from '../lib/utils';
@@ -664,6 +665,8 @@ export function closeCodeGaps(
 }
 
 export function ChartOfAccounts() {
+  const canDelete = usePermission('delete_transactions');
+
   const { currentClient, currentClientId, saveCoaAccounts, saveCoaColumns, showToast } = useAccounting();
   const [isAdding, setIsAdding] = useState(false);
   const [typeFilter, setTypeFilter] = useState('All');
@@ -1689,8 +1692,9 @@ export function ChartOfAccounts() {
                               </button>
                               <button 
                                 onClick={() => handleDeleteColumn(col.id)}
-                                className="p-1 hover:bg-red-50 dark:hover:bg-slate-800 text-red-500 rounded transition-colors"
-                                title="Delete column"
+                                disabled={!canDelete}
+                                title={canDelete ? 'Delete column' : 'Delete Transactions permission not granted'}
+                                className="p-1 hover:bg-red-50 dark:hover:bg-slate-800 text-red-500 rounded transition-colors disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
@@ -2326,7 +2330,9 @@ export function ChartOfAccounts() {
                                       handleDelete(account.id);
                                       setOpenActionMenuId(null);
                                     }}
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors"
+                                    disabled={!canDelete}
+                                    title={canDelete ? 'Delete Account' : 'Delete Transactions permission not granted'}
+                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed"
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
                                     Delete Account

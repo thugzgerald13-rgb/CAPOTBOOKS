@@ -3,6 +3,7 @@ import { BookText, Plus, Trash2, Settings, X, Check, Calendar, Printer, Search, 
 import { EmptyState } from './ui/EmptyState';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
+import { usePermission } from '../lib/teamPermissions';
 import { JournalColumn, JournalEntry } from '../types';
 import { cn, parseDateToISO, periodPreset, generateCSV } from '../lib/utils';
 
@@ -31,6 +32,8 @@ function isCashPaymentVoucher(voucher: any): boolean {
 }
 
 export function GeneralJournal() {
+  const canExport = usePermission('export_data');
+
   const { currentClient, currentClientId, saveJournalColumns, saveJournalEntry, deleteJournalEntry, activeDevice } = useAccounting();
   
   const [isEditingHeaders, setIsEditingHeaders] = useState(false);
@@ -279,7 +282,7 @@ export function GeneralJournal() {
     <div className="w-full flex flex-col print-area">
       <PageHeader title="General Journal" icon={<BookText />} actions={
         <div className="flex items-center gap-2 no-print">
-          <button type="button" onClick={() => generateCSV('general-journal.csv', [['Date','Ref','Particulars','Debit','Credit'], ...filteredEntries.map(e => [e.values?.date || '', e.values?.ref_no || '', e.values?.particulars || '', e.values?.debit || '', e.values?.credit || ''])])} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title="Export to CSV">
+          <button type="button" onClick={() => generateCSV('general-journal.csv', [['Date','Ref','Particulars','Debit','Credit'], ...filteredEntries.map(e => [e.values?.date || '', e.values?.ref_no || '', e.values?.particulars || '', e.values?.debit || '', e.values?.credit || ''])])} disabled={!canExport} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed" title={canExport ? 'Export to CSV' : 'Export Data permission not granted'}>
             <FileDown className="w-4 h-4" /> Export
           </button>
           <button type="button" onClick={() => window.print()} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-xs font-bold hover:opacity-90 transition-opacity" title="Print General Journal">

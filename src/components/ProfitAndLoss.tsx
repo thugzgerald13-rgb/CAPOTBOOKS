@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { TrendingUp, Save, Upload } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
+import { usePermission } from '../lib/teamPermissions';
 import { formatAccountAmount, getCurrentYear, getProfitAndLossTotals } from '../lib/accountingBalances';
 import { loadReportLayout, saveReportLayout, CASH_BASIS_NOTE, type ReportBasis } from '../lib/reportCustomizer';
 import ImportDataModal from './ImportDataModal';
@@ -10,6 +11,8 @@ import { useImportedData, ImportedDataToolbar, ReportYearSelect, ReportAmount } 
 type BalanceItem = { account_id: string; account_name: string; period_debit?: number; period_credit?: number; balance?: number };
 
 export function ProfitAndLoss() {
+  const canEdit = usePermission('edit_transactions');
+
   const { currentClient, currentClientId, saveFinancialReportSnapshot, showToast } = useAccounting();
   // Report year: defaults to the ledger's latest year; picking / importing another year switches the report to it.
   const glYear = getCurrentYear(currentClient || ({ glAccounts: [] } as any));
@@ -151,7 +154,7 @@ export function ProfitAndLoss() {
         <ReportYearSelect year={year} glYear={glYear} importedYears={imported.years} onChange={setReportYear} />
         <ImportedDataToolbar api={imported} pageType="profit-loss" onImportClick={() => setImportModalOpen(true)} />
 
-        <button type="button" onClick={handleSaveLayout} className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 hover:opacity-90">
+        <button type="button" onClick={handleSaveLayout} disabled={!canEdit} title={canEdit ? 'Save report layout' : 'Edit Transactions permission not granted'} className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 hover:opacity-90 disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed">
           <Save className="w-3.5 h-3.5" /> Save Layout
         </button>
       </div>
@@ -161,12 +164,12 @@ export function ProfitAndLoss() {
       <div className="p-4 md:p-6 flex-1">
         <div className="p-8 text-sm">
           <div className="text-center mb-8">
-            <input value={data.companyName} onChange={e => update('companyName', e.target.value)}
+            <input disabled={!canEdit} title={canEdit ? undefined : 'Edit Transactions permission not granted'} value={data.companyName} onChange={e => update('companyName', e.target.value)}
               className="text-xl font-bold text-center uppercase tracking-wide bg-transparent border-b border-transparent hover:border-slate-300 focus:border-cyan-500 focus:outline-none block w-full max-w-md mx-auto" />
-            <input value={data.address} onChange={e => update('address', e.target.value)}
+            <input disabled={!canEdit} title={canEdit ? undefined : 'Edit Transactions permission not granted'} value={data.address} onChange={e => update('address', e.target.value)}
               className="text-center bg-transparent border-b border-transparent hover:border-slate-300 focus:border-cyan-500 focus:outline-none block w-full max-w-md mx-auto mt-1" />
             <div className="mt-6">
-              <input value={data.reportName} onChange={e => update('reportName', e.target.value)}
+              <input disabled={!canEdit} title={canEdit ? undefined : 'Edit Transactions permission not granted'} value={data.reportName} onChange={e => update('reportName', e.target.value)}
                 className="text-lg font-medium text-center uppercase bg-transparent border-b border-transparent hover:border-slate-300 focus:border-cyan-500 focus:outline-none block w-full max-w-md mx-auto" />
               <div className="text-center font-medium mt-1">For the year ended December 31, {year} ({basis} basis)</div>
             </div>

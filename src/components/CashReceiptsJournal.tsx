@@ -3,6 +3,7 @@ import { Wallet, Plus, Trash2, Settings, X, Edit, Loader, Check, Calendar, Print
 import { EmptyState } from './ui/EmptyState';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
+import { usePermission } from '../lib/teamPermissions';
 import { JournalColumn, CashReceipt } from '../types';
 import { cn, parseDateToISO, periodPreset } from '../lib/utils';
 import { supabase } from '../lib/supabase';
@@ -11,6 +12,8 @@ import { DEFAULT_CRJ_COLUMNS } from '../lib/journalDefaults';
 export { DEFAULT_CRJ_COLUMNS };
 
 export function CashReceiptsJournal() {
+  const canDelete = usePermission('delete_transactions');
+
   const { currentClient, currentClientId, saveJournalColumns, saveJournalEntry, deleteJournalEntry, activeDevice } = useAccounting();
   
   const [isEditingHeaders, setIsEditingHeaders] = useState(false);
@@ -293,7 +296,9 @@ export function CashReceiptsJournal() {
                   <span className="font-mono text-xs text-slate-500 font-extrabold bg-slate-200 dark:bg-slate-700 px-2 py-0.5 rounded">Entry #{idx + 1}</span>
                   <button 
                     onClick={() => deleteEntry(entry.id)}
-                    className="p-1.5 bg-red-50 dark:bg-red-950/20 text-red-500 hover:text-red-700 text-xs font-bold rounded-lg transition-colors flex items-center gap-1"
+                    disabled={!canDelete}
+                    title={canDelete ? 'Delete entry' : 'Delete Transactions permission not granted'}
+                    className="p-1.5 bg-red-50 dark:bg-red-950/20 text-red-500 hover:text-red-700 text-xs font-bold rounded-lg transition-colors flex items-center gap-1 disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed"
                   >
                     <Trash2 className="w-3.5 h-3.5" /> Delete
                   </button>
@@ -405,7 +410,9 @@ export function CashReceiptsJournal() {
                       {!(entry as any).auto && (
                       <button 
                         onClick={() => deleteEntry(entry.id)}
-                        className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors opacity-0 group-hover:opacity-100"
+                        disabled={!canDelete}
+                        title={canDelete ? 'Delete entry' : 'Delete Transactions permission not granted'}
+                        className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>

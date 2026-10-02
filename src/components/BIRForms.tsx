@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
+import { usePermission } from '../lib/teamPermissions';
 import { 
   FileText, Printer, Sparkles, CheckCircle2, FileDown
 } from 'lucide-react';
@@ -183,6 +184,9 @@ export function generateStandardDeadlines(year: number): TaxDeadline[] {
 }
 
 export function BIRForms() {
+  const canEdit = usePermission('edit_transactions');
+  const canExport = usePermission('export_data');
+
   const { currentClient, currentClientId, setCurrentClientId, clients, businessProfile, activePage, navigateToPage, birFormTab, ownerClientId } = useAccounting();
 
   // Active form choice: '2550Q' | '1701Q' | '2551Q' | '1601-C' | '0619-E' | '1601-EQ'
@@ -595,7 +599,7 @@ export function BIRForms() {
         </div>
       )}
       <div className="mb-4 flex justify-end">
-        <button type="button" onClick={handleDownloadBirPdf} className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-sm">
+        <button type="button" onClick={handleDownloadBirPdf} disabled={!canExport} title={canExport ? 'Download Form PDF' : 'Export Data permission not granted'} className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-sm disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed">
           <FileDown className="w-4 h-4" /> Download Form PDF
         </button>
       </div>
@@ -730,7 +734,7 @@ export function BIRForms() {
           <hr className="border-slate-200 dark:border-slate-700" />
 
           {/* Form-specific input overrides */}
-          <div className="space-y-4">
+          <fieldset disabled={!canEdit} className={`space-y-4 ${!canEdit ? 'opacity-50 grayscale' : ''}`} title={!canEdit ? 'Edit Transactions permission not granted' : undefined}>
             <h4 className="text-xs font-black uppercase tracking-wider text-slate-400 block">Form Field Overrides</h4>
             
             {activeFormType === '2550Q' && (
@@ -1009,13 +1013,15 @@ export function BIRForms() {
                 </div>
               </div>
             )}
-          </div>
+          </fieldset>
 
           {/* Actions */}
           <div className="mt-auto space-y-2">
             <button 
               onClick={handlePrint}
-              className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow"
+              disabled={!canExport}
+              title={canExport ? 'Print BIR Return' : 'Export Data permission not granted'}
+              className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed"
             >
               <Printer className="w-4 h-4" /> Print BIR Return
             </button>

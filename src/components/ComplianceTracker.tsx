@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
+import { usePermission } from '../lib/teamPermissions';
 import {
   FileText, Printer, Sparkles, CheckCircle2, AlertCircle, Calendar
 } from 'lucide-react';
@@ -10,6 +11,8 @@ import { generateStandardDeadlines } from './BIRForms';
 import { supabase } from '../lib/supabase';
 
 export function ComplianceTracker() {
+  const canEdit = usePermission('edit_transactions');
+
   const { currentClient, currentClientId, setCurrentClientId, clients, businessProfile, activePage, navigateToPage, setBirFormTab, saveTaxDeadlines, ownerClientId } = useAccounting();
 
   const getSimulatedToday = () => {
@@ -676,7 +679,7 @@ export function ComplianceTracker() {
 
                             {/* Render Interactive logging form if user clicks "Log details..." */}
                             {isEditing && (
-                              <div className="bg-slate-50 dark:bg-slate-900/40 p-5 rounded-2xl border border-slate-150 dark:border-slate-800/60 font-medium space-y-4 mt-3">
+                              <fieldset disabled={!canEdit} className={`bg-slate-50 dark:bg-slate-900/40 p-5 rounded-2xl border border-slate-150 dark:border-slate-800/60 font-medium space-y-4 mt-3 ${!canEdit ? 'opacity-50 grayscale' : ''}`} title={!canEdit ? 'Edit Transactions permission not granted' : undefined}>
                                 <div className="bg-emerald-500/10 text-emerald-800 dark:text-emerald-300 p-3 rounded-xl border border-emerald-100 dark:border-emerald-900/20 text-[10px] flex items-center gap-2">
                                   <Sparkles className="w-4 h-4 text-emerald-500" />
                                   <span>Automated compilation pre-filled. You can override the actual taxes, date, and input Reference codes.</span>
@@ -786,7 +789,7 @@ export function ComplianceTracker() {
                                     Save Filing Receipt
                                   </button>
                                 </div>
-                              </div>
+                              </fieldset>
                             )}
 
                             {/* Trigger buttons */}
@@ -795,18 +798,22 @@ export function ComplianceTracker() {
                                 <div className="flex items-center gap-2 flex-wrap">
                                   {deadline.status === 'Filed' && deadline.taxStatus !== 'W/O Payable' && (
                                     <button
+                                      disabled={!canEdit}
                                       onClick={() => {
                                         handleUpdateDeadlineStatus(deadline.id, {
                                           status: 'Paid',
                                           datePaid: getSimulatedToday()
                                         });
                                       }}
-                                      className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl px-4 py-2 shadow-sm shadow-emerald-500/10 transition"
+                                      title={canEdit ? 'Mark as Paid' : 'Edit Transactions permission not granted'}
+                                      className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl px-4 py-2 shadow-sm shadow-emerald-500/10 transition disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed"
                                     >
                                       Mark as Paid
                                     </button>
                                   )}
                                   <button
+                                    disabled={!canEdit}
+                                    title={canEdit ? 'Modify Receipt Details' : 'Edit Transactions permission not granted'}
                                     onClick={() => {
                                       setFilingDate(deadline.dateFiled || getSimulatedToday());
                                       setFilingAmount(deadline.amountDue?.toString() || '');
@@ -817,11 +824,13 @@ export function ComplianceTracker() {
                                       setFilingNotes(deadline.notes || '');
                                       setEditingDeadlineId(deadline.id);
                                     }}
-                                    className="text-xs text-indigo-650 dark:text-indigo-400 hover:underline font-bold px-3 py-1.5"
+                                    className="text-xs text-indigo-650 dark:text-indigo-400 hover:underline font-bold px-3 py-1.5 disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed"
                                   >
                                     Modify Receipt Details
                                   </button>
                                   <button
+                                    disabled={!canEdit}
+                                    title={canEdit ? 'Revert to Pending' : 'Edit Transactions permission not granted'}
                                     onClick={() => {
                                       handleUpdateDeadlineStatus(deadline.id, {
                                         status: 'Pending',
@@ -833,7 +842,7 @@ export function ComplianceTracker() {
                                         notes: undefined
                                       });
                                     }}
-                                    className="text-xs text-rose-600 hover:underline font-bold px-3 py-1.5 border border-rose-100 hover:bg-rose-50/20 dark:border-rose-900/10 rounded-xl transition"
+                                    className="text-xs text-rose-600 hover:underline font-bold px-3 py-1.5 border border-rose-100 hover:bg-rose-50/20 dark:border-rose-900/10 rounded-xl transition disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed"
                                   >
                                     Revert to Pending
                                   </button>
@@ -852,15 +861,19 @@ export function ComplianceTracker() {
                                     </button>
                                     {deadline.status !== 'Processing' && (
                                       <button
+                                        disabled={!canEdit}
                                         onClick={() => {
                                           handleUpdateDeadlineStatus(deadline.id, { status: 'Processing' });
                                         }}
-                                        className="text-xs text-blue-700 dark:text-blue-400 font-bold border border-blue-200 dark:border-blue-800 rounded-xl px-4 py-2 hover:bg-blue-50/50 dark:hover:bg-blue-950/20 transition"
+                                        title={canEdit ? 'Start Processing' : 'Edit Transactions permission not granted'}
+                                        className="text-xs text-blue-700 dark:text-blue-400 font-bold border border-blue-200 dark:border-blue-800 rounded-xl px-4 py-2 hover:bg-blue-50/50 dark:hover:bg-blue-950/20 transition disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed"
                                       >
                                         Start Processing
                                       </button>
                                     )}
                                     <button
+                                      disabled={!canEdit}
+                                      title={canEdit ? 'Log Detailed Filing' : 'Edit Transactions permission not granted'}
                                       onClick={() => {
                                         setFilingDate(getSimulatedToday());
                                         setFilingAmount(recEstimate.toString());
@@ -871,11 +884,13 @@ export function ComplianceTracker() {
                                         setFilingNotes('Filed successfully in compliance with BIR schedule.');
                                         setEditingDeadlineId(deadline.id);
                                       }}
-                                      className="text-xs text-slate-700 dark:text-slate-300 font-bold border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2 hover:bg-slate-100 transition"
+                                      className="text-xs text-slate-700 dark:text-slate-300 font-bold border border-slate-200 dark:border-slate-800 rounded-xl px-4 py-2 hover:bg-slate-100 transition disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed"
                                     >
                                       Log Detailed Filing...
                                     </button>
                                     <button
+                                      disabled={!canEdit}
+                                      title={canEdit ? 'Mark Filed' : 'Edit Transactions permission not granted'}
                                       onClick={() => {
                                         handleUpdateDeadlineStatus(deadline.id, {
                                           status: 'Filed',
@@ -886,7 +901,7 @@ export function ComplianceTracker() {
                                           notes: `Auto-recorded inline based on dynamic compiler compilation.`
                                         });
                                       }}
-                                      className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl px-4 py-2 shadow-sm shadow-emerald-500/10 transition"
+                                      className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl px-4 py-2 shadow-sm shadow-emerald-500/10 transition disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed"
                                     >
                                       Quick Mark Filed
                                     </button>

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Activity, Loader2 } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
+import { usePermission } from '../lib/teamPermissions';
 import { formatAccountAmount } from '../lib/accountingBalances';
 import { supabase } from '../lib/supabase';
 
@@ -17,6 +18,8 @@ interface CashFlowRow {
 const SECTION_ORDER = ['Operating Activities', 'Investing Activities', 'Financing Activities'];
 
 export function CashFlow() {
+  const canEdit = usePermission('edit_transactions');
+
   const { currentClient, currentClientId, saveFinancialReportSnapshot } = useAccounting();
   const year = new Date().getFullYear();
   const [rows, setRows] = useState<CashFlowRow[]>([]);
@@ -78,12 +81,12 @@ export function CashFlow() {
       <div className="p-4 md:p-6 flex-1">
         <div className="p-8 text-sm">
           <div className="text-center mb-8">
-            <input value={data.companyName} onChange={e => update('companyName', e.target.value)}
+            <input disabled={!canEdit} title={canEdit ? undefined : 'Edit Transactions permission not granted'} value={data.companyName} onChange={e => update('companyName', e.target.value)}
               className="text-xl font-bold text-center uppercase tracking-wide bg-transparent border-b border-transparent hover:border-slate-300 focus:border-cyan-500 focus:outline-none block w-full max-w-md mx-auto" />
-            <input value={data.address} onChange={e => update('address', e.target.value)}
+            <input disabled={!canEdit} title={canEdit ? undefined : 'Edit Transactions permission not granted'} value={data.address} onChange={e => update('address', e.target.value)}
               className="text-center bg-transparent border-b border-transparent hover:border-slate-300 focus:border-cyan-500 focus:outline-none block w-full max-w-md mx-auto mt-1" />
             <div className="mt-6">
-              <input value={data.reportName} onChange={e => update('reportName', e.target.value)}
+              <input disabled={!canEdit} title={canEdit ? undefined : 'Edit Transactions permission not granted'} value={data.reportName} onChange={e => update('reportName', e.target.value)}
                 className="text-lg font-medium text-center uppercase bg-transparent border-b border-transparent hover:border-slate-300 focus:border-cyan-500 focus:outline-none block w-full max-w-md mx-auto" />
               <div className="text-center font-medium mt-1">For the year ended December 31, {year}</div>
               <div className="text-center text-xs text-slate-500 mt-1">Indirect method · calculated in PostgreSQL</div>

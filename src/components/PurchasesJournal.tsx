@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ShoppingCart, Plus, Trash2, Settings, X, Check, Calendar, Printer, FileDown, AlertTriangle } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
+import { usePermission } from '../lib/teamPermissions';
 import { JournalColumn, JournalEntry } from '../types';
 import { cn, parseDateToISO, periodPreset } from '../lib/utils';
 import { crossFootValidation, exportJournalToExcel } from '../lib/specialJournals';
@@ -10,6 +11,9 @@ import { DEFAULT_PJ_COLUMNS } from '../lib/journalDefaults';
 export { DEFAULT_PJ_COLUMNS };
 
 export function PurchasesJournal() {
+  const canDelete = usePermission('delete_transactions');
+  const canExport = usePermission('export_data');
+
   const { currentClient, currentClientId, saveJournalColumns, saveJournalEntries, deleteJournalColumn, deleteJournalEntry } = useAccounting();
   
   const [isEditingHeaders, setIsEditingHeaders] = useState(false);
@@ -138,7 +142,7 @@ export function PurchasesJournal() {
     <div className="w-full flex flex-col print-area">
       <PageHeader title="Subsidiary Purchase Journal" icon={<ShoppingCart />} actions={
         <div className="flex items-center gap-2 no-print">
-          <button type="button" onClick={() => exportJournalToExcel(filteredEntries, columns, 'purchases-journal.xlsx')} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title="Export to Excel">
+          <button type="button" onClick={() => exportJournalToExcel(filteredEntries, columns, 'purchases-journal.xlsx')} disabled={!canExport} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed" title={canExport ? 'Export to Excel' : 'Export Data permission not granted'}>
             <FileDown className="w-4 h-4" /> Excel
           </button>
           <button type="button" onClick={() => window.print()} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-xs font-bold hover:opacity-90 transition-opacity" title="Print Subsidiary Purchase Journal">
@@ -311,7 +315,9 @@ export function PurchasesJournal() {
                   <td className="px-3 py-2 text-center">
                     <button 
                       onClick={() => deleteEntry(entry.id)}
-                      className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors opacity-0 group-hover:opacity-100"
+                      disabled={!canDelete}
+                      title={canDelete ? 'Delete entry' : 'Delete Transactions permission not granted'}
+                      className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-md transition-colors opacity-0 group-hover:opacity-100 disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>

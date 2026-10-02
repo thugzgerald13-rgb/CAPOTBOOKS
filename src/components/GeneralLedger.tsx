@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { LineChart, ChevronDown, ChevronUp, Loader2, Printer, FileDown } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
+import { usePermission } from '../lib/teamPermissions';
 import { GeneralLedgerAccount, GeneralLedgerEntry } from '../types';
 import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide } from './ChartOfAccounts';
 import { getDefaultAccountsForIndustry } from '../lib/journalDefaults';
@@ -30,6 +31,8 @@ const formatBalance = (n: number) => {
 const entryDate = (entry: GeneralLedgerEntry) => String(entry.dateDr || entry.dateCr || '').slice(0, 10);
 
 export function GeneralLedger() {
+  const canExport = usePermission('export_data');
+
   const { currentClient, currentClientId } = useAccounting();
   const [typeFilter, setTypeFilter] = useState('All');
   const [accountFilter, setAccountFilter] = useState('');
@@ -138,7 +141,7 @@ export function GeneralLedger() {
     <div className="w-full flex flex-col print-area">
       <PageHeader title="General Ledger" icon={<LineChart />} actions={
         <div className="flex items-center gap-2 no-print">
-          <button type="button" onClick={() => generateCSV('general-ledger.csv', ledgerEntries.length ? [Object.keys(ledgerEntries[0] as any), ...ledgerEntries.map(e => Object.values(e as any))] : [['No entries']])} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors" title="Export to CSV">
+          <button type="button" onClick={() => generateCSV('general-ledger.csv', ledgerEntries.length ? [Object.keys(ledgerEntries[0] as any), ...ledgerEntries.map(e => Object.values(e as any))] : [['No entries']])} disabled={!canExport} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed" title={canExport ? 'Export to CSV' : 'Export Data permission not granted'}>
             <FileDown className="w-4 h-4" /> Export
           </button>
           <button type="button" onClick={() => window.print()} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-xs font-bold hover:opacity-90 transition-opacity" title="Print General Ledger">

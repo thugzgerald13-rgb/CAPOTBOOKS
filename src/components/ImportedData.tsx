@@ -1,3 +1,4 @@
+import { usePermission } from '../lib/teamPermissions';
 // src/components/ImportedData.tsx
 // Shared by Balance Sheet and Profit & Loss.
 //  - useImportedData(): per-client store of imported years (localStorage) with edit + change tracking
@@ -139,6 +140,7 @@ type ImportedApi = ReturnType<typeof useImportedData>;
 export function ReportAmount({ api, year, accountId, value, className }: {
   api: ImportedApi; year: number; accountId: string; value: number; className?: string;
 }) {
+  const canEdit = usePermission('edit_transactions');
   const cell = api.cellFor(year, accountId);
   if (!cell) {
     return <td className={className}>{formatAccountAmount(value)}</td>;
@@ -151,9 +153,10 @@ export function ReportAmount({ api, year, accountId, value, className }: {
       <input
         value={raw}
         onChange={(e) => api.updateCell(year, cell.row, cell.col, e.target.value)}
-        className="w-full min-w-[4.5rem] bg-transparent px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-300 focus:bg-cyan-50 dark:focus:bg-cyan-950/30 focus:outline-none"
+        disabled={!canEdit}
+        className="w-full min-w-[4.5rem] bg-transparent px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-300 focus:bg-cyan-50 dark:focus:bg-cyan-950/30 focus:outline-none disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed"
         aria-label={`${accountId} amount for ${year}`}
-        title="Imported — click to edit; changes export back to the original file"
+        title={canEdit ? 'Imported — click to edit; changes export back to the original file' : 'Edit Transactions permission not granted'}
       />
     </td>
   );
@@ -165,6 +168,7 @@ export function ReportAmount({ api, year, accountId, value, className }: {
  * Amounts are inline-editable like matched accounts.
  */
 export function UnmatchedRowsSection({ api, year, priorYear }: { api: ImportedApi; year: number; priorYear: number }) {
+  const canEdit = usePermission('edit_transactions');
   const rows = api.unmatchedFor(year);
   if (!rows.length) return null;
   const entry = api.store[String(year)];
@@ -197,8 +201,10 @@ export function UnmatchedRowsSection({ api, year, priorYear }: { api: ImportedAp
                     <input
                       value={String(grid?.[r.row]?.[r.col] ?? '')}
                       onChange={(e) => api.updateCell(year, r.row, r.col as number, e.target.value)}
-                      className="w-full min-w-[4.5rem] bg-transparent px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-300 focus:bg-cyan-50 dark:focus:bg-cyan-950/30 focus:outline-none"
+                      disabled={!canEdit}
+                      className="w-full min-w-[4.5rem] bg-transparent px-2 py-1.5 text-right font-mono text-slate-700 dark:text-slate-300 focus:bg-cyan-50 dark:focus:bg-cyan-950/30 focus:outline-none disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed"
                       aria-label={`${r.title} amount for ${year}`}
+                      title={canEdit ? 'Imported — click to edit; changes export back to the original file' : 'Edit Transactions permission not granted'}
                     />
                   </td>
                 )}
@@ -232,6 +238,8 @@ const fmt = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 
 export function ImportedDataToolbar({
   api, pageType, onImportClick,
 }: { api: ImportedApi; pageType: PageType; onImportClick: () => void }) {
+  const canEdit = usePermission('edit_transactions');
+  const canExport = usePermission('export_data');
   return (
     <>
       {api.years.length > 0 && (
@@ -245,14 +253,15 @@ export function ImportedDataToolbar({
           {api.years.map((y) => <option key={y} value={y}>{y}{api.changedYears.includes(y) ? ' •edited' : ''}</option>)}
         </select>
       )}
-      <button type="button" onClick={onImportClick}
-        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm">
+      <button type="button" onClick={onImportClick} disabled={!canEdit}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed"
+        title={canEdit ? 'Import Prior-Year Data' : 'Edit Transactions permission not granted'}>
         <Upload className="w-3.5 h-3.5" /> Import Prior-Year Data
       </button>
       {api.changedYears.length > 0 && (
-        <button type="button" onClick={() => exportChanged(api, pageType)}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
-          title="Downloads one file per edited year, in the format it was uploaded in. Unchanged years are not exported.">
+        <button type="button" onClick={() => exportChanged(api, pageType)} disabled={!canExport}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-blue-600 hover:bg-blue-700 text-white shadow-sm disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed"
+          title={canExport ? "Downloads one file per edited year, in the format it was uploaded in. Unchanged years are not exported." : 'Export Data permission not granted'}>
           <Download className="w-3.5 h-3.5" /> Export Changed Files ({api.changedYears.length})
         </button>
       )}
@@ -284,6 +293,9 @@ export function ReportYearSelect({
 const MAX_GRID_ROWS = 500;
 
 export function ImportedDataTable({ api, pageType }: { api: ImportedApi; pageType: PageType }) {
+  const canEdit = usePermission('edit_transactions');
+  const canExport = usePermission('export_data');
+
   const year = api.selectedYear;
   const entry = year !== null ? api.store[String(year)] : undefined;
   if (year === null || !entry) return null;
@@ -309,19 +321,21 @@ export function ImportedDataTable({ api, pageType }: { api: ImportedApi; pageTyp
           </div>
         </div>
         <div className="flex items-center gap-2 no-print">
-          <button type="button" disabled={!isChanged}
+          <button type="button" disabled={!isChanged || !canExport}
             onClick={() => exportImportedYear({ sheets: entry.sheets, activeSheet: entry.activeSheet, year, pageType, sourceFileName: entry.sourceFile })}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-40 disabled:cursor-not-allowed"
-            title={isChanged ? 'Download this year in its original format' : 'Nothing to export — no changes were made'}>
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed"
+            title={canExport ? (isChanged ? 'Download this year in its original format' : 'Nothing to export — no changes were made') : 'Export Data permission not granted'}>
             <Download className="w-3.5 h-3.5" /> Export {ext}
           </button>
-          <button type="button" disabled={!isChanged} onClick={() => api.resetYear(year)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 disabled:opacity-40">
+          <button type="button" disabled={!isChanged || !canEdit} onClick={() => api.resetYear(year)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed"
+            title={canEdit ? (isChanged ? 'Reset imported changes' : 'No changes to reset') : 'Edit Transactions permission not granted'}>
             <RotateCcw className="w-3.5 h-3.5" /> Reset
           </button>
-          <button type="button" aria-label="Remove imported year"
+          <button type="button" aria-label="Remove imported year" disabled={!canEdit}
             onClick={() => { if (window.confirm(`Remove imported ${year} data?`)) api.removeYear(year); }}
-            className="inline-flex items-center px-2 py-1.5 text-xs text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg">
+            className="inline-flex items-center px-2 py-1.5 text-xs text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 rounded-lg disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed"
+            title={canEdit ? 'Remove imported year' : 'Edit Transactions permission not granted'}>
             <Trash2 className="w-3.5 h-3.5" />
           </button>
           <button type="button" onClick={() => api.setSelectedYear(null)} className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-200">Hide</button>
@@ -355,8 +369,10 @@ export function ImportedDataTable({ api, pageType }: { api: ImportedApi; pageTyp
                       <input
                         value={String(grid[m.row]?.[m.valueCol] ?? '')}
                         onChange={(e) => api.updateCell(year, m.row, m.valueCol as number, e.target.value)}
-                        className="w-full min-w-[8rem] bg-transparent px-3 py-1.5 text-right font-mono text-slate-700 dark:text-slate-300 focus:bg-cyan-50 dark:focus:bg-cyan-950/30 focus:outline-none"
+                        disabled={!canEdit}
+                        className="w-full min-w-[8rem] bg-transparent px-3 py-1.5 text-right font-mono text-slate-700 dark:text-slate-300 focus:bg-cyan-50 dark:focus:bg-cyan-950/30 focus:outline-none disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed"
                         aria-label={`${m.fileTitle} amount for ${year}`}
+                        title={canEdit ? 'Click to edit; changes export back to the original file' : 'Edit Transactions permission not granted'}
                       />
                     )}
                   </td>
@@ -400,8 +416,10 @@ export function ImportedDataTable({ api, pageType }: { api: ImportedApi; pageTyp
                         <input
                           value={String(row[c] ?? '')}
                           onChange={(e) => api.updateCell(year, r, c, e.target.value)}
-                          className="w-full min-w-[6rem] bg-transparent px-2 py-1 font-mono text-slate-700 dark:text-slate-300 focus:bg-cyan-50 dark:focus:bg-cyan-950/30 focus:outline-none"
+                          disabled={!canEdit}
+                          className="w-full min-w-[6rem] bg-transparent px-2 py-1 font-mono text-slate-700 dark:text-slate-300 focus:bg-cyan-50 dark:focus:bg-cyan-950/30 focus:outline-none disabled:opacity-50 disabled:grayscale disabled:cursor-not-allowed"
                           aria-label={`${colLetter(c)}${r + 1}`}
+                          title={canEdit ? undefined : 'Edit Transactions permission not granted'}
                         />
                       </td>
                     );

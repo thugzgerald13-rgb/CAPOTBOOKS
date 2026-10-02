@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useAccounting } from '../context/AccountingContext';
 import { useAuth } from '../context/AuthContext';
+import type { Permission } from '../lib/accessControl';
 import { supabase } from '../lib/supabase';
 import { 
   Users, Building2, BookText, BookOpen, 
@@ -30,7 +31,9 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     activePage,
     historyTab,
   } = useAccounting();
-  const { user, isAdmin, userRole, signOut } = useAuth();
+  const { user, isAdmin, userRole, isSubuser, hasPermission, signOut } = useAuth();
+  const canUse = (permission: Permission) => !isSubuser || hasPermission(permission);
+  const canAny = (...permissions: Permission[]) => !isSubuser || permissions.some((permission) => hasPermission(permission));
   const [pendingApprovals, setPendingApprovals] = useState(0);
 
   // Pending-approval badge (developer only): count users waiting for approval,
@@ -125,6 +128,9 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   };
 
   const handleNavClick = (pageId: string, historyType?: string) => {
+    const permission = pagePermission(pageId);
+    if (permission && !canUse(permission)) return;
+
     if (historyType) {
       setHistoryTab(historyType);
     }
@@ -137,8 +143,8 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   };
 
   const navItems = [
-    { id: 'files', label: 'Upload Files', icon: FolderUp },
-    { id: 'inventory', label: 'Inventory', icon: Boxes },
+    { id: 'files', label: 'Upload Files', icon: FolderUp, permission: 'edit_transactions' as Permission },
+    { id: 'inventory', label: 'Inventory', icon: Boxes, permission: 'edit_transactions' as Permission },
   ];
 
   const historyItems = [
@@ -193,6 +199,42 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     { label: 'Business Profile', pageId: 'business', icon: Building2, keywords: 'business profile tin rdo setup' },
     { label: 'Account Settings', pageId: 'account-settings', icon: UserCircle, keywords: 'account settings profile' },
   ];
+  const pagePermission = (pageId: string | null): Permission | null => {
+    switch (pageId) {
+      case 'team': return 'manage_users';
+      case 'business':
+      case 'clients':
+      case 'tinlibrary':
+      case 'coa': return 'manage_settings';
+      case 'account-settings': return null;
+      case 'files':
+      case 'inventory':
+      case 'sales':
+      case 'billing':
+      case 'purchases':
+      case 'journal-voucher': return 'edit_transactions';
+      case 'history':
+      case 'trialbalance':
+      case 'balancesheet':
+      case 'pl':
+      case 'assetlapsing':
+      case 'cashflow':
+      case 'compliance-tracker':
+      case 'bir-forms':
+      case 'afs-financial-position':
+      case 'afs-income-statements':
+      case 'afs-equity-retained-earnings':
+      case 'afs-ppe': return 'view_reports';
+      case 'journal':
+      case 'ledger':
+      case 'sales-journal':
+      case 'purchase-journal':
+      case 'cash-disbursement':
+      case 'cash-receipt': return null;
+      default: return null;
+    }
+  };
+
   const sidebarFiltered = sidebarQuery.trim()
     ? SIDEBAR_NAV_INDEX.filter(i =>
         i.label.toLowerCase().includes(sidebarQuery.trim().toLowerCase()) ||
@@ -271,13 +313,17 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   return (
                     <button
                       key={item.label}
+                      disabled={!!pagePermission(item.pageId) && !canUse(pagePermission(item.pageId)!)}
                       onClick={() => {
                         if (item.historyTab) setHistoryTab(item.historyTab);
                         navigateToPage(item.pageId);
                         setSidebarQuery('');
                         setIsOpen(false);
                       }}
-                      className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:text-blue-700 dark:hover:text-blue-300 transition-colors text-left"
+                      className={cn(
+                        "w-full flex items-center gap-2.5 px-3 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:text-blue-700 dark:hover:text-blue-300 transition-colors text-left",
+                        !!pagePermission(item.pageId) && !canUse(pagePermission(item.pageId)!) && "opacity-40 grayscale cursor-not-allowed pointer-events-none"
+                      )}
                     >
                       <Icon className="w-4 h-4 text-slate-400 shrink-0" />
                       <span className="truncate">{item.label}</span>
@@ -335,6 +381,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   className="overflow-hidden flex flex-col gap-1 mt-1 pl-4"
                 >
                   <button
+                    disabled={!canUse('manage_settings')}
                     onClick={() => {
                       handleNavClick('coa');
                       setIsOpen(false);
@@ -345,6 +392,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                     Chart of Accounts
                   </button>
                   <button
+                    disabled={!canUse('edit_transactions')}
                     onClick={() => {
                       navigateToPage('billing');
                       setIsOpen(false);
@@ -355,6 +403,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                     Billing
                   </button>
                   <button
+                    disabled={!canUse('edit_transactions')}
                     onClick={() => {
                       handleNavClick('sales');
                       setIsOpen(false);
@@ -365,6 +414,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                     Income
                   </button>
                   <button
+                    disabled={!canUse('edit_transactions')}
                     onClick={() => {
                         navigateToPage('purchases');
                         setIsOpen(false);
@@ -375,6 +425,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                     Purchases
                   </button>
                   <button
+                    disabled={!canUse('edit_transactions')}
                     onClick={() => {
                       navigateToPage('journal-voucher');
                       setIsOpen(false);
@@ -392,6 +443,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                     return (
                       <button
                         key={subItem.id}
+                        disabled={!canUse('view_reports')}
                         onClick={() => {
                           handleNavClick('history', subItem.id);
                           setIsOpen(false);
@@ -436,6 +488,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                 className="overflow-hidden flex flex-col gap-1 mt-1 pl-4"
               >
                 <button
+                  disabled={!canUse('view_reports')}
                   onClick={() => {
                     navigateToPage('compliance-tracker');
                     setIsOpen(false);
@@ -467,6 +520,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                         className="overflow-hidden flex flex-col gap-1 pl-4"
                       >
                         <button
+                          disabled={!canUse('view_reports')}
                           onClick={() => {
                             setBirFormTab('2550Q');
                             navigateToPage('bir-forms');
@@ -484,6 +538,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                 {/* SEC — nested collapsible; AFS Draft lives under it */}
                 <div className="flex flex-col">
                   <button
+                    disabled={!canUse('view_reports')}
                     onClick={() => setIsSecOpen(!isSecOpen)}
                     className={cn("flex items-center justify-between gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", ['afs-financial-position','afs-income-statements','afs-equity-retained-earnings','afs-ppe','cashflow'].includes(activePage) && activeIndigo)}
                   >
@@ -505,6 +560,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                         {/* AFS Draft - separate financial statement drafts */}
                         <div className="flex flex-col">
                           <button
+                            disabled={!canUse('view_reports')}
                             onClick={() => setIsAfsDraftOpen(!isAfsDraftOpen)}
                             className={cn("flex items-center justify-between gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", ['afs-financial-position','afs-income-statements','afs-equity-retained-earnings','afs-ppe','cashflow'].includes(activePage) && activeIndigo)}
                           >
@@ -523,19 +579,19 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                                 transition={{ duration: 0.15 }}
                                 className="overflow-hidden flex flex-col gap-1 pl-4"
                               >
-                                <button onClick={() => handleNavClick('afs-financial-position')} className="flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left">
+                                <button disabled={!canUse('view_reports')} onClick={() => handleNavClick('afs-financial-position')} className="flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left">
                                   <Landmark className="w-3.5 h-3.5" /> Financial Position
                                 </button>
-                                <button onClick={() => handleNavClick('afs-income-statements')} className="flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left">
+                                <button disabled={!canUse('view_reports')} onClick={() => handleNavClick('afs-income-statements')} className="flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left">
                                   <TrendingUp className="w-3.5 h-3.5" /> Income Statements
                                 </button>
-                                <button onClick={() => handleNavClick('cashflow')} className="flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left">
+                                <button disabled={!canUse('view_reports')} onClick={() => handleNavClick('cashflow')} className="flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left">
                                   <ArrowLeftRight className="w-3.5 h-3.5" /> Cash Flow
                                 </button>
-                                <button onClick={() => handleNavClick('afs-equity-retained-earnings')} className="flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left">
+                                <button disabled={!canUse('view_reports')} onClick={() => handleNavClick('afs-equity-retained-earnings')} className="flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left">
                                   <Scale className="w-3.5 h-3.5" /> Equity & Retained Earnings
                                 </button>
-                                <button onClick={() => handleNavClick('afs-ppe')} className="flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left">
+                                <button disabled={!canUse('view_reports')} onClick={() => handleNavClick('afs-ppe')} className="flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left">
                                   <Wrench className="w-3.5 h-3.5" /> PPE
                                 </button>
                               </motion.div>
@@ -557,10 +613,12 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               <button
                 key={item.id}
                 onClick={() => handleNavClick(item.id)}
-                title={isCollapsed ? item.label : undefined}
+                disabled={!canUse(item.permission)}
+                title={isCollapsed ? item.label : (!canUse(item.permission) ? `${item.label} is not enabled for your role` : undefined)}
                 className={cn(
                   "flex items-center gap-3 px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800 dark:hover:text-blue-400 transition-all w-full text-left group",
                   activePage === item.id && activeBlue,
+                  !canUse(item.permission) && "opacity-40 grayscale cursor-not-allowed pointer-events-none hover:bg-transparent hover:text-slate-700 dark:hover:text-slate-300",
                   isCollapsed && "md:justify-center md:px-2"
                 )}
               >
@@ -573,6 +631,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
           {/* Reports Collapsible Dropdown */}
           <div className="flex flex-col">
             <button
+              disabled={!canUse('view_reports')}
               onClick={() => toggleDropdown('reports')}
               title={isCollapsed ? "Reports" : undefined}
               className={cn(
@@ -602,8 +661,9 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                     return (
                       <button
                         key={subItem.id}
+                        disabled={!canUse('view_reports')}
                         onClick={() => handleNavClick(subItem.id)}
-                        className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-amber-50 hover:text-amber-600 dark:hover:bg-slate-800 dark:hover:text-amber-400 transition-all w-full text-left", activePage === subItem.id && activeAmber)}
+                        className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-amber-50 hover:text-amber-600 dark:hover:bg-slate-800 dark:hover:text-amber-400 transition-all w-full text-left", activePage === subItem.id && activeAmber, !canUse('view_reports') && "opacity-40 grayscale cursor-not-allowed pointer-events-none")}
                       >
                         <SubIcon className="w-4 h-4" />
                         {subItem.label}
@@ -618,6 +678,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
           {/* Books Collapsible Dropdown */}
           <div className="flex flex-col">
             <button
+              disabled={!canAny('view_reports', 'edit_transactions')}
               onClick={() => toggleDropdown('books')}
               title={isCollapsed ? "Books" : undefined}
               className={cn(
@@ -647,8 +708,9 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                     return (
                       <button
                         key={subItem.id}
+                        disabled={!canAny('view_reports', 'edit_transactions')}
                         onClick={() => handleNavClick(subItem.id)}
-                        className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-cyan-50 hover:text-cyan-600 dark:hover:bg-slate-800 dark:hover:text-cyan-400 transition-all w-full text-left", activePage === subItem.id && activeCyan)}
+                        className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-cyan-50 hover:text-cyan-600 dark:hover:bg-slate-800 dark:hover:text-cyan-400 transition-all w-full text-left", activePage === subItem.id && activeCyan, !canAny('view_reports', 'edit_transactions') && "opacity-40 grayscale cursor-not-allowed pointer-events-none")}
                       >
                         <SubIcon className="w-4 h-4" />
                         {subItem.label}
@@ -689,6 +751,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                 >
                   {userRole === 'owner' ? (
                     <button
+                      disabled={!canUse('manage_settings')}
                       onClick={() => handleNavClick('business')}
                       className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-all w-full text-left"
                     >
@@ -698,6 +761,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   ) : (
                     <>
                       <button
+                        disabled={!canUse('manage_settings')}
                         onClick={() => handleNavClick('clients')}
                         className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-all w-full text-left"
                       >
@@ -705,6 +769,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                         Client Profiles
                       </button>
                       <button
+                        disabled={!canUse('manage_settings')}
                         onClick={() => handleNavClick('business')}
                         className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-all w-full text-left"
                       >
@@ -714,6 +779,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                     </>
                   )}
                   <button
+                    disabled={!canUse('manage_settings')}
                     onClick={() => handleNavClick('tinlibrary')}
                     className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-all w-full text-left"
                   >
@@ -728,6 +794,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                     Account Settings
                   </button>
                   <button
+                    disabled={!canUse('manage_users')}
                     onClick={() => handleNavClick('team')}
                     className={`flex items-center gap-3 px-4 py-2 text-xs font-bold rounded-lg transition-all w-full text-left ${activePage === 'team' ? 'bg-cyan-50 text-cyan-700 dark:bg-cyan-900/20 dark:text-cyan-400' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200'}`}
                   >
