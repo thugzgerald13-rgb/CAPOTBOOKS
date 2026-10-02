@@ -47,11 +47,13 @@ function SecretReveal({
   email,
   password,
   existingUser,
+  invitationPending = false,
   onDismiss,
 }: {
   email: string;
   password: string | null;
   existingUser: boolean;
+  invitationPending?: boolean;
   onDismiss: () => void;
 }) {
   const [copied, setCopied] = useState(false);
@@ -71,10 +73,16 @@ function SecretReveal({
         <ShieldCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
         <div className="flex-1 min-w-0">
           <p className="font-bold text-emerald-900 dark:text-emerald-100">
-            {existingUser ? 'Account linked' : 'Subuser created'}
+            {invitationPending ? 'Invitation created' : existingUser ? 'Account linked' : 'Subuser created'}
           </p>
           <p className="text-sm text-emerald-800 dark:text-emerald-300 mt-1 break-all">
-            {existingUser ? (
+            {invitationPending ? (
+              <>
+                <span className="font-semibold">{email}</span> has a pending invitation. They must
+                sign in or create a CAPOT account using this exact email address. Once authenticated,
+                CAPOT will automatically connect their account to your team and apply the selected role.
+              </>
+            ) : existingUser ? (
               <>
                 <span className="font-semibold">{email}</span> already has a CAPOT login. They now
                 share your account data and can sign in with their existing password.
@@ -122,7 +130,7 @@ export function TeamSettings() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notEnabled, setNotEnabled] = useState(false);
-  const [secret, setSecret] = useState<{ email: string; password: string | null; existingUser: boolean } | null>(null);
+  const [secret, setSecret] = useState<{ email: string; password: string | null; existingUser: boolean; invitationPending?: boolean } | null>(null);
   const [resetSecret, setResetSecret] = useState<{ email: string; password: string } | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<TeamMember | null>(null);
 
@@ -137,7 +145,7 @@ export function TeamSettings() {
     setBusy(true);
     try {
       const result = await inviteSubuser(email, displayName, memberRole);
-      setSecret({ email: result.email, password: result.temporaryPassword, existingUser: result.existingUser });
+      setSecret({ email: result.email, password: result.temporaryPassword, existingUser: result.existingUser, invitationPending: result.invitationPending });
       setEmail('');
       setDisplayName('');
       setMemberRole('bookkeeper');
@@ -269,7 +277,7 @@ export function TeamSettings() {
           {!isSubuser && (
             <>
               {secret && (
-                <SecretReveal email={secret.email} password={secret.password} existingUser={secret.existingUser} onDismiss={() => setSecret(null)} />
+                <SecretReveal email={secret.email} password={secret.password} existingUser={secret.existingUser} invitationPending={secret.invitationPending} onDismiss={() => setSecret(null)} />
               )}
               {resetSecret && (
                 <SecretReveal email={resetSecret.email} password={resetSecret.password} existingUser={false} onDismiss={() => setResetSecret(null)} />
@@ -321,7 +329,7 @@ export function TeamSettings() {
                   <button type="submit" disabled={busy}
                     className="flex items-center gap-2 px-6 py-3 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl font-bold shadow-md transition-all active:scale-95 disabled:opacity-50">
                     {busy ? <RefreshCw className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
-                    {busy ? 'Inviting...' : 'Invite Subuser'}
+                    {busy ? 'Sending...' : 'Send Invitation'}
                   </button>
                   <span className="text-xs text-slate-400">Signed in as {user?.email}</span>
                 </div>
@@ -399,6 +407,9 @@ export function TeamSettings() {
                               <td className="px-4 py-3">
                                 <p className="font-bold text-slate-800 dark:text-slate-100">{m.displayName || '—'}</p>
                                 <p className="text-xs text-slate-500 dark:text-slate-400 break-all">{m.email}</p>
+                                {m.memberKind === 'independent' && (
+                                  <span className="inline-flex mt-1 px-1.5 py-0.5 rounded-md bg-cyan-50 text-cyan-700 dark:bg-cyan-900/20 dark:text-cyan-300 text-[10px] font-bold">Own account</span>
+                                )}
                               </td>
                               <td className="px-4 py-3">
                                 <select value={m.memberRole} onChange={(e) => handleRoleChange(m, e.target.value as MemberRole)}
@@ -418,9 +429,11 @@ export function TeamSettings() {
                               <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">{m.lastLogin ? new Date(m.lastLogin).toLocaleString() : 'Never'}</td>
                               <td className="px-4 py-3">
                                 <div className="flex items-center justify-end gap-1">
-                                  <button onClick={() => handleResetPassword(m)} className="p-2 rounded-lg text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-900/20 transition-colors" title="Reset password">
-                                    <KeyRound className="w-4 h-4" />
-                                  </button>
+                                  {m.memberKind !== 'independent' && (
+                                    <button onClick={() => handleResetPassword(m)} className="p-2 rounded-lg text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-900/20 transition-colors" title="Reset password">
+                                      <KeyRound className="w-4 h-4" />
+                                    </button>
+                                  )}
                                   <button onClick={() => handleToggleStatus(m)} className="p-2 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors" title={m.status === 'disabled' ? 'Enable access' : 'Disable access'}>
                                     <Ban className="w-4 h-4" />
                                   </button>

@@ -575,6 +575,7 @@ export interface TeamMember {
   status: MemberStatus;
   lastLogin?: string | null;
   createdAt?: string | null;
+  memberKind?: 'managed' | 'independent';
 }
 
 export interface AccountMembership {
@@ -586,8 +587,9 @@ export interface AccountMembership {
 }
 
 export interface InviteResult {
-  userId: string;
+  userId: string | null;
   email: string;
   temporaryPassword: string | null;
   existingUser: boolean;
+  invitationPending?: boolean;
 }

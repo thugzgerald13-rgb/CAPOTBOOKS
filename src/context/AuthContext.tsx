@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import {
+  claimTeamInvitation,
   getMyAccountMembership,
   listMySubusers,
   SubusersNotEnabledError,
@@ -11,6 +12,7 @@ import type { TeamMember, AccountMembership } from '../types';
 interface AuthContextType {
   user: User | null;
   loading: boolean;
+  accountReady: boolean;
   pendingApproval: boolean;
   isAdmin: boolean;
   userRole: string | null;
@@ -29,7 +31,7 @@ interface AuthContextType {
 
 const DEFAULT_MEMBERSHIP: AccountMembership = { isSubuser: false };
 const AuthContext = createContext<AuthContextType>({
-  user: null, loading: true, pendingApproval: false, isAdmin: false, userRole: null, permissions: {},
+  user: null, loading: true, accountReady: false, pendingApproval: false, isAdmin: false, userRole: null, permissions: {},
   hasPermission: () => false, setUserRole: () => {}, signOut: async () => {},
   needsAccountSetup: false, completeAccountSetup: async () => {},
   subusersEnabled: false, membership: DEFAULT_MEMBERSHIP, isSubuser: false,
@@ -43,6 +45,7 @@ type AuthProviderProps = { children: React.ReactNode };
 export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [accountReady, setAccountReady] = useState(false);
   const [userRole, setUserRoleState] = useState<string | null>(null);
   const [permissions, setPermissions] = useState<Record<string, boolean>>({});
   const [needsAccountSetup, setNeedsAccountSetup] = useState(false);
@@ -73,6 +76,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const clearAuthState = () => {
       if (!active) return;
       setUser(null);
+      setAccountReady(false);
       setUserRoleState(null);
       setPermissions({});
       setNeedsAccountSetup(false);
@@ -101,6 +105,19 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
         if (profileUpsertError) {
           console.error('Profile sync error:', profileUpsertError);
+        }
+
+        // An independent invitation is claimed only after the invitee has
+        // authenticated. This prevents creating a second CAPOT workspace for
+        // an invited email and binds the membership to the authenticated user.
+        try {
+          const claimedMembership = await claimTeamInvitation();
+          if (claimedMembership?.isSubuser) {
+            setMembership(claimedMembership);
+            setSubusersEnabled(true);
+          }
+        } catch (claimError) {
+          console.error('Invitation claim error:', claimError);
         }
 
         const { data, error: roleError } = await supabase
@@ -163,6 +180,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setPermissions({});
         setMembership(DEFAULT_MEMBERSHIP);
         setTeamMembers([]);
+      } finally {
+        if (active) setAccountReady(true);
       }
     };
 
@@ -177,6 +196,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
       const nextUser = session?.user ?? null;
       setUser(nextUser);
+      if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
+        setAccountReady(false);
+      }
 
       // INITIAL_SESSION is handled by the explicit getSession() call below.
       // For all later auth events, defer the database work until after the
@@ -207,6 +229,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
         const sessionUser = session?.user ?? null;
         setUser(sessionUser);
+        setAccountReady(false);
 
         if (sessionUser) {
           // Do not block the auth gate on profile/RPC/database work.
