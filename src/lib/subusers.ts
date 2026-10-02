@@ -33,12 +33,39 @@ async function callRpc<T>(fn: string, args: Record<string, unknown>): Promise<T>
   return data as unknown as T;
 }
 
-/** Invite (or link) a subuser to the current account holder's account. */
+/** Invite (or link) a subuser to the current account holder's account.
+ *
+ * Tries the `create-staff-user` Edge Function FIRST: it creates the auth user
+ * WITH a password (email auto-confirmed), auto-approves the profile, and links
+ * membership — so staff/employees never have to sign up themselves. If the
+ * Edge Function isn't deployed, falls back to the legacy invite_subuser RPC
+ * (which only links an already-existing account).
+ */
 export async function inviteSubuser(
   email: string,
   displayName: string,
   memberRole: MemberRole
 ): Promise<InviteResult> {
+  try {
+    const { data, error } = await supabase.functions.invoke('create-staff-user', {
+      body: {
+        email: email.trim(),
+        display_name: displayName.trim() || null,
+        member_role: memberRole,
+      },
+    });
+    if (!error && data?.user_id) {
+      return {
+        userId: String(data.user_id),
+        email: String(data.email),
+        temporaryPassword: data.temporary_password ? String(data.temporary_password) : null,
+        existingUser: Boolean(data.existing_user),
+      };
+    }
+  } catch {
+    /* Edge Function not deployed — fall through to legacy RPC below. */
+  }
+
   const r = await callRpc<Record<string, unknown>>('invite_subuser', {
     p_email: email.trim(),
     p_display_name: displayName.trim() || null,
