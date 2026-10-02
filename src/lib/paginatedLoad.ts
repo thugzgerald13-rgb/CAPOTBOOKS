@@ -1,111 +1,107 @@
-/**
- * paginatedLoad.ts — On-demand keyset-paginated table loader.
- *
- * Companion to scripts/table_pagination.sql (get_table_page RPC).
- *
- * The initial client load (get_initial_client_data) deliberately returns the
- * FULL dataset — P&L / Balance Sheet / GL are computed in-memory from it.
- * Paginating that load would only split the same bytes into more requests.
- * This module is for LAZY loading of large/old slices only when a user opens
- * a view that needs them (History months, long Sales/Purchases lists).
- *
- * Results are cached in IndexedDB via the existing queryCache in localDb,
- * so repeat views of the same page cost zero egress. Invalidate on mutation.
- */
-import type { SupabaseClient } from '@supabase/supabase-js';
-import { cacheQuery, getCachedQuery, invalidateQueries } from '../db/localDb';
+// src/lib/paginatedLoad.ts
+// Keyset-paginated Supabase fetcher with TTL cache + consolidated-RPC fallback.
+// Keyset pagination (cursor on updated_at + id) avoids the O(n) cost of OFFSET
+// on large transaction tables (journal_entries, purchases, sales, ...).
+//
+// Usage:
+//   const { rows, nextCursor, hasMore } = await fetchPage(supabase, clientId, 'journal_entries', { limit: 500 });
+//   const page2 = await fetchPage(..., { limit: 500, cursor: nextCursor });
+//   const all = await fetchAllPages(supabase, clientId, 'coa_accounts'); // small master tables
 
-export interface TablePage {
-  rows: Array<Record<string, unknown>>;
+import type { SupabaseClient } from '@supabase/supabase-js';
+import { getCache, setCache, DEFAULT_TTL } from './cacheDB';
+
+export interface PageOptions {
+  limit?: number;
+  cursor?: string | null; // JSON-encoded { updated_at, id } of the last row; null/undefined = first page
+  select?: string;        // column list, default '*'
+  orderBy?: string;       // default 'updated_at'
+  orderAscending?: boolean;
+  ttl?: number;
+}
+
+export interface PageResult<T = Record<string, any>> {
+  rows: T[];
   nextCursor: string | null;
   hasMore: boolean;
-  pageSize: number;
+  fromCache: boolean;
 }
 
-export interface LoadPageOptions {
-  /** ISO updated_at cursor from a previous page's nextCursor. null = newest. */
-  cursor?: string | null;
-  /** Rows per page, 1–5000. Default 500. */
-  limit?: number;
-  /** Cache TTL in ms. Default 5 min. Pass 0 to bypass cache. */
-  maxAgeMs?: number;
+const DEFAULT_LIMIT = 500;
+
+function cacheKey(clientId: string, table: string, opts: PageOptions): string {
+  const cursor = opts.cursor ?? 'first';
+  const limit = opts.limit ?? DEFAULT_LIMIT;
+  const select = (opts.select ?? '*').replace(/\s+/g, '');
+  return `client:${clientId}:${table}:${cursor}:${limit}:${select}`;
 }
 
-const DEFAULT_MAX_AGE = 5 * 60 * 1000;
-
-const cacheKey = (table: string, clientId: string, cursor: string | null, limit: number) =>
-  `page:${table}:${clientId}:${cursor ?? 'newest'}:${limit}`;
-
-/**
- * Load one page. Serves from IndexedDB queryCache when fresh; otherwise hits
- * the get_table_page RPC and caches the result. Never throws — returns an
- * empty page on failure so callers can degrade gracefully.
- */
-export async function loadTablePage(
-  supabase: SupabaseClient,
-  table: string,
-  clientId: string,
-  opts: LoadPageOptions = {}
-): Promise<TablePage> {
-  const empty: TablePage = { rows: [], nextCursor: null, hasMore: false, pageSize: 0 };
-  if (!clientId) return empty;
-
-  const cursor = opts.cursor ?? null;
-  const limit = opts.limit ?? 500;
-  const maxAge = opts.maxAgeMs ?? DEFAULT_MAX_AGE;
-  const key = cacheKey(table, clientId, cursor, limit);
-
+// Build the keyset filter. Cursor is the LAST row of the previous page.
+function applyCursor(query: any, opts: PageOptions): any {
+  if (!opts.cursor) return query;
   try {
-    if (maxAge > 0) {
-      const cached = await getCachedQuery<TablePage>(key, maxAge);
-      if (cached) return cached;
+    const last = JSON.parse(opts.cursor) as { updated_at: string; id: string | number };
+    const orderCol = opts.orderBy ?? 'updated_at';
+    if (opts.orderAscending) {
+      return query.or(`${orderCol}.gt.${last[orderCol as keyof typeof last]},and(${orderCol}.eq.${last[orderCol as keyof typeof last]},id.gt.${last.id})`);
     }
-
-    const { data, error } = await supabase.rpc('get_table_page', {
-      p_table: table,
-      p_client_id: clientId,
-      p_cursor: cursor,
-      p_limit: limit,
-    });
-
-    if (error || !data) {
-      console.info('[paginatedLoad] page fetch failed, returning empty:', error?.message);
-      return empty;
-    }
-
-    const page: TablePage = {
-      rows: Array.isArray(data.rows) ? data.rows : [],
-      nextCursor: data.next_cursor ?? null,
-      hasMore: Boolean(data.has_more),
-      pageSize: Number(data.page_size ?? 0),
-    };
-
-    if (maxAge > 0) {
-      void cacheQuery(key, table, clientId, page).catch(() => {});
-    }
-    return page;
-  } catch (e) {
-    console.info('[paginatedLoad] threw, returning empty:', e);
-    return empty;
+    return query.or(`${orderCol}.lt.${last[orderCol as keyof typeof last]},and(${orderCol}.eq.${last[orderCol as keyof typeof last]},id.lt.${last.id})`);
+  } catch {
+    return query; // malformed cursor → treat as first page
   }
 }
 
-/**
- * Load ALL pages for a table (accumulates). Use ONLY when a report genuinely
- * needs the full history and the initial load was intentionally capped. Hard
- * cap of 50 pages to prevent runaway egress. Each page is cached.
- */
-export async function loadAllPages(
+export async function fetchPage<T = Record<string, any>>(
   supabase: SupabaseClient,
-  table: string,
   clientId: string,
-  opts: Omit<LoadPageOptions, 'cursor'> = {},
-  maxPages = 50
-): Promise<Array<Record<string, unknown>>> {
-  const all: Array<Record<string, unknown>> = [];
-  let cursor: string | null = null;
-  for (let i = 0; i < maxPages; i++) {
-    const page = await loadTablePage(supabase, table, clientId, { ...opts, cursor });
+  table: string,
+  opts: PageOptions = {},
+): Promise<PageResult<T>> {
+  const limit = opts.limit ?? DEFAULT_LIMIT;
+  const orderCol = opts.orderBy ?? 'updated_at';
+  const key = cacheKey(clientId, table, opts);
+
+  const cached = await getCache<PageResult<T>>(key);
+  if (cached) return { ...cached, fromCache: true };
+
+  let query = supabase
+    .from(table)
+    .select(opts.select ?? '*')
+    .eq('client_id', clientId)
+    .order(orderCol, { ascending: !!opts.orderAscending })
+    .order('id', { ascending: !!opts.orderAscending })
+    .limit(limit + 1); // fetch one extra to detect hasMore
+
+  query = applyCursor(query, opts);
+
+  const { data, error } = await query;
+  if (error) throw error;
+
+  const rows = (data || []) as T[];
+  const hasMore = rows.length > limit;
+  const pageRows = hasMore ? rows.slice(0, limit) : rows;
+  const last = pageRows[pageRows.length - 1] as any;
+  const nextCursor = hasMore && last
+    ? JSON.stringify({ updated_at: last.updated_at, id: last.id })
+    : null;
+
+  const result: PageResult<T> = { rows: pageRows, nextCursor, hasMore, fromCache: false };
+  void setCache(key, result, opts.ttl ?? DEFAULT_TTL);
+  return result;
+}
+
+// Fetch every page of a (usually small) table. Caches each page individually.
+export async function fetchAllPages<T = Record<string, any>>(
+  supabase: SupabaseClient,
+  clientId: string,
+  table: string,
+  opts: Omit<PageOptions, 'cursor'> = {},
+): Promise<T[]> {
+  const all: T[] = [];
+  let cursor: string | null | undefined = undefined;
+  // eslint-disable-next-line no-constant-condition
+  while (true) {
+    const page = await fetchPage<T>(supabase, clientId, table, { ...opts, cursor });
     all.push(...page.rows);
     if (!page.hasMore || !page.nextCursor) break;
     cursor = page.nextCursor;
@@ -113,11 +109,67 @@ export async function loadAllPages(
   return all;
 }
 
-/** Invalidate all cached pages for a table (call after a save/import). */
-export async function invalidateTablePages(table: string, clientId?: string): Promise<void> {
+// ---------------------------------------------------------------------------
+// Consolidated initial load: one RPC call returns the first page (or full
+// small tables) of every table. Falls back to individual paginated fetches.
+// ---------------------------------------------------------------------------
+
+export interface InitialLoadOptions {
+  pageSize?: number;
+  ttl?: number;
+}
+
+export interface InitialLoadResult {
+  data: Record<string, any[]>;
+  cursors: Record<string, string | null>; // next cursor per table for lazy-loading more
+  fromRpc: boolean;
+}
+
+// Small master tables load fully in one shot; large transaction tables load
+// only the first page and lazy-load more as the user scrolls/navigates.
+const SMALL_TABLES = ['coa_accounts', 'coa_columns', 'inventory_columns', 'app_folders', 'bank_accounts', 'tax_deadlines', 'asset_lapsing_schedule'];
+const LARGE_TABLES = ['purchases', 'sales', 'journal_entries', 'journal_columns', 'journal_vouchers', 'journal_voucher_lines', 'inventory_items', 'inventory_movements', 'app_files', 'tin_entries', 'billing_invoices', 'financial_report_snapshots'];
+
+export async function loadInitialClientData(
+  supabase: SupabaseClient,
+  clientId: string,
+  opts: InitialLoadOptions = {},
+): Promise<InitialLoadResult> {
+  const pageSize = opts.pageSize ?? 500;
+
+  // 1) Try the consolidated RPC first (one call for everything).
   try {
-    await invalidateQueries(table, clientId);
+    const { data, error } = await supabase.rpc('get_initial_client_data_paginated', {
+      p_client_id: clientId,
+      p_page_size: pageSize,
+    });
+    if (!error && data) {
+      const result = data as { data: Record<string, any[]>; cursors: Record<string, string | null> };
+      // Cache each table's first page.
+      for (const [table, rows] of Object.entries(result.data)) {
+        void setCache(cacheKey(clientId, table, { limit: pageSize }), { rows, nextCursor: result.cursors[table] ?? null, hasMore: !!result.cursors[table], fromCache: false }, opts.ttl ?? DEFAULT_TTL);
+      }
+      return { data: result.data, cursors: result.cursors, fromRpc: true };
+    }
   } catch {
-    /* non-fatal */
+    // fall through to individual fetches
   }
+
+  // 2) Fallback: small tables fully, large tables first page only.
+  const data: Record<string, any[]> = {};
+  const cursors: Record<string, string | null> = {};
+
+  await Promise.all([
+    ...SMALL_TABLES.map(async (table) => {
+      data[table] = await fetchAllPages(supabase, clientId, table, { limit: pageSize, ttl: opts.ttl });
+      cursors[table] = null;
+    }),
+    ...LARGE_TABLES.map(async (table) => {
+      const page = await fetchPage(supabase, clientId, table, { limit: pageSize, ttl: opts.ttl });
+      data[table] = page.rows;
+      cursors[table] = page.nextCursor;
+    }),
+  ]);
+
+  return { data, cursors, fromRpc: false };
 }
