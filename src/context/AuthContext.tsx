@@ -27,6 +27,7 @@ interface AuthContextType {
   isSubuser: boolean;
   teamMembers: TeamMember[];
   refreshTeamMembers: () => Promise<void>;
+  setActivePermissionClientId: (clientId: string | null) => void;
 }
 
 const DEFAULT_MEMBERSHIP: AccountMembership = { isSubuser: false };
@@ -35,7 +36,7 @@ const AuthContext = createContext<AuthContextType>({
   hasPermission: () => false, setUserRole: () => {}, signOut: async () => {},
   needsAccountSetup: false, completeAccountSetup: async () => {},
   subusersEnabled: false, membership: DEFAULT_MEMBERSHIP, isSubuser: false,
-  teamMembers: [], refreshTeamMembers: async () => {},
+  teamMembers: [], refreshTeamMembers: async () => {}, setActivePermissionClientId: () => {},
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -48,6 +49,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [accountReady, setAccountReady] = useState(false);
   const [userRole, setUserRoleState] = useState<string | null>(null);
   const [permissions, setPermissions] = useState<Record<string, boolean>>({});
+  const [rolePermissions, setRolePermissions] = useState<Record<string, boolean>>({});
+  const [activePermissionClientId, setActivePermissionClientId] = useState<string | null>(null);
   const [needsAccountSetup, setNeedsAccountSetup] = useState(false);
   const [subusersEnabled, setSubusersEnabled] = useState(false);
   const [membership, setMembership] = useState<AccountMembership>(DEFAULT_MEMBERSHIP);
@@ -79,6 +82,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setAccountReady(false);
       setUserRoleState(null);
       setPermissions({});
+      setRolePermissions({});
+      setActivePermissionClientId(null);
       setNeedsAccountSetup(false);
       setMembership(DEFAULT_MEMBERSHIP);
       setTeamMembers([]);
@@ -144,8 +149,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
         if (permissionError) {
           console.error('Permission load error:', permissionError);
           setPermissions({});
+          setRolePermissions({});
         } else {
-          setPermissions((permissionData || {}) as Record<string, boolean>);
+          const loadedRolePermissions = (permissionData || {}) as Record<string, boolean>;
+          setRolePermissions(loadedRolePermissions);
+          setPermissions(loadedRolePermissions);
         }
 
         try {
@@ -178,6 +186,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         if (!active) return;
         setUserRoleState(null);
         setPermissions({});
+        setRolePermissions({});
         setMembership(DEFAULT_MEMBERSHIP);
         setTeamMembers([]);
       } finally {
@@ -254,7 +263,54 @@ export function AuthProvider({ children }: AuthProviderProps) {
     };
   }, []);
 
-  const hasPermission = (permission: string) => Boolean(permissions[permission]);
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadClientPermissions = async () => {
+      if (!user) {
+        if (!cancelled) setPermissions({});
+        return;
+      }
+
+      // Account holders retain full access. Their role-permission response is
+      // kept for compatibility, but client-specific restrictions apply only to
+      // invited team members.
+      if (!membership.isSubuser) {
+        if (!cancelled) setPermissions(rolePermissions);
+        return;
+      }
+
+      // A team member without a selected/authorized client gets no effective
+      // capabilities until a client grant is loaded. This prevents a previous
+      // client's permissions from leaking while the user switches clients.
+      if (!activePermissionClientId) {
+        if (!cancelled) setPermissions({});
+        return;
+      }
+
+      setPermissions({});
+      try {
+        const { data, error } = await supabase.rpc('get_my_client_permissions', {
+          p_client_id: activePermissionClientId,
+        });
+        if (error) throw error;
+        if (!cancelled) {
+          setPermissions((data || {}) as Record<string, boolean>);
+        }
+      } catch (error) {
+        console.error('Client permission load error:', error);
+        if (!cancelled) setPermissions({});
+      }
+    };
+
+    void loadClientPermissions();
+    return () => { cancelled = true; };
+  }, [user?.id, membership.isSubuser, activePermissionClientId, rolePermissions]);
+
+  const hasPermission = (permission: string) => {
+    if (!membership.isSubuser) return true;
+    return Boolean(permissions[permission]);
+  };
 
   const setUserRole = async (role: string | null) => {
     if (user) {
@@ -289,6 +345,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   const signOut = async () => {
     setPermissions({});
+    setRolePermissions({});
+    setActivePermissionClientId(null);
     await supabase.auth.signOut();
   };
 
@@ -320,7 +378,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     <AuthContext.Provider value={{
       user, loading, pendingApproval, isAdmin, userRole, permissions, hasPermission, setUserRole, signOut,
       needsAccountSetup, completeAccountSetup,
-      subusersEnabled, membership, isSubuser: membership.isSubuser, teamMembers, refreshTeamMembers,
+      subusersEnabled, membership, isSubuser: membership.isSubuser, teamMembers, refreshTeamMembers, setActivePermissionClientId,
     }}>
       {children}
     </AuthContext.Provider>

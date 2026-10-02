@@ -578,6 +578,12 @@ export interface TeamMember {
   memberKind?: 'managed' | 'independent';
 }
 
+export interface ClientPermissionAssignment {
+  clientId: string;
+  clientName?: string | null;
+  permissions: Record<string, boolean>;
+}
+
 export interface AccountMembership {
   isSubuser: boolean;
   ownerId?: string | null;

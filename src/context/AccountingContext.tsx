@@ -659,7 +659,7 @@ type AccountingProviderProps = {
 export function AccountingProvider({
     children,
 }: AccountingProviderProps) {
-  const { user, userRole, membership } = useAuth();
+  const { user, userRole, membership, setActivePermissionClientId } = useAuth();
   const dataOwnerId: string =
     membership?.isSubuser && membership?.ownerId ? membership.ownerId : user?.id ?? '';
   const [clients, setClients] = useState<Record<string, Client>>({});
@@ -816,6 +816,23 @@ export function AccountingProvider({
       setCurrentClientId(restoredId);
     }
   }, [clients, cloudPrefsLoaded, savedActiveClientId, currentClientId]);
+
+  // Keep AuthContext's client-specific permission target synchronized with the
+  // active client. Invited users therefore receive the permission set for the
+  // client currently shown in the accounting workspace.
+  useEffect(() => {
+    setActivePermissionClientId(currentClientId);
+  }, [currentClientId]);
+
+  // If a team member's grant is revoked while the app is open, the next cloud
+  // sync can remove that client from the visible set. Move to another visible
+  // client instead of leaving a stale, unauthorized client selected.
+  useEffect(() => {
+    if (!user || !isReady || !cloudPrefsLoaded || !currentClientId) return;
+    if (clients[currentClientId]) return;
+    const nextClientId = Object.keys(clients)[0] || null;
+    setCurrentClientId(nextClientId);
+  }, [clients, currentClientId, user, isReady, cloudPrefsLoaded]);
 
   // Sync the active client/profile selection to the cloud so it follows the
   // user across devices, same as the dark mode / sidebar prefs below.

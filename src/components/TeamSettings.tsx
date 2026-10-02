@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   Ban,
   CheckCircle2,
+  SlidersHorizontal,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -20,10 +21,13 @@ import {
   setSubuserStatus,
   removeSubuser,
   resetSubuserPassword,
+  listSubuserClientPermissions,
+  setSubuserClientPermissions,
   SubusersNotEnabledError,
 } from '../lib/subusers';
 import type { MemberRole, TeamMember } from '../types';
-import { ALL_PERMISSIONS } from '../lib/accessControl';
+import { useAccounting } from '../context/AccountingContext';
+import { ALL_PERMISSIONS, type Permission } from '../lib/accessControl';
 import {
   MEMBER_ROLE_PERMISSIONS,
   PERMISSION_LABELS,
@@ -124,6 +128,8 @@ function SecretReveal({
 export function TeamSettings() {
   const { user, userRole, subusersEnabled, isSubuser, membership, teamMembers, refreshTeamMembers } =
     useAuth();
+  const { clients, ownerClientId } = useAccounting();
+  const clientList = Object.values(clients).filter((client) => client.id !== ownerClientId).sort((a, b) => a.name.localeCompare(b.name));
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [memberRole, setMemberRole] = useState<MemberRole>('bookkeeper');
@@ -133,6 +139,78 @@ export function TeamSettings() {
   const [secret, setSecret] = useState<{ email: string; password: string | null; existingUser: boolean; invitationPending?: boolean } | null>(null);
   const [resetSecret, setResetSecret] = useState<{ email: string; password: string } | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<TeamMember | null>(null);
+  const [permissionMember, setPermissionMember] = useState<TeamMember | null>(null);
+  const [permissionClientId, setPermissionClientId] = useState<string>('');
+  const [permissionGrants, setPermissionGrants] = useState<Record<string, Record<string, boolean>>>({});
+  const [permissionLoading, setPermissionLoading] = useState(false);
+  const [permissionSaving, setPermissionSaving] = useState(false);
+  const [permissionError, setPermissionError] = useState('');
+
+  const openClientPermissions = async (member: TeamMember) => {
+    setPermissionMember(member);
+    setPermissionError('');
+    setPermissionLoading(true);
+    try {
+      const rows = await listSubuserClientPermissions(member.userId);
+      const byClient: Record<string, Record<string, boolean>> = {};
+      rows.forEach((row) => {
+        byClient[row.clientId] = row.permissions || {};
+      });
+      setPermissionGrants(byClient);
+      setPermissionClientId((prev) => (prev && clientList.some((client) => client.id === prev)) ? prev : (clientList[0]?.id || ''));
+    } catch (err) {
+      setPermissionError(err instanceof Error ? err.message : 'Could not load client permissions.');
+    } finally {
+      setPermissionLoading(false);
+    }
+  };
+
+  const closeClientPermissions = () => {
+    if (permissionSaving) return;
+    setPermissionMember(null);
+    setPermissionClientId('');
+    setPermissionGrants({});
+    setPermissionError('');
+  };
+
+  const toggleClientPermission = (permission: Permission) => {
+    if (!permissionMember || !permissionClientId) return;
+    const roleAllows = (MEMBER_ROLE_PERMISSIONS[permissionMember.memberRole] || []).includes(permission);
+    if (!roleAllows) return;
+    setPermissionGrants((prev) => ({
+      ...prev,
+      [permissionClientId]: {
+        ...(prev[permissionClientId] || {}),
+        [permission]: !Boolean(prev[permissionClientId]?.[permission]),
+      },
+    }));
+  };
+
+  const saveCurrentClientPermissions = async () => {
+    if (!permissionMember || !permissionClientId) return;
+    setPermissionSaving(true);
+    setPermissionError('');
+    try {
+      const current = permissionGrants[permissionClientId] || {};
+      const selected = Object.fromEntries(
+        Object.entries(current).map(([key, value]) => [key, Boolean(value)])
+      );
+      await setSubuserClientPermissions(permissionMember.userId, permissionClientId, selected);
+      setPermissionGrants((prev) => ({ ...prev, [permissionClientId]: selected }));
+    } catch (err) {
+      setPermissionError(err instanceof Error ? err.message : 'Could not save client permissions.');
+    } finally {
+      setPermissionSaving(false);
+    }
+  };
+
+  const applyRoleDefaults = () => {
+    if (!permissionMember || !permissionClientId) return;
+    const defaults = Object.fromEntries(
+      (MEMBER_ROLE_PERMISSIONS[permissionMember.memberRole] || []).map((permission) => [permission, true])
+    );
+    setPermissionGrants((prev) => ({ ...prev, [permissionClientId]: defaults }));
+  };
 
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -308,6 +386,7 @@ export function TeamSettings() {
                   </div>
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-3">{ROLE_OPTIONS.find((r) => r.value === memberRole)?.desc}</p>
+                <p className="text-xs text-cyan-600 dark:text-cyan-400 mt-2">Client access is assigned separately after the invited user has an active account.</p>
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   {ALL_PERMISSIONS.map((p) => {
                     const allowed = (MEMBER_ROLE_PERMISSIONS[memberRole] || []).includes(p.key);
@@ -341,8 +420,7 @@ export function TeamSettings() {
                   <h3 className="font-bold text-slate-800 dark:text-slate-100">What each role can do</h3>
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
-                  Invited users keep their own CAPOT account permanently — removing them only revokes access to your
-                  books; their login and history elsewhere are untouched. Permissions are enforced server-side.
+                  The role sets the maximum capabilities an invited user can receive. Use <span className="font-semibold">Client access</span> below to choose exactly which clients they can open and which permitted functions they can use on each client. Permissions are enforced server-side.
                 </p>
                 <div className="overflow-x-auto">
                   <table className="w-full text-xs">
@@ -429,6 +507,14 @@ export function TeamSettings() {
                               <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">{m.lastLogin ? new Date(m.lastLogin).toLocaleString() : 'Never'}</td>
                               <td className="px-4 py-3">
                                 <div className="flex items-center justify-end gap-1">
+                                  <button
+                                    onClick={() => openClientPermissions(m)}
+                                    disabled={m.status !== 'active'}
+                                    className={`p-2 rounded-lg text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-900/20 transition-colors ${m.status !== 'active' ? 'opacity-40 cursor-not-allowed pointer-events-none' : ''}`}
+                                    title={m.status === 'active' ? 'Client access & permissions' : 'Client access is available after the user becomes active'}
+                                  >
+                                    <SlidersHorizontal className="w-4 h-4" />
+                                  </button>
                                   {m.memberKind !== 'independent' && (
                                     <button onClick={() => handleResetPassword(m)} className="p-2 rounded-lg text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-900/20 transition-colors" title="Reset password">
                                       <KeyRound className="w-4 h-4" />
@@ -454,6 +540,113 @@ export function TeamSettings() {
           )}
         </div>
       </div>
+
+      {permissionMember && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={closeClientPermissions}>
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div className="px-6 py-5 border-b border-slate-200 dark:border-slate-700 flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Client access &amp; permissions</h3>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
+                  {permissionMember.displayName || permissionMember.email} · {roleLabel(permissionMember.memberRole)}
+                </p>
+              </div>
+              <button onClick={closeClientPermissions} disabled={permissionSaving} className="px-3 py-1.5 rounded-lg text-xs font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-50">Close</button>
+            </div>
+
+            {permissionError && (
+              <div className="mx-6 mt-5 p-3 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-sm text-red-600 dark:text-red-400">
+                {permissionError}
+              </div>
+            )}
+
+            {permissionLoading ? (
+              <div className="p-12 text-center text-sm text-slate-500 dark:text-slate-400">
+                <RefreshCw className="w-5 h-5 animate-spin mx-auto mb-2" />
+                Loading client permissions…
+              </div>
+            ) : clientList.length === 0 ? (
+              <div className="p-12 text-center">
+                <Users className="w-10 h-10 mx-auto mb-3 text-slate-300 dark:text-slate-600" />
+                <p className="font-bold text-slate-700 dark:text-slate-200">No client accounts found</p>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">Create a client first, then assign the invited user access to it.</p>
+              </div>
+            ) : (
+              <div className="grid md:grid-cols-[260px_1fr] min-h-[420px] max-h-[65vh]">
+                <div className="border-r border-slate-200 dark:border-slate-700 overflow-y-auto p-3">
+                  <p className="px-2 py-2 text-[10px] font-bold uppercase tracking-wider text-slate-500">Clients</p>
+                  {clientList.map((client) => {
+                    const grantedCount = ALL_PERMISSIONS.filter((p) => Boolean(permissionGrants[client.id]?.[p.key])).length;
+                    const selected = permissionClientId === client.id;
+                    return (
+                      <button
+                        key={client.id}
+                        type="button"
+                        onClick={() => setPermissionClientId(client.id)}
+                        className={`w-full text-left px-3 py-3 rounded-xl mb-1 transition-colors ${selected ? 'bg-cyan-50 dark:bg-cyan-900/30 text-cyan-700 dark:text-cyan-300' : 'hover:bg-slate-50 dark:hover:bg-slate-700/50 text-slate-700 dark:text-slate-200'}`}
+                      >
+                        <p className="font-bold text-sm truncate">{client.name}</p>
+                        <p className={`text-[11px] mt-1 ${grantedCount ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'}`}>
+                          {grantedCount} permission{grantedCount === 1 ? '' : 's'} granted
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="p-6 overflow-y-auto">
+                  {permissionClientId && (
+                    <>
+                      <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+                        <div>
+                          <p className="text-xs font-bold uppercase tracking-wider text-slate-500">Selected client</p>
+                          <h4 className="text-xl font-bold text-slate-800 dark:text-slate-100 mt-1">
+                            {clientList.find((client) => client.id === permissionClientId)?.name}
+                          </h4>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button type="button" onClick={applyRoleDefaults} className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700">Use role defaults</button>
+                          <button type="button" onClick={() => setPermissionGrants((prev) => ({ ...prev, [permissionClientId]: {} }))} className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700">Clear all</button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        {ALL_PERMISSIONS.map((p) => {
+                          const roleAllows = (MEMBER_ROLE_PERMISSIONS[permissionMember.memberRole] || []).includes(p.key);
+                          const checked = Boolean(permissionGrants[permissionClientId]?.[p.key]);
+                          return (
+                            <label key={p.key} className={`flex items-center justify-between gap-4 p-3 rounded-xl border ${roleAllows ? 'border-slate-200 dark:border-slate-700 bg-slate-50/70 dark:bg-slate-900/30 cursor-pointer' : 'border-slate-100 dark:border-slate-800 bg-slate-50/40 dark:bg-slate-900/20 opacity-50 cursor-not-allowed'}`}>
+                              <div>
+                                <p className="text-sm font-bold text-slate-700 dark:text-slate-200">{p.label}</p>
+                                {!roleAllows && <p className="text-[11px] text-slate-400 mt-0.5">Not available for the {roleLabel(permissionMember.memberRole)} role</p>}
+                              </div>
+                              <input
+                                type="checkbox"
+                                checked={roleAllows && checked}
+                                disabled={!roleAllows || permissionSaving}
+                                onChange={() => toggleClientPermission(p.key)}
+                                className="w-4 h-4 accent-cyan-600"
+                              />
+                            </label>
+                          );
+                        })}
+                      </div>
+
+                      <div className="mt-6 pt-4 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between gap-4">
+                        <p className="text-xs text-slate-500 dark:text-slate-400">Unchecked permissions are disabled for this client.</p>
+                        <button type="button" onClick={() => { void saveCurrentClientPermissions(); }} disabled={permissionSaving} className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-bold disabled:opacity-50">
+                          {permissionSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+                          {permissionSaving ? 'Saving…' : 'Save client permissions'}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {confirmRemove && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setConfirmRemove(null)}>

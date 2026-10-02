@@ -10,6 +10,7 @@ import type {
   MemberRole,
   InviteResult,
   AccountMembership,
+  ClientPermissionAssignment,
 } from '../types';
 
 function isRpcMissing(error: unknown): boolean {
@@ -146,4 +147,29 @@ export async function getMyAccountMembership(): Promise<AccountMembership> {
     memberRole: (r.member_role as MemberRole) || null,
     status: (r.status as TeamMember['status']) || null,
   };
+}
+
+/** List client-specific permission grants for an invited team member. */
+export async function listSubuserClientPermissions(userId: string): Promise<ClientPermissionAssignment[]> {
+  const rows = await callRpc<Array<Record<string, unknown>>>('list_subuser_client_permissions', {
+    p_user_id: userId,
+  });
+  return (rows || []).map((r) => ({
+    clientId: String(r.client_id),
+    clientName: r.client_name ? String(r.client_name) : null,
+    permissions: (r.permissions || {}) as Record<string, boolean>,
+  }));
+}
+
+/** Replace the permission grant for one member on one client. */
+export async function setSubuserClientPermissions(
+  userId: string,
+  clientId: string,
+  permissions: Record<string, boolean>
+): Promise<void> {
+  await callRpc<void>('set_subuser_client_permissions', {
+    p_user_id: userId,
+    p_client_id: clientId,
+    p_permissions: permissions,
+  });
 }
