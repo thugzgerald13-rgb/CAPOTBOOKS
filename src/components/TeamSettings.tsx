@@ -60,6 +60,7 @@ function SecretReveal({
   existingUser,
   invitationPending = false,
   ownerClientRelationship = false,
+  managedStaff = false,
   onDismiss,
 }: {
   email: string;
@@ -67,6 +68,7 @@ function SecretReveal({
   existingUser: boolean;
   invitationPending?: boolean;
   ownerClientRelationship?: boolean;
+  managedStaff?: boolean;
   onDismiss: () => void;
 }) {
   const [copied, setCopied] = useState(false);
@@ -86,10 +88,14 @@ function SecretReveal({
         <ShieldCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400 shrink-0 mt-0.5" />
         <div className="flex-1 min-w-0">
           <p className="font-bold text-emerald-900 dark:text-emerald-100">
-            {invitationPending ? 'Invitation created' : existingUser ? 'Account linked' : 'Subuser created'}
+            {managedStaff ? 'Staff login created' : invitationPending ? 'Invitation created' : existingUser ? 'Account linked' : 'Subuser created'}
           </p>
           <p className="text-sm text-emerald-800 dark:text-emerald-300 mt-1 break-all">
-            {invitationPending ? (
+            {managedStaff ? (
+              <>
+                <span className="font-semibold">{email}</span> is a managed Staff Login under your CAPOT account. The staff member does not create or own a separate webapp account. Their access is limited to the clients and functions you grant.
+              </>
+            ) : invitationPending ? (
               ownerClientRelationship ? (
                 <>
                   <span className="font-semibold">{email}</span> has a pending professional invitation. They
@@ -99,9 +105,10 @@ function SecretReveal({
                 </>
               ) : (
                 <>
-                  <span className="font-semibold">{email}</span> has a pending team invitation. They must
-                  sign in or create a CAPOT account using this exact email address. Once authenticated,
-                  CAPOT will connect their account to your team and apply the selected role.
+                  <span className="font-semibold">{email}</span> has a pending team invitation. They sign in with
+                  their own CAPOT login using this exact email address. After authentication, their workspace is
+                  connected to <span className="font-semibold">the inviting account</span>; they do not receive a
+                  separate business/client workspace. Their access is limited to the clients and permissions you grant.
                 </>
               )
             ) : existingUser ? (
@@ -152,13 +159,15 @@ export function TeamSettings() {
   const canInvite = isBusinessOwner || userRole === 'accountant' || userRole === 'bookkeeper';
   const inviteRoleOptions = isBusinessOwner ? OWNER_INVITE_ROLE_OPTIONS : ROLE_OPTIONS;
   const [email, setEmail] = useState('');
+  const [staffLogin, setStaffLogin] = useState('');
+  const [staffPassword, setStaffPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [memberRole, setMemberRole] = useState<MemberRole>('bookkeeper');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notEnabled, setNotEnabled] = useState(false);
-  const [secret, setSecret] = useState<{ email: string; password: string | null; existingUser: boolean; invitationPending?: boolean } | null>(null);
-  const [resetSecret, setResetSecret] = useState<{ email: string; password: string } | null>(null);
+  const [secret, setSecret] = useState<{ email: string; password: string | null; existingUser: boolean; invitationPending?: boolean; managedStaff?: boolean } | null>(null);
+  const [resetSecret, setResetSecret] = useState<{ email: string; password: string; managedStaff?: boolean } | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<TeamMember | null>(null);
   const [permissionMember, setPermissionMember] = useState<TeamMember | null>(null);
   const [permissionClientId, setPermissionClientId] = useState<string>('');
@@ -245,15 +254,26 @@ export function TeamSettings() {
       setError('Business Owners can invite only Accountant or Bookkeeper accounts.');
       return;
     }
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) {
+    if (memberRole === 'staff') {
+      if (!/^[a-z0-9._-]{3,32}$/.test(staffLogin.trim().toLowerCase())) {
+        setError('Enter a Staff Login using 3-32 lowercase letters, numbers, dot, underscore, or hyphen.');
+        return;
+      }
+      if (staffPassword.length < 6) {
+        setError('Staff password must be at least 6 characters.');
+        return;
+      }
+    } else if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) {
       setError('Enter a valid email address.');
       return;
     }
     setBusy(true);
     try {
-      const result = await inviteSubuser(email, displayName, memberRole);
-      setSecret({ email: result.email, password: result.temporaryPassword, existingUser: result.existingUser, invitationPending: result.invitationPending });
+      const result = await inviteSubuser(email, displayName, memberRole, memberRole === 'staff' ? { loginName: staffLogin, password: staffPassword } : undefined);
+      setSecret({ email: result.email, password: result.temporaryPassword, existingUser: result.existingUser, invitationPending: result.invitationPending, managedStaff: memberRole === 'staff' });
       setEmail('');
+      setStaffLogin('');
+      setStaffPassword('');
       setDisplayName('');
       setMemberRole('bookkeeper');
       await refreshTeamMembers();
@@ -300,7 +320,7 @@ export function TeamSettings() {
   const handleResetPassword = async (member: TeamMember) => {
     try {
       const pw = await resetSubuserPassword(member.userId);
-      setResetSecret({ email: member.email, password: pw });
+      setResetSecret({ email: member.email, password: pw, managedStaff: member.memberKind === 'managed' });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not reset password.');
     }
@@ -375,7 +395,7 @@ export function TeamSettings() {
                 <p className="mt-1 text-cyan-800 dark:text-cyan-300">
                   This account is owned by <span className="font-semibold">{membership.ownerEmail ?? 'the account holder'}</span>.
                   Your role: <span className="font-semibold capitalize">{roleLabel(membership.memberRole ?? 'staff')}</span>.
-                  You share the owner&apos;s clients, books and files. Only the owner can invite or remove members.
+                  You can open only the clients and functions explicitly granted to your team login. Only the owner can invite or remove members.
                 </p>
               </div>
             </div>
@@ -392,10 +412,10 @@ export function TeamSettings() {
           {!isSubuser && canInvite && (
             <>
               {secret && (
-                <SecretReveal email={secret.email} password={secret.password} existingUser={secret.existingUser} invitationPending={secret.invitationPending} ownerClientRelationship={isBusinessOwner} onDismiss={() => setSecret(null)} />
+                <SecretReveal email={secret.email} password={secret.password} existingUser={secret.existingUser} invitationPending={secret.invitationPending} ownerClientRelationship={isBusinessOwner} managedStaff={secret.managedStaff} onDismiss={() => setSecret(null)} />
               )}
               {resetSecret && (
-                <SecretReveal email={resetSecret.email} password={resetSecret.password} existingUser={false} onDismiss={() => setResetSecret(null)} />
+                <SecretReveal email={resetSecret.email} password={resetSecret.password} existingUser={false} managedStaff={resetSecret.managedStaff} onDismiss={() => setResetSecret(null)} />
               )}
 
               <form onSubmit={handleInvite} className="rounded-2xl border border-slate-200 dark:border-slate-700 p-5">
@@ -405,13 +425,20 @@ export function TeamSettings() {
                 </div>
                 <div className="grid md:grid-cols-3 gap-4">
                   <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Email *</label>
-                    <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder={isBusinessOwner ? 'accountant@company.com' : 'teammate@company.com'}
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">{memberRole === 'staff' ? 'Staff Login *' : 'Email *'}</label>
+                    <input type={memberRole === 'staff' ? 'text' : 'email'} required value={memberRole === 'staff' ? staffLogin : email} onChange={(e) => memberRole === 'staff' ? setStaffLogin(e.target.value.toLowerCase()) : setEmail(e.target.value)} placeholder={memberRole === 'staff' ? 'e.g. maria.staff' : (isBusinessOwner ? 'accountant@company.com' : 'teammate@company.com')}
                       className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500" />
                   </div>
+                  {memberRole === 'staff' ? (
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Initial password *</label>
+                      <input type="password" required minLength={6} value={staffPassword} onChange={(e) => setStaffPassword(e.target.value)} placeholder="At least 6 characters"
+                        className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+                    </div>
+                  ) : <div />}
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Display name</label>
-                    <input type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="e.g. Maria, Bookkeeper"
+                    <input type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="e.g. Maria, Staff"
                       className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500" />
                   </div>
                   <div>
@@ -423,7 +450,7 @@ export function TeamSettings() {
                   </div>
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-3">{ROLE_OPTIONS.find((r) => r.value === memberRole)?.desc}</p>
-                <p className="text-xs text-cyan-600 dark:text-cyan-400 mt-2">{isBusinessOwner ? 'The Accountant/Bookkeeper must already have their own CAPOT webapp account using this email. After acceptance, your business is added to their Client Profiles and synchronized there.' : 'Client access is assigned separately after the invited team member has an active account.'}</p>
+                <p className="text-xs text-cyan-600 dark:text-cyan-400 mt-2">{isBusinessOwner ? 'The invited professional must already have their own CAPOT account. Your business is added to their Client Profiles after acceptance.' : memberRole === 'staff' ? 'Staff are managed credentials under your account. They do not create a separate CAPOT webapp account. Assign client-specific permissions below.' : 'The invited member uses their existing CAPOT account. Their access is limited to the clients and functions you grant.'}</p>
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   {ALL_PERMISSIONS.map((p) => {
                     const allowed = (MEMBER_ROLE_PERMISSIONS[memberRole] || []).includes(p.key);
@@ -522,14 +549,16 @@ export function TeamSettings() {
                               <td className="px-4 py-3">
                                 <p className="font-bold text-slate-800 dark:text-slate-100">{m.displayName || '—'}</p>
                                 <p className="text-xs text-slate-500 dark:text-slate-400 break-all">{m.email}</p>
-                                {m.memberKind === 'independent' && (
-                                  <span className="inline-flex mt-1 px-1.5 py-0.5 rounded-md bg-cyan-50 text-cyan-700 dark:bg-cyan-900/20 dark:text-cyan-300 text-[10px] font-bold">Own account</span>
+                                {m.memberKind === 'independent' ? (
+                                  <span className="inline-flex mt-1 px-1.5 py-0.5 rounded-md bg-cyan-50 text-cyan-700 dark:bg-cyan-900/20 dark:text-cyan-300 text-[10px] font-bold">Own CAPOT account</span>
+                                ) : (
+                                  <span className="inline-flex mt-1 px-1.5 py-0.5 rounded-md bg-violet-50 text-violet-700 dark:bg-violet-900/20 dark:text-violet-300 text-[10px] font-bold">Managed under this account</span>
                                 )}
                               </td>
                               <td className="px-4 py-3">
                                 <select value={m.memberRole} onChange={(e) => handleRoleChange(m, e.target.value as MemberRole)}
                                   className="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs font-bold text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-cyan-500">
-                                  {ROLE_OPTIONS.map((r) => (<option key={r.value} value={r.value}>{r.label}</option>))}
+                                  {(m.memberKind === 'managed' ? ROLE_OPTIONS.filter((r) => r.value === 'staff') : ROLE_OPTIONS).map((r) => (<option key={r.value} value={r.value}>{r.label}</option>))}
                                 </select>
                               </td>
                               <td className="px-4 py-3">
@@ -695,8 +724,10 @@ export function TeamSettings() {
               <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Remove subuser?</h3>
             </div>
             <p className="text-sm text-slate-600 dark:text-slate-300 mb-6">
-              <span className="font-semibold">{confirmRemove.email}</span> will lose access to your account data.
-              Their login is kept (they may use it elsewhere) — only the link to your account is removed.
+              <span className="font-semibold">{confirmRemove.email}</span> will lose access to your account data.{' '}
+              {confirmRemove.memberKind === 'managed'
+                ? 'Their managed Staff Login will be disabled.'
+                : 'Their existing CAPOT account remains theirs; only its link to your account is removed.'}
             </p>
             <div className="flex justify-end gap-2">
               <button onClick={() => setConfirmRemove(null)} className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-all">Cancel</button>

@@ -1,9 +1,8 @@
 // Team-member service.
 //
-// Independent invitations intentionally do NOT create an auth account for the
-// invitee. The inviter creates a pending invitation keyed to the invitee's
-// email. Once that person signs in (or signs up) with that same email,
-// AuthContext claims the invitation and the account link is created server-side.
+// Professional roles use account-to-account invitations. Staff use managed
+// credentials created inside the inviter's account and never create a separate
+// CAPOT business/webapp account.
 import { supabase } from './supabase';
 import type {
   TeamMember,
@@ -35,17 +34,36 @@ async function callRpc<T>(fn: string, args: Record<string, unknown>): Promise<T>
 }
 
 /**
- * Create an invitation without creating an auth.users record.
- *
- * The invitee keeps their own CAPOT login. On their next authenticated
- * session, AuthContext calls claimTeamInvitation(), which links that existing
- * account to this owner's clients and applies the invited role.
+ * Invite a professional account, or create a managed staff login under the
+ * inviter's account. Staff never create or own a separate CAPOT webapp account.
  */
 export async function inviteSubuser(
   email: string,
   displayName: string,
-  memberRole: MemberRole
+  memberRole: MemberRole,
+  options?: { loginName?: string; password?: string }
 ): Promise<InviteResult> {
+  if (memberRole === 'staff') {
+    const { data, error } = await supabase.functions.invoke('managed-staff', {
+      body: {
+        action: 'create',
+        loginName: options?.loginName?.trim(),
+        password: options?.password,
+        displayName: displayName.trim() || null,
+      },
+    });
+    if (error) throw new Error(error.message);
+    if (!data || data.error) throw new Error(String(data?.error || 'Could not create managed staff login.'));
+
+    return {
+      userId: null,
+      email: String(data.loginName),
+      temporaryPassword: options?.password || null,
+      existingUser: false,
+      invitationPending: false,
+    };
+  }
+
   const rows = await callRpc<Array<Record<string, unknown>>>('send_team_invitation', {
     p_email: email.trim(),
     p_display_name: displayName.trim() || null,
@@ -125,15 +143,26 @@ export async function setSubuserStatus(
   });
 }
 
-/** Remove a subuser from the current account without deleting their login. */
+/** Remove a team member. Managed staff credentials are disabled; professional
+ * accounts are merely unlinked from the inviter's workspace. */
 export async function removeSubuser(userId: string): Promise<void> {
+  const { data, error } = await supabase.functions.invoke('managed-staff', {
+    body: { action: 'remove', userId },
+  });
+  if (!error && data && !data.error) return;
+  if (error) throw new Error(error.message);
+  if (data?.error) throw new Error(String(data.error));
   await callRpc<void>('remove_subuser', { p_user_id: userId });
 }
 
-/** Reset a managed subuser's password. Independent members own their login. */
+/** Reset only a managed staff login password. */
 export async function resetSubuserPassword(userId: string): Promise<string> {
-  const pw = await callRpc<string>('reset_subuser_password', { p_user_id: userId });
-  return String(pw);
+  const { data, error } = await supabase.functions.invoke('managed-staff', {
+    body: { action: 'reset', userId },
+  });
+  if (error) throw new Error(error.message);
+  if (!data || data.error) throw new Error(String(data?.error || 'Could not reset staff password.'));
+  return String(data.temporaryPassword);
 }
 
 /** Resolve whether the signed-in user is a member of another account. */

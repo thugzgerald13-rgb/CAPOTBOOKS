@@ -19,7 +19,20 @@ export function AuthContainer() {
 
     try {
       if (isLogin) {
-        const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+        let signInEmail = email.trim();
+        // Staff use the managed Staff Login created by the account owner.
+        // The lookup resolves that login to its hidden technical auth identity;
+        // staff never need a separate CAPOT email/webapp account.
+        if (!signInEmail.includes('@')) {
+          const { data: managedEmail, error: lookupError } = await supabase.rpc('resolve_managed_staff_login', {
+            p_login_name: signInEmail,
+          });
+          if (lookupError) throw lookupError;
+          if (!managedEmail) throw new Error('Staff Login not found or disabled.');
+          signInEmail = managedEmail;
+        }
+
+        const { error: signInError } = await supabase.auth.signInWithPassword({ email: signInEmail, password });
         if (signInError) throw signInError;
       } else {
         const { error: signUpError } = await supabase.auth.signUp({ email, password });
@@ -90,13 +103,13 @@ export function AuthContainer() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-bold text-slate-600 dark:text-slate-400 mb-1">Email</label>
+            <label className="block text-sm font-bold text-slate-600 dark:text-slate-400 mb-1">Email or Staff Login</label>
             <input
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-cyan-500"
-              placeholder="name@company.com"
+              placeholder="name@company.com or staff-login"
               required
             />
           </div>
@@ -142,6 +155,8 @@ export function AuthContainer() {
             Sign in with Google
           </button>
         </div>
+
+        <p className="mt-6 text-center text-xs text-slate-500 dark:text-slate-400">Staff members do not create separate CAPOT webapp accounts. They sign in with the Staff Login and password provided by the account owner.</p>
 
         <div className="mt-8 text-center text-sm">
           <span className="text-slate-500">
