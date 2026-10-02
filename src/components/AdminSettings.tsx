@@ -18,6 +18,7 @@ interface UserProfile {
   userRole?: string;
   lastLogin?: any;
   updatedAt?: any;
+  approved?: boolean;
 }
 
 type AdminTab = 'users' | 'diagnostics';
@@ -311,7 +312,7 @@ export function AdminSettings() {
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, email, display_name, user_role, last_login, updated_at')
+        .select('id, email, display_name, user_role, last_login, updated_at, approved')
         .order('updated_at', { ascending: false });
       if (error) throw error;
       const userList = (data || []).map((row) => ({
@@ -321,6 +322,7 @@ export function AdminSettings() {
         userRole: row.user_role,
         lastLogin: row.last_login,
         updatedAt: row.updated_at,
+        approved: !!row.approved,
       })) as UserProfile[];
       setUsers(userList);
     } catch (err) {
@@ -348,6 +350,20 @@ export function AdminSettings() {
     document.body.removeChild(link);
   };
   
+  const handleToggleApproval = async (uid: string, approve: boolean) => {
+    try {
+      const { error } = await supabase
+        .from('profiles')
+        .update({ approved: approve, approved_at: approve ? new Date().toISOString() : null })
+        .eq('id', uid);
+      if (error) throw error;
+      await fetchUsers();
+    } catch (err) {
+      console.error('Approval toggle failed:', err);
+      alert('Failed to update approval. If this is an RLS error, tighten the profiles UPDATE policy so only the admin can change `approved` (see supabase_user_approval.sql).');
+    }
+  };
+
   if (!isAdmin) return null;
 
   return (
@@ -499,6 +515,7 @@ export function AdminSettings() {
                   <th className="px-4 py-3 font-bold text-slate-600 dark:text-slate-400">User</th>
                   <th className="px-4 py-3 font-bold text-slate-600 dark:text-slate-400">Role</th>
                   <th className="px-4 py-3 font-bold text-slate-600 dark:text-slate-400 text-right">Last Sync</th>
+                  <th className="px-4 py-3 font-bold text-slate-600 dark:text-slate-400 text-right">Approval</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -526,11 +543,36 @@ export function AdminSettings() {
                         {u.lastLogin?.toDate ? u.lastLogin.toDate().toLocaleString() : 'N/A'}
                       </div>
                     </td>
+                    <td className="px-4 py-3 text-right">
+                      {u.email?.toLowerCase() === 'thugz.gerald13@gmail.com' ? (
+                        <span className="text-[10px] px-2 py-1 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 font-bold uppercase tracking-wide">Developer</span>
+                      ) : u.approved ? (
+                        <div className="flex items-center justify-end gap-2">
+                          <span className="text-[10px] px-2 py-1 rounded bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 font-bold uppercase tracking-wide">Approved</span>
+                          <button
+                            onClick={() => handleToggleApproval(u.uid, false)}
+                            className="text-[10px] px-2 py-1 rounded border border-slate-300 dark:border-slate-600 text-slate-500 hover:text-red-500 hover:border-red-300 dark:hover:border-red-700 font-bold uppercase tracking-wide transition-colors"
+                          >
+                            Revoke
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-end gap-2">
+                          <span className="text-[10px] px-2 py-1 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 font-bold uppercase tracking-wide animate-pulse">Pending</span>
+                          <button
+                            onClick={() => handleToggleApproval(u.uid, true)}
+                            className="text-[10px] px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-bold uppercase tracking-wide transition-colors"
+                          >
+                            Approve
+                          </button>
+                        </div>
+                      )}
+                    </td>
                   </tr>
                 ))}
                 {users.length === 0 && (
                   <tr>
-                    <td colSpan={3} className="px-4 py-8 text-center text-slate-400 italic">
+                    <td colSpan={4} className="px-4 py-8 text-center text-slate-400 italic">
                       No users synchronized with central database yet.
                     </td>
                   </tr>
