@@ -423,7 +423,7 @@ export function TeamSettings() {
                   </div>
                 </div>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-3">{ROLE_OPTIONS.find((r) => r.value === memberRole)?.desc}</p>
-                <p className="text-xs text-cyan-600 dark:text-cyan-400 mt-2">{isBusinessOwner ? 'The invited professional keeps their own CAPOT account. After acceptance, your business is added to their Client Profiles and synchronized there.' : 'Client access is assigned separately after the invited team member has an active account.'}</p>
+                <p className="text-xs text-cyan-600 dark:text-cyan-400 mt-2">{isBusinessOwner ? 'The Accountant/Bookkeeper must already have their own CAPOT webapp account using this email. After acceptance, your business is added to their Client Profiles and synchronized there.' : 'Client access is assigned separately after the invited team member has an active account.'}</p>
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   {ALL_PERMISSIONS.map((p) => {
                     const allowed = (MEMBER_ROLE_PERMISSIONS[memberRole] || []).includes(p.key);

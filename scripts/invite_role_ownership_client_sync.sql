@@ -475,6 +475,17 @@ begin
     raise exception 'A Business Owner account cannot be invited. Invite an Accountant or Bookkeeper account instead';
   end if;
 
+  -- Business Owner invitations are only for professionals who already have
+  -- their own CAPOT webapp account. Never create a pending owner-to-
+  -- accountant invitation for an email that does not exist in auth.users.
+  if v_invite_mode = 'owner_to_accountant' and not exists (
+    select 1
+    from auth.users au
+    where lower(au.email) = v_email
+  ) then
+    raise exception 'The Accountant/Bookkeeper must already have their own CAPOT webapp account before a Business Owner can invite them';
+  end if;
+
   if v_invite_mode = 'owner_to_accountant' and v_target_role is not null and v_target_role <> '' then
     if v_target_role not in ('accountant', 'bookkeeper') then
       raise exception 'This existing account is not an Accountant or Bookkeeper account';
