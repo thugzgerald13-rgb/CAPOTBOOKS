@@ -355,13 +355,12 @@ export function AdminSettings() {
       // Approval changes must go through the SECURITY DEFINER RPC because the
       // developer is intentionally editing another user's profile. A direct
       // PostgREST UPDATE is subject to profiles RLS and can affect zero rows.
-      const { data, error } = await supabase.rpc('set_user_approved', {
-        target_user_id: uid,
-        approve,
+      const { error } = await supabase.rpc('set_user_approved', {
+        p_target_user_id: uid,
+        p_approved: approve,
       });
 
       if (error) throw error;
-      if (data !== true) throw new Error('Approval update was not applied.');
 
       await fetchUsers();
     } catch (err) {
