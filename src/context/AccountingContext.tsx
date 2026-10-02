@@ -13,7 +13,7 @@ import {
   applyCachedRowDelta, clearCachedRows, queueDirtyWrite, flushDirtyQueue,
   pendingDirtyCount, recordCacheHit, invalidateQueries, validateCacheSchema,
 } from '../db/localDb';
-import { loadInitialViaRpc } from '../lib/initialLoad';
+import { getCache, setCache, broadcastInvalidate } from '../lib/cacheDB';
 
 interface AccountingContextType {
   clients: Record<string, Client>;
@@ -348,6 +348,10 @@ const recordNormalizedMutation = async (
   } catch (e) {
     console.warn(`[localDb] mutation cache update failed for ${table}`, e);
   }
+  // Drop every cached page/full-fetch for this table and notify other open
+  // tabs (BroadcastChannel) so they never serve stale data. Fire-and-forget —
+  // it must not block the save. Tables not in the cache are a no-op.
+  void broadcastInvalidate(clientId, [table]);
 };
 
 
@@ -385,60 +389,43 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
   // A fresh tab therefore performs a full fetch for the delta tables. Realtime
   // plus in-memory deltas are used only after that authoritative load.
 
-  // Consolidated RPC fast path: 1 POST replaces the 19 parallel GETs below.
-  // Any failure (function not deployed, RLS, network, empty payload) returns
-  // null and we fall through to the original per-table fetch path — deploying
-  // scripts/initial_load_rpc.sql is always optional and never breaks the app.
-  const rpcLoad = await loadInitialViaRpc(supabase, clientId);
+  const deltaQueryPromises = DELTA_SYNC_TABLES.map(({ table, columns }) => {
+    let query = supabase.from(table).select(`${columns},updated_at`).eq('client_id', clientId);
+    if (cacheEntry) query = query.gte('updated_at', cacheEntry.cursor);
+    return query;
+  });
 
-  let deltaResults: any[];
-  let inventoryColumns: any, inventoryItems: any, inventoryMovements: any, folders: any, files: any,
-    tinEntries: any, taxDeadlines: any, bankAccounts: any, assetLapsingSchedule: any, billingInvoices: any, snapshots: any;
+  // These 11 tables are lower-volume/lower-churn (settings, folders,
+  // deadlines, etc.) and aren't covered by the Realtime subscription, so
+  // they're kept as plain full fetches - already column-trimmed above.
+  // Cache each in IndexedDB (5-min TTL) so repeated page loads don't
+  // re-download them; any save to a table drops its cache (see
+  // recordNormalizedMutation below).
+  const cachedFullFetch = async (table: string, columns: string) => {
+    const key = `client:${clientId}:${table}:full`;
+    const hit = await getCache<any[]>(key);
+    if (hit) return { data: hit, error: null };
+    const res = await supabase.from(table).select(columns).eq('client_id', clientId);
+    if (!res.error && res.data) void setCache(key, res.data);
+    return res;
+  };
+  const fullQueryPromises = [
+    cachedFullFetch('inventory_columns', INVENTORY_COLUMNS_COLUMNS),
+    cachedFullFetch('inventory_items', INVENTORY_ITEMS_COLUMNS),
+    cachedFullFetch('inventory_movements', INVENTORY_MOVEMENTS_COLUMNS),
+    cachedFullFetch('app_folders', APP_FOLDERS_COLUMNS),
+    cachedFullFetch('app_files', APP_FILES_COLUMNS),
+    cachedFullFetch('tin_entries', TIN_ENTRIES_COLUMNS),
+    cachedFullFetch('tax_deadlines', TAX_DEADLINES_COLUMNS),
+    cachedFullFetch('bank_accounts', BANK_ACCOUNTS_COLUMNS),
+    cachedFullFetch('asset_lapsing_schedule', ASSET_LAPSING_COLUMNS),
+    cachedFullFetch('billing_invoices', BILLING_INVOICES_COLUMNS),
+    cachedFullFetch('financial_report_snapshots', SNAPSHOTS_COLUMNS),
+  ];
 
-  if (rpcLoad) {
-    deltaResults = rpcLoad.deltaResults;
-    inventoryColumns = rpcLoad.full.inventory_columns;
-    inventoryItems = rpcLoad.full.inventory_items;
-    inventoryMovements = rpcLoad.full.inventory_movements;
-    folders = rpcLoad.full.app_folders;
-    files = rpcLoad.full.app_files;
-    tinEntries = rpcLoad.full.tin_entries;
-    taxDeadlines = rpcLoad.full.tax_deadlines;
-    bankAccounts = rpcLoad.full.bank_accounts;
-    assetLapsingSchedule = rpcLoad.full.asset_lapsing_schedule;
-    billingInvoices = rpcLoad.full.billing_invoices;
-    snapshots = rpcLoad.full.financial_report_snapshots;
-    // RPC payload is authoritative — merge as a full load so the in-memory
-    // delta cache and the persisted IndexedDB watermark are set correctly.
-    cacheEntry = undefined;
-  } else {
-    const deltaQueryPromises = DELTA_SYNC_TABLES.map(({ table, columns }) => {
-      let query = supabase.from(table).select(`${columns},updated_at`).eq('client_id', clientId);
-      if (cacheEntry) query = query.gte('updated_at', cacheEntry.cursor);
-      return query;
-    });
-
-    // These 11 tables are lower-volume/lower-churn (settings, folders,
-    // deadlines, etc.) and aren't covered by the Realtime subscription, so
-    // they're kept as plain full fetches - already column-trimmed above.
-    const fullQueryPromises = [
-      supabase.from('inventory_columns').select(INVENTORY_COLUMNS_COLUMNS).eq('client_id', clientId),
-      supabase.from('inventory_items').select(INVENTORY_ITEMS_COLUMNS).eq('client_id', clientId),
-      supabase.from('inventory_movements').select(INVENTORY_MOVEMENTS_COLUMNS).eq('client_id', clientId),
-      supabase.from('app_folders').select(APP_FOLDERS_COLUMNS).eq('client_id', clientId),
-      supabase.from('app_files').select(APP_FILES_COLUMNS).eq('client_id', clientId),
-      supabase.from('tin_entries').select(TIN_ENTRIES_COLUMNS).eq('client_id', clientId),
-      supabase.from('tax_deadlines').select(TAX_DEADLINES_COLUMNS).eq('client_id', clientId),
-      supabase.from('bank_accounts').select(BANK_ACCOUNTS_COLUMNS).eq('client_id', clientId),
-      supabase.from('asset_lapsing_schedule').select(ASSET_LAPSING_COLUMNS).eq('client_id', clientId),
-      supabase.from('billing_invoices').select(BILLING_INVOICES_COLUMNS).eq('client_id', clientId),
-      supabase.from('financial_report_snapshots').select(SNAPSHOTS_COLUMNS).eq('client_id', clientId),
-    ];
-
-    [deltaResults, inventoryColumns, inventoryItems, inventoryMovements, folders, files,
-      tinEntries, taxDeadlines, bankAccounts, assetLapsingSchedule, billingInvoices, snapshots] =
-      await Promise.all([Promise.all(deltaQueryPromises), ...fullQueryPromises]);
-  }
+  const [deltaResults, inventoryColumns, inventoryItems, inventoryMovements, folders, files,
+    tinEntries, taxDeadlines, bankAccounts, assetLapsingSchedule, billingInvoices, snapshots] =
+    await Promise.all([Promise.all(deltaQueryPromises), ...fullQueryPromises]);
 
   const responses = [...deltaResults, inventoryColumns, inventoryItems, inventoryMovements,
     folders, files, tinEntries, taxDeadlines, bankAccounts, assetLapsingSchedule, billingInvoices, snapshots];
@@ -1126,31 +1113,6 @@ export function AccountingProvider({
           });
         };
 
-        // Batch rapid-fire realtime events (bulk imports / syncs) so all
-        // setClients updates land in one synchronous flush — React 19
-        // auto-batches them into a single render, eliminating jank. Side
-        // effects (delta-cache eviction, IndexedDB writes) still run per
-        // event in order; only the React re-render is coalesced.
-        let realtimeBatch: Array<{ table: string; payload: any }> = [];
-        let realtimeBatchTimer: ReturnType<typeof setTimeout> | null = null;
-        const REALTIME_BATCH_MS = 250;
-        const REALTIME_BATCH_MAX = 50;
-        const flushRealtimeBatch = () => {
-          realtimeBatchTimer = null;
-          const batch = realtimeBatch;
-          realtimeBatch = [];
-          for (const { table, payload } of batch) updateRealtimeClient(table, payload);
-        };
-        const enqueueRealtimeEvent = (table: string, payload: any) => {
-          realtimeBatch.push({ table, payload });
-          if (realtimeBatch.length >= REALTIME_BATCH_MAX) {
-            if (realtimeBatchTimer) { clearTimeout(realtimeBatchTimer); realtimeBatchTimer = null; }
-            flushRealtimeBatch();
-          } else if (realtimeBatchTimer == null) {
-            realtimeBatchTimer = setTimeout(flushRealtimeBatch, REALTIME_BATCH_MS);
-          }
-        };
-
         clientsChannel = supabase.channel(`normalized-${dataOwnerId}`)
           .on('postgres_changes', {
             event: '*', schema: 'public', table: 'clients', filter: `user_id=eq.${dataOwnerId}`
@@ -1194,7 +1156,7 @@ export function AccountingProvider({
           for (const table of normalizedRealtimeTables) {
             clientsChannel = clientsChannel.on('postgres_changes', {
               event: '*', schema: 'public', table, filter: `client_id=in.(${clientIdList})`
-            }, (payload) => enqueueRealtimeEvent(table, payload));
+            }, (payload) => updateRealtimeClient(table, payload));
           }
         }
         clientsChannel.subscribe();
