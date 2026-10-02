@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { useAccounting } from '../context/AccountingContext';
 import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 import { 
   Users, Building2, BookText, BookOpen, 
   LineChart, Scale, Receipt, ShoppingCart, 
@@ -30,6 +31,26 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     historyTab,
   } = useAccounting();
   const { user, isAdmin, userRole, signOut } = useAuth();
+  const [pendingApprovals, setPendingApprovals] = useState(0);
+
+  // Pending-approval badge (developer only): count users waiting for approval,
+  // refreshed every 60s so the developer notices new signups at a glance.
+  useEffect(() => {
+    if (!isAdmin) { setPendingApprovals(0); return; }
+    let cancelled = false;
+    const fetchCount = async () => {
+      try {
+        const { count, error } = await supabase
+          .from('profiles')
+          .select('id', { count: 'exact', head: true })
+          .eq('approved', false);
+        if (!error && !cancelled) setPendingApprovals(count ?? 0);
+      } catch { /* ignore — badge is best-effort */ }
+    };
+    fetchCount();
+    const id = setInterval(fetchCount, 60000);
+    return () => { cancelled = true; clearInterval(id); };
+  }, [isAdmin]);
   const navigate = useNavigate();
   const [isTransactionsOpen, setIsTransactionsOpen] = useState(false);
   const [isReportsOpen, setIsReportsOpen] = useState(false);
@@ -766,7 +787,17 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-900/20 dark:hover:text-emerald-400 transition-all w-full text-left"
                     >
                       <Settings className="w-4 h-4" />
-                      System Config
+                      <span className="flex items-center gap-2">
+                        System Config
+                        {pendingApprovals > 0 && (
+                          <span
+                            title={`${pendingApprovals} user(s) pending approval`}
+                            className="bg-amber-500 text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 min-w-[18px] text-center animate-pulse"
+                          >
+                            {pendingApprovals}
+                          </span>
+                        )}
+                      </span>
                     </button>
                     <button
                       onClick={() => {
