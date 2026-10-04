@@ -79,7 +79,7 @@ function RequirePermission({ children }: { children: React.ReactNode }) {
 function AppLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const { clients, navigateToPage, activePage, businessProfile } = useAccounting();
-  const { userRole } = useAuth();
+  const { userRole, isAdmin } = useAuth();
 
   const hasClients = Object.keys(clients).length > 0;
 
@@ -126,7 +126,8 @@ function AppLayout() {
         </ErrorBoundary>
         {/* Global stacked toasts (Run 003 / T003) — imperative API via `toast` */}
         <ToastContainer />
-        <AIAssistant />
+        {/* AI Assistant — developer-only until built out (isAdmin = developer account) */}
+        {isAdmin && <AIAssistant />}
 
         {/* Pages: React Router only mounts the component matching the current
             route, so navigating away actually unmounts the previous page
