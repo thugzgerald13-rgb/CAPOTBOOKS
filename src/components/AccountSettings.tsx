@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { UserCircle, CheckCircle2, Shield, Bell, CreditCard, Download, Smartphone } from 'lucide-react';
+import { UserCircle, CheckCircle2, Shield, Bell, CreditCard, Download, Smartphone, Trash2, AlertTriangle } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
+import { supabase } from '../lib/supabase';
 
 type NotifPrefs = { complianceReminders: boolean; weeklyDigest: boolean; productUpdates: boolean };
 const DEFAULT_PREFS: NotifPrefs = { complianceReminders: true, weeklyDigest: true, productUpdates: false };
@@ -15,13 +16,17 @@ const PLANS = [
 export function AccountSettings() {
   const canExport = usePermission('export_data');
 
-  const { user, userRole, needsAccountSetup, completeAccountSetup } = useAuth();
+  const { user, userRole, needsAccountSetup, completeAccountSetup, signOut } = useAuth();
   const { currentClient, showToast } = useAccounting();
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  // ---- Delete Account (danger zone) — server RPC: public.delete_my_account() ----
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleting, setDeleting] = useState(false);
   // ---- T021: 2FA stub + notif prefs + plan + data export ----
   const [twoFaEnabled, setTwoFaEnabled] = useState(false);
   const [prefs, setPrefs] = useState<NotifPrefs>(DEFAULT_PREFS);
@@ -73,6 +78,30 @@ export function AccountSettings() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to save account settings.');
     } finally { setLoading(false); }
+  };
+
+  const handleDeleteAccount = async () => {
+    if (!user || deleteConfirmText.trim().toLowerCase() !== (user.email || '').toLowerCase()) {
+      setError('Type your full account email address to confirm deletion.');
+      return;
+    }
+    setDeleting(true);
+    setError('');
+    try {
+      const { error: rpcError } = await supabase.rpc('delete_my_account');
+      if (rpcError) {
+        const msg = rpcError.message || '';
+        if (/function.*does not exist|could not find/i.test(msg)) {
+          throw new Error('The delete-account server migration is not applied yet. Run scripts/self_delete_account.sql in your Supabase dashboard first.');
+        }
+        throw new Error(msg);
+      }
+      showToast('Your account has been permanently deleted.');
+      await signOut();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to delete account.');
+      setDeleting(false);
+    }
   };
 
   const section = (icon: React.ReactNode, title: string, desc: string, body: React.ReactNode) => (
@@ -152,6 +181,61 @@ export function AccountSettings() {
           <button type="button" onClick={handleExportData} disabled={!canExport} className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 hover:opacity-90 disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed" title={canExport ? 'Export Data' : 'Export Data permission not granted'}><Download className="w-3.5 h-3.5" /> Export Data</button>
         </div>
       ))}
+
+      {/* Danger Zone: Delete Account (calls public.delete_my_account() RPC) */}
+      <div className="rounded-2xl border border-red-300 dark:border-red-800 bg-red-50/50 dark:bg-red-950/20 p-5">
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-red-600 dark:text-red-400"><Trash2 className="w-4 h-4" /></span>
+          <h2 className="text-sm font-black uppercase tracking-wider text-red-700 dark:text-red-300">Danger Zone</h2>
+        </div>
+        <p className="text-xs text-red-500/80 dark:text-red-400/70 mb-4">Permanently remove your account and all associated data. This cannot be undone.</p>
+        {!showDeleteConfirm ? (
+          <button
+            type="button"
+            onClick={() => { setShowDeleteConfirm(true); setDeleteConfirmText(''); setError(''); }}
+            className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl border border-red-300 dark:border-red-700 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40"
+          >
+            <Trash2 className="w-3.5 h-3.5" /> Delete Account
+          </button>
+        ) : (
+          <div className="space-y-3">
+            <div className="flex items-start gap-2 p-3 rounded-xl bg-red-100/70 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-xs text-red-700 dark:text-red-300">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+              <span>
+                This will <strong>permanently delete</strong> your login and all data owned by this account. We
+                recommend <strong>exporting your data</strong> above first. If you are a team member, only your own
+                login is removed — the account owner's books are unaffected. Type your full email address below to confirm.
+              </span>
+            </div>
+            <input
+              type="text"
+              value={deleteConfirmText}
+              onChange={(e) => setDeleteConfirmText(e.target.value)}
+              placeholder={user?.email || 'you@example.com'}
+              className="w-full px-4 py-3 rounded-xl border border-red-300 dark:border-red-700 bg-white dark:bg-slate-900 text-sm"
+              autoComplete="off"
+            />
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={handleDeleteAccount}
+                disabled={deleting || deleteConfirmText.trim().toLowerCase() !== (user?.email || '').toLowerCase()}
+                className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-red-600 hover:bg-red-700 text-white disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Trash2 className="w-3.5 h-3.5" /> {deleting ? 'Deleting…' : 'Permanently Delete My Account'}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmText(''); setError(''); }}
+                disabled={deleting}
+                className="px-4 py-2 text-xs font-bold rounded-xl border border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800 disabled:opacity-40"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
