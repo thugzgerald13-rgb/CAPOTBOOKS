@@ -137,10 +137,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
         if (!active) return;
         setUserRoleState(data?.user_role ?? null);
-        // Developer-approval gate: the developer email is always approved;
-        // everyone else is blocked until an admin flips profiles.approved.
-        const isDeveloper = !!usr.email && usr.email.trim().toLowerCase() === DEVELOPER_EMAIL;
-        setPendingApproval(!isDeveloper && !(data?.approved ?? false));
+        // Approval gate DISABLED — new users get into the app immediately.
+        // Block/revoke remains fully enforced server-side via profiles.blocked
+        // + is_user_blocked() + the capot_blocked_users_guard RLS policies.
+        setPendingApproval(false);
 
         const { data: permissionData, error: permissionError } =
           await supabase.rpc('get_my_account_permissions');
