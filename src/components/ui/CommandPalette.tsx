@@ -30,11 +30,14 @@ const COMMAND_ROUTE: Record<string, string> = {
   files: '/files', inventory: '/inventory', clients: '/clients', business: '/business',
 };
 
+/** Commands visible only to the developer account (isAdmin) until built out. */
+const ADMIN_ONLY_COMMANDS = new Set(['compliance-tracker', 'inventory']);
+
 export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const { navigateToPage, setHistoryTab } = useAccounting();
   // Goal A: hide commands for pages the current subuser is not allowed to open.
   // The route guard in App.tsx still blocks the destination if anything slips through.
-  const { isSubuser, hasPermission } = useAuth();
+  const { isSubuser, hasPermission, isAdmin } = useAuth();
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -69,8 +72,9 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   ].filter((item) => {
     const route = COMMAND_ROUTE[item.id];
     const required = route ? routeRequiresPermission(route) : null;
-    return !isSubuser || !required || hasPermission(required);
-  }), [navigateToPage, setHistoryTab, isSubuser, hasPermission]);
+    return (!isSubuser || !required || hasPermission(required))
+      && (!ADMIN_ONLY_COMMANDS.has(item.id) || isAdmin);
+  }), [navigateToPage, setHistoryTab, isSubuser, hasPermission, isAdmin]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

@@ -31,8 +31,8 @@ export const ROUTE_PERMISSIONS: Record<string, Permission> = {
   '/coa': 'manage_settings',
   '/tinlibrary': 'manage_settings',
   // Transaction entry — Viewer (read-only) is excluded.
+  // NOTE: /inventory is developer-only (see ADMIN_ONLY_ROUTES) until further notice.
   '/files': 'edit_transactions',
-  '/inventory': 'edit_transactions',
   '/sales': 'edit_transactions',
   '/billing': 'edit_transactions',
   '/journal-voucher': 'edit_transactions',
@@ -47,7 +47,7 @@ export const ROUTE_PERMISSIONS: Record<string, Permission> = {
   '/pl': 'view_reports',
   '/assetlapsing': 'view_reports',
   '/cashflow': 'view_reports',
-  '/compliance-tracker': 'view_reports',
+  // NOTE: /compliance-tracker is developer-only (see ADMIN_ONLY_ROUTES) until further notice.
   '/bir-forms': 'view_reports',
   '/afs-financial-position': 'view_reports',
   '/afs-income-statements': 'view_reports',
@@ -58,11 +58,15 @@ export const ROUTE_PERMISSIONS: Record<string, Permission> = {
   '/books': 'view_reports',
 };
 
-/** Developer/admin-only routes — no regular Permission covers these. */
+/** Developer/admin-only routes — no regular Permission covers these.
+ *  Compliance Tracker and Inventory are hidden from regular users until the
+ *  developer finishes building them out. */
 export const ADMIN_ONLY_ROUTES: ReadonlySet<string> = new Set([
   '/developertools/systemconfig',
   '/developertools/diagnostics',
   '/diagnostics',
+  '/compliance-tracker',
+  '/inventory',
 ]);
 
 /** Permission required to open `pathname`, or null if the route is open. */

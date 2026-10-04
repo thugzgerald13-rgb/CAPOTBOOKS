@@ -19,6 +19,9 @@ interface SidebarProps {
   setIsOpen: (open: boolean) => void;
 }
 
+/** Pages hidden from everyone except the developer account (isAdmin) until built out. */
+const ADMIN_ONLY_PAGES = new Set(['compliance-tracker', 'inventory']);
+
 export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   const {
     navigateToPage,
@@ -241,7 +244,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
         i.keywords.includes(sidebarQuery.trim().toLowerCase())).filter(i => {
         const p = pagePermission(i.pageId);
         return !p || canUse(p);
-      })
+      }).filter(i => !ADMIN_ONLY_PAGES.has(String(i.pageId)) || isAdmin)
     : [];
 
   // Persistent "selected" highlight — applied to the nav button whose page
@@ -496,7 +499,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                     navigateToPage('compliance-tracker');
                     setIsOpen(false);
                   }}
-                  className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-emerald-600 dark:text-emerald-400 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/10 border border-emerald-100/30 hover:bg-emerald-100/50 dark:hover:bg-emerald-900/20 transition-all w-full text-left", activePage === 'compliance-tracker' && activeEmerald)}
+                  className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-emerald-600 dark:text-emerald-400 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/10 border border-emerald-100/30 hover:bg-emerald-100/50 dark:hover:bg-emerald-900/20 transition-all w-full text-left", activePage === 'compliance-tracker' && activeEmerald, !isAdmin && 'hidden')}
                 >
                   <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
                   Compliance Tracker
@@ -610,7 +613,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
             </AnimatePresence>
           </div>
 
-          {navItems.map((item) => {
+          {navItems.filter((i) => !ADMIN_ONLY_PAGES.has(i.id) || isAdmin).map((item) => {
             const Icon = item.icon;
             return (
               <button
