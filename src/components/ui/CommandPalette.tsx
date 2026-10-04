@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Search, CornerDownLeft, FileText, Receipt, ShoppingCart, FileSignature, FolderUp, Home, BookOpen, CreditCard, History, Landmark, TrendingUp, Scale, Wrench, BookText, LineChart, Wallet, Boxes, Settings, Shield, FileSpreadsheet } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAccounting } from '@/context/AccountingContext';
+import { useAuth } from '@/context/AuthContext';
+import { routeRequiresPermission } from '@/lib/pagePermissions';
 
 interface PaletteItem {
   id: string;
@@ -19,8 +21,20 @@ export interface CommandPaletteProps {
 
 /** Global command palette (Cmd/Ctrl+K) — search pages and quick actions.
  *  Commercial-app parity: QuickBooks global search / Xero nav search. */
+/** Command id -> route path, for permission filtering (Goal A). */
+const COMMAND_ROUTE: Record<string, string> = {
+  coa: '/coa', billing: '/billing', sales: '/sales', purchases: '/purchases',
+  'journal-voucher': '/journal-voucher', 'expense-history': '/history', 'income-history': '/history',
+  'compliance-tracker': '/compliance-tracker', 'bir-forms': '/bir-forms', cashflow: '/cashflow',
+  trialbalance: '/trialbalance', balancesheet: '/balancesheet', pl: '/pl', assetlapsing: '/assetlapsing',
+  files: '/files', inventory: '/inventory', clients: '/clients', business: '/business',
+};
+
 export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const { navigateToPage, setHistoryTab } = useAccounting();
+  // Goal A: hide commands for pages the current subuser is not allowed to open.
+  // The route guard in App.tsx still blocks the destination if anything slips through.
+  const { isSubuser, hasPermission } = useAuth();
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -52,7 +66,11 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     { id: 'clients', label: 'Clients (Multi-entity)', hint: 'Settings', icon: <History className="w-4 h-4" />, keywords: 'clients entities switch', action: () => navigateToPage('clients') },
     { id: 'business', label: 'Business Profile', hint: 'Settings', icon: <FileText className="w-4 h-4" />, keywords: 'business profile tin rdo setup', action: () => navigateToPage('business') },
     { id: 'account-settings', label: 'Account Settings', hint: 'Settings', icon: <Settings className="w-4 h-4" />, keywords: 'account settings profile password', action: () => navigateToPage('account-settings') },
-  ], [navigateToPage, setHistoryTab]);
+  ].filter((item) => {
+    const route = COMMAND_ROUTE[item.id];
+    const required = route ? routeRequiresPermission(route) : null;
+    return !isSubuser || !required || hasPermission(required);
+  }), [navigateToPage, setHistoryTab, isSubuser, hasPermission]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();

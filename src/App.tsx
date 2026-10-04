@@ -7,8 +7,10 @@ import { AnimatePresence, motion } from 'motion/react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AuthContainer } from './components/AuthContainer';
 import { RoleSelection } from './components/RoleSelection';
-import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { ToastContainer } from './components/ui/Toast';
+import { routeRequiresPermission, routeIsAdminOnly } from './lib/pagePermissions';
+import { logAudit } from './lib/accessControl';
 import { AIAssistant } from './components/AIAssistant';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { PageSkeleton, EmptyState, Button } from './components/ui';
@@ -40,6 +42,39 @@ const BIRForms = lazy(() => import('./components/BIRForms').then(m => ({ default
 const ComplianceTracker = lazy(() => import('./components/ComplianceTracker').then(m => ({ default: m.ComplianceTracker })));
 const AccountSettings = lazy(() => import('./components/AccountSettings').then(m => ({ default: m.AccountSettings })));
 const TeamSettings = lazy(() => import('./components/TeamSettings').then(m => ({ default: m.TeamSettings })));
+
+/**
+ * Route-level permission guard (Goal A). Wraps the whole <Routes> block so a
+ * restricted user cannot open a sensitive page by typing its URL directly.
+ * Mirrors the Sidebar `canUse` rule: only team subusers are gated by their
+ * server-sourced permissions; developer-only routes are blocked for everyone
+ * except the developer account. Denied navigation bounces back to the Dashboard
+ * ("/") and writes an audit-log entry.
+ */
+function RequirePermission({ children }: { children: React.ReactNode }) {
+  const { isSubuser, hasPermission, isAdmin, user } = useAuth();
+  const location = useLocation();
+  const path = location.pathname;
+
+  const adminOnly = routeIsAdminOnly(path);
+  const required = routeRequiresPermission(path);
+  const denied = adminOnly ? !isAdmin : Boolean(required && isSubuser && !hasPermission(required));
+
+  useEffect(() => {
+    if (denied && user) {
+      logAudit({
+        userEmail: user.email || 'unknown',
+        action: 'route_access_denied',
+        entity: path,
+        details: adminOnly ? 'admin-only route' : `missing permission: ${required}`,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [denied, path]);
+
+  if (denied) return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
 
 function AppLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -99,6 +134,7 @@ function AppLayout() {
             and toggling visibility. */}
         <div className="app-content transaction-page-content px-4 md:px-8 pt-[1.5px] pb-4 md:pb-8 max-w-[1400px] mx-auto w-full">
           <Suspense fallback={<PageSkeleton />}>
+          <RequirePermission>
           <Routes>
             {/* HashRouter starts at "/" when the app is opened without a hash.
                 Keep an explicit root route so React Router does not report
@@ -155,6 +191,7 @@ function AppLayout() {
             <Route path="/compliance-tracker" element={<ComplianceTracker />} />
             <Route path="/ap-workspace" element={<Navigate to="/purchases/ap" replace />} />
           </Routes>
+          </RequirePermission>
           </Suspense>
         </div>
       </main>
