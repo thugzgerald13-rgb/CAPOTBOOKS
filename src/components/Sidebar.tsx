@@ -238,7 +238,10 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   const sidebarFiltered = sidebarQuery.trim()
     ? SIDEBAR_NAV_INDEX.filter(i =>
         i.label.toLowerCase().includes(sidebarQuery.trim().toLowerCase()) ||
-        i.keywords.includes(sidebarQuery.trim().toLowerCase()))
+        i.keywords.includes(sidebarQuery.trim().toLowerCase())).filter(i => {
+        const p = pagePermission(i.pageId);
+        return !p || canUse(p);
+      })
     : [];
 
   // Persistent "selected" highlight — applied to the nav button whose page
@@ -386,7 +389,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       handleNavClick('coa');
                       setIsOpen(false);
                     }}
-                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'coa' && activeIndigo)}
+                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'coa' && activeIndigo, !canUse('manage_settings') && 'hidden')}
                   >
                     <BookOpen className="w-4 h-4" />
                     Chart of Accounts
@@ -397,7 +400,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       navigateToPage('billing');
                       setIsOpen(false);
                     }}
-                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'billing' && activeIndigo)}
+                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'billing' && activeIndigo, !canUse('edit_transactions') && 'hidden')}
                   >
                     <CreditCard className="w-4 h-4" />
                     Billing
@@ -408,7 +411,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       handleNavClick('sales');
                       setIsOpen(false);
                     }}
-                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'sales' && activeIndigo)}
+                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'sales' && activeIndigo, !canUse('edit_transactions') && 'hidden')}
                   >
                     <Receipt className="w-4 h-4" />
                     Income
@@ -419,7 +422,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                         navigateToPage('purchases');
                         setIsOpen(false);
                     }}
-                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage?.startsWith('purchases') && activeIndigo)}
+                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage?.startsWith('purchases') && activeIndigo, !canUse('edit_transactions') && 'hidden')}
                   >
                     <ShoppingCart className="w-4 h-4" />
                     Purchases
@@ -430,7 +433,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       navigateToPage('journal-voucher');
                       setIsOpen(false);
                     }}
-                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'journal-voucher' && activeIndigo)}
+                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'journal-voucher' && activeIndigo, !canUse('edit_transactions') && 'hidden')}
                   >
                     <FileSignature className="w-4 h-4" />
                     Journal Voucher
@@ -618,7 +621,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                 className={cn(
                   "flex items-center gap-3 px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800 dark:hover:text-blue-400 transition-all w-full text-left group",
                   activePage === item.id && activeBlue,
-                  !canUse(item.permission) && "opacity-40 grayscale cursor-not-allowed pointer-events-none hover:bg-transparent hover:text-slate-700 dark:hover:text-slate-300",
+                  !canUse(item.permission) && 'hidden',
                   isCollapsed && "md:justify-center md:px-2"
                 )}
               >
@@ -753,7 +756,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                     <button
                       disabled={!canUse('manage_settings')}
                       onClick={() => handleNavClick('business')}
-                      className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-all w-full text-left"
+                      className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-all w-full text-left", !canUse('manage_settings') && 'hidden')}
                     >
                       <Building2 className="w-4 h-4" />
                       Business Profiles
@@ -763,7 +766,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       <button
                         disabled={!canUse('manage_settings')}
                         onClick={() => handleNavClick('clients')}
-                        className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-all w-full text-left"
+                        className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-all w-full text-left", !canUse('manage_settings') && 'hidden')}
                       >
                         <Users className="w-4 h-4" />
                         Client Profiles
@@ -771,7 +774,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       <button
                         disabled={!canUse('manage_settings')}
                         onClick={() => handleNavClick('business')}
-                        className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-all w-full text-left"
+                        className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-all w-full text-left", !canUse('manage_settings') && 'hidden')}
                       >
                         <Building2 className="w-4 h-4" />
                         Business Profiles
@@ -781,7 +784,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   <button
                     disabled={!canUse('manage_settings')}
                     onClick={() => handleNavClick('tinlibrary')}
-                    className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-all w-full text-left"
+                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-all w-full text-left", !canUse('manage_settings') && 'hidden')}
                   >
                     <Building2 className="w-4 h-4" />
                     TIN Library
@@ -796,7 +799,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   <button
                     disabled={!canUse('manage_users')}
                     onClick={() => handleNavClick('team')}
-                    className={`flex items-center gap-3 px-4 py-2 text-xs font-bold rounded-lg transition-all w-full text-left ${activePage === 'team' ? 'bg-cyan-50 text-cyan-700 dark:bg-cyan-900/20 dark:text-cyan-400' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200'}`}
+                    className={`flex items-center gap-3 px-4 py-2 text-xs font-bold rounded-lg transition-all w-full text-left ${!canUse('manage_users') ? 'hidden ' : ''}${activePage === 'team' ? 'bg-cyan-50 text-cyan-700 dark:bg-cyan-900/20 dark:text-cyan-400' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200'}`}
                   >
                     <Users className="w-4 h-4" />
                     Team &amp; Subusers
