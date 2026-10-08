@@ -209,6 +209,13 @@ function MainApp() {
   const { user, loading, userRole, setUserRole } = useAuth();
   const [functionsChosen, setFunctionsChosen] = useState(false);
 
+  // Function-selection landing page — shown BEFORE the login screen on first
+  // run. Saved to the default (pre-login) key; after login a per-user key
+  // takes precedence but falls back to this choice.
+  if (loadEnabledFunctionIds() === null && !functionsChosen) {
+    return <FunctionSelector onComplete={() => setFunctionsChosen(true)} />;
+  }
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 font-sans">
@@ -228,13 +235,6 @@ function MainApp() {
   if (!userRole && user) {
     return <RoleSelection onSelect={handleRoleSelect} />;
   }
-
-  // Function-selection onboarding gate (first run only). Once saved, the
-  // selection persists per user and only ticked functions stay visible.
-  if (loadEnabledFunctionIds(user?.id) === null && !functionsChosen) {
-    return <FunctionSelector userId={user?.id} onComplete={() => setFunctionsChosen(true)} />;
-  }
-
 
   return (
     <AccountingProvider>

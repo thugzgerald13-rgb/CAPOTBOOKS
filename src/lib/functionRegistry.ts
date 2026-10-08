@@ -62,10 +62,19 @@ function storageKey(userId?: string | null) {
   return userId ? `${STORAGE_PREFIX}.${userId}` : `${STORAGE_PREFIX}.default`;
 }
 
-/** null = never saved (first run → show the selector landing page). */
+/** null = never saved (first run → show the selector landing page).
+ *  A per-user key takes precedence; otherwise falls back to the default key
+ *  (the selection made before login, on the login screen). */
 export function loadEnabledFunctionIds(userId?: string | null): string[] | null {
   try {
-    const raw = localStorage.getItem(storageKey(userId));
+    if (userId) {
+      const raw = localStorage.getItem(storageKey(userId));
+      if (raw != null) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    }
+    const raw = localStorage.getItem(storageKey(null));
     if (raw == null) return null;
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : null;
