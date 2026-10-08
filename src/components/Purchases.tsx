@@ -11,6 +11,17 @@ import { getDefaultAccountsForIndustry } from '../lib/journalDefaults';
 import { ATC_SCHEDULE } from '../lib/atcSchedule';
 
 
+// Embedded mode lets the Expense History page open the Invoiced / Other
+// Payments form in a modal (without routing), pre-filled with a record, and
+// auto-close after Update Entry so the user sees the changes in the list.
+export type PurchasesEmbeddedProps = {
+  embedded?: boolean;
+  mode?: 'invoiced' | 'other-payments';
+  editPurchase?: any | null;
+  onSaved?: () => void;
+  onClose?: () => void;
+};
+
 type PurchaseAttachment = {
   name: string;
   type: string;
@@ -120,11 +131,11 @@ const attachmentFromStored = (value: unknown): PurchaseAttachment | null => {
   return v as PurchaseAttachment;
 };
 
-export function Purchases() {
+export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = null, onSaved, onClose }: PurchasesEmbeddedProps = {}) {
   const location = useLocation();
   const navigate = useNavigate();
-  const isOtherPayments = location.pathname === '/purchases/other-payments';
-  const isAP = location.pathname === '/purchases/ap';
+  const isOtherPayments = embedded ? mode === 'other-payments' : location.pathname === '/purchases/other-payments';
+  const isAP = embedded ? false : location.pathname === '/purchases/ap';
   const { currentClient, currentClientId, currentDat, saveCoaAccounts, savePurchase, deletePurchase, showToast, setCurrentDat } = useAccounting();
   // Run 009 / T009 — AP aging summary (unpaid = On Account)
   const apAging = useMemo(() => isAP ? computeApAging(currentClient?.purchases || [], new Date().toISOString().split('T')[0]) : null, [currentClient?.purchases, isAP]);
@@ -136,6 +147,11 @@ export function Purchases() {
   const [checkNumber, setCheckNumber] = useState('');
   const [invoiceNo, setInvoiceNo] = useState('');
   const transactionDateRef = useRef<HTMLInputElement>(null);
+  // Embedded-edit bookkeeping: the record's real id (viewIndex is not a
+  // context index in embedded mode) and its original storage-backed
+  // attachment so it is not wiped out when the user saves without re-uploading.
+  const embeddedEditIdRef = useRef<string | null>(null);
+  const embeddedOriginalAttachmentRef = useRef<any>(null);
   const [supplierTin, setSupplierTin] = useState('');
   const [supplierName, setSupplierName] = useState('');
   const [supplierAddress, setSupplierAddress] = useState('');
@@ -319,6 +335,16 @@ export function Purchases() {
     }
   }, [location.state, location.pathname, currentClient, periodPurchases, navigate]);
 
+  // Embedded mode (Expense History edit modal): load the record passed via
+  // props directly instead of resolving it through routing/context.
+  useEffect(() => {
+    if (!embedded || !editPurchase) return;
+    embeddedEditIdRef.current = String(editPurchase.id);
+    embeddedOriginalAttachmentRef.current = editPurchase.attachment || null;
+    loadPurchase(0, [editPurchase]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [embedded, editPurchase]);
+
   const handleAddNew = () => {
     setViewIndex(null);
     setInvoiceNo('');
@@ -458,9 +484,21 @@ export function Purchases() {
     const [y, m, d] = date.split('-');
     const formattedDate = `${m}/${d}/${y}`;
 
+    // In embedded edit mode the real id comes from the loaded record (viewIndex
+    // is 0 and is NOT a context index). Preserve an existing storage-backed
+    // attachment when the user did not upload a new one — otherwise
+    // savePurchase would delete the old file and clear the reference.
+    const editId = embedded
+      ? (embeddedEditIdRef.current || editPurchase?.id || (viewIndex !== null ? currentClient.purchases[viewIndex]?.id : Date.now()))
+      : (viewIndex !== null ? currentClient.purchases[viewIndex].id : Date.now());
+    const editSequence = embedded
+      ? (editPurchase?.sequenceNumber || sequenceNumber)
+      : (viewIndex !== null ? (currentClient.purchases[viewIndex].sequenceNumber || sequenceNumber) : sequenceNumber);
+    const finalAttachment = attachment || (embedded && embeddedOriginalAttachmentRef.current?.storagePath ? embeddedOriginalAttachmentRef.current : null);
+
     const purchaseData = {
-      id: viewIndex !== null ? currentClient.purchases[viewIndex].id : Date.now(),
-      sequenceNumber: viewIndex !== null ? (currentClient.purchases[viewIndex].sequenceNumber || sequenceNumber) : sequenceNumber,
+      id: editId,
+      sequenceNumber: editSequence,
       datMonthYear: currentDat ? currentDat.formatted : `${MONTHS[parseInt(m) - 1]} ${y}`,
       date: formattedDate,
       paymentMethod: isAP ? '' : paymentMethod,
@@ -487,7 +525,7 @@ export function Purchases() {
       accountTitle,
       transactionDetails,
       inputTax: isOtherPayments ? 0 : inputTax,
-      attachment
+      attachment: finalAttachment,
     };
 
     // Duplicate guard: the same supplier (TIN) cannot invoice twice with the
@@ -514,6 +552,10 @@ export function Purchases() {
     await savePurchase(String(purchaseData.id), purchaseData);
 
     showToast(viewIndex !== null ? 'Entry updated' : 'Expense entry added');
+
+    // Embedded in the History edit modal: close immediately so the user sees
+    // the refreshed row (the form does not need to be reset).
+    if (embedded) { onSaved?.(); return; }
 
     // Reset the complete entry form after Add Entry / Update Entry.
     // A saved transaction remains in currentClient.purchases; the input form
@@ -562,18 +604,22 @@ export function Purchases() {
 
   return (
     <div className="w-full flex flex-col purchase-page-shell">
-      <PageHeader title={currentDat ? "Expense Data Entry Screen (DAT)" : "Expense Data Entry Screen"} icon={<ShoppingCart className="w-5 h-5 text-amber-500" />} />
+      {!embedded && <PageHeader title={currentDat ? "Expense Data Entry Screen (DAT)" : "Expense Data Entry Screen"} icon={<ShoppingCart className="w-5 h-5 text-amber-500" />} />}
       <div className="p-4 md:p-6 flex-1">
 
+      {!embedded && (
       <div className="mb-6 flex flex-wrap gap-2 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 shadow-sm">
         <button type="button" onClick={() => navigate('/purchases/invoiced')} className={`flex-1 min-w-[140px] px-4 py-3 rounded-xl text-sm font-bold transition-all ${!isOtherPayments && !isAP ? 'bg-amber-500 text-slate-900 shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Invoiced</button>
         <button type="button" onClick={() => navigate('/purchases/other-payments')} className={`flex-1 min-w-[140px] px-4 py-3 rounded-xl text-sm font-bold transition-all ${isOtherPayments ? 'bg-amber-500 text-slate-900 shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Other Payments</button>
         <button type="button" onClick={() => navigate('/purchases/ap')} className={`flex-1 min-w-[140px] px-4 py-3 rounded-xl text-sm font-bold transition-all ${isAP ? 'bg-amber-500 text-slate-900 shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Accounts Payable (AP)</button>
       </div>
+      )}
 
+      {!embedded && (
       <div className="mb-4 rounded-xl bg-slate-100 dark:bg-slate-800/70 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
         {isAP ? 'Accounts Payable (AP)' : isOtherPayments ? 'Other Payments' : 'Invoiced'}
       </div>
+      )}
 
       {isAP && apAging && (
         <div className="mb-4">
@@ -842,7 +888,7 @@ export function Purchases() {
 
         <div className="lg:col-span-3 flex justify-end items-center mt-2 border-t border-slate-200 dark:border-slate-700 pt-4">
            <div className="flex gap-3">
-             {viewIndex !== null && (
+             {viewIndex !== null && !embedded && (
                <button 
                  onClick={() => {
                    if (confirm('Are you sure you want to delete this entry?')) {
@@ -853,6 +899,11 @@ export function Purchases() {
                  className="bg-red-100 hover:bg-red-200 text-red-700 font-bold px-6 py-2.5 rounded-xl transition-colors flex items-center gap-2 border border-red-200"
                >
                  <Trash2 className="w-5 h-5" /> Delete
+               </button>
+             )}
+             {embedded && (
+               <button type="button" onClick={onClose} className="bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-bold px-6 py-2.5 rounded-xl transition-colors flex items-center gap-2">
+                 Cancel
                </button>
              )}
              <button onClick={handleAddPurchase} className="bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold px-8 py-2.5 rounded-xl transition-colors shadow-sm shadow-amber-500/20 flex items-center gap-2">

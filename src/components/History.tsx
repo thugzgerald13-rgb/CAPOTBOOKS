@@ -1,6 +1,8 @@
 import { useState, useEffect, useMemo, useRef, type PointerEvent as ReactPointerEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PageHeader } from './ui/PageHeader';
+import { Modal } from './ui/Modal';
+import { Purchases } from './Purchases';
 import { AttachmentViewer } from './AttachmentViewer';
 import { useAccounting } from '../context/AccountingContext';
 import { Search, Trash2, Receipt, ShoppingCart, FolderClock, History as HistoryIcon, FileDown, FileSpreadsheet, Download, Pencil, Columns3, ChevronDown, X, Eye, Bookmark } from 'lucide-react';
@@ -107,6 +109,10 @@ export function History() {
   const [globalSearchSales, setGlobalSearchSales] = useState<any[] | null>(null);
   const [searchingAll, setSearchingAll] = useState(false);
   const autoJumpTermRef = useRef<string>('');
+  // Expense edit modal (embedded Purchases form) state.
+  const [editingPurchase, setEditingPurchase] = useState<any | null>(null);
+  const [editPurchaseMode, setEditPurchaseMode] = useState<'invoiced' | 'other-payments'>('invoiced');
+  const [searchRefreshKey, setSearchRefreshKey] = useState(0);
 
   const trimmedSearch = searchTerm.trim();
   const isSearchTab = !['slp', 'sls'].includes(historyTab as string);
@@ -722,7 +728,7 @@ export function History() {
       }
     }, 350);
     return () => { cancelled = true; clearTimeout(timer); };
-  }, [searchTerm, currentClientId, historyTab, isSearchTab]);
+  }, [searchTerm, currentClientId, historyTab, isSearchTab, searchRefreshKey]);
 
   // NEW: Auto-refresh when the number of purchases changes (e.g., adding a new purchase)
   useEffect(() => {
@@ -766,11 +772,19 @@ export function History() {
   };
 
   const handleEditExpense = (purchase: typeof purchases[number]) => {
-    // Supabase `purchases.id` is stored as TEXT. Pass the exact ID through
-    // navigation without coercing it to a number. The Purchases screen also
-    // compares IDs as strings so UUID/text IDs edit reliably.
-    const path = purchase.invoiceNo && purchase.supplierTin ? '/purchases/invoiced' : '/purchases/other-payments';
-    navigate(path, { state: { editPurchaseId: String(purchase.id) } });
+    // Open the matching Purchases form (Invoiced vs Other Payments) in a modal
+    // instead of navigating away, so the user stays on Expense History.
+    setEditPurchaseMode(purchase.invoiceNo && purchase.supplierTin ? 'invoiced' : 'other-payments');
+    setEditingPurchase(purchase);
+  };
+
+  // After the embedded form saves (Update Entry), close the modal and refresh
+  // both the period view and any active global-search results so the changes
+  // are immediately visible.
+  const handlePurchaseUpdated = () => {
+    setEditingPurchase(null);
+    setRefreshKey(k => k + 1);
+    setSearchRefreshKey(k => k + 1);
   };
 
   // Persist an inline Account Title edit straight to the normalized purchases
@@ -1276,6 +1290,27 @@ export function History() {
 
               {/* In-app preview of an uploaded attachment (image / PDF) */}
               {viewingAttachment && <AttachmentViewer file={viewingAttachment} onClose={() => setViewingAttachment(null)} />}
+
+              {/* Edit Expense modal: embedded Invoiced / Other Payments form.
+                  On Update Entry, Purchases calls onSaved → modal closes and the
+                  history list refreshes so the user immediately sees changes. */}
+              <Modal
+                open={!!editingPurchase}
+                onClose={() => setEditingPurchase(null)}
+                size="xl"
+                title={editingPurchase ? `Edit Expense — ${editPurchaseMode === 'invoiced' ? 'Invoiced' : 'Other Payments'}` : 'Edit Expense'}
+                description={editingPurchase ? `${editingPurchase.supplierName || ''}${editingPurchase.invoiceNo ? ` · Invoice #${editingPurchase.invoiceNo}` : ''}${editingPurchase.date ? ` · ${editingPurchase.date}` : ''}` : undefined}
+              >
+                {editingPurchase && (
+                  <Purchases
+                    embedded
+                    mode={editPurchaseMode}
+                    editPurchase={editingPurchase}
+                    onSaved={handlePurchaseUpdated}
+                    onClose={() => setEditingPurchase(null)}
+                  />
+                )}
+              </Modal>
 
               {/* Bulk action bar: appears when one or more expense rows are selected */}
               {activeTab === 'expenses' && selectedPurchaseIds.size > 0 && (
