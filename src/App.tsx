@@ -10,6 +10,8 @@ import { RoleSelection } from './components/RoleSelection';
 import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { ToastContainer } from './components/ui/Toast';
 import { routeRequiresPermission, routeIsAdminOnly } from './lib/pagePermissions';
+import { loadEnabledFunctionIds, isRouteEnabled } from './lib/functionRegistry';
+import { FunctionSelector } from './components/FunctionSelector';
 import { logAudit } from './lib/accessControl';
 import { AIAssistant } from './components/AIAssistant';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -59,6 +61,7 @@ function RequirePermission({ children }: { children: React.ReactNode }) {
   const adminOnly = routeIsAdminOnly(path);
   const required = routeRequiresPermission(path);
   const denied = adminOnly ? !isAdmin : Boolean(required && isSubuser && !hasPermission(required));
+  const functionDenied = !isRouteEnabled(path, user?.id);
 
   useEffect(() => {
     if (denied && user) {
@@ -72,7 +75,7 @@ function RequirePermission({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [denied, path]);
 
-  if (denied) return <Navigate to="/" replace />;
+  if (denied || functionDenied) return <Navigate to="/" replace />;
   return <>{children}</>;
 }
 
@@ -191,6 +194,7 @@ function AppLayout() {
             <Route path="/bir-forms" element={<BIRForms />} />
             <Route path="/compliance-tracker" element={<ComplianceTracker />} />
             <Route path="/ap-workspace" element={<Navigate to="/purchases/ap" replace />} />
+            <Route path="/functions" element={<FunctionSelector />} />
           </Routes>
           </RequirePermission>
           </Suspense>
@@ -203,6 +207,7 @@ function AppLayout() {
 
 function MainApp() {
   const { user, loading, userRole, setUserRole } = useAuth();
+  const [functionsChosen, setFunctionsChosen] = useState(false);
 
   if (loading) {
     return (
@@ -222,6 +227,12 @@ function MainApp() {
 
   if (!userRole && user) {
     return <RoleSelection onSelect={handleRoleSelect} />;
+  }
+
+  // Function-selection onboarding gate (first run only). Once saved, the
+  // selection persists per user and only ticked functions stay visible.
+  if (loadEnabledFunctionIds(user?.id) === null && !functionsChosen) {
+    return <FunctionSelector userId={user?.id} onComplete={() => setFunctionsChosen(true)} />;
   }
 
 
