@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 import { toast } from '../components/ui/Toast';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import { useAuth } from './AuthContext';
+import { checkTransactionLimit, recordNewTransaction } from '../lib/subscription';
 import { handleSupabaseError, OperationType } from '../lib/supabaseUtils';
 import { syncGeneralLedger, syncCashDisbursementsJournal, syncSalesJournal, syncCashReceiptsJournal, syncPurchasesJournal } from '../lib/glPosting';
 import { sortAccountsChronologically } from '../lib/journalDefaults';
@@ -1335,6 +1336,17 @@ export function AccountingProvider({
 
   const saveSale = async (id: string, sale: any) => {
     if (!user || !currentClientId) return;
+    // Free / unsubscribed users may only add FREE_TRANSACTION_LIMIT new
+    // transactions (sales + purchases). Editing an existing transaction does
+    // not count against the cap. Subscribed users are unlimited.
+    const isNewSale = !(clients[currentClientId]?.sales || []).some((x: any) => String(x.id) === String(id));
+    if (isNewSale) {
+      const limit = checkTransactionLimit(user.id);
+      if (!limit.allowed) {
+        showToast(`Free plan limit reached — you've added ${limit.count} of ${limit.limit} transactions. Subscribe or upgrade in Settings → Plan & Billing to add more.`);
+        return;
+      }
+    }
     const row = {
       id: String(id), client_id: currentClientId, dat_month_year: sale.datMonthYear || null,
       date: sale.date || null, ref: sale.ref || null, payment_type: sale.paymentType || null,
@@ -1352,6 +1364,7 @@ export function AccountingProvider({
     await recordNormalizedMutation('sales', currentClientId, 'put', row);
     const next = [...(clients[currentClientId]?.sales || []).filter((x: any) => String(x.id) !== String(id)), sale];
     updateClientState(currentClientId, { sales: next });
+    if (isNewSale) recordNewTransaction(user.id);
   };
 
   const deleteSale = async (id: string) => {
@@ -1792,6 +1805,17 @@ export function AccountingProvider({
     if (!user || !currentClientId) return;
     const existingPurchase = (clients[currentClientId]?.purchases || []).find((p:any) => String(p.id) === String(id));
     const previousStoragePath = existingPurchase?.attachment?.storagePath || null;
+    // Free / unsubscribed users may only add FREE_TRANSACTION_LIMIT new
+    // transactions (sales + purchases). Editing an existing transaction does
+    // not count against the cap. Subscribed users are unlimited.
+    const isNewPurchase = !existingPurchase;
+    if (isNewPurchase) {
+      const limit = checkTransactionLimit(user.id);
+      if (!limit.allowed) {
+        showToast(`Free plan limit reached — you've added ${limit.count} of ${limit.limit} transactions. Subscribe or upgrade in Settings → Plan & Billing to add more.`);
+        return;
+      }
+    }
     let storagePath = purchase?.attachment?.storagePath || null;
     if (purchase?.attachment?.data) {
       storagePath = await uploadPurchaseAttachment(currentClientId, id, purchase.attachment);
@@ -1840,6 +1864,7 @@ export function AccountingProvider({
 
     const hydrated = { ...purchase, attachment: purchase.attachment ? { ...purchase.attachment, storagePath, data: undefined } : undefined };
     setClients(prev => ({ ...prev, [currentClientId]: { ...prev[currentClientId], purchases: [...(prev[currentClientId]?.purchases || []).filter((p:any)=>String(p.id)!==String(id)), hydrated] } as Client }));
+    if (isNewPurchase) recordNewTransaction(user.id);
   };
 
   const deletePurchase = async (id: string) => {

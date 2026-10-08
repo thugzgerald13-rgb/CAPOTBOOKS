@@ -4,12 +4,13 @@ import { useAuth } from '../context/AuthContext';
 import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
 import { supabase } from '../lib/supabase';
+import { getSubscriptionPlan, setSubscriptionPlan, getTransactionCount, FREE_TRANSACTION_LIMIT, type SubscriptionPlan } from '../lib/subscription';
 
 type NotifPrefs = { complianceReminders: boolean; weeklyDigest: boolean; productUpdates: boolean };
 const DEFAULT_PREFS: NotifPrefs = { complianceReminders: true, weeklyDigest: true, productUpdates: false };
 const PLANS = [
   { id: 'starter', name: 'Starter', price: '₱499/mo', features: ['1 entity', 'Up to 50 transactions/mo', 'Basic reports'] },
-  { id: 'pro', name: 'Pro', price: '₱1,499/mo', features: ['Unlimited entities', 'Unlimited transactions', 'All BIR forms', 'Priority support'], current: true },
+  { id: 'pro', name: 'Pro', price: '₱1,499/mo', features: ['Unlimited entities', 'Unlimited transactions', 'All BIR forms', 'Priority support'] },
   { id: 'enterprise', name: 'Enterprise', price: 'Custom', features: ['Multi-user roles', 'API access', 'Dedicated support'] },
 ];
 // Customer support contact — override with VITE_SUPPORT_EMAIL in .env.
@@ -30,6 +31,9 @@ export function AccountSettings() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
+  // ---- Subscription plan + free-tier transaction usage ----
+  const [plan, setPlan] = useState<SubscriptionPlan>(() => getSubscriptionPlan(user?.id));
+  const [txCount, setTxCount] = useState<number>(() => getTransactionCount(user?.id));
   // ---- T021: 2FA stub + notif prefs + plan + data export ----
   const [twoFaEnabled, setTwoFaEnabled] = useState(false);
   const [prefs, setPrefs] = useState<NotifPrefs>(DEFAULT_PREFS);
@@ -163,18 +167,54 @@ export function AccountSettings() {
       ))}
 
       {/* Plan & Billing */}
-      {section(<CreditCard className="w-4 h-4" />, 'Plan & Billing', 'Your subscription plan.', (
+      {section(<CreditCard className="w-4 h-4" />, 'Plan & Billing', 'Your subscription plan.', (<>
         <div className="grid md:grid-cols-3 gap-3">
-          {PLANS.map(p => (
-            <div key={p.id} className={`relative rounded-xl border p-4 ${p.current ? 'border-cyan-400 dark:border-cyan-600 bg-cyan-50 dark:bg-cyan-950/20' : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900'}`}>
-              {p.current && <span className="absolute -top-2 right-3 text-[10px] font-bold bg-cyan-600 text-white px-2 py-0.5 rounded-full">CURRENT</span>}
+          {PLANS.map(p => {
+            const isCurrent = p.id === plan;
+            return (
+            <div key={p.id} className={`relative rounded-xl border p-4 ${isCurrent ? 'border-cyan-400 dark:border-cyan-600 bg-cyan-50 dark:bg-cyan-950/20' : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900'}`}>
+              {isCurrent && <span className="absolute -top-2 right-3 text-[10px] font-bold bg-cyan-600 text-white px-2 py-0.5 rounded-full">CURRENT</span>}
               <div className="text-sm font-black text-slate-800 dark:text-slate-100">{p.name}</div>
               <div className="text-lg font-black text-cyan-600 dark:text-cyan-400 my-1">{p.price}</div>
               <ul className="space-y-1 mt-2">{p.features.map(f => <li key={f} className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5"><CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" />{f}</li>)}</ul>
-              {!p.current && <button type="button" onClick={() => showToast(`Upgrade to ${p.name} — coming soon`)} className="mt-3 w-full text-xs font-bold py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 hover:bg-white dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300">{p.id === 'enterprise' ? 'Contact Sales' : 'Upgrade'}</button>}
+              {!isCurrent && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (p.id === 'enterprise') {
+                      showToast('Contact our sales team via Customer Support below.');
+                      return;
+                    }
+                    setSubscriptionPlan(p.id as SubscriptionPlan, user?.id);
+                    setPlan(p.id as SubscriptionPlan);
+                    setTxCount(getTransactionCount(user?.id));
+                    showToast(`Upgraded to ${p.name} — unlimited transactions unlocked.`);
+                  }}
+                  className="mt-3 w-full text-xs font-bold py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 hover:bg-white dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"
+                >{p.id === 'enterprise' ? 'Contact Sales' : 'Upgrade'}</button>
+              )}
             </div>
-          ))}
+            );
+          })}
         </div>
+        {/* Free-tier transaction usage */}
+        <div className="mt-4 p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900">
+          {plan === 'free' ? (
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Free plan — transactions used</span>
+                <span className="text-xs font-black text-slate-700 dark:text-slate-200">{txCount} / {FREE_TRANSACTION_LIMIT}</span>
+              </div>
+              <div className="w-full h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
+                <div className="h-full rounded-full bg-cyan-500 transition-all" style={{ width: `${Math.min(100, (txCount / FREE_TRANSACTION_LIMIT) * 100)}%` }} />
+              </div>
+              <p className="text-[11px] text-slate-400 mt-2">Free / unsubscribed users can add up to {FREE_TRANSACTION_LIMIT} transactions. Upgrade above for unlimited.</p>
+            </div>
+          ) : (
+            <p className="text-xs text-slate-600 dark:text-slate-300 flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" /> You're on the <strong className="capitalize">{plan}</strong> plan — unlimited transactions.</p>
+          )}
+        </div>
+        </>
       ))}
 
       {/* Customer Support */}
