@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   BookOpen, CreditCard, Receipt, ShoppingCart, FileSignature, History as HistoryIcon,
   BookText, LineChart, Scale, Landmark, TrendingUp, Wallet, Wrench, ShieldCheck,
-  FileText, FolderUp, Boxes, Check, CheckSquare, Square, Sparkles,
+  FileText, FolderUp, Boxes, Check, CheckSquare, Square, Sparkles, Lock, Headphones,
 } from 'lucide-react';
 
 const ICONS: Record<string, any> = {
@@ -41,12 +41,75 @@ export function FunctionSelector({ userId, onComplete }: Props) {
   const navigate = useNavigate();
   const { user } = useAuth();
   const resolvedUserId = userId ?? user?.id;
+  // Once an account exists and a function selection has already been saved,
+  // the selection is locked and can no longer be customized. Changes are only
+  // possible by subscribing / upgrading or by contacting customer support
+  // (Settings → Customer Support). The first-run setup (no saved selection
+  // yet) remains editable.
+  const savedSelection = loadEnabledFunctionIds(resolvedUserId);
+  const locked = savedSelection != null;
   const [selected, setSelected] = useState<Set<string>>(() => {
-    const saved = loadEnabledFunctionIds(resolvedUserId);
-    if (saved != null) return new Set(saved);
+    if (savedSelection != null) return new Set(savedSelection);
     return new Set(FUNCTIONS.map(f => f.id)); // first run: all pre-selected
   });
   const [savedMsg, setSavedMsg] = useState('');
+
+  if (locked) {
+    const enabled = FUNCTIONS.filter((f) => selected.has(f.id));
+    return (
+      <div className="min-h-screen w-full bg-gradient-to-br from-slate-50 via-blue-50/40 to-indigo-50/60 dark:from-slate-950 dark:via-slate-900 dark:to-indigo-950/40 flex items-start justify-center py-10 px-4 overflow-y-auto font-sans">
+        <div className="w-full max-w-2xl">
+          <div className="text-center mb-8">
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 mb-4">
+              <Lock className="w-8 h-8" />
+            </div>
+            <h1 className="text-2xl md:text-3xl font-extrabold text-slate-800 dark:text-slate-100">
+              Your functions are locked in
+            </h1>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-2 max-w-xl mx-auto">
+              Function selection can no longer be customized after account creation. To add or change
+              functions, subscribe to a plan, upgrade your subscription, or — if you are already
+              subscribed — contact customer support under Settings.
+            </p>
+          </div>
+
+          <div className="bg-white dark:bg-slate-900 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm overflow-hidden mb-6">
+            <div className="px-5 py-3 bg-slate-50 dark:bg-slate-800/60 border-b border-slate-100 dark:border-slate-800 flex items-center justify-between">
+              <h2 className="text-xs font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400">Your current functions</h2>
+              <span className="text-[10px] font-bold text-slate-400">{enabled.length} of {FUNCTIONS.length} enabled</span>
+            </div>
+            <div className="p-5 flex flex-wrap gap-2">
+              {enabled.map((f) => (
+                <span key={f.id} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-indigo-50 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/50 text-xs font-bold text-indigo-700 dark:text-indigo-300">
+                  <Check className="w-3 h-3" strokeWidth={3} /> {f.label}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid sm:grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => navigate('/account-settings')}
+              className="w-full inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-sm shadow-sm shadow-indigo-600/30 transition-colors"
+            >
+              <CreditCard className="w-4 h-4" /> Subscribe / Upgrade
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate('/account-settings')}
+              className="w-full inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-bold text-sm transition-colors"
+            >
+              <Headphones className="w-4 h-4" /> Contact Support
+            </button>
+          </div>
+          <p className="text-center text-xs text-slate-400 mt-4">
+            Both options are under <strong className="text-slate-500 dark:text-slate-300">Settings</strong> → Plan &amp; Billing / Customer Support.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const toggle = (id: string) => {
     setSelected(prev => {

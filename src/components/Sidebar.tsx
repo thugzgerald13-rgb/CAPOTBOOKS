@@ -909,14 +909,14 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
             </div>
             <button
               onClick={() => { window.location.hash = '#/functions'; setIsOpen(false); }}
-              title={isCollapsed ? "Customize Functions" : undefined}
+              title={isCollapsed ? "Functions" : undefined}
               className={cn(
                 "flex items-center justify-center gap-2 w-full bg-indigo-50 text-indigo-600 hover:bg-indigo-100 dark:bg-indigo-900/10 dark:text-indigo-400 dark:hover:bg-indigo-900/30 py-2.5 rounded-xl text-sm font-bold transition-all shadow-sm mb-2",
                 isCollapsed && "md:px-2"
               )}
             >
               <Settings className="w-4 h-4 shrink-0" />
-              <span className={cn(isCollapsed && "md:hidden")}>Customize Functions</span>
+              <span className={cn(isCollapsed && "md:hidden")}>Functions</span>
             </button>
             <button
               onClick={signOut}

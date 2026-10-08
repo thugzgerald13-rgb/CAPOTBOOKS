@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { UserCircle, CheckCircle2, Shield, Bell, CreditCard, Download, Smartphone, Trash2, AlertTriangle } from 'lucide-react';
+import { UserCircle, CheckCircle2, Shield, Bell, CreditCard, Download, Smartphone, Trash2, AlertTriangle, Headphones, Mail, Copy } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
@@ -12,6 +12,9 @@ const PLANS = [
   { id: 'pro', name: 'Pro', price: '₱1,499/mo', features: ['Unlimited entities', 'Unlimited transactions', 'All BIR forms', 'Priority support'], current: true },
   { id: 'enterprise', name: 'Enterprise', price: 'Custom', features: ['Multi-user roles', 'API access', 'Dedicated support'] },
 ];
+// Customer support contact — override with VITE_SUPPORT_EMAIL in .env.
+// Falls back to the admin/developer email so the contact button always works.
+const SUPPORT_EMAIL = (import.meta.env.VITE_SUPPORT_EMAIL || import.meta.env.VITE_ADMIN_EMAIL || 'thugz.gerald13@gmail.com').trim();
 
 export function AccountSettings() {
   const canExport = usePermission('export_data');
@@ -171,6 +174,34 @@ export function AccountSettings() {
               {!p.current && <button type="button" onClick={() => showToast(`Upgrade to ${p.name} — coming soon`)} className="mt-3 w-full text-xs font-bold py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 hover:bg-white dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300">{p.id === 'enterprise' ? 'Contact Sales' : 'Upgrade'}</button>}
             </div>
           ))}
+        </div>
+      ))}
+
+      {/* Customer Support */}
+      {section(<Headphones className="w-4 h-4" />, 'Customer Support', 'Need help with your subscription, billing, or enabled functions?', (
+        <div className="space-y-3">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Your enabled functions are locked in after account creation. If you already have an active
+            subscription and need to change which functions are enabled on your account — or need help with
+            billing, upgrades, or anything else — reach out to our support team and we'll take care of it.
+          </p>
+          <div className="text-xs font-mono text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 inline-block">{SUPPORT_EMAIL}</div>
+          <div className="flex flex-wrap items-center gap-3">
+            <a
+              href={`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('CAPOT Support Request')}`}
+              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white"
+            >
+              <Mail className="w-3.5 h-3.5" /> Email Support
+            </a>
+            <button
+              type="button"
+              onClick={() => { try { navigator.clipboard?.writeText(SUPPORT_EMAIL); showToast('Support email copied to clipboard'); } catch { /* ignore */ } }}
+              className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl border border-slate-300 dark:border-slate-600 hover:bg-white dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"
+            >
+              <Copy className="w-3.5 h-3.5" /> Copy Email Address
+            </button>
+          </div>
+          <p className="text-[11px] text-slate-400">We typically respond within 24 hours on business days. Set <span className="font-mono">VITE_SUPPORT_EMAIL</span> in your <span className="font-mono">.env</span> to change this address.</p>
         </div>
       ))}
 
