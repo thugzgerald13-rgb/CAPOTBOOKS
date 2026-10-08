@@ -210,10 +210,10 @@ function MainApp() {
   const [functionsChosen, setFunctionsChosen] = useState(false);
 
   // Function-selection landing page — shown BEFORE the login screen on first
-  // run. Saved to the default (pre-login) key; after login a per-user key
-  // takes precedence but falls back to this choice.
-  if (loadEnabledFunctionIds() === null && !functionsChosen) {
-    return <FunctionSelector onComplete={() => setFunctionsChosen(true)} />;
+  // run. Check the per-user key (falls back to the default pre-login key) so a
+  // saved selection is recognized both before and after login.
+  if (loadEnabledFunctionIds(user?.id) === null && !functionsChosen) {
+    return <FunctionSelector userId={user?.id} onComplete={() => setFunctionsChosen(true)} />;
   }
 
   if (loading) {
