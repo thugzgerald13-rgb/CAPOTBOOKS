@@ -42,6 +42,53 @@ const DEFAULT_EXPENSE_COLUMN_WIDTHS: Record<string, number> = {
 };
 const MIN_EXPENSE_COLUMN_WIDTH = 60;
 
+// Columns + row mappers shared by the period-scoped loader and the global
+// cross-period search, so both paths produce identically-shaped records.
+const PURCHASE_SELECT_COLS = 'id,client_id,date,payment_method,check_number,bank_name,invoice_no,supplier_name,supplier_address,supplier_tin,amount,vat_type,expense_type,account_title,transaction_details,input_tax,attachment_name,attachment_type,attachment_original_type,attachment_size,attachment_original_size,attachment_compression,attachment_storage_path,withholding_option,atc_code,wht_rate,wht_amount,exempt_amount,zero_rated_amount,entry_source';
+const SALE_SELECT_COLS = 'id,client_id,date,ref,payment_type,buyer_tin,buyer_name,buyer_address,vat_type,amount,net_of_vat,output_tax,income_type,description';
+
+const mapPurchaseRow = (p: any) => ({
+  id: p.id,
+  date: p.date,
+  paymentMethod: p.payment_method,
+  checkNumber: p.check_number,
+  bankName: p.bank_name,
+  invoiceNo: p.invoice_no,
+  supplierName: p.supplier_name || '',
+  supplierAddress: p.supplier_address || '',
+  supplierTin: p.supplier_tin || '',
+  amount: Number(p.amount || 0),
+  vatType: p.vat_type,
+  expenseType: p.expense_type,
+  accountTitle: p.account_title,
+  transactionDetails: p.transaction_details,
+  inputTax: Number(p.input_tax || 0),
+  attachment: p.attachment_storage_path ? { storagePath: p.attachment_storage_path, name: p.attachment_name, type: p.attachment_type, originalType: p.attachment_original_type, compression: p.attachment_compression } : undefined,
+  withholdingOption: p.withholding_option,
+  atcCode: p.atc_code,
+  whtRate: p.wht_rate == null ? undefined : Number(p.wht_rate),
+  whtAmount: Number(p.wht_amount || 0),
+  exemptAmount: Number(p.exempt_amount || 0),
+  zeroRatedAmount: Number(p.zero_rated_amount || 0),
+  entrySource: p.entry_source,
+});
+
+const mapSaleRow = (s: any) => ({
+  id: s.id,
+  date: s.date,
+  ref: s.ref,
+  paymentType: s.payment_type,
+  buyerTin: s.buyer_tin,
+  buyerName: s.buyer_name || '',
+  buyerAddress: s.buyer_address || '',
+  vatType: s.vat_type,
+  amount: Number(s.amount || 0),
+  netOfVat: Number(s.net_of_vat || 0),
+  outputTax: Number(s.output_tax || 0),
+  incomeType: s.income_type,
+  description: s.description,
+});
+
 type HistoryTab = 'expenses' | 'income' | 'slp' | 'sls';
 
 export function History() {
@@ -52,6 +99,20 @@ export function History() {
   const [localHistorySales, setLocalHistorySales] = useState<any[]>([]);
   const [selectedMonth, setSelectedMonth] = useState<number>(new Date().getMonth() + 1);
   const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
+  // Global cross-period search results. While a search term is active these
+  // replace the period-scoped arrays so the table shows every match regardless
+  // of the selected month/year; the period selectors auto-jump to the matches'
+  // dominant period. null means "not searching" (fall back to period data).
+  const [globalSearchPurchases, setGlobalSearchPurchases] = useState<any[] | null>(null);
+  const [globalSearchSales, setGlobalSearchSales] = useState<any[] | null>(null);
+  const [searchingAll, setSearchingAll] = useState(false);
+  const autoJumpTermRef = useRef<string>('');
+
+  const trimmedSearch = searchTerm.trim();
+  const isSearchTab = !['slp', 'sls'].includes(historyTab as string);
+  const globalSearchActive = isSearchTab && trimmedSearch.length > 0 && globalSearchPurchases !== null;
+  const effectivePurchases = globalSearchActive ? globalSearchPurchases! : localHistoryPurchases;
+  const effectiveSales = globalSearchActive ? globalSearchSales! : localHistorySales;
   // ---- T011: saved filters (persisted per client) ----
   type SavedFilter = { id: string; name: string; month: number; year: number; search: string };
   const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
@@ -290,9 +351,9 @@ export function History() {
   // some rows, so it never renumbers on filter.
   const transactionNoById = useMemo(() => {
     const map = new Map<string, number>();
-    localHistoryPurchases.forEach((p, i) => map.set(String(p.id), i + 1));
+    effectivePurchases.forEach((p, i) => map.set(String(p.id), i + 1));
     return map;
-  }, [localHistoryPurchases]);
+  }, [effectivePurchases]);
 
   // NEW: refreshKey to force re-fetch when "Load" is clicked or purchases change
   const [refreshKey, setRefreshKey] = useState(0);
@@ -454,7 +515,7 @@ export function History() {
 
 
   const currentYear = new Date().getFullYear();
-  const years = Array.from({ length: currentYear - 2022 }, (_, i) => 2023 + i);
+  const years = Array.from({ length: currentYear - 2019 }, (_, i) => 2020 + i);
 
   // Expense History is also allowed to contribute suppliers to the registry.
   // Merge by normalized TIN and preserve every unique supplier.
@@ -550,14 +611,14 @@ export function History() {
       const [purchaseResult, salesResult] = await Promise.all([
         supabase
           .from('purchases')
-          .select('id,client_id,date,payment_method,check_number,bank_name,invoice_no,supplier_name,supplier_address,supplier_tin,amount,vat_type,expense_type,account_title,transaction_details,input_tax,attachment_name,attachment_type,attachment_original_type,attachment_size,attachment_original_size,attachment_compression,attachment_storage_path,withholding_option,atc_code,wht_rate,wht_amount,exempt_amount,zero_rated_amount,entry_source')
+          .select(PURCHASE_SELECT_COLS)
           .eq('client_id', currentClientId)
           .gte('date', startDate)
           .lt('date', endDateString)
           .order('date', { ascending: true }),
         supabase
           .from('sales')
-          .select('id,client_id,date,ref,payment_type,buyer_tin,buyer_name,buyer_address,vat_type,amount,net_of_vat,output_tax,income_type,description')
+          .select(SALE_SELECT_COLS)
           .eq('client_id', currentClientId)
           .gte('date', startDate)
           .lt('date', endDateString)
@@ -569,50 +630,8 @@ export function History() {
 
       if (cancelled) return;
 
-      const mapPurchase = (p: any) => ({
-        id: p.id,
-        date: p.date,
-        paymentMethod: p.payment_method,
-        checkNumber: p.check_number,
-        bankName: p.bank_name,
-        invoiceNo: p.invoice_no,
-        supplierName: p.supplier_name || '',
-        supplierAddress: p.supplier_address || '',
-        supplierTin: p.supplier_tin || '',
-        amount: Number(p.amount || 0),
-        vatType: p.vat_type,
-        expenseType: p.expense_type,
-        accountTitle: p.account_title,
-        transactionDetails: p.transaction_details,
-        inputTax: Number(p.input_tax || 0),
-        attachment: p.attachment_storage_path ? { storagePath: p.attachment_storage_path, name: p.attachment_name, type: p.attachment_type, originalType: p.attachment_original_type, compression: p.attachment_compression } : undefined,
-        withholdingOption: p.withholding_option,
-        atcCode: p.atc_code,
-        whtRate: p.wht_rate == null ? undefined : Number(p.wht_rate),
-        whtAmount: Number(p.wht_amount || 0),
-        exemptAmount: Number(p.exempt_amount || 0),
-        zeroRatedAmount: Number(p.zero_rated_amount || 0),
-        entrySource: p.entry_source,
-      });
-
-      const mapSale = (s: any) => ({
-        id: s.id,
-        date: s.date,
-        ref: s.ref,
-        paymentType: s.payment_type,
-        buyerTin: s.buyer_tin,
-        buyerName: s.buyer_name || '',
-        buyerAddress: s.buyer_address || '',
-        vatType: s.vat_type,
-        amount: Number(s.amount || 0),
-        netOfVat: Number(s.net_of_vat || 0),
-        outputTax: Number(s.output_tax || 0),
-        incomeType: s.income_type,
-        description: s.description,
-      });
-
-      const mappedPurchases = (purchaseResult.data || []).map(mapPurchase);
-      const mappedSales = (salesResult.data || []).map(mapSale);
+      const mappedPurchases = (purchaseResult.data || []).map(mapPurchaseRow);
+      const mappedSales = (salesResult.data || []).map(mapSaleRow);
       setLocalHistoryPurchases(mappedPurchases);
       setLocalHistorySales(mappedSales);
       if (!purchaseResult.error) cacheQuery(purCacheKey, 'purchases', currentClientId, mappedPurchases).catch(() => {});
@@ -622,6 +641,88 @@ export function History() {
     loadHistoryPeriod();
     return () => { cancelled = true; };
   }, [currentClientId, selectedMonth, selectedYear, refreshKey]); // Added refreshKey
+
+  // Global search: when the user types in the search box, query ALL periods
+  // (no date bounds) so a record is found even when the currently selected
+  // month/year is different. The matches replace the table contents, and the
+  // month/year selectors auto-jump to the period containing the most matches.
+  useEffect(() => {
+    const term = searchTerm.trim();
+    if (!currentClientId || !term || !isSearchTab) {
+      setGlobalSearchPurchases(null);
+      setGlobalSearchSales(null);
+      setSearchingAll(false);
+      autoJumpTermRef.current = '';
+      return;
+    }
+    let cancelled = false;
+    setSearchingAll(true);
+    const timer = setTimeout(async () => {
+      // Neutralise PostgREST or-string structural characters with the single-
+      // char wildcard "_" so names like "Smith, Co." or "O'Brien" still match.
+      const safe = term.replace(/['(),]/g, '_');
+      const like = `%${safe}%`;
+      try {
+        const [purchaseResult, salesResult] = await Promise.all([
+          supabase
+            .from('purchases')
+            .select(PURCHASE_SELECT_COLS)
+            .eq('client_id', currentClientId)
+            .or(`supplier_name.ilike.${like},invoice_no.ilike.${like}`)
+            .order('date', { ascending: true })
+            .limit(2000),
+          supabase
+            .from('sales')
+            .select(SALE_SELECT_COLS)
+            .eq('client_id', currentClientId)
+            .or(`buyer_name.ilike.${like},ref.ilike.${like}`)
+            .order('date', { ascending: true })
+            .limit(2000),
+        ]);
+        if (cancelled) return;
+        const mappedPurchases = (purchaseResult.data || []).map(mapPurchaseRow);
+        const mappedSales = (salesResult.data || []).map(mapSaleRow);
+        setGlobalSearchPurchases(mappedPurchases);
+        setGlobalSearchSales(mappedSales);
+        setSearchingAll(false);
+        if (purchaseResult.error) console.error('Global purchases search failed:', purchaseResult.error);
+        if (salesResult.error) console.error('Global sales search failed:', salesResult.error);
+
+        // Auto-jump the period selectors to the dominant match period, once
+        // per search term. React bails out if the value is already the same.
+        if (autoJumpTermRef.current !== term) {
+          autoJumpTermRef.current = term;
+          const relevant = historyTab === 'income' ? mappedSales : mappedPurchases;
+          const counts = new Map<string, { y: number; m: number; n: number }>();
+          for (const r of relevant) {
+            const d = new Date(String(r.date));
+            if (Number.isNaN(d.getTime())) continue;
+            const y = d.getFullYear();
+            const m = d.getMonth() + 1;
+            const key = `${y}-${m}`;
+            const entry = counts.get(key);
+            if (entry) entry.n += 1; else counts.set(key, { y, m, n: 1 });
+          }
+          let best: { y: number; m: number; n: number } | null = null;
+          counts.forEach((e) => {
+            if (!best || e.n > best.n || (e.n === best.n && (e.y > best.y || (e.y === best.y && e.m > best.m)))) best = e;
+          });
+          if (best) {
+            setSelectedMonth(best.m);
+            setSelectedYear(best.y);
+          }
+        }
+      } catch (err) {
+        if (cancelled) return;
+        console.error('Global search failed:', err);
+        setSearchingAll(false);
+        // Fall back to period-scoped filtering by clearing global results.
+        setGlobalSearchPurchases(null);
+        setGlobalSearchSales(null);
+      }
+    }, 350);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [searchTerm, currentClientId, historyTab, isSearchTab]);
 
   // NEW: Auto-refresh when the number of purchases changes (e.g., adding a new purchase)
   useEffect(() => {
@@ -656,6 +757,7 @@ export function History() {
     try {
       await deletePurchase(String(id));
       setLocalHistoryPurchases(prev => prev.filter(p => String(p.id) !== String(id)));
+      setGlobalSearchPurchases(prev => prev ? prev.filter(p => String(p.id) !== String(id)) : prev);
       showToast('Expense deleted');
     } catch (error) {
       console.error(error);
@@ -679,7 +781,7 @@ export function History() {
     const trimmed = rawValue.trim();
     const idKey = String(id);
     setEditingAccountId(null);
-    const purchase = localHistoryPurchases.find(p => String(p.id) === idKey);
+    const purchase = effectivePurchases.find(p => String(p.id) === idKey);
     if (!purchase) return;
     // No-op if the value didn't actually change.
     if (trimmed === (purchase.accountTitle || '')) return;
@@ -696,6 +798,7 @@ export function History() {
     setLocalHistoryPurchases(prev =>
       prev.map(p => String(p.id) === idKey ? { ...p, accountTitle: trimmed || undefined } : p)
     );
+    setGlobalSearchPurchases(prev => prev ? prev.map(p => String(p.id) === idKey ? { ...p, accountTitle: trimmed || undefined } : p) : prev);
     showToast(trimmed ? `Account title updated to “${trimmed}”` : 'Account title cleared');
   };
 
@@ -709,6 +812,7 @@ export function History() {
     try {
       await deleteSale(String(id));
       setLocalHistorySales(prev => prev.filter(s => String(s.id) !== String(id)));
+      setGlobalSearchSales(prev => prev ? prev.filter(s => String(s.id) !== String(id)) : prev);
       showToast('Income deleted');
     } catch (error) {
       console.error(error);
@@ -716,8 +820,8 @@ export function History() {
     }
   };
 
-  const purchases = localHistoryPurchases;
-  const sales = localHistorySales;
+  const purchases = effectivePurchases;
+  const sales = effectiveSales;
 
   const filteredPurchases = purchases.filter(p => 
     p.supplierName.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -757,11 +861,11 @@ export function History() {
     const trimmed = bulkAccountTitle.trim();
     // Act on every selected id, including rows that may be hidden by search.
     const targetIds = new Set([...selectedPurchaseIds]);
-    const idValues = localHistoryPurchases.filter(p => targetIds.has(String(p.id))).map(p => p.id);
+    const idValues = effectivePurchases.filter(p => targetIds.has(String(p.id))).map(p => p.id);
     if (idValues.length === 0) { clearBulkSelection(); return; }
     setBulkSaving(true);
     try {
-      const selectedPurchases = localHistoryPurchases.filter(p => targetIds.has(String(p.id)));
+      const selectedPurchases = effectivePurchases.filter(p => targetIds.has(String(p.id)));
       await Promise.all(selectedPurchases.map(p => savePurchase(String(p.id), { ...p, accountTitle: trimmed || undefined })));
     } catch (error) {
       setBulkSaving(false);
@@ -771,6 +875,7 @@ export function History() {
     }
     setBulkSaving(false);
     setLocalHistoryPurchases(prev => prev.map(p => targetIds.has(String(p.id)) ? { ...p, accountTitle: trimmed || undefined } : p));
+    setGlobalSearchPurchases(prev => prev ? prev.map(p => targetIds.has(String(p.id)) ? { ...p, accountTitle: trimmed || undefined } : p) : prev);
     showToast(`Updated ${idValues.length} expense${idValues.length === 1 ? '' : 's'} to “${trimmed || '(no account title)'}”`);
     clearBulkSelection();
   };
@@ -1085,13 +1190,84 @@ export function History() {
                   <Search className="w-4 h-4 absolute left-3 top-3 text-slate-400" />
                   <input 
                     type="text" 
-                    placeholder={`Search ${activeTab}...`}
+                    placeholder="Search all months & years..."
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
+                    className="w-full pl-9 pr-9 py-2 border border-slate-200 dark:border-slate-700 rounded-xl text-sm bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 transition-all"
                   />
+                  {searchingAll ? (
+                    <span className="absolute right-3 top-2.5 inline-block w-4 h-4 border-2 border-indigo-300 border-t-indigo-600 rounded-full animate-spin" />
+                  ) : searchTerm ? (
+                    <button type="button" onClick={() => setSearchTerm('')} aria-label="Clear search" className="absolute right-2 top-2 p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  ) : null}
                 </div>
               </div>
+
+              {/* Global-search status bar: match count, auto-set period, clickable
+                  period chips to jump the month/year selectors, cross-tab hint. */}
+              {isSearchTab && trimmedSearch && (
+                <div className="px-4 py-2 border-b border-slate-100 dark:border-slate-800 bg-indigo-50/60 dark:bg-indigo-950/20 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[11px]">
+                  {searchingAll ? (
+                    <span className="flex items-center gap-2 font-semibold text-indigo-700 dark:text-indigo-300">
+                      <span className="inline-block w-3 h-3 border-2 border-indigo-300 border-t-indigo-600 rounded-full animate-spin" />
+                      Searching all months and years…
+                    </span>
+                  ) : globalSearchActive ? (
+                    (() => {
+                      const matches = activeTab === 'income' ? effectiveSales : effectivePurchases;
+                      const otherMatches = activeTab === 'income' ? globalSearchPurchases : globalSearchSales;
+                      const otherLabel = activeTab === 'income' ? 'Expense' : 'Income';
+                      const byPeriod = new Map<string, { y: number; m: number; n: number }>();
+                      for (const r of matches) {
+                        const d = new Date(String(r.date));
+                        if (Number.isNaN(d.getTime())) continue;
+                        const y = d.getFullYear(), m = d.getMonth() + 1, k = `${y}-${m}`;
+                        const e = byPeriod.get(k);
+                        if (e) e.n += 1; else byPeriod.set(k, { y, m, n: 1 });
+                      }
+                      const periods = [...byPeriod.values()].sort((a, b) => b.n - a.n || b.y - a.y || b.m - a.m);
+                      return (
+                        <>
+                          {matches.length === 0 ? (
+                            <span className="font-semibold text-amber-700 dark:text-amber-300">
+                              No {activeTab === 'income' ? 'income' : 'expense'} matches found in any period for “{trimmedSearch}”.
+                            </span>
+                          ) : (
+                            <span className="font-semibold text-indigo-700 dark:text-indigo-300">
+                              {matches.length} match{matches.length === 1 ? '' : 'es'} across {periods.length} period{periods.length === 1 ? '' : 's'} — showing all. Period set to {MONTHS[selectedMonth - 1]} {selectedYear}.
+                            </span>
+                          )}
+                          {periods.length > 1 && (
+                            <span className="flex flex-wrap items-center gap-1">
+                              {periods.map(p => (
+                                <button
+                                  key={`${p.y}-${p.m}`}
+                                  type="button"
+                                  onClick={() => { setSelectedMonth(p.m); setSelectedYear(p.y); }}
+                                  className={`px-2 py-0.5 rounded-full font-bold border transition-colors ${selectedMonth === p.m && selectedYear === p.y ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white dark:bg-slate-800 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/40'}`}
+                                >
+                                  {MONTHS[p.m - 1].slice(0, 3)} {p.y} ({p.n})
+                                </button>
+                              ))}
+                            </span>
+                          )}
+                          {otherMatches && otherMatches.length > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => setHistoryTab(activeTab === 'income' ? 'expenses' : 'income')}
+                              className="ml-auto px-2.5 py-1 rounded-lg font-bold bg-white dark:bg-slate-800 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-900/30"
+                            >
+                              {otherMatches.length} in {otherLabel} History →
+                            </button>
+                          )}
+                        </>
+                      );
+                    })()
+                  ) : null}
+                </div>
+              )}
 
               {/* Shared suggestion list for inline Account Title editing (referenced by input[list]) */}
               <datalist id="expense-account-title-suggestions">
@@ -1331,7 +1507,7 @@ export function History() {
                   {((activeTab === 'expenses' && filteredPurchases.length === 0) || (activeTab === 'income' && filteredSales.length === 0)) && (
                     <div className="text-center py-12 text-slate-500 dark:text-slate-400">
                       <HistoryIcon className="w-8 h-8 mx-auto mb-3 opacity-20" />
-                      <p className="font-medium">No {activeTab} found for this period.</p>
+                      <p className="font-medium">{globalSearchActive ? `No ${activeTab} matches found in any period.` : `No ${activeTab} found for this period.`}</p>
                       <p className="text-xs">Adjust your search or change the month/year filter.</p>
                     </div>
                   )}
