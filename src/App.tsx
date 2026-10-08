@@ -44,6 +44,7 @@ const BIRForms = lazy(() => import('./components/BIRForms').then(m => ({ default
 const ComplianceTracker = lazy(() => import('./components/ComplianceTracker').then(m => ({ default: m.ComplianceTracker })));
 const AccountSettings = lazy(() => import('./components/AccountSettings').then(m => ({ default: m.AccountSettings })));
 const TeamSettings = lazy(() => import('./components/TeamSettings').then(m => ({ default: m.TeamSettings })));
+const PaymentApproval = lazy(() => import('./components/PaymentApproval').then(m => ({ default: m.PaymentApproval })));
 
 /**
  * Route-level permission guard (Goal A). Wraps the whole <Routes> block so a
@@ -173,6 +174,7 @@ function AppLayout() {
             <Route path="/afs-ppe" element={<AssetLapsing />} />
             <Route path="/developertools/systemconfig" element={<AdminSettings />} />
             <Route path="/developertools/diagnostics" element={<AdminSettings />} />
+            <Route path="/admin/payments" element={<PaymentApproval />} />
             <Route path="/diagnostics" element={<Diagnostics />} />
             {/* Extras bundles several related pages in one file; each gets
                 its own route but they all mount the same component, which

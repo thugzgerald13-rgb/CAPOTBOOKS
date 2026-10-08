@@ -67,6 +67,7 @@ export const ADMIN_ONLY_ROUTES: ReadonlySet<string> = new Set([
   '/diagnostics',
   '/compliance-tracker',
   '/inventory',
+  '/admin/payments',
 ]);
 
 /** Permission required to open `pathname`, or null if the route is open. */

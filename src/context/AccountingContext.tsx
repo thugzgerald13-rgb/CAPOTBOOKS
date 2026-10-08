@@ -1341,7 +1341,7 @@ export function AccountingProvider({
     // not count against the cap. Subscribed users are unlimited.
     const isNewSale = !(clients[currentClientId]?.sales || []).some((x: any) => String(x.id) === String(id));
     if (isNewSale) {
-      const limit = checkTransactionLimit(user.id);
+      const limit = await checkTransactionLimit(user.id);
       if (!limit.allowed) {
         showToast(`Free plan limit reached — you've added ${limit.count} of ${limit.limit} transactions. Subscribe or upgrade in Settings → Plan & Billing to add more.`);
         return;
@@ -1810,7 +1810,7 @@ export function AccountingProvider({
     // not count against the cap. Subscribed users are unlimited.
     const isNewPurchase = !existingPurchase;
     if (isNewPurchase) {
-      const limit = checkTransactionLimit(user.id);
+      const limit = await checkTransactionLimit(user.id);
       if (!limit.allowed) {
         showToast(`Free plan limit reached — you've added ${limit.count} of ${limit.limit} transactions. Subscribe or upgrade in Settings → Plan & Billing to add more.`);
         return;

@@ -4,14 +4,15 @@ import { useAuth } from '../context/AuthContext';
 import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
 import { supabase } from '../lib/supabase';
-import { getSubscriptionPlan, setSubscriptionPlan, getTransactionCount, FREE_TRANSACTION_LIMIT, type SubscriptionPlan } from '../lib/subscription';
+import { getSubscriptionPlan, getTransactionCount, FREE_TRANSACTION_LIMIT, fetchSubscription, invalidateSubscriptionCache, type SubscriptionPlan } from '../lib/subscription';
+import { PaymentInstructions } from './PaymentInstructions';
 
 type NotifPrefs = { complianceReminders: boolean; weeklyDigest: boolean; productUpdates: boolean };
 const DEFAULT_PREFS: NotifPrefs = { complianceReminders: true, weeklyDigest: true, productUpdates: false };
 const PLANS = [
   { id: 'starter', name: 'Starter', price: '₱499/mo', features: ['1 entity', 'Up to 50 transactions/mo', 'Basic reports'] },
   { id: 'pro', name: 'Pro', price: '₱1,499/mo', features: ['Unlimited entities', 'Unlimited transactions', 'All BIR forms', 'Priority support'] },
-  { id: 'enterprise', name: 'Enterprise', price: 'Custom', features: ['Multi-user roles', 'API access', 'Dedicated support'] },
+  { id: 'enterprise', name: 'Enterprise', price: '₱3,999/mo', features: ['Multi-user roles', 'API access', 'Dedicated support'] },
 ];
 // Customer support contact — override with VITE_SUPPORT_EMAIL in .env.
 // Falls back to the admin/developer email so the contact button always works.
@@ -32,8 +33,33 @@ export function AccountSettings() {
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
   // ---- Subscription plan + free-tier transaction usage ----
+  // Source of truth is Supabase (profiles.subscription_*). localStorage is only
+  // the instant first-paint fallback; it can no longer unlock a plan.
   const [plan, setPlan] = useState<SubscriptionPlan>(() => getSubscriptionPlan(user?.id));
   const [txCount, setTxCount] = useState<number>(() => getTransactionCount(user?.id));
+  const [paymentPlan, setPaymentPlan] = useState<SubscriptionPlan | null>(null);
+  const [pendingPlan, setPendingPlan] = useState<SubscriptionPlan | null>(null);
+
+  const refreshSubscription = async () => {
+    if (!user) return;
+    invalidateSubscriptionCache(user.id);
+    const sub = await fetchSubscription(user.id);
+    setPlan(sub.plan);
+    setTxCount(getTransactionCount(user.id));
+    // Surface any pending payment request so the user knows it's in review.
+    try {
+      const { data } = await supabase
+        .from('payment_requests')
+        .select('plan, status')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      setPendingPlan(data && data.status === 'pending' ? (data.plan as SubscriptionPlan) : null);
+    } catch { /* table not migrated yet */ }
+  };
+
+  useEffect(() => { refreshSubscription(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [user?.id]);
   // ---- T021: 2FA stub + notif prefs + plan + data export ----
   const [twoFaEnabled, setTwoFaEnabled] = useState(false);
   const [prefs, setPrefs] = useState<NotifPrefs>(DEFAULT_PREFS);
@@ -180,23 +206,24 @@ export function AccountSettings() {
               {!isCurrent && (
                 <button
                   type="button"
-                  onClick={() => {
-                    if (p.id === 'enterprise') {
-                      showToast('Contact our sales team via Customer Support below.');
-                      return;
-                    }
-                    setSubscriptionPlan(p.id as SubscriptionPlan, user?.id);
-                    setPlan(p.id as SubscriptionPlan);
-                    setTxCount(getTransactionCount(user?.id));
-                    showToast(`Upgraded to ${p.name} — unlimited transactions unlocked.`);
-                  }}
-                  className="mt-3 w-full text-xs font-bold py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 hover:bg-white dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300"
-                >{p.id === 'enterprise' ? 'Contact Sales' : 'Upgrade'}</button>
+                  onClick={() => setPaymentPlan(p.id as SubscriptionPlan)}
+                  disabled={pendingPlan !== null}
+                  className="mt-3 w-full text-xs font-bold py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 hover:bg-white dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                >{pendingPlan !== null ? 'Payment Pending' : 'Subscribe'}</button>
               )}
             </div>
             );
           })}
         </div>
+        {/* Pending payment request — waiting for admin verification */}
+        {pendingPlan && (
+          <div className="mt-4 p-3 rounded-xl border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/20 flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+            <div className="text-xs text-amber-700 dark:text-amber-300">
+              <span className="font-bold">Payment pending verification.</span> Your <span className="font-bold capitalize">{pendingPlan}</span> payment receipt was submitted. We'll verify it in GCash and activate your plan within 24 hours.
+            </div>
+          </div>
+        )}
         {/* Free-tier transaction usage */}
         <div className="mt-4 p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900">
           {plan === 'free' ? (
@@ -307,6 +334,11 @@ export function AccountSettings() {
           </div>
         )}
       </div>
+      <PaymentInstructions
+        plan={paymentPlan}
+        onClose={() => setPaymentPlan(null)}
+        onSubmitted={refreshSubscription}
+      />
     </div>
   );
 }
