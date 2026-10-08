@@ -209,13 +209,6 @@ function MainApp() {
   const { user, loading, userRole, setUserRole } = useAuth();
   const [functionsChosen, setFunctionsChosen] = useState(false);
 
-  // Function-selection landing page — shown BEFORE the login screen on first
-  // run. Check the per-user key (falls back to the default pre-login key) so a
-  // saved selection is recognized both before and after login.
-  if (loadEnabledFunctionIds(user?.id) === null && !functionsChosen) {
-    return <FunctionSelector userId={user?.id} onComplete={() => setFunctionsChosen(true)} />;
-  }
-
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 font-sans">
@@ -228,12 +221,22 @@ function MainApp() {
     return <AuthContainer />;
   }
 
+  // Primary role selection — shown FIRST after login, before the functions
+  // selection page, so the user's role (Business Owner vs Accountant) is set
+  // (and persisted to their profile) before they pick which modules to enable.
   const handleRoleSelect = (selectedRole: string) => {
     setUserRole(selectedRole);
   };
 
-  if (!userRole && user) {
+  if (!userRole) {
     return <RoleSelection onSelect={handleRoleSelect} />;
+  }
+
+  // Function-selection landing page — shown after the primary role has been
+  // chosen. The per-user key takes precedence; it falls back to the default
+  // key so a selection saved in an earlier version is still recognized.
+  if (loadEnabledFunctionIds(user.id) === null && !functionsChosen) {
+    return <FunctionSelector userId={user.id} onComplete={() => setFunctionsChosen(true)} />;
   }
 
   return (
