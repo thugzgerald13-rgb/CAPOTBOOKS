@@ -99,19 +99,20 @@ alter table public.eis_transmissions enable row level security;
 -- Owners + account members can read/write their own client's EIS data.
 drop policy if exists "eis_settings tenant select" on public.eis_settings;
 create policy "eis_settings tenant select" on public.eis_settings
-  for select using (public.is_client_owner_or_member(client_id));
+  for select using (public.is_client_owner(client_id));
 drop policy if exists "eis_settings tenant write" on public.eis_settings;
 create policy "eis_settings tenant write" on public.eis_settings
-  for all using (public.is_client_owner_or_member(client_id))
-  with check (public.is_client_owner_or_member(client_id));
+  for all using (public.is_client_owner(client_id))
+  with check (public.is_client_owner(client_id));
 
 drop policy if exists "eis_transmissions tenant select" on public.eis_transmissions;
 create policy "eis_transmissions tenant select" on public.eis_transmissions
-  for select using (public.is_client_owner_or_member(client_id));
+  for select using (public.is_client_owner(client_id));
 drop policy if exists "eis_transmissions tenant write" on public.eis_transmissions;
 create policy "eis_transmissions tenant write" on public.eis_transmissions
-  for all using (public.is_client_owner_or_member(client_id))
-  with check (public.is_client_owner_or_member(client_id));
+  for all using (public.is_client_owner(client_id))
+  with check (public.is_client_owner(client_id));
 
--- NOTE: If your schema.sql defines is_client_owner_or_member() differently,
--- replace that function name above with your actual tenant-check helper.
+-- NOTE: These RLS policies use public.is_client_owner(text) — the same tenant
+-- helper used by the rest of the schema (scripts/schema.sql line 85). If you
+-- have a subuser/member-aware helper, swap it in here.
