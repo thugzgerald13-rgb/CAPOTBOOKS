@@ -11,13 +11,20 @@ alter table public.profiles add column if not exists trial_ends_at timestamptz;
 -- 2. Paid module entitlements (one row per account owner + module) -----------
 create table if not exists public.account_modules (
   user_id uuid not null references public.profiles(id) on delete cascade,
-  module text not null check (module in ('reports','billing','compliance','inventory','team')),
+  module text not null check (module in ('accounting_books','reports','billing','compliance','inventory','team')),
   expires_at timestamptz not null,
   source text not null default 'purchase' check (source in ('purchase','admin')),
   payment_request_id uuid references public.payment_requests(id) on delete set null,
   updated_at timestamptz not null default now(),
   primary key (user_id, module)
 );
+-- Expand the allowed module keys for both fresh installs and installations
+-- that already created account_modules using the earlier pricing migration.
+alter table public.account_modules drop constraint if exists account_modules_module_check;
+alter table public.account_modules
+  add constraint account_modules_module_check
+  check (module in ('accounting_books','reports','billing','compliance','inventory','team'));
+
 create index if not exists idx_account_modules_expiry on public.account_modules(expires_at);
 
 alter table public.account_modules enable row level security;
@@ -92,7 +99,7 @@ grant execute on function public.entitlement_owner(uuid) to authenticated;
 
 -- 5. get_my_entitlements() — the single call the app makes -------------------
 -- Lazily starts the trial the first time an account owner who has chosen a
--- role calls it: 7 days for Business Owners, 14 for Accountants/Bookkeepers
+-- role calls it: 7 days for Business Owners and Accountants/Bookkeepers
 -- (keep in sync with TRIAL_DAYS in src/lib/modules.ts).
 create or replace function public.get_my_entitlements()
 returns jsonb
@@ -132,7 +139,7 @@ begin
   -- Start the trial once, server-side, for account owners with a chosen role.
   if not v_member and v_trial_start is null and v_role <> '' then
     v_trial_start := now();
-    v_trial_end := now() + make_interval(days => case when v_role in ('accountant','bookkeeper') then 14 else 7 end);
+    v_trial_end := now() + interval '7 days';
     update public.profiles
        set trial_started_at = v_trial_start, trial_ends_at = v_trial_end
      where id = v_owner;
@@ -150,9 +157,9 @@ begin
      and coalesce(v_status, 'active') = 'active'
      and (v_plan_exp is null or v_plan_exp > now()) then
     v_legacy := case v_plan
-      when 'starter' then array['reports','billing']
-      when 'pro'     then array['reports','billing','compliance','inventory']
-      else                array['reports','billing','compliance','inventory','team']
+      when 'starter' then array['accounting_books','reports','billing']
+      when 'pro'     then array['accounting_books','reports','billing','compliance','inventory']
+      else                array['accounting_books','reports','billing','compliance','inventory','team']
     end;
     v_legacy_exp := coalesce(v_plan_exp, now() + interval '3650 days');
     v_mods := v_mods || coalesce((
@@ -185,7 +192,7 @@ declare
   v_req record;
   v_interval interval;
   v_mod text;
-  v_allowed text[] := array['reports','billing','compliance','inventory','team'];
+  v_allowed text[] := array['accounting_books','reports','billing','compliance','inventory','team'];
 begin
   if not exists (select 1 from public.profiles where id = auth.uid() and role = 'admin') then
     raise exception 'Admin access required';

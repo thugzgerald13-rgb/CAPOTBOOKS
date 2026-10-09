@@ -4,14 +4,14 @@
 // Starter/Pro/Enterprise tiers. What a user can open is now decided by what
 // they have PAID FOR (or their trial), not by a self-service checklist.
 //
-//   core        -> always free, unlimited transactions (books, entry, journals)
-//   paid modules-> reports, billing, compliance, inventory, team
+//   core        -> free COA, transaction entry and transaction history
+//   paid modules-> accounting books, reports, billing, compliance, inventory, team
 //
 // Prices below are starting hypotheses for the manual-GCash flow (fixed
 // amounts so each receipt is easy to verify). Tune them here ONLY — the UI and
 // the admin approval screen both read from this file.
 
-export type ModuleId = 'reports' | 'billing' | 'compliance' | 'inventory' | 'team';
+export type ModuleId = 'accounting_books' | 'reports' | 'billing' | 'compliance' | 'inventory' | 'team';
 export type ModuleKey = 'core' | ModuleId;
 export type BillingCycle = 'monthly' | 'annual';
 
@@ -24,6 +24,13 @@ export interface ModuleDef {
 }
 
 export const PAID_MODULES: ModuleDef[] = [
+  {
+    id: 'accounting_books',
+    label: 'Accounting Books & Ledgers',
+    tagline: 'Formal books, journals and ledger balances',
+    includes: ['General Journal', 'General Ledger', 'Trial Balance', 'Journal Vouchers', 'Sales, purchase and cash journals', 'Accounting-book exports'],
+    monthly: 349,
+  },
   {
     id: 'reports',
     label: 'Financial Reports',
@@ -64,16 +71,12 @@ export const PAID_MODULES: ModuleDef[] = [
 export const ALL_PAID_MODULE_IDS: ModuleId[] = PAID_MODULES.map((m) => m.id);
 
 export const CORE_MODULE = {
-  label: 'Core Books',
-  tagline: 'Always free — unlimited transactions',
+  label: 'Free Core',
+  tagline: 'Always free — unlimited transaction entry',
   includes: [
-    'Chart of Accounts',
-    'Sales & Purchases entry',
-    'Journal Vouchers',
-    'General Journal & Ledger',
-    'Special journals',
-    'Trial Balance',
-    'History & file uploads',
+    'Chart of Accounts (create and manage accounts)',
+    'Sales, purchases and expense data entry',
+    'Transaction history (view and search)',
   ],
 };
 
@@ -102,24 +105,24 @@ export const BUNDLES: BundleDef[] = [
     id: 'essentials',
     label: 'Business Essentials',
     tagline: 'For owners who file their own taxes',
-    modules: ['reports', 'billing', 'compliance'],
-    monthly: 799,
+    modules: ['accounting_books', 'reports', 'billing', 'compliance'],
+    monthly: 999,
     audience: 'owner',
   },
   {
     id: 'retail',
     label: 'Retail & Trading',
     tagline: 'Essentials plus stock tracking',
-    modules: ['reports', 'billing', 'compliance', 'inventory'],
-    monthly: 1049,
+    modules: ['accounting_books', 'reports', 'billing', 'compliance', 'inventory'],
+    monthly: 1249,
     audience: 'owner',
   },
   {
     id: 'practice',
     label: 'Accountant Practice',
     tagline: 'Every module, built for multi-client work',
-    modules: ['reports', 'billing', 'compliance', 'inventory', 'team'],
-    monthly: 1499,
+    modules: ['accounting_books', 'reports', 'billing', 'compliance', 'inventory', 'team'],
+    monthly: 1799,
     audience: 'accountant',
   },
 ];
@@ -133,7 +136,7 @@ export function recommendedBundleId(userRole: string | null | undefined): string
 // Trial + billing cycle
 // ---------------------------------------------------------------------------
 // MUST match the CASE in scripts/modules_entitlements.sql (get_my_entitlements).
-export const TRIAL_DAYS = { owner: 7, accountant: 14 } as const;
+export const TRIAL_DAYS = { owner: 7, accountant: 7 } as const;
 export function trialDaysForRole(userRole: string | null | undefined): number {
   const r = String(userRole || '').toLowerCase();
   return r === 'accountant' || r === 'bookkeeper' ? TRIAL_DAYS.accountant : TRIAL_DAYS.owner;
@@ -159,7 +162,11 @@ export interface Quote {
 }
 
 export function quote(selection: ModuleId[], cycle: BillingCycle = 'monthly'): Quote {
-  const modules = ALL_PAID_MODULE_IDS.filter((id) => selection.includes(id)); // stable order
+  // Reports and tax/compliance workflows depend on the underlying accounting books.
+  // Include that foundation in quotes even if a caller passes only a dependent module.
+  const selected = new Set<ModuleId>(selection);
+  if (selected.has('reports') || selected.has('compliance')) selected.add('accounting_books');
+  const modules = ALL_PAID_MODULE_IDS.filter((id) => selected.has(id)); // stable order
   const sum = (ids: ModuleId[]) => ids.reduce((acc, id) => acc + getModule(id).monthly, 0);
   const alaCarteMonthly = sum(modules);
 
@@ -206,6 +213,7 @@ export function orderFromSelection(selection: ModuleId[], cycle: BillingCycle): 
 // Route -> module. Anything not listed here is Core (never locked).
 // ---------------------------------------------------------------------------
 const ROUTE_MODULES: [RegExp, ModuleId][] = [
+  [/^\/(journal-voucher|journal|ledger|trialbalance|sales-journal|purchase-journal|cash-receipt|cash-disbursement|books)$/, 'accounting_books'],
   [/^\/pl$/, 'reports'],
   [/^\/balancesheet$/, 'reports'],
   [/^\/cashflow$/, 'reports'],

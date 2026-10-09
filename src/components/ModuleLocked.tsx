@@ -25,8 +25,8 @@ export function ModuleLocked({ moduleId }: { moduleId: ModuleId }) {
       <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">{mod.label} is locked</h1>
       <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
         {trialEnded
-          ? 'Your free trial has ended. Core Books stay free with unlimited transactions.'
-          : 'This module is not part of your current plan.'}
+          ? 'Your free trial has ended. Chart of Accounts, transaction entry, and transaction history remain free.'
+          : 'This module is not part of your current plan. Your free Core data remains available.'}
       </p>
 
       <ul className="mt-5 inline-flex flex-col gap-1.5 text-left">

@@ -1,24 +1,26 @@
 // subscription.ts — Trial + module entitlements (server is the source of truth).
 //
 // MODEL
-//   * Every account owner gets a free trial (7 days Business Owner, 14 days
-//     Accountant) during which ALL modules are unlocked. The trial clock is
+//   * Every account owner gets a 7-day free trial during which ALL modules
+//     are unlocked. The trial clock is
 //     stored on profiles and started by the server the first time the owner
 //     opens the workspace after choosing a role — it cannot be reset by
 //     clearing the browser.
-//   * After the trial, "Core Books" stay free with UNLIMITED transactions
-//     (the old 7-transaction cap is gone). Paid modules (reports, billing,
+//   * After the trial, the Free Core stays available for unlimited transaction
+//     entry, COA and history. Formal journals, ledgers and trial balance are in
+//     the paid accounting_books module. Other paid modules (reports, billing,
 //     compliance, inventory, team) unlock only while a paid entitlement is
 //     active. Entitlements are granted by the admin when a GCash receipt is
 //     approved (scripts/modules_entitlements.sql).
-//   * Team members inherit the account OWNER's trial/modules (resolved by the
-//     get_my_entitlements() RPC), so staff and accountants never need to pay.
+//   * Managed staff inherit their account OWNER's trial/modules (resolved by the
+//     get_my_entitlements() RPC). Independent primary-role accountants/bookkeepers
+//     have their own subscription unless they are managed subusers.
 //   * Gating is a UI-level lock backed by server-held entitlements. It does not
 //     block direct database access; locked data is never deleted or hidden from
 //     exports of Core data.
-//   * Offline / RPC not migrated yet: last known entitlements are used, and if
-//     there are none the app fails OPEN (nothing locks) so a missing migration
-//     can never lock paying customers out of their books.
+//   * On an entitlement RPC failure the last known entitlement cache is used;
+//     without a valid cache, paid module screens fail closed while Free Core stays
+//     available. Apply the migration before launch and test this behavior.
 import { useSyncExternalStore } from 'react';
 import { supabase } from './supabase';
 import { isModuleId, type ModuleId, type ModuleKey } from './modules';
@@ -98,13 +100,12 @@ export function isPaidActive(s: EntitlementState, id: ModuleId): boolean {
 }
 
 /**
- * Is `id` usable right now? Core is always true. Until entitlements have loaded
- * the answer is true (callers that care about the flash check `isResolving`).
+ * Is `id` usable right now? Core is always true. Paid modules require a confirmed
+ * server entitlement or active trial; an unavailable entitlement service fails closed.
  */
 export function isModuleUnlocked(s: EntitlementState, id: ModuleKey, isAdmin = false): boolean {
   if (id === 'core' || isAdmin || s.isServerAdmin) return true;
-  if (s.status === 'unavailable') return true; // fail open (see header)
-  if (s.status !== 'ready') return true;
+  if (s.status !== 'ready') return false;
   return isTrialActive(s) || isPaidActive(s, id);
 }
 /** True while the first server answer is still pending. */

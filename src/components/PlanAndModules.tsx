@@ -59,8 +59,18 @@ export function PlanAndModules() {
   }, []);
 
   const q = useMemo(() => quote(selected, cycle), [selected, cycle]);
-  const toggle = (id: ModuleId) =>
-    setSelected((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
+  const toggle = (id: ModuleId) => setSelected((cur) => {
+    const next = new Set(cur);
+    if (next.has(id)) next.delete(id); else next.add(id);
+
+    // Financial reports and compliance need the underlying Accounting Books module.
+    if ((id === 'reports' || id === 'compliance') && next.has(id)) next.add('accounting_books');
+    if (id === 'accounting_books' && !next.has(id)) {
+      next.delete('reports');
+      next.delete('compliance');
+    }
+    return PAID_MODULES.map((module) => module.id).filter((moduleId) => next.has(moduleId));
+  });
   const price = (monthly: number) =>
     cycle === 'annual' ? `${peso(monthly * ANNUAL_MONTHS_CHARGED)}/yr` : `${peso(monthly)}/mo`;
 
@@ -80,14 +90,14 @@ export function PlanAndModules() {
           <Sparkles className="w-4 h-4 text-cyan-600 shrink-0 mt-0.5" />
           <div className="text-xs text-cyan-800 dark:text-cyan-200">
             <span className="font-bold">Free trial — {daysLeft} day{daysLeft === 1 ? '' : 's'} left</span> (ends {fmtDate(ent.trialEndsAt)}).
-            Every module is unlocked. Afterwards, Core Books stay free with unlimited transactions and you keep only the modules you subscribe to.
+            Every module is unlocked. Afterwards, Chart of Accounts, transaction entry and transaction history stay free; formal books and paid modules require a subscription.
           </div>
         </div>
       ) : trialOver ? (
         <div className="p-3 rounded-xl border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/20 flex items-start gap-2">
           <Clock className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
           <div className="text-xs text-amber-800 dark:text-amber-200">
-            <span className="font-bold">Your free trial ended {fmtDate(ent.trialEndsAt)}.</span> Core Books remain free and your data is untouched.
+            <span className="font-bold">Your free trial ended {fmtDate(ent.trialEndsAt)}.</span> Chart of Accounts, transaction entry and transaction history remain free; your data is untouched.
             Subscribe to a module below to unlock it again.
           </div>
         </div>
