@@ -6,7 +6,7 @@ import { jsPDF } from 'jspdf';
 import type { BillingInvoice } from '../types';
 import type { BusinessProfile } from '../types';
 
-const money = (n: number) => `₱${(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const money = (n: number) => `₱${Math.abs(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 function profileField(profile: BusinessProfile | undefined, key: string): string {
   if (!profile) return '';

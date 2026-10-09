@@ -10,7 +10,7 @@ import { downloadSoaPdf } from '../lib/invoicePdf';
 import { toast } from './ui/Toast';
 import { TemplateEditor } from './TemplateEditor';
 
-const money = (n: number) => `₱${(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const money = (n: number) => `₱${Math.abs(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export function SoaTab() {
   const { currentClient, currentClientId, businessProfile, showToast } = useAccounting();
