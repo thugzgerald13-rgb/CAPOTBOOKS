@@ -4,16 +4,10 @@ import { useAuth } from '../context/AuthContext';
 import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
 import { supabase } from '../lib/supabase';
-import { getSubscriptionPlan, getTransactionCount, FREE_TRANSACTION_LIMIT, fetchSubscription, invalidateSubscriptionCache, type SubscriptionPlan } from '../lib/subscription';
-import { PaymentInstructions } from './PaymentInstructions';
+import { PlanAndModules } from './PlanAndModules';
 
 type NotifPrefs = { complianceReminders: boolean; weeklyDigest: boolean; productUpdates: boolean };
 const DEFAULT_PREFS: NotifPrefs = { complianceReminders: true, weeklyDigest: true, productUpdates: false };
-const PLANS = [
-  { id: 'starter', name: 'Starter', price: '₱499/mo', features: ['1 entity', 'Up to 50 transactions/mo', 'Basic reports'] },
-  { id: 'pro', name: 'Pro', price: '₱1,499/mo', features: ['Unlimited entities', 'Unlimited transactions', 'All BIR forms', 'Priority support'] },
-  { id: 'enterprise', name: 'Enterprise', price: '₱3,999/mo', features: ['Multi-user roles', 'API access', 'Dedicated support'] },
-];
 // Customer support contact — override with VITE_SUPPORT_EMAIL in .env.
 // Falls back to the admin/developer email so the contact button always works.
 const SUPPORT_EMAIL = (import.meta.env.VITE_SUPPORT_EMAIL || import.meta.env.VITE_ADMIN_EMAIL || 'thugz.gerald13@gmail.com').trim();
@@ -32,34 +26,6 @@ export function AccountSettings() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deleting, setDeleting] = useState(false);
-  // ---- Subscription plan + free-tier transaction usage ----
-  // Source of truth is Supabase (profiles.subscription_*). localStorage is only
-  // the instant first-paint fallback; it can no longer unlock a plan.
-  const [plan, setPlan] = useState<SubscriptionPlan>(() => getSubscriptionPlan(user?.id));
-  const [txCount, setTxCount] = useState<number>(() => getTransactionCount(user?.id));
-  const [paymentPlan, setPaymentPlan] = useState<SubscriptionPlan | null>(null);
-  const [pendingPlan, setPendingPlan] = useState<SubscriptionPlan | null>(null);
-
-  const refreshSubscription = async () => {
-    if (!user) return;
-    invalidateSubscriptionCache(user.id);
-    const sub = await fetchSubscription(user.id);
-    setPlan(sub.plan);
-    setTxCount(getTransactionCount(user.id));
-    // Surface any pending payment request so the user knows it's in review.
-    try {
-      const { data } = await supabase
-        .from('payment_requests')
-        .select('plan, status')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-      setPendingPlan(data && data.status === 'pending' ? (data.plan as SubscriptionPlan) : null);
-    } catch { /* table not migrated yet */ }
-  };
-
-  useEffect(() => { refreshSubscription(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [user?.id]);
   // ---- T021: 2FA stub + notif prefs + plan + data export ----
   const [twoFaEnabled, setTwoFaEnabled] = useState(false);
   const [prefs, setPrefs] = useState<NotifPrefs>(DEFAULT_PREFS);
@@ -192,65 +158,15 @@ export function AccountSettings() {
         </div>
       ))}
 
-      {/* Plan & Billing */}
-      {section(<CreditCard className="w-4 h-4" />, 'Plan & Billing', 'Your subscription plan.', (<>
-        <div className="grid md:grid-cols-3 gap-3">
-          {PLANS.map(p => {
-            const isCurrent = p.id === plan;
-            return (
-            <div key={p.id} className={`relative rounded-xl border p-4 ${isCurrent ? 'border-cyan-400 dark:border-cyan-600 bg-cyan-50 dark:bg-cyan-950/20' : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900'}`}>
-              {isCurrent && <span className="absolute -top-2 right-3 text-[10px] font-bold bg-cyan-600 text-white px-2 py-0.5 rounded-full">CURRENT</span>}
-              <div className="text-sm font-black text-slate-800 dark:text-slate-100">{p.name}</div>
-              <div className="text-lg font-black text-cyan-600 dark:text-cyan-400 my-1">{p.price}</div>
-              <ul className="space-y-1 mt-2">{p.features.map(f => <li key={f} className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5"><CheckCircle2 className="w-3 h-3 text-emerald-500 shrink-0" />{f}</li>)}</ul>
-              {!isCurrent && (
-                <button
-                  type="button"
-                  onClick={() => setPaymentPlan(p.id as SubscriptionPlan)}
-                  disabled={pendingPlan !== null}
-                  className="mt-3 w-full text-xs font-bold py-1.5 rounded-lg border border-slate-300 dark:border-slate-600 hover:bg-white dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 disabled:opacity-50 disabled:cursor-not-allowed"
-                >{pendingPlan !== null ? 'Payment Pending' : 'Subscribe'}</button>
-              )}
-            </div>
-            );
-          })}
-        </div>
-        {/* Pending payment request — waiting for admin verification */}
-        {pendingPlan && (
-          <div className="mt-4 p-3 rounded-xl border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/20 flex items-start gap-2">
-            <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-            <div className="text-xs text-amber-700 dark:text-amber-300">
-              <span className="font-bold">Payment pending verification.</span> Your <span className="font-bold capitalize">{pendingPlan}</span> payment receipt was submitted. We'll verify it in GCash and activate your plan within 24 hours.
-            </div>
-          </div>
-        )}
-        {/* Free-tier transaction usage */}
-        <div className="mt-4 p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900">
-          {plan === 'free' ? (
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs font-bold text-slate-600 dark:text-slate-300">Free plan — transactions used</span>
-                <span className="text-xs font-black text-slate-700 dark:text-slate-200">{txCount} / {FREE_TRANSACTION_LIMIT}</span>
-              </div>
-              <div className="w-full h-2 rounded-full bg-slate-200 dark:bg-slate-700 overflow-hidden">
-                <div className="h-full rounded-full bg-cyan-500 transition-all" style={{ width: `${Math.min(100, (txCount / FREE_TRANSACTION_LIMIT) * 100)}%` }} />
-              </div>
-              <p className="text-[11px] text-slate-400 mt-2">Free / unsubscribed users can add up to {FREE_TRANSACTION_LIMIT} transactions. Upgrade above for unlimited.</p>
-            </div>
-          ) : (
-            <p className="text-xs text-slate-600 dark:text-slate-300 flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" /> You're on the <strong className="capitalize">{plan}</strong> plan — unlimited transactions.</p>
-          )}
-        </div>
-        </>
-      ))}
+      {/* Plan & Billing — trial, bundles and modules */}
+      {section(<CreditCard className="w-4 h-4" />, 'Plan & Billing', 'Free trial, then pay only for the modules you use.', <PlanAndModules />)}
 
       {/* Customer Support */}
-      {section(<Headphones className="w-4 h-4" />, 'Customer Support', 'Need help with your subscription, billing, or enabled functions?', (
+      {section(<Headphones className="w-4 h-4" />, 'Customer Support', 'Need help with your subscription, billing, or modules?', (
         <div className="space-y-3">
           <p className="text-xs text-slate-500 dark:text-slate-400">
-            Your enabled functions are locked in after account creation. If you already have an active
-            subscription and need to change which functions are enabled on your account — or need help with
-            billing, upgrades, or anything else — reach out to our support team and we'll take care of it.
+            Questions about your trial, module pricing, renewals or a pending GCash payment? Reach out to
+            our support team and we'll take care of it.
           </p>
           <div className="text-xs font-mono text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 inline-block">{SUPPORT_EMAIL}</div>
           <div className="flex flex-wrap items-center gap-3">
@@ -334,11 +250,6 @@ export function AccountSettings() {
           </div>
         )}
       </div>
-      <PaymentInstructions
-        plan={paymentPlan}
-        onClose={() => setPaymentPlan(null)}
-        onSubmitted={refreshSubscription}
-      />
     </div>
   );
 }

@@ -10,8 +10,9 @@ import { RoleSelection } from './components/RoleSelection';
 import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { ToastContainer } from './components/ui/Toast';
 import { routeRequiresPermission, routeIsAdminOnly } from './lib/pagePermissions';
-import { loadEnabledFunctionIds, isRouteEnabled } from './lib/functionRegistry';
-import { FunctionSelector } from './components/FunctionSelector';
+import { moduleForRoute } from './lib/modules';
+import { useEntitlements, loadEntitlements, resetEntitlements, isModuleUnlocked, isResolving } from './lib/subscription';
+import { ModuleLocked } from './components/ModuleLocked';
 import { logAudit } from './lib/accessControl';
 import { AIAssistant } from './components/AIAssistant';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -47,7 +48,7 @@ const TeamSettings = lazy(() => import('./components/TeamSettings').then(m => ({
 const PaymentApproval = lazy(() => import('./components/PaymentApproval').then(m => ({ default: m.PaymentApproval })));
 
 /**
- * Route-level permission guard (Goal A). Wraps the whole <Routes> block so a
+ * Route-level permission + module guard (Goal A). Wraps the whole <Routes> block so a
  * restricted user cannot open a sensitive page by typing its URL directly.
  * Mirrors the Sidebar `canUse` rule: only team subusers are gated by their
  * server-sourced permissions; developer-only routes are blocked for everyone
@@ -56,13 +57,17 @@ const PaymentApproval = lazy(() => import('./components/PaymentApproval').then(m
  */
 function RequirePermission({ children }: { children: React.ReactNode }) {
   const { isSubuser, hasPermission, isAdmin, user } = useAuth();
+  const ent = useEntitlements();
   const location = useLocation();
   const path = location.pathname;
 
   const adminOnly = routeIsAdminOnly(path);
   const required = routeRequiresPermission(path);
   const denied = adminOnly ? !isAdmin : Boolean(required && isSubuser && !hasPermission(required));
-  const functionDenied = !isRouteEnabled(path, user?.id);
+  // Module gate: Core routes are never locked. Paid-module routes need an
+  // active trial or paid entitlement (the developer account is exempt).
+  const moduleId = moduleForRoute(path);
+  const moduleLocked = moduleId !== null && !isModuleUnlocked(ent, moduleId, isAdmin);
 
   useEffect(() => {
     if (denied && user) {
@@ -76,7 +81,9 @@ function RequirePermission({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [denied, path]);
 
-  if (denied || functionDenied) return <Navigate to="/" replace />;
+  if (denied) return <Navigate to="/" replace />;
+  if (moduleId && !isAdmin && isResolving(ent)) return <PageSkeleton />;
+  if (moduleLocked && moduleId) return <ModuleLocked moduleId={moduleId} />;
   return <>{children}</>;
 }
 
@@ -196,7 +203,7 @@ function AppLayout() {
             <Route path="/bir-forms" element={<BIRForms />} />
             <Route path="/compliance-tracker" element={<ComplianceTracker />} />
             <Route path="/ap-workspace" element={<Navigate to="/purchases/ap" replace />} />
-            <Route path="/functions" element={<FunctionSelector />} />
+            <Route path="/functions" element={<Navigate to="/account-settings" replace />} />
           </Routes>
           </RequirePermission>
           </Suspense>
@@ -209,7 +216,18 @@ function AppLayout() {
 
 function MainApp() {
   const { user, loading, userRole, setUserRole } = useAuth();
-  const [functionsChosen, setFunctionsChosen] = useState(false);
+
+  // Load trial + module entitlements from the server once the user has chosen a
+  // role (the server starts the trial clock on this first call), then refresh
+  // whenever the tab regains focus so a newly approved payment unlocks quickly.
+  const entitlementUserId = user && userRole ? user.id : null;
+  useEffect(() => {
+    if (!entitlementUserId) { resetEntitlements(); return; }
+    loadEntitlements(entitlementUserId);
+    const onVisible = () => { if (document.visibilityState === 'visible') loadEntitlements(entitlementUserId); };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [entitlementUserId]);
 
   if (loading) {
     return (
@@ -223,22 +241,15 @@ function MainApp() {
     return <AuthContainer />;
   }
 
-  // Primary role selection — shown FIRST after login, before the functions
-  // selection page, so the user's role (Business Owner vs Accountant) is set
-  // (and persisted to their profile) before they pick which modules to enable.
+  // Primary role selection — shown FIRST after login so the user's role
+  // (Business Owner vs Accountant) is persisted to their profile before the
+  // workspace opens (the role also decides the trial length).
   const handleRoleSelect = (selectedRole: string) => {
     setUserRole(selectedRole);
   };
 
   if (!userRole) {
     return <RoleSelection onSelect={handleRoleSelect} />;
-  }
-
-  // Function-selection landing page — shown after the primary role has been
-  // chosen. The per-user key takes precedence; it falls back to the default
-  // key so a selection saved in an earlier version is still recognized.
-  if (loadEnabledFunctionIds(user.id) === null && !functionsChosen) {
-    return <FunctionSelector userId={user.id} onComplete={() => setFunctionsChosen(true)} />;
   }
 
   return (

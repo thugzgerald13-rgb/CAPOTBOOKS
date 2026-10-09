@@ -3,7 +3,10 @@ import { CheckCircle2, XCircle, Clock, RefreshCw, Receipt as ReceiptIcon, Shield
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { toast } from './ui/Toast';
-import { PLAN_NAMES } from './PaymentInstructions';
+import { quote, getModule, isModuleId, peso, type BillingCycle, type ModuleId } from '../lib/modules';
+
+// Legacy flat-plan names (requests filed before modules existed).
+const LEGACY_PLAN_NAMES: Record<string, string> = { starter: 'Starter Plan', pro: 'Pro Plan', enterprise: 'Enterprise Plan' };
 
 type RequestStatus = 'pending' | 'approved' | 'rejected';
 interface PaymentRequestRow {
@@ -12,6 +15,8 @@ interface PaymentRequestRow {
   user_email: string | null;
   user_name: string | null;
   plan: string;
+  modules: string[] | null;
+  billing_cycle: string | null;
   amount: number;
   receipt_url: string | null; // storage path in 'receipts' bucket
   status: RequestStatus;
@@ -52,14 +57,23 @@ function RequestCard({
   const [notes, setNotes] = useState('');
   const [actionBusy, setActionBusy] = useState<'approve' | 'reject' | null>(null);
   const imgUrl = receiptPublicUrl(req.receipt_url);
-  const planLabel = PLAN_NAMES[req.plan as keyof typeof PLAN_NAMES] || req.plan;
+  const reqModules = (req.modules || []).filter(isModuleId) as ModuleId[];
+  const cycle: BillingCycle = req.billing_cycle === 'annual' ? 'annual' : 'monthly';
+  const isModuleOrder = reqModules.length > 0;
+  const planLabel = isModuleOrder
+    ? reqModules.map((m) => getModule(m).label).join(' + ')
+    : LEGACY_PLAN_NAMES[req.plan] || req.plan;
+  // The amount is typed by the payer's browser — compare it with the catalog
+  // price so a ₱199 receipt can't unlock a ₱1,499 bundle by accident.
+  const expected = isModuleOrder ? quote(reqModules, cycle).total : null;
+  const amountMismatch = expected !== null && Math.round(Number(req.amount)) !== expected;
 
   const handleApprove = async () => {
     setActionBusy('approve');
     try {
       const { error } = await supabase.rpc('approve_payment_request', { p_request_id: req.id });
       if (error) throw error;
-      toast.success(`Approved — ${planLabel} activated for ${req.user_email || req.user_id}`);
+      toast.success(`Approved — ${planLabel} unlocked for ${req.user_email || req.user_id}`);
       onApproved(req.id);
     } catch (err) {
       toast.error('Approve failed', { description: err instanceof Error ? err.message : 'Unknown error' });
@@ -104,7 +118,13 @@ function RequestCard({
             <span className={`text-[10px] font-black uppercase tracking-wide px-2 py-0.5 rounded-full border ${statusBadge(req.status)}`}>{req.status}</span>
           </div>
           <div className="text-xs text-slate-500 dark:text-slate-400 space-y-0.5">
-            <div><span className="font-bold text-slate-600 dark:text-slate-300">Plan:</span> {planLabel} · <span className="font-bold text-slate-600 dark:text-slate-300">Amount:</span> ₱{Number(req.amount).toLocaleString()}</div>
+            <div><span className="font-bold text-slate-600 dark:text-slate-300">{isModuleOrder ? 'Modules:' : 'Plan:'}</span> {planLabel}{isModuleOrder && <> · <span className="font-bold text-slate-600 dark:text-slate-300">Term:</span> {cycle === 'annual' ? '12 months' : '30 days'}</>}</div>
+            <div><span className="font-bold text-slate-600 dark:text-slate-300">Amount paid:</span> {peso(Number(req.amount))}{expected !== null && <> · <span className="font-bold text-slate-600 dark:text-slate-300">Catalog price:</span> {peso(expected)}</>}</div>
+            {amountMismatch && (
+              <div className="inline-flex items-center gap-1.5 mt-1 px-2 py-1 rounded-lg bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 font-bold">
+                <ShieldAlert className="w-3.5 h-3.5" /> Amount differs from the catalog price — check the receipt in GCash before approving.
+              </div>
+            )}
             <div><span className="font-bold text-slate-600 dark:text-slate-300">Submitted:</span> {new Date(req.created_at).toLocaleString()}</div>
             {req.reviewed_at && <div><span className="font-bold text-slate-600 dark:text-slate-300">Reviewed:</span> {new Date(req.reviewed_at).toLocaleString()}</div>}
             {req.admin_notes && <div><span className="font-bold text-slate-600 dark:text-slate-300">Notes:</span> {req.admin_notes}</div>}
@@ -121,7 +141,7 @@ function RequestCard({
                     className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-50"
                   >
                     {actionBusy === 'approve' ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
-                    Approve & Activate Plan
+                    Approve & Unlock Modules
                   </button>
                   <button
                     type="button"
@@ -213,7 +233,7 @@ export function PaymentApproval() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">Payment Approval</h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400">Verify GCash receipts and activate subscription plans.</p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">Verify GCash receipts and unlock the purchased modules.</p>
           </div>
         </div>
         <button
