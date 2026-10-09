@@ -143,24 +143,71 @@ const hexToRgb = (hex: string): [number, number, number] => {
   return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
 };
 
-function drawHeader(doc: jsPDF, tpl: InvoiceTemplate, profile: BusinessProfile | undefined, pageW: number, margin: number) {
+function sellerAddress(profile: BusinessProfile | undefined): string {
+  if (!profile) return '';
+  const parts = [profileField(profile, 'substreet'), profileField(profile, 'street'),
+    profileField(profile, 'barangay'), profileField(profile, 'district'),
+    profileField(profile, 'city'), profileField(profile, 'zipCode')].filter(Boolean);
+  return parts.join(', ');
+}
+
+function sellerContact(profile: BusinessProfile | undefined): string {
+  if (!profile) return '';
+  const parts = [profileField(profile, 'phone'), profileField(profile, 'email')].filter(Boolean);
+  return parts.join('  ·  ');
+}
+
+/** Centered header band: trade name → address → contact → TIN. Document title
+ *  is drawn by the caller BELOW the band (right side) to avoid overlap. */
+function drawHeader(doc: jsPDF, tpl: InvoiceTemplate, profile: BusinessProfile | undefined, pageW: number, margin: number): number {
   const [r, g, b] = hexToRgb(tpl.primaryColor);
+  const BAND_H = 115;
   doc.setFillColor(r, g, b);
-  doc.rect(0, 0, pageW, 90, 'F');
+  doc.rect(0, 0, pageW, BAND_H, 'F');
   doc.setTextColor(255, 255, 255);
-  doc.setFont(tpl.fontFamily || 'helvetica', 'bold');
-  doc.setFontSize(20);
-  const company = tpl.companyNameOverride || profileField(profile, 'tradeName') || profileField(profile, 'registeredName') || 'CAPOT Books';
+  const cx = pageW / 2;
+  const company = tpl.companyNameOverride || profileField(profile, 'tradeName') || profileField(profile, 'registeredName') || profileField(profile, 'name') || 'CAPOT Books';
+  let y = 30;
   if (tpl.showLogo && tpl.logoDataUrl) {
-    try { doc.addImage(tpl.logoDataUrl, 'PNG' as any, margin, 22, 40, 40); doc.text(company, margin + 50, 42); }
-    catch { doc.text(company, margin, 40); }
-  } else {
-    doc.text(company, margin, 40);
+    try { doc.addImage(tpl.logoDataUrl, 'PNG' as any, cx - 20, 14, 40, 28); y = 52; } catch { /* no logo */ }
   }
-  if (tpl.tagline) { doc.setFontSize(9); doc.setFont(tpl.fontFamily || 'helvetica', 'normal'); doc.text(tpl.tagline, margin, 56); }
-  if (tpl.showSellerTin) { const tin = profileField(profile, 'tin'); if (tin) { doc.setFontSize(9); doc.text(`TIN: ${tin}`, margin, 70); } }
-  doc.setFontSize(22); doc.setFont(tpl.fontFamily || 'helvetica', 'bold');
-  doc.text(tpl.documentTitle || 'INVOICE', pageW - margin, 48, { align: 'right' });
+  doc.setFont(tpl.fontFamily || 'helvetica', 'bold');
+  doc.setFontSize(16);
+  doc.text(company, cx, y, { align: 'center' });
+  y += 16;
+  doc.setFont(tpl.fontFamily || 'helvetica', 'normal');
+  doc.setFontSize(8.5);
+  if (tpl.tagline) { doc.text(tpl.tagline, cx, y, { align: 'center' }); y += 12; }
+  if (tpl.showSellerAddress !== false) {
+    const addr = sellerAddress(profile);
+    if (addr) { doc.text(addr, cx, y, { align: 'center', maxWidth: pageW - margin * 2 }); y += 12; }
+  }
+  const contact = sellerContact(profile);
+  if (contact) { doc.text(contact, cx, y, { align: 'center', maxWidth: pageW - margin * 2 }); y += 12; }
+  if (tpl.showSellerTin !== false) {
+    const tin = profileField(profile, 'tin');
+    if (tin) { doc.text(`TIN: ${tin}`, cx, y, { align: 'center' }); y += 12; }
+  }
+  return BAND_H;
+}
+
+/** Right-aligned document title + meta, drawn below the header band. Returns y. */
+function drawDocTitleMeta(doc: jsPDF, tpl: InvoiceTemplate, title: string, metaLines: string[], pageW: number, margin: number, startY: number): number {
+  const [pr, pg, pb] = hexToRgb(tpl.primaryColor);
+  doc.setTextColor(pr, pg, pb);
+  doc.setFont(tpl.fontFamily || 'helvetica', 'bold');
+  doc.setFontSize(18);
+  let y = startY;
+  doc.text(title, pageW - margin, y, { align: 'right' });
+  y += 18;
+  doc.setTextColor(71, 85, 105);
+  doc.setFont(tpl.fontFamily || 'helvetica', 'normal');
+  doc.setFontSize(9);
+  for (const line of metaLines) {
+    doc.text(line, pageW - margin, y, { align: 'right' });
+    y += 13;
+  }
+  return y;
 }
 
 function drawFooter(doc: jsPDF, tpl: InvoiceTemplate, profile: BusinessProfile | undefined, y: number, margin: number, pageW: number) {
@@ -191,12 +238,9 @@ export function downloadTemplatedInvoicePdf(inv: BillingInvoice, profile: Busine
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   const pageW = doc.internal.pageSize.getWidth();
   const margin = 48;
-  drawHeader(doc, tpl, profile, pageW, margin);
-  doc.setFontSize(10); doc.setFont(tpl.fontFamily || 'helvetica', 'normal');
-  doc.text(`Invoice #: ${inv.invoiceNo}`, pageW - margin, 66, { align: 'right' });
-  doc.text(`Date: ${inv.date}    Due: ${inv.dueDate}`, pageW - margin, 82, { align: 'right' });
-
-  let y = 130;
+  const bandH = drawHeader(doc, tpl, profile, pageW, margin);
+  let y = bandH + 22;
+  drawDocTitleMeta(doc, tpl, tpl.documentTitle || 'INVOICE', [`Invoice #: ${inv.invoiceNo}`, `Date: ${inv.date}    Due: ${inv.dueDate}`], pageW, margin, y);
   doc.setTextColor(30, 41, 59);
   doc.setFontSize(10); doc.setFont(tpl.fontFamily || 'helvetica', 'bold');
   doc.text('BILL TO', margin, y);
@@ -243,12 +287,9 @@ export function downloadEInvoicePdf(inv: EInvoice, profile: BusinessProfile | un
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   const pageW = doc.internal.pageSize.getWidth();
   const margin = 48;
-  drawHeader(doc, tpl, profile, pageW, margin);
-  doc.setFontSize(10); doc.setFont(tpl.fontFamily || 'helvetica', 'normal');
-  doc.text(`E-Invoice #: ${inv.invoiceNo}`, pageW - margin, 66, { align: 'right' });
-  doc.text(`Date: ${inv.date}${inv.dueDate ? `    Due: ${inv.dueDate}` : ''}`, pageW - margin, 82, { align: 'right' });
-
-  let y = 130;
+  const bandH = drawHeader(doc, tpl, profile, pageW, margin);
+  let y = bandH + 22;
+  drawDocTitleMeta(doc, tpl, tpl.documentTitle || 'ELECTRONIC INVOICE', [`E-Invoice #: ${inv.invoiceNo}`, `Date: ${inv.date}${inv.dueDate ? `    Due: ${inv.dueDate}` : ''}`], pageW, margin, y);
   doc.setTextColor(30, 41, 59);
   doc.setFontSize(10); doc.setFont(tpl.fontFamily || 'helvetica', 'bold');
   doc.text('SOLD TO / BUYER', margin, y);
@@ -318,12 +359,9 @@ export function downloadSoaPdf(soa: SoaRecord, profile: BusinessProfile | undefi
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   const pageW = doc.internal.pageSize.getWidth();
   const margin = 48;
-  drawHeader(doc, tpl, profile, pageW, margin);
-  doc.setFontSize(10); doc.setFont(tpl.fontFamily || 'helvetica', 'normal');
-  doc.text(`Period: ${soa.periodFrom} to ${soa.periodTo}`, pageW - margin, 66, { align: 'right' });
-  doc.text(`Generated: ${soa.generatedAt.slice(0, 10)}`, pageW - margin, 82, { align: 'right' });
-
-  let y = 130;
+  const bandH = drawHeader(doc, tpl, profile, pageW, margin);
+  let y = bandH + 22;
+  drawDocTitleMeta(doc, tpl, tpl.documentTitle || 'STATEMENT OF ACCOUNT', [`Period: ${soa.periodFrom} to ${soa.periodTo}`, `Generated: ${soa.generatedAt.slice(0, 10)}`], pageW, margin, y);
   doc.setTextColor(30, 41, 59);
   doc.setFontSize(10); doc.setFont(tpl.fontFamily || 'helvetica', 'bold');
   doc.text('CLIENT', margin, y);
