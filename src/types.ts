@@ -56,6 +56,12 @@ export interface Sale {
   outputTax: number;
   incomeType: string;
   desc?: string;
+  // BIR E-Invoicing (EIS) status — denormalized for fast UI badges.
+  eisUniqueId?: string;
+  eisDocType?: 'SI' | 'OR' | 'DR' | 'CR';
+  eisStatus?: 'queued' | 'submitted' | 'accepted' | 'rejected' | 'cancelled';
+  eisAckCode?: string;
+  eisSubmittedAt?: string;
 }
 
 export interface Expense {
@@ -103,6 +109,12 @@ export interface BillingInvoice {
   recurrenceFrequency?: 'Monthly' | 'Quarterly' | 'Annually';
   nextBillingDate?: string;
   parentInvoiceId?: string;
+  // BIR E-Invoicing (EIS) status — denormalized for fast UI badges.
+  eisUniqueId?: string;
+  eisDocType?: 'SI' | 'OR' | 'DR' | 'CR';
+  eisStatus?: 'queued' | 'submitted' | 'accepted' | 'rejected' | 'cancelled';
+  eisAckCode?: string;
+  eisSubmittedAt?: string;
 }
 
 export interface JournalVoucherLine {

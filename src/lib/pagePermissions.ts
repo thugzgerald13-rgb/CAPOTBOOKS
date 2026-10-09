@@ -49,6 +49,8 @@ export const ROUTE_PERMISSIONS: Record<string, Permission> = {
   '/cashflow': 'view_reports',
   // NOTE: /compliance-tracker is developer-only (see ADMIN_ONLY_ROUTES) until further notice.
   '/bir-forms': 'view_reports',
+  // BIR E-Invoicing (EIS) center — build/transmit e-invoices; transaction role.
+  '/eis-center': 'edit_transactions',
   '/afs-financial-position': 'view_reports',
   '/afs-income-statements': 'view_reports',
   '/afs-equity-retained-earnings': 'view_reports',

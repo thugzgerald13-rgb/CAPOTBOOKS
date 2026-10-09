@@ -192,6 +192,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     { label: 'Income History', pageId: 'history', historyTab: 'income', icon: Receipt, keywords: 'income history' },
     { label: 'Compliance Tracker', pageId: 'compliance-tracker', icon: Shield, keywords: 'compliance filing deadline bir' },
     { label: 'BIR Forms', pageId: 'bir-forms', icon: FileText, keywords: 'bir forms tax 1701 2550 1601' },
+    { label: 'BIR E-Invoicing (EIS)', pageId: 'eis-center', icon: FileSignature, keywords: 'eis einvoice e-invoicing bir invoice json pti certification transmit' },
     { label: 'Cash Flow', pageId: 'cashflow', icon: Wallet, keywords: 'cash flow statement' },
     { label: 'General Journal', pageId: 'journal', icon: BookText, keywords: 'general journal gj book' },
     { label: 'General Ledger', pageId: 'ledger', icon: LineChart, keywords: 'general ledger gl book' },
@@ -230,6 +231,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
       case 'assetlapsing':
       case 'cashflow':
       case 'compliance-tracker':
+      case 'eis-center': return 'edit_transactions';
       case 'bir-forms':
       case 'afs-financial-position':
       case 'afs-income-statements':
@@ -515,7 +517,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                 <div className="flex flex-col">
                   <button
                     onClick={() => setIsBirOpen(!isBirOpen)}
-                    className={cn("flex items-center justify-between gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'bir-forms' && activeIndigo)}
+                    className={cn("flex items-center justify-between gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", (activePage === 'bir-forms' || activePage === 'eis-center') && activeIndigo)}
                   >
                     <span className="flex items-center gap-3">
                       <Landmark className="w-4 h-4" />
@@ -543,6 +545,17 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                         >
                           <FileText className="w-3.5 h-3.5" />
                           Forms
+                        </button>
+                        <button
+                          disabled={!canUse('edit_transactions')}
+                          onClick={() => {
+                            navigateToPage('eis-center');
+                            setIsOpen(false);
+                          }}
+                          className={cn("flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'eis-center' && activeIndigo)}
+                        >
+                          <FileSignature className="w-3.5 h-3.5" />
+                          E-Invoicing (EIS)
                         </button>
                       </motion.div>
                     )}

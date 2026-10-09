@@ -46,6 +46,7 @@ const ComplianceTracker = lazy(() => import('./components/ComplianceTracker').th
 const AccountSettings = lazy(() => import('./components/AccountSettings').then(m => ({ default: m.AccountSettings })));
 const TeamSettings = lazy(() => import('./components/TeamSettings').then(m => ({ default: m.TeamSettings })));
 const PaymentApproval = lazy(() => import('./components/PaymentApproval').then(m => ({ default: m.PaymentApproval })));
+const EisCenter = lazy(() => import('./components/EisCenter').then(m => ({ default: m.EisCenter })));
 
 /**
  * Route-level permission + module guard (Goal A). Wraps the whole <Routes> block so a
@@ -202,6 +203,7 @@ function AppLayout() {
             <Route path="/inventory" element={<Inventory />} />
             <Route path="/bir-forms" element={<BIRForms />} />
             <Route path="/compliance-tracker" element={<ComplianceTracker />} />
+            <Route path="/eis-center" element={<EisCenter />} />
             <Route path="/ap-workspace" element={<Navigate to="/purchases/ap" replace />} />
             <Route path="/functions" element={<Navigate to="/account-settings" replace />} />
           </Routes>
