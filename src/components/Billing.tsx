@@ -8,8 +8,15 @@ import { getTransmissionByInvoice } from '../lib/eisStore';
 import { EmptyState } from './ui/EmptyState';
 import { DEFAULT_CRJ_COLUMNS } from './CashReceiptsJournal';
 import { BillingInvoice, JournalEntry } from '../types';
-import { downloadInvoicePdf, copyPaymentMessage, openPaymentReminderEmail } from '../lib/invoicePdf';
+import { downloadInvoicePdf, copyPaymentMessage, openPaymentReminderEmail, downloadTemplatedInvoicePdf } from '../lib/invoicePdf';
 import { toast } from './ui/Toast';
+import { EInvoiceTab } from './EInvoiceTab';
+import { SoaTab } from './SoaTab';
+import { TemplateEditor } from './TemplateEditor';
+import { listTemplatesFor, getTemplate } from '../lib/invoiceTemplates';
+import { useMemo } from 'react';
+import type { InvoiceTemplate } from '../types';
+import { Pencil } from 'lucide-react';
 
 const CASH_RECEIPT_PAYMENT_TYPES = ['Cash', 'Check', 'E-Payment', 'Bank Transfer'];
 
@@ -57,6 +64,13 @@ export function Billing() {
   const [statusFilter, setStatusFilter] = useState<'All' | 'Outstanding' | 'Overdue' | 'Paid'>('All');
   const [payingId, setPayingId] = useState<string | null>(null);
   const [payPaymentType, setPayPaymentType] = useState('Cash');
+  // Tabs: billing invoice (NOT for EIS) / e-invoice (feeds EIS) / SOA (NOT for EIS)
+  const [activeTab, setActiveTab] = useState<'billing' | 'e-invoice' | 'soa'>('billing');
+  const [templateId, setTemplateId] = useState<string>('builtin-standard-blue');
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editingTpl, setEditingTpl] = useState<InvoiceTemplate | null>(null);
+  const templates = useMemo(() => currentClientId ? listTemplatesFor(currentClientId, 'billing') : [], [currentClientId, activeTab]);
+  const selectedTemplate = useMemo(() => currentClientId ? getTemplate(currentClientId, templateId) : getTemplate('', templateId), [currentClientId, templateId]);
 
   if (!currentClient || !currentClientId) return null;
 
@@ -210,7 +224,7 @@ export function Billing() {
   };
   // Run 007 / T007 — PDF export, payment link copy, email reminder
   const handleDownloadPdf = (inv: BillingInvoice) => {
-    try { downloadInvoicePdf(inv, businessProfile); showToast('Invoice PDF downloaded'); }
+    try { downloadTemplatedInvoicePdf(inv, businessProfile, selectedTemplate); showToast('Invoice PDF downloaded'); }
     catch { showToast('Failed to generate PDF'); }
   };
   const handleCopyPaymentLink = async (inv: BillingInvoice) => {
@@ -234,9 +248,42 @@ export function Billing() {
     <div className="w-full flex flex-col">
       <PageHeader title="Billing" icon={<CreditCard className="w-5 h-5 text-indigo-500" />} />
       <div className="p-4 md:p-6 flex-1">
+      {/* Tab navigation — only E-Invoice feeds BIR EIS */}
+      <div className="flex items-center justify-between gap-3 flex-wrap mb-5">
+        <div className="flex gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+          {([
+            ['billing', 'Billing Invoice', false],
+            ['e-invoice', 'E-Invoice (EIS)', true],
+            ['soa', 'SOA', false],
+          ] as const).map(([key, label, isEis]) => (
+            <button key={key} onClick={() => setActiveTab(key)} className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${activeTab === key ? (isEis ? 'bg-emerald-600 text-white shadow' : 'bg-indigo-600 text-white shadow') : 'text-slate-600 dark:text-slate-300 hover:text-indigo-600'}`}>
+              {label}
+              {isEis && <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-black ${activeTab === key ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-700'}`}>EIS</span>}
+            </button>
+          ))}
+        </div>
+        {activeTab === 'billing' && (
+          <div className="flex items-center gap-2">
+            <select value={templateId} onChange={e => setTemplateId(e.target.value)} className="text-xs font-bold border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800">
+              {templates.map(t => <option key={t.id} value={t.id}>Template: {t.name}{t.builtin ? ' (built-in)' : ''}</option>)}
+            </select>
+            <button onClick={() => { setEditingTpl(null); setEditorOpen(true); }} className="text-xs font-bold border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-1.5">
+              <Pencil className="w-3.5 h-3.5" /> Customize
+            </button>
+          </div>
+        )}
+      </div>
+
+      {activeTab === 'e-invoice' && <EInvoiceTab />}
+      {activeTab === 'soa' && <SoaTab />}
+      {activeTab === 'billing' && (<>
       <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-2xl mb-6 border border-indigo-100 dark:border-indigo-800 flex justify-between items-center">
         <span className="font-bold text-indigo-700 dark:text-indigo-400">Total Outstanding (incl. Overdue)</span>
         <span className="text-xl font-extrabold text-indigo-600 dark:text-indigo-400">₱{outstandingTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+      </div>
+      <div className="rounded-lg border border-slate-200 bg-slate-50 dark:bg-slate-800/50 dark:border-slate-700 p-3 mb-4 text-xs text-slate-600 dark:text-slate-300 flex items-start gap-2">
+        <span className="font-bold shrink-0">Note:</span>
+        <span>Billing invoices are demand-for-payment documents and are <strong>not</strong> transmitted to BIR. For BIR E-Invoicing (EIS), use the <strong className="text-emerald-600">E-Invoice (EIS)</strong> tab — only structured e-invoices qualify under RMC 98-2026.</span>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-100 dark:border-slate-700">
@@ -406,6 +453,11 @@ export function Billing() {
           );
         })}
       </div>
+      </>)}
+      <TemplateEditor open={editorOpen} onClose={() => setEditorOpen(false)} clientId={currentClientId!} docType="billing"
+        editing={editingTpl}
+        onSave={(tpl) => { import('../lib/invoiceTemplates').then(m => { m.saveTemplate(currentClientId!, tpl); setTemplateId(tpl.id); showToast('Template saved'); }); }}
+        onDelete={(id) => { import('../lib/invoiceTemplates').then(m => { m.deleteTemplate(currentClientId!, id); setTemplateId('builtin-standard-blue'); }); }} />
           </div>
     </div>
   );

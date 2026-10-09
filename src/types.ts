@@ -109,6 +109,8 @@ export interface BillingInvoice {
   recurrenceFrequency?: 'Monthly' | 'Quarterly' | 'Annually';
   nextBillingDate?: string;
   parentInvoiceId?: string;
+  // Invoice template used for PDF rendering (custom or built-in).
+  templateId?: string;
   // BIR E-Invoicing (EIS) status — denormalized for fast UI badges.
   eisUniqueId?: string;
   eisDocType?: 'SI' | 'OR' | 'DR' | 'CR';
@@ -610,4 +612,125 @@ export interface InviteResult {
   temporaryPassword: string | null;
   existingUser: boolean;
   invitationPending?: boolean;
+}
+
+
+// ---------------------------------------------------------------------------
+// Invoice templates — billing / e-invoice / SOA branding & layout
+// ---------------------------------------------------------------------------
+export type TemplateDocType = 'billing' | 'e-invoice' | 'soa';
+
+export interface InvoiceTemplate {
+  id: string;
+  name: string;                 // user-visible, e.g. "Standard Blue", "My Brand"
+  docType: TemplateDocType;     // which document type this template applies to
+  builtin?: boolean;            // built-in templates cannot be deleted
+  // Branding
+  primaryColor: string;         // header band / accent, hex
+  secondaryColor: string;       // totals band, hex
+  fontFamily?: 'helvetica' | 'times' | 'courier';
+  logoDataUrl?: string;         // optional uploaded logo (data URL)
+  showLogo?: boolean;
+  // Document labels & content
+  documentTitle: string;        // e.g. "INVOICE", "STATEMENT OF ACCOUNT", "E-INVOICE"
+  companyNameOverride?: string; // defaults to business profile tradeName
+  tagline?: string;
+  termsAndConditions: string;   // multi-line, printed at bottom
+  paymentInstructions?: string; // overrides business profile GCash/Maya/bank
+  footerNote?: string;          // e.g. "This is a system-generated e-invoice."
+  // Field toggles
+  showSellerTin?: boolean;
+  showSellerAddress?: boolean;
+  showBuyerTin?: boolean;
+  showBuyerAddress?: boolean;
+  showVatBreakdown?: boolean;
+  showWithholding?: boolean;
+  showPaymentInstructions?: boolean;
+  showQrPlaceholder?: boolean;  // reserved for BIR e-invoice QR (delivery method)
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// E-Invoice — structured, line-item invoice that feeds BIR EIS.
+// Distinct from BillingInvoice (which is a demand-for-payment doc, NOT EIS).
+// ---------------------------------------------------------------------------
+export interface EInvoiceLineItem {
+  id: string;
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  vatType: 'VATable' | 'VAT Exempt' | 'Zero-Rated';
+  discount?: number;            // absolute amount
+}
+
+export interface EInvoice {
+  id: string;
+  clientId: string;
+  invoiceNo: string;            // ATP permit series number
+  date: string;                 // YYYY-MM-DD
+  dueDate?: string;
+  // Seller (from business profile, snapshot at creation)
+  sellerName: string;
+  sellerTin: string;
+  sellerBranchCode?: string;
+  sellerAddress?: string;
+  sellerEmail?: string;
+  // Buyer
+  buyerName: string;
+  buyerTin: string;
+  buyerAddress?: string;
+  buyerEmail?: string;
+  // Lines & totals
+  lineItems: EInvoiceLineItem[];
+  subtotal: number;
+  discountTotal: number;
+  vatableSales: number;
+  zeroRatedSales: number;
+  exemptSales: number;
+  outputVat: number;            // 12% of vatable net
+  withholdingTax?: number;      // total withheld (if any)
+  amountDue: number;            // grand total
+  netPayable?: number;          // amountDue − withholding
+  currency: string;             // PHP
+  paymentTerms?: string;
+  remarks?: string;
+  templateId?: string;
+  status: 'Draft' | 'Issued' | 'Paid' | 'Cancelled';
+  deliveryMethod?: 'email' | 'online_viewing' | 'qr_code' | 'mobile_app' | 'web_platform';
+  deliveredAt?: string;
+  // EIS linkage — only e-invoices feed EIS
+  eisUniqueId?: string;
+  eisStatus?: 'queued' | 'submitted' | 'accepted' | 'rejected' | 'cancelled';
+  eisAckCode?: string;
+  eisSubmittedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Statement of Account (SOA) — generated from billing invoices; NOT for EIS.
+// ---------------------------------------------------------------------------
+export interface SoaLine {
+  date: string;
+  reference: string;             // invoice no / OR no
+  description: string;
+  debit: number;                 // amount billed (increases balance)
+  credit: number;                // payment applied (decreases balance)
+  balance: number;               // running balance after this line
+}
+
+export interface SoaRecord {
+  id: string;
+  clientId: string;
+  clientName: string;
+  clientTin?: string;
+  clientAddress?: string;
+  periodFrom: string;            // YYYY-MM-DD
+  periodTo: string;
+  openingBalance: number;
+  lines: SoaLine[];
+  closingBalance: number;
+  templateId?: string;
+  generatedAt: string;
 }

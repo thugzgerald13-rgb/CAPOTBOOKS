@@ -132,3 +132,241 @@ export function openPaymentReminderEmail(inv: BillingInvoice, profile?: Business
   const body = encodeURIComponent(buildPaymentMessage(inv, profile));
   window.open(`mailto:?subject=${subject}&body=${body}`, '_blank');
 }
+
+// ---------------------------------------------------------------------------
+// Template-aware renderers (billing invoice, e-invoice, SOA)
+// ---------------------------------------------------------------------------
+import type { InvoiceTemplate, EInvoice, SoaRecord } from '../types';
+
+const hexToRgb = (hex: string): [number, number, number] => {
+  const h = hex.replace('#', '');
+  return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)];
+};
+
+function drawHeader(doc: jsPDF, tpl: InvoiceTemplate, profile: BusinessProfile | undefined, pageW: number, margin: number) {
+  const [r, g, b] = hexToRgb(tpl.primaryColor);
+  doc.setFillColor(r, g, b);
+  doc.rect(0, 0, pageW, 90, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFont(tpl.fontFamily || 'helvetica', 'bold');
+  doc.setFontSize(20);
+  const company = tpl.companyNameOverride || profileField(profile, 'tradeName') || profileField(profile, 'registeredName') || 'CAPOT Books';
+  if (tpl.showLogo && tpl.logoDataUrl) {
+    try { doc.addImage(tpl.logoDataUrl, 'PNG' as any, margin, 22, 40, 40); doc.text(company, margin + 50, 42); }
+    catch { doc.text(company, margin, 40); }
+  } else {
+    doc.text(company, margin, 40);
+  }
+  if (tpl.tagline) { doc.setFontSize(9); doc.setFont(tpl.fontFamily || 'helvetica', 'normal'); doc.text(tpl.tagline, margin, 56); }
+  if (tpl.showSellerTin) { const tin = profileField(profile, 'tin'); if (tin) { doc.setFontSize(9); doc.text(`TIN: ${tin}`, margin, 70); } }
+  doc.setFontSize(22); doc.setFont(tpl.fontFamily || 'helvetica', 'bold');
+  doc.text(tpl.documentTitle || 'INVOICE', pageW - margin, 48, { align: 'right' });
+}
+
+function drawFooter(doc: jsPDF, tpl: InvoiceTemplate, profile: BusinessProfile | undefined, y: number, margin: number, pageW: number) {
+  doc.setTextColor(71, 85, 105); doc.setFontSize(9); doc.setFont(tpl.fontFamily || 'helvetica', 'bold');
+  if (tpl.showPaymentInstructions !== false) {
+    doc.text('PAYMENT INSTRUCTIONS', margin, y); y += 14;
+    doc.setFont(tpl.fontFamily || 'helvetica', 'normal'); doc.setFontSize(9);
+    if (tpl.paymentInstructions) {
+      tpl.paymentInstructions.split('\n').forEach(line => { doc.text(line, margin, y); y += 12; });
+    } else {
+      doc.text(`GCash: ${profileField(profile, 'gcashNumber') || '(set in Business Profile)'}`, margin, y); y += 12;
+      doc.text(`Maya: ${profileField(profile, 'mayaNumber') || '(set in Business Profile)'}`, margin, y); y += 12;
+      doc.text(`Bank: ${profileField(profile, 'bankDetails') || '(set in Business Profile)'}`, margin, y); y += 12;
+    }
+    y += 6;
+  }
+  if (tpl.termsAndConditions) {
+    doc.setFontSize(8); doc.setTextColor(100, 116, 139);
+    doc.text('TERMS & CONDITIONS', margin, y); y += 11;
+    tpl.termsAndConditions.split('\n').forEach(line => { doc.text(line, margin, y, { maxWidth: pageW - margin * 2 }); y += 10; });
+    y += 4;
+  }
+  if (tpl.footerNote) { doc.setFontSize(8); doc.setTextColor(148, 163, 184); doc.text(tpl.footerNote, margin, y); }
+}
+
+/** Template-aware billing invoice PDF. */
+export function downloadTemplatedInvoicePdf(inv: BillingInvoice, profile: BusinessProfile | undefined, tpl: InvoiceTemplate) {
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+  const pageW = doc.internal.pageSize.getWidth();
+  const margin = 48;
+  drawHeader(doc, tpl, profile, pageW, margin);
+  doc.setFontSize(10); doc.setFont(tpl.fontFamily || 'helvetica', 'normal');
+  doc.text(`Invoice #: ${inv.invoiceNo}`, pageW - margin, 66, { align: 'right' });
+  doc.text(`Date: ${inv.date}    Due: ${inv.dueDate}`, pageW - margin, 82, { align: 'right' });
+
+  let y = 130;
+  doc.setTextColor(30, 41, 59);
+  doc.setFontSize(10); doc.setFont(tpl.fontFamily || 'helvetica', 'bold');
+  doc.text('BILL TO', margin, y);
+  doc.setFont(tpl.fontFamily || 'helvetica', 'normal'); doc.setFontSize(11); y += 16;
+  doc.text(inv.customerName, margin, y); y += 14;
+  if (tpl.showBuyerTin) { doc.text(`TIN: ${inv.customerTin}`, margin, y); y += 14; }
+  if (tpl.showBuyerAddress) { doc.text(inv.customerAddress, margin, y, { maxWidth: pageW - margin * 2 }); y += 24; }
+
+  const tableX = margin, tableW = pageW - margin * 2;
+  doc.setFillColor(241, 245, 249); doc.rect(tableX, y, tableW, 22, 'F');
+  doc.setFontSize(9); doc.setFont(tpl.fontFamily || 'helvetica', 'bold'); doc.setTextColor(71, 85, 105);
+  doc.text('DESCRIPTION', tableX + 10, y + 14); doc.text('AMOUNT', tableX + tableW - 10, y + 14, { align: 'right' });
+  y += 22;
+  doc.setFont(tpl.fontFamily || 'helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(30, 41, 59);
+  doc.text(inv.description || 'Services rendered', tableX + 10, y + 16);
+  doc.text(money(inv.amount), tableX + tableW - 10, y + 16, { align: 'right' });
+  y += 30;
+  doc.setDrawColor(226, 232, 240); doc.line(tableX, y, tableX + tableW, y); y += 16;
+
+  const right = tableX + tableW - 10;
+  doc.setFontSize(10);
+  if (tpl.showVatBreakdown !== false) {
+    doc.text(`Subtotal (${inv.vatType})`, right - 140, y, { align: 'right' });
+    doc.text(money(inv.netOfVat ?? inv.amount), right, y, { align: 'right' }); y += 16;
+    if (inv.vatType === 'VATable') {
+      doc.text('Output VAT (12%)', right - 140, y, { align: 'right' });
+      doc.text(money(inv.outputTax ?? 0), right, y, { align: 'right' }); y += 16;
+    }
+  }
+  const [sr, sg, sb] = hexToRgb(tpl.secondaryColor);
+  doc.setFillColor(sr, sg, sb); doc.rect(tableX, y - 10, tableW, 26, 'F');
+  doc.setFont(tpl.fontFamily || 'helvetica', 'bold'); doc.setFontSize(12);
+  const [pr, pg, pb] = hexToRgb(tpl.primaryColor); doc.setTextColor(pr, pg, pb);
+  doc.text('TOTAL DUE', right - 140, y + 7, { align: 'right' });
+  doc.text(money(inv.amount), right, y + 7, { align: 'right' });
+  y += 40;
+
+  drawFooter(doc, tpl, profile, y, margin, pageW);
+  doc.save(`invoice-${String(inv.invoiceNo || inv.id).replace(/[^a-z0-9-_]+/gi, '-')}.pdf`);
+}
+
+/** Structured e-invoice PDF (line items, VAT breakdown, withholding, QR placeholder). */
+export function downloadEInvoicePdf(inv: EInvoice, profile: BusinessProfile | undefined, tpl: InvoiceTemplate) {
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+  const pageW = doc.internal.pageSize.getWidth();
+  const margin = 48;
+  drawHeader(doc, tpl, profile, pageW, margin);
+  doc.setFontSize(10); doc.setFont(tpl.fontFamily || 'helvetica', 'normal');
+  doc.text(`E-Invoice #: ${inv.invoiceNo}`, pageW - margin, 66, { align: 'right' });
+  doc.text(`Date: ${inv.date}${inv.dueDate ? `    Due: ${inv.dueDate}` : ''}`, pageW - margin, 82, { align: 'right' });
+
+  let y = 130;
+  doc.setTextColor(30, 41, 59);
+  doc.setFontSize(10); doc.setFont(tpl.fontFamily || 'helvetica', 'bold');
+  doc.text('SOLD TO / BUYER', margin, y);
+  doc.setFont(tpl.fontFamily || 'helvetica', 'normal'); doc.setFontSize(11); y += 16;
+  doc.text(inv.buyerName, margin, y); y += 14;
+  if (tpl.showBuyerTin) { doc.text(`TIN: ${inv.buyerTin}`, margin, y); y += 14; }
+  if (tpl.showBuyerAddress && inv.buyerAddress) { doc.text(inv.buyerAddress, margin, y, { maxWidth: pageW - margin * 2 }); y += 14; }
+  if (inv.buyerEmail) { doc.text(inv.buyerEmail, margin, y); y += 14; }
+  y += 10;
+
+  const tableX = margin, tableW = pageW - margin * 2;
+  doc.setFillColor(241, 245, 249); doc.rect(tableX, y, tableW, 22, 'F');
+  doc.setFontSize(8); doc.setFont(tpl.fontFamily || 'helvetica', 'bold'); doc.setTextColor(71, 85, 105);
+  doc.text('DESCRIPTION', tableX + 8, y + 14);
+  doc.text('QTY', tableX + tableW - 200, y + 14);
+  doc.text('UNIT PRICE', tableX + tableW - 140, y + 14);
+  doc.text('AMOUNT', tableX + tableW - 8, y + 14, { align: 'right' });
+  y += 22;
+  doc.setFont(tpl.fontFamily || 'helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(30, 41, 59);
+  for (const li of inv.lineItems) {
+    const lineTotal = (li.quantity || 0) * (li.unitPrice || 0);
+    doc.text(li.description || '—', tableX + 8, y + 14, { maxWidth: tableW - 220 });
+    doc.text(String(li.quantity || 0), tableX + tableW - 200, y + 14);
+    doc.text(money(li.unitPrice || 0), tableX + tableW - 140, y + 14);
+    doc.text(money(lineTotal), tableX + tableW - 8, y + 14, { align: 'right' });
+    y += 20;
+    if (y > 680) { doc.addPage(); y = 60; }
+  }
+  y += 10;
+  doc.setDrawColor(226, 232, 240); doc.line(tableX, y, tableX + tableW, y); y += 16;
+
+  const right = tableX + tableW - 8;
+  doc.setFontSize(10);
+  const row = (label: string, val: string, bold = false) => {
+    if (bold) doc.setFont(tpl.fontFamily || 'helvetica', 'bold'); else doc.setFont(tpl.fontFamily || 'helvetica', 'normal');
+    doc.text(label, right - 160, y, { align: 'right' }); doc.text(val, right, y, { align: 'right' }); y += 16;
+  };
+  if (tpl.showVatBreakdown !== false) {
+    row('Vatable Sales', money(inv.vatableSales));
+    row('Zero-Rated Sales', money(inv.zeroRatedSales));
+    row('VAT-Exempt Sales', money(inv.exemptSales));
+    row('Output VAT (12%)', money(inv.outputVat));
+  }
+  if (tpl.showWithholding && inv.withholdingTax) row('Withholding Tax', money(inv.withholdingTax));
+  const [sr, sg, sb] = hexToRgb(tpl.secondaryColor);
+  doc.setFillColor(sr, sg, sb); doc.rect(tableX, y - 10, tableW, 26, 'F');
+  doc.setFont(tpl.fontFamily || 'helvetica', 'bold'); doc.setFontSize(12);
+  const [pr, pg, pb] = hexToRgb(tpl.primaryColor); doc.setTextColor(pr, pg, pb);
+  doc.text('AMOUNT DUE', right - 160, y + 7, { align: 'right' });
+  doc.text(money(inv.amountDue), right, y + 7, { align: 'right' });
+  y += 40;
+
+  if (tpl.showQrPlaceholder) {
+    doc.setDrawColor(203, 213, 225); doc.setFillColor(248, 250, 252);
+    doc.roundedRect(tableX, y, 60, 60, 4, 4, 'FD');
+    doc.setFontSize(7); doc.setTextColor(148, 163, 184); doc.text('QR', tableX + 22, y + 34);
+    doc.text('(e-invoice delivery)', tableX + 70, y + 30);
+    y += 80;
+  }
+
+  drawFooter(doc, tpl, profile, y, margin, pageW);
+  doc.save(`e-invoice-${String(inv.invoiceNo || inv.id).replace(/[^a-z0-9-_]+/gi, '-')}.pdf`);
+}
+
+/** Statement of Account PDF. */
+export function downloadSoaPdf(soa: SoaRecord, profile: BusinessProfile | undefined, tpl: InvoiceTemplate) {
+  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+  const pageW = doc.internal.pageSize.getWidth();
+  const margin = 48;
+  drawHeader(doc, tpl, profile, pageW, margin);
+  doc.setFontSize(10); doc.setFont(tpl.fontFamily || 'helvetica', 'normal');
+  doc.text(`Period: ${soa.periodFrom} to ${soa.periodTo}`, pageW - margin, 66, { align: 'right' });
+  doc.text(`Generated: ${soa.generatedAt.slice(0, 10)}`, pageW - margin, 82, { align: 'right' });
+
+  let y = 130;
+  doc.setTextColor(30, 41, 59);
+  doc.setFontSize(10); doc.setFont(tpl.fontFamily || 'helvetica', 'bold');
+  doc.text('CLIENT', margin, y);
+  doc.setFont(tpl.fontFamily || 'helvetica', 'normal'); doc.setFontSize(11); y += 16;
+  doc.text(soa.clientName, margin, y); y += 14;
+  if (soa.clientTin) { doc.text(`TIN: ${soa.clientTin}`, margin, y); y += 14; }
+  if (soa.clientAddress) { doc.text(soa.clientAddress, margin, y, { maxWidth: pageW - margin * 2 }); y += 20; }
+
+  const tableX = margin, tableW = pageW - margin * 2;
+  doc.setFillColor(241, 245, 249); doc.rect(tableX, y, tableW, 22, 'F');
+  doc.setFontSize(8); doc.setFont(tpl.fontFamily || 'helvetica', 'bold'); doc.setTextColor(71, 85, 105);
+  doc.text('DATE', tableX + 8, y + 14);
+  doc.text('REFERENCE', tableX + 90, y + 14);
+  doc.text('DESCRIPTION', tableX + 190, y + 14);
+  doc.text('DEBIT', tableX + tableW - 130, y + 14);
+  doc.text('CREDIT', tableX + tableW - 65, y + 14);
+  doc.text('BALANCE', tableX + tableW - 8, y + 14, { align: 'right' });
+  y += 22;
+  doc.setFont(tpl.fontFamily || 'helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(30, 41, 59);
+  doc.setFont(tpl.fontFamily || 'helvetica', 'italic');
+  doc.text('Opening balance', tableX + 8, y + 14);
+  doc.text(money(soa.openingBalance), tableX + tableW - 8, y + 14, { align: 'right' });
+  y += 20;
+  doc.setFont(tpl.fontFamily || 'helvetica', 'normal');
+  for (const l of soa.lines) {
+    doc.text(l.date, tableX + 8, y + 14);
+    doc.text(l.reference, tableX + 90, y + 14);
+    doc.text(l.description, tableX + 190, y + 14, { maxWidth: 180 });
+    if (l.debit) doc.text(money(l.debit), tableX + tableW - 130, y + 14);
+    if (l.credit) doc.text(money(l.credit), tableX + tableW - 65, y + 14);
+    doc.text(money(l.balance), tableX + tableW - 8, y + 14, { align: 'right' });
+    y += 20;
+    if (y > 680) { doc.addPage(); y = 60; }
+  }
+  y += 6;
+  const [sr, sg, sb] = hexToRgb(tpl.secondaryColor);
+  doc.setFillColor(sr, sg, sb); doc.rect(tableX, y - 10, tableW, 26, 'F');
+  doc.setFont(tpl.fontFamily || 'helvetica', 'bold'); doc.setFontSize(11);
+  const [pr, pg, pb] = hexToRgb(tpl.primaryColor); doc.setTextColor(pr, pg, pb);
+  doc.text('CLOSING BALANCE', tableX + tableW - 130, y + 7, { align: 'right' });
+  doc.text(money(soa.closingBalance), tableX + tableW - 8, y + 7, { align: 'right' });
+  y += 40;
+
+  drawFooter(doc, tpl, profile, y, margin, pageW);
+  doc.save(`soa-${soa.clientName.replace(/[^a-z0-9]+/gi, '-')}-${soa.periodFrom}.pdf`);
+}
