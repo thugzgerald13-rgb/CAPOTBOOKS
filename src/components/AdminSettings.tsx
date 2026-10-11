@@ -10,6 +10,7 @@ import { loadAuditLog, ALL_PERMISSIONS, ROLES, can } from '../lib/accessControl'
 import { FEATURE_FLAGS, getFlags, setFeatureFlag, buildBackup, parseBackup } from '../lib/featureFlags';
 import { supabase } from '../lib/supabase';
 import packageJson from '../../package.json';
+import { AccountHealthMonitor } from './AccountHealthMonitor';
 
 interface UserProfile {
   uid: string;
@@ -535,6 +536,20 @@ export function AdminSettings() {
                 </div>
               </div>
             </div>
+            {/* Account-specific system health audit */}
+            <div className="mb-6">
+              {users.find(u => u.email?.toLowerCase() === 'thugz.gerald13@gmail.com') ? (
+                <AccountHealthMonitor
+                  userId={users.find(u => u.email?.toLowerCase() === 'thugz.gerald13@gmail.com')!.uid}
+                  email="thugz.gerald13@gmail.com"
+                />
+              ) : (
+                <div className="rounded-xl border border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/20 p-4 text-xs text-amber-800 dark:text-amber-300">
+                  Account Health Monitor is configured for thugz.gerald13@gmail.com. Refresh the user directory and confirm that the profile is available to enable account-scoped checks.
+                </div>
+              )}
+            </div>
+
             {/* T025: feature flags + full backup */}
             <div className="grid md:grid-cols-2 gap-4 mb-6">
               <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
