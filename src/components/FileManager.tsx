@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
@@ -38,6 +38,131 @@ export function FileManager() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const [viewingFile, setViewingFile] = useState<AppFile | null>(null);
+  // ---- Camera capture (header Take Photo button) ----
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraBusy, setCameraBusy] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  const stopCameraStream = useCallback(() => {
+    streamRef.current?.getTracks().forEach(t => t.stop());
+    streamRef.current = null;
+  }, []);
+
+  // Attach the live stream to the <video> element once the modal mounts.
+  useEffect(() => {
+    if (cameraOpen && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+      videoRef.current.play().catch(() => {});
+    }
+    return () => {
+      if (!cameraOpen) stopCameraStream();
+    };
+  }, [cameraOpen, stopCameraStream]);
+
+  // Clean up the camera stream when the component unmounts.
+  useEffect(() => () => stopCameraStream(), [stopCameraStream]);
+
+  // Auto-upload a single captured photo directly into the active folder,
+  // bypassing the staging queue (used by both the in-app camera and the
+  // native capture="environment" fallback).
+  const autoUploadPhoto = useCallback(async (file: File) => {
+    let compressed = file;
+    if (file.type.startsWith('image/') && file.type !== 'image/svg+xml') {
+      try {
+        compressed = await imageCompression(file, {
+          maxSizeMB: 0.75, maxWidthOrHeight: 2400, useWebWorker: true, initialQuality: 0.85,
+        });
+      } catch { compressed = file; }
+    }
+    if (compressed.size > 800 * 1024) {
+      showToast('Photo too large (max 800KB after compression)');
+      return;
+    }
+    const base64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = e => resolve(e.target?.result as string);
+      reader.onerror = reject;
+      reader.readAsDataURL(compressed);
+    });
+    const id = 'file_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+    const stamp = new Date().toLocaleString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(/[\/:]/g, '-');
+    const name = `Photo_${stamp}.jpg`;
+    const safeName = name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const storagePath = `${currentClient.id}/${id}/${Date.now().toString(36)}-${safeName}`;
+    const comma = base64.indexOf(',');
+    const b64 = comma >= 0 ? base64.slice(comma + 1) : base64;
+    const binary = atob(b64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    const blob = new Blob([bytes], { type: 'image/jpeg' });
+    const { error: uploadError } = await supabase.storage.from('client-files').upload(storagePath, blob, {
+      contentType: 'image/jpeg', cacheControl: 'public, max-age=31536000, immutable', upsert: false,
+    });
+    if (uploadError) {
+      console.error(uploadError);
+      showToast('Camera photo upload failed');
+      return;
+    }
+    await saveFile({
+      id, name, type: 'image/jpeg', size: compressed.size, uploadedAt: new Date().toISOString(),
+      folderId: activeFolderId, storagePath, description: 'Captured with camera',
+    });
+    showToast('Photo captured & uploaded automatically');
+  }, [currentClient, activeFolderId, saveFile, showToast]);
+
+  // Open the in-app camera (live preview). Falls back to the native
+  // capture="environment" file input when getUserMedia is unavailable
+  // (non-HTTPS, permission denied, or no camera).
+  const openCamera = useCallback(async () => {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      cameraInputRef.current?.click();
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'environment' }, audio: false,
+      });
+      streamRef.current = stream;
+      setCameraOpen(true);
+    } catch {
+      cameraInputRef.current?.click();
+    }
+  }, []);
+
+  const closeCamera = useCallback(() => {
+    stopCameraStream();
+    setCameraOpen(false);
+  }, [stopCameraStream]);
+
+  // Snap the current video frame, close the camera, and auto-upload.
+  const captureAndUpload = useCallback(async () => {
+    const video = videoRef.current;
+    if (!video || cameraBusy) return;
+    setCameraBusy(true);
+    try {
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || 1280;
+      canvas.height = video.videoHeight || 720;
+      const ctx = canvas.getContext('2d');
+      if (ctx) ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.92));
+      closeCamera();
+      if (blob) {
+        const file = new File([blob], `camera_${Date.now()}.jpg`, { type: 'image/jpeg' });
+        await autoUploadPhoto(file);
+      }
+    } finally {
+      setCameraBusy(false);
+    }
+  }, [cameraBusy, closeCamera, autoUploadPhoto]);
+
+  // Native camera-input fallback (mobile) — auto-upload, no staging.
+  const handleCameraFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (file) autoUploadPhoto(file);
+  };
 
   if (!currentClient) return null;
 
@@ -322,7 +447,21 @@ export function FileManager() {
 
   return (
     <div className="w-full flex flex-col">
-      <PageHeader title="Document & Receipt Vault" icon={<FolderOpen className="text-blue-500" />} />
+      <PageHeader
+        title="Document & Receipt Vault"
+        icon={<FolderOpen className="text-blue-500" />}
+        actions={
+          <button
+            type="button"
+            onClick={openCamera}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-sm shadow-emerald-500/20 transition-all"
+            title="Open camera to capture a receipt/document and upload automatically"
+          >
+            <Camera className="w-4 h-4" />
+            <span className="hidden sm:inline">Take Photo</span>
+          </button>
+        }
+      />
       <div className="p-4 md:p-6 flex-1">
       {/* T019: Bank import + auto-match inbox */}
       <div className="mb-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 p-4">
@@ -614,11 +753,13 @@ export function FileManager() {
                 multiple 
                 className="hidden" 
               />
-              {/* On supported mobile browsers, capture="environment" opens the rear camera directly. */}
+              {/* Fallback: on supported mobile browsers, capture="environment"
+                  opens the rear camera directly. Used only when getUserMedia
+                  is unavailable; auto-uploads (no staging) via handleCameraFileChange. */}
               <input 
                 type="file" 
                 ref={cameraInputRef} 
-                onChange={handleFileChange} 
+                onChange={handleCameraFileChange} 
                 accept="image/*" 
                 capture="environment" 
                 className="hidden" 
@@ -635,19 +776,8 @@ export function FileManager() {
                 </span>
               </div>
               <div className="flex items-center gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    cameraInputRef.current?.click();
-                  }}
-                  className="inline-flex items-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm transition-all"
-                >
-                  <Camera className="w-4 h-4" />
-                  Take Photo
-                </button>
                 <span className="text-[10px] text-slate-400 dark:text-slate-500">
-                  Use your phone camera for receipts and documents
+                  Tip: use the <span className="font-bold text-emerald-600 dark:text-emerald-400">Take Photo</span> button in the header to capture receipts with your camera — they upload automatically.
                 </span>
               </div>
             </div>
@@ -735,6 +865,49 @@ export function FileManager() {
         </div>
       </div>
       </div>
+      {/* Live camera capture modal — opens automatically when the header
+          Take Photo button is clicked (getUserMedia). Auto-uploads on capture. */}
+      {cameraOpen && (
+        <div className="fixed inset-0 z-50 bg-black/90 flex flex-col items-center justify-center p-4" onClick={closeCamera}>
+          <div className="w-full max-w-2xl flex flex-col items-center gap-4" onClick={e => e.stopPropagation()}>
+            <div className="w-full text-center">
+              <div className="text-white font-bold text-sm">Capture Document / Receipt</div>
+              <div className="text-white/50 text-[11px] mt-0.5">Point at the document, then tap capture — it uploads automatically.</div>
+            </div>
+            <div className="relative w-full rounded-2xl overflow-hidden bg-black border border-white/10">
+              <video ref={videoRef} playsInline muted className="w-full max-h-[65vh] object-contain bg-black" />
+              {/* viewfinder corner brackets */}
+              <div className="pointer-events-none absolute inset-4 border-2 border-white/30 rounded-lg" />
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={closeCamera}
+                className="px-5 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold transition-all"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={captureAndUpload}
+                disabled={cameraBusy}
+                className="relative w-16 h-16 rounded-full bg-white hover:bg-emerald-400 transition-all flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
+                title="Capture & upload"
+              >
+                <span className="w-12 h-12 rounded-full border-4 border-black/80 bg-white" />
+              </button>
+              <button
+                type="button"
+                onClick={() => { closeCamera(); cameraInputRef.current?.click(); }}
+                className="px-5 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold transition-all"
+                title="Use native camera/file picker instead"
+              >
+                Browse
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       {viewingFile && <AttachmentViewer file={viewingFile} onClose={() => setViewingFile(null)} />}
     </div>
   );
