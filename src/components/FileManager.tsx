@@ -54,15 +54,17 @@ export function FileManager() {
   }, []);
 
   // Attach the live stream to the <video> element once the modal mounts.
+  // No stream-stopping cleanup here: the previous version stopped the feed
+  // via a stale `cameraOpen` closure during the false→true transition (the
+  // old cleanup ran with cameraOpen=false and killed the stream right before
+  // it was attached → black screen). Teardown lives in closeCamera() + the
+  // unmount effect below.
   useEffect(() => {
     if (cameraOpen && videoRef.current && streamRef.current) {
       videoRef.current.srcObject = streamRef.current;
       videoRef.current.play().catch(() => {});
     }
-    return () => {
-      if (!cameraOpen) stopCameraStream();
-    };
-  }, [cameraOpen, stopCameraStream]);
+  }, [cameraOpen]);
 
   // Clean up the camera stream when the component unmounts.
   useEffect(() => () => stopCameraStream(), [stopCameraStream]);
@@ -115,21 +117,40 @@ export function FileManager() {
     showToast('Photo captured & uploaded automatically');
   }, [currentClient, saveFile, showToast]);
 
-  // Open the in-app camera (live preview). Falls back to the native
-  // capture="environment" file input when getUserMedia is unavailable
-  // (non-HTTPS, permission denied, or no camera).
+  // Open the camera. On touch devices (phones/tablets) the native
+  // capture="environment" input opens the system camera app instantly — that
+  // is the most reliable "auto-open camera" experience on mobile, so we use
+  // it directly there. On desktop we use getUserMedia for a live-preview
+  // modal, trying rear→front→any camera, with a 6s timeout so a hung
+  // permission prompt never leaves the button looking dead.
   const openCamera = useCallback(async () => {
-    if (!navigator.mediaDevices?.getUserMedia) {
+    const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+    if (isTouchDevice || !navigator.mediaDevices?.getUserMedia) {
       cameraInputRef.current?.click();
       return;
     }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' }, audio: false,
-      });
+    const constraints: MediaStreamConstraints[] = [
+      { video: { facingMode: 'environment' }, audio: false },
+      { video: { facingMode: 'user' }, audio: false },
+      { video: true, audio: false },
+    ];
+    let stream: MediaStream | null = null;
+    for (const c of constraints) {
+      try {
+        const withTimeout = Promise.race([
+          navigator.mediaDevices.getUserMedia(c),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 6000)),
+        ]);
+        stream = await withTimeout;
+        break;
+      } catch {
+        // try the next constraint set
+      }
+    }
+    if (stream) {
       streamRef.current = stream;
       setCameraOpen(true);
-    } catch {
+    } else {
       cameraInputRef.current?.click();
     }
   }, []);
