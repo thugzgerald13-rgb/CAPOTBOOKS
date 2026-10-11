@@ -123,37 +123,46 @@ export function FileManager() {
   // it directly there. On desktop we use getUserMedia for a live-preview
   // modal, trying rear→front→any camera, with a 6s timeout so a hung
   // permission prompt never leaves the button looking dead.
+  // Open the camera. ALWAYS try getUserMedia first (works on desktop and
+  // mobile in modern browsers) — the old isTouchDevice shortcut was opening
+  // a file picker on touchscreen Windows laptops. 3s timeout per constraint
+  // so a hung permission prompt falls back fast to the native picker.
   const openCamera = useCallback(async () => {
-    const isTouchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
-    if (isTouchDevice || !navigator.mediaDevices?.getUserMedia) {
-      cameraInputRef.current?.click();
-      return;
-    }
-    const constraints: MediaStreamConstraints[] = [
-      { video: { facingMode: 'environment' }, audio: false },
-      { video: { facingMode: 'user' }, audio: false },
-      { video: true, audio: false },
-    ];
-    let stream: MediaStream | null = null;
-    for (const c of constraints) {
-      try {
-        const withTimeout = Promise.race([
-          navigator.mediaDevices.getUserMedia(c),
-          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 6000)),
-        ]);
-        stream = await withTimeout;
-        break;
-      } catch {
-        // try the next constraint set
+    if (cameraBusy) return;
+    setCameraBusy(true);
+    try {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        cameraInputRef.current?.click();
+        return;
       }
+      const constraints: MediaStreamConstraints[] = [
+        { video: { facingMode: 'environment' }, audio: false },
+        { video: { facingMode: 'user' }, audio: false },
+        { video: true, audio: false },
+      ];
+      let stream: MediaStream | null = null;
+      for (const c of constraints) {
+        try {
+          const withTimeout = Promise.race([
+            navigator.mediaDevices.getUserMedia(c),
+            new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 3000)),
+          ]);
+          stream = await withTimeout;
+          break;
+        } catch {
+          // try the next constraint set
+        }
+      }
+      if (stream) {
+        streamRef.current = stream;
+        setCameraOpen(true);
+      } else {
+        cameraInputRef.current?.click();
+      }
+    } finally {
+      setCameraBusy(false);
     }
-    if (stream) {
-      streamRef.current = stream;
-      setCameraOpen(true);
-    } else {
-      cameraInputRef.current?.click();
-    }
-  }, []);
+  }, [cameraBusy]);
 
   const closeCamera = useCallback(() => {
     stopCameraStream();
@@ -480,11 +489,12 @@ export function FileManager() {
           <button
             type="button"
             onClick={openCamera}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-sm shadow-emerald-500/20 transition-all"
+            disabled={cameraBusy}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-60 disabled:cursor-wait text-white rounded-xl text-xs font-bold shadow-sm shadow-emerald-500/20 transition-all"
             title="Open camera to capture a receipt/document and upload automatically"
           >
-            <Camera className="w-4 h-4" />
-            <span className="hidden sm:inline">Take Photo</span>
+            <Camera className={`w-4 h-4 ${cameraBusy ? 'animate-pulse' : ''}`} />
+            <span className="hidden sm:inline">{cameraBusy ? 'Opening camera…' : 'Take Photo'}</span>
           </button>
         }
       />
@@ -901,7 +911,7 @@ export function FileManager() {
               <div className="text-white/50 text-[11px] mt-0.5">Point at the document, then tap capture — it uploads automatically.</div>
             </div>
             <div className="relative w-full rounded-2xl overflow-hidden bg-black border border-white/10">
-              <video ref={videoRef} playsInline muted className="w-full max-h-[65vh] object-contain bg-black" />
+              <video ref={videoRef} autoPlay playsInline muted className="w-full max-h-[65vh] object-contain bg-black" />
               {/* viewfinder corner brackets */}
               <div className="pointer-events-none absolute inset-4 border-2 border-white/30 rounded-lg" />
             </div>
