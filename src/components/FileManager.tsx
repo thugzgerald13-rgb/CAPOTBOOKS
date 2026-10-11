@@ -43,6 +43,10 @@ export function FileManager() {
   const [cameraBusy, setCameraBusy] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  // activeFolderId is declared after the early `return null` below, so it
+  // cannot appear in any hook dependency array (Temporal Dead Zone). Mirror
+  // it into a ref so the camera auto-upload closure always reads the latest.
+  const activeFolderIdRef = useRef('folder_revenue');
 
   const stopCameraStream = useCallback(() => {
     streamRef.current?.getTracks().forEach(t => t.stop());
@@ -106,10 +110,10 @@ export function FileManager() {
     }
     await saveFile({
       id, name, type: 'image/jpeg', size: compressed.size, uploadedAt: new Date().toISOString(),
-      folderId: activeFolderId, storagePath, description: 'Captured with camera',
+      folderId: activeFolderIdRef.current, storagePath, description: 'Captured with camera',
     });
     showToast('Photo captured & uploaded automatically');
-  }, [currentClient, activeFolderId, saveFile, showToast]);
+  }, [currentClient, saveFile, showToast]);
 
   // Open the in-app camera (live preview). Falls back to the native
   // capture="environment" file input when getUserMedia is unavailable
@@ -176,6 +180,7 @@ export function FileManager() {
   // Active folder selection fallback
   const activeFolder = folders.find(f => f.id === selectedFolderId) || folders[0];
   const activeFolderId = activeFolder?.id || 'folder_revenue';
+  activeFolderIdRef.current = activeFolderId;
 
   const handleCreateFolder = async (e: React.FormEvent) => {
     e.preventDefault();
