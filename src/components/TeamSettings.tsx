@@ -329,8 +329,8 @@ export function TeamSettings() {
   if (notEnabled || !subusersEnabled) {
     return (
       <div className="w-full">
-        <div className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
-          <div className="px-6 py-5 border-b border-slate-200 dark:border-slate-700">
+        <div className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-clip">
+          <div className="sticky top-[var(--app-header-h,56px)] z-20 bg-white dark:bg-slate-800 px-6 py-5 border-b border-slate-200 dark:border-slate-700">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-cyan-100 text-cyan-600 dark:bg-cyan-900/30 dark:text-cyan-400 flex items-center justify-center">
                 <Users className="w-6 h-6" />
@@ -363,8 +363,8 @@ export function TeamSettings() {
 
   return (
     <div className="w-full">
-      <div className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
-        <div className="px-6 py-5 border-b border-slate-200 dark:border-slate-700">
+      <div className="bg-white dark:bg-slate-800 rounded-3xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-clip">
+        <div className="sticky top-[var(--app-header-h,56px)] z-20 bg-white dark:bg-slate-800 px-6 py-5 border-b border-slate-200 dark:border-slate-700">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-cyan-100 text-cyan-600 dark:bg-cyan-900/30 dark:text-cyan-400 flex items-center justify-center">
               <Users className="w-6 h-6" />

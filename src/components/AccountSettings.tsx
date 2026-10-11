@@ -113,7 +113,7 @@ export function AccountSettings() {
 
   return (
     <div className="w-full p-4 md:p-6 space-y-4">
-      <div className="flex items-center gap-3 mb-2">
+      <div className="sticky-page-title flex items-center gap-3 mb-2">
         <div className="w-10 h-10 rounded-xl bg-cyan-100 text-cyan-600 dark:bg-cyan-900/30 dark:text-cyan-400 flex items-center justify-center"><UserCircle className="w-6 h-6" /></div>
         <div><h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">Account Settings</h1><p className="text-sm text-slate-500 dark:text-slate-400">Manage profile, security, notifications, billing, and data.</p></div>
       </div>

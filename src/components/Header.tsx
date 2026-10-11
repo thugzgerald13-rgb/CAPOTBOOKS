@@ -34,6 +34,19 @@ export function Header({ onMenuClick }: HeaderProps) {
   const notifRef = useClickOutside<HTMLDivElement>(() => setNotifOpen(false));
   const userMenuRef = useClickOutside<HTMLDivElement>(() => setUserMenuOpen(false));
 
+  // Publish the live height of this sticky bar as --app-header-h so page title
+  // bars and table headers can freeze directly beneath it (see index.css).
+  const headerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const publish = () => document.documentElement.style.setProperty('--app-header-h', `${el.offsetHeight}px`);
+    publish();
+    const ro = new ResizeObserver(publish);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
   // Global Cmd/Ctrl+K opens the command palette
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -57,7 +70,7 @@ export function Header({ onMenuClick }: HeaderProps) {
   const initial = (user?.email || 'U').charAt(0).toUpperCase();
 
   return (
-    <div className="sticky top-0 z-30 w-full bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur-sm border-b border-slate-200 dark:border-slate-700">
+    <div ref={headerRef} className="sticky top-0 z-30 w-full bg-slate-50/95 dark:bg-slate-900/95 backdrop-blur-sm border-b border-slate-200 dark:border-slate-700">
       <div className="max-w-[1400px] mx-auto flex items-center justify-between gap-3 px-4 md:px-8 py-2.5">
         {/* Left: menu + company name + sync status */}
         <div className="flex items-center gap-3 min-w-0">

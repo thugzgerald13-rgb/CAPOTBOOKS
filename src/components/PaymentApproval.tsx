@@ -226,7 +226,7 @@ export function PaymentApproval() {
 
   return (
     <div className="w-full p-4 md:p-6 space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="sticky-page-title flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400 flex items-center justify-center">
             <ReceiptIcon className="w-5 h-5" />
