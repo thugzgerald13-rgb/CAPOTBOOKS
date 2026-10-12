@@ -4,7 +4,7 @@ import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
 import { useAuth } from '../context/AuthContext';
 import { Users, TrendingUp, Key, Lightbulb, BookOpen, BookText, LineChart, Scale, Plus, Building2, Save, X, RotateCcw, Library, FileText, Receipt, ShoppingCart, Banknote, Wallet, CreditCard, Trash2, Pencil, Upload, Loader2, CheckCircle2, AlertTriangle, FileImage } from 'lucide-react';
-import { Client, BusinessProfile, ClientIndustry } from '../types';
+import { Client, BusinessProfile, ClientIndustry, VatRegistrationType } from '../types';
 import { RDO_CODES } from '../lib/utils';
 import { supabase } from '../lib/supabase';
 import { formatAccountAmount, glAccountBalanceBefore, getAccountBalances } from '../lib/accountingBalances';
@@ -281,7 +281,8 @@ export function Extras() {
         zipCode: '',
         rdoCode: '',
         accountingType: 'Calendar',
-        fiscalMonthEnd: 12
+        fiscalMonthEnd: 12,
+        vatRegistrationType: 'vat',
       };
       saveBusinessProfile(newBiz);
       setEditingBusiness(newBiz);
@@ -301,6 +302,7 @@ export function Extras() {
       id: draftId,
       name: nextName,
       userId: undefined,
+      vatRegistrationType: 'vat',
       tinLibrary: { customers: [], suppliers: [] },
       sales: [],
       purchases: [],
@@ -508,6 +510,22 @@ export function Extras() {
                     <option value="Non-Individual">Non-Individual</option>
                   </select>
                 </div>
+              </div>
+
+              <div className="mb-4">
+                <label className="form-label">VAT Registration Type:</label>
+                <select
+                  value={editingClient.vatRegistrationType || ''}
+                  onChange={e => setEditingClient({...editingClient, vatRegistrationType: e.target.value as VatRegistrationType})}
+                  className="form-input"
+                >
+                  <option value="">Select VAT Registration Type</option>
+                  <option value="vat">VAT Registered</option>
+                  <option value="non-vat">Non-VAT</option>
+                  <option value="exempt">VAT Exempt</option>
+                  <option value="zero-rated">Zero-Rated</option>
+                </select>
+                <p className="text-[10px] text-slate-400 mt-1">RELIEF (SLSP) filing is available only for VAT-Registered and Zero-Rated taxpayers. Selecting Non-VAT or VAT Exempt will hide and lock the RELIEF module.</p>
               </div>
 
               <div className="mb-4">
@@ -990,6 +1008,22 @@ export function Extras() {
                     <option value="Non-Individual">Non-Individual</option>
                   </select>
                 </div>
+              </div>
+
+              <div className="mb-4">
+                <label className="form-label">VAT Registration Type:</label>
+                <select
+                  value={editingBusiness.vatRegistrationType || ''}
+                  onChange={e => setEditingBusiness({...editingBusiness, vatRegistrationType: e.target.value as VatRegistrationType})}
+                  className="form-input"
+                >
+                  <option value="">Select VAT Registration Type</option>
+                  <option value="vat">VAT Registered</option>
+                  <option value="non-vat">Non-VAT</option>
+                  <option value="exempt">VAT Exempt</option>
+                  <option value="zero-rated">Zero-Rated</option>
+                </select>
+                <p className="text-[10px] text-slate-400 mt-1">RELIEF (SLSP) filing is available only for VAT-Registered and Zero-Rated taxpayers. Selecting Non-VAT or VAT Exempt will hide and lock the RELIEF module.</p>
               </div>
 
               <div className="mb-4">

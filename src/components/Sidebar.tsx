@@ -36,9 +36,15 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     activePage,
     historyTab,
     reliefTab,
+    currentClient,
   } = useAccounting();
   const { user, isAdmin, userRole, isSubuser, hasPermission, signOut } = useAuth();
   const ent = useEntitlements();
+  // RELIEF (Summary List of Sales/Purchases / SLSP) is a BIR requirement only for
+  // VAT-registered and zero-rated taxpayers. When the active taxpayer is registered
+  // as Non-VAT or VAT Exempt, the RELIEF module has no filing obligation, so its
+  // menu entry is hidden and locked.
+  const reliefLocked = currentClient?.vatRegistrationType === 'non-vat' || currentClient?.vatRegistrationType === 'exempt';
   const trialOn = isTrialActive(ent);
   const trialOver = hasTrialEnded(ent) && Object.keys(ent.paid).length === 0;
   const planButtonLabel = trialOn
@@ -580,7 +586,9 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                           <FileSignature className="w-3.5 h-3.5" />
                           E-Invoicing (EIS)
                         </button>
-                        {/* RELIEF — nested collapsible; Summary List of Sales/Purchases/Importations (SLSP) */}
+                        {/* RELIEF — nested collapsible; Summary List of Sales/Purchases/Importations (SLSP).
+                            Hidden & locked for Non-VAT / VAT-Exempt taxpayers (no RELIEF filing obligation). */}
+                        {!reliefLocked && (
                         <div className="flex flex-col">
                           <button
                             onClick={() => setIsReliefOpen(!isReliefOpen)}
@@ -641,6 +649,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                             )}
                           </AnimatePresence>
                         </div>
+                        )}
                       </motion.div>
                     )}
                   </AnimatePresence>

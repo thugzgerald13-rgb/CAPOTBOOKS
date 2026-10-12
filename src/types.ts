@@ -139,6 +139,10 @@ export interface JournalVoucher {
 }
 
 export type ClientIndustry = 'retail' | 'general-services' | 'manufacturing' | 'construction';
+// BIR VAT registration status of a taxpayer. RELIEF (SLSP) filing is required
+// only for VAT-registered and zero-rated taxpayers; Non-VAT and Exempt entities
+// do not file RELIEF, so the RELIEF menu is hidden & locked for those types.
+export type VatRegistrationType = 'vat' | 'non-vat' | 'exempt' | 'zero-rated';
 
 export interface Client {
   id: string;
@@ -165,6 +169,8 @@ export interface Client {
   fiscalMonthEnd?: number;
   coaFormat?: 'numeric' | 'alphanumeric';
   industry?: ClientIndustry;
+  // BIR VAT registration type — drives whether the RELIEF (SLSP) module is available.
+  vatRegistrationType?: VatRegistrationType;
   tinLibrary: {
     customers: TinEntry[];
     suppliers: TinEntry[];
@@ -311,6 +317,8 @@ export interface BusinessProfile {
   hasMultipleBusinessLines?: boolean;
   accountingType?: 'Calendar' | 'Fiscal';
   fiscalMonthEnd?: number;
+  // BIR VAT registration type — drives whether the RELIEF (SLSP) module is available.
+  vatRegistrationType?: VatRegistrationType;
 }
 
 export interface ProfitAndLossLine {

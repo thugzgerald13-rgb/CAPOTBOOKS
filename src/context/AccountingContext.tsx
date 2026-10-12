@@ -103,6 +103,7 @@ const defaultBusinessProfile = (name: string): BusinessProfile => ({
   name,
   tin: '000-000-000-000',
   taxpayerClassification: 'Individual',
+  vatRegistrationType: 'vat',
   registeredName: name,
   lastName: '',
   firstName: '',
@@ -143,6 +144,7 @@ const buildMatchingClient = (profileData: BusinessProfile, existing: Client | un
     hasMultipleBusinessLines: profileData.hasMultipleBusinessLines ?? existing?.hasMultipleBusinessLines ?? false,
     accountingType: profileData.accountingType || 'Calendar',
     fiscalMonthEnd: profileData.fiscalMonthEnd || 12,
+    vatRegistrationType: profileData.vatRegistrationType || existing?.vatRegistrationType || 'vat',
     industry: existing?.industry || 'general-services',
     tinLibrary: existing?.tinLibrary || { customers: [], suppliers: [] },
     sales: existing?.sales || [],
@@ -248,7 +250,7 @@ const SNAPSHOTS_COLUMNS = 'report_type,data';
 // `tax_id`, `created_at`, and `updated_at` columns that nothing here reads.
 // select('*') was shipping all of that on every client-list load and on
 // every single realtime row refresh. Project only what's mapped below.
-const CLIENTS_LIST_COLUMNS = 'id,name,tin,taxpayer_classification,registered_name,last_name,first_name,middle_name,trade_name,substreet,street,barangay,district,city,zip_code,rdo_code,phone,email,category,has_multiple_business_lines,accounting_type,fiscal_month_end,coa_format,industry';
+const CLIENTS_LIST_COLUMNS = 'id,name,tin,taxpayer_classification,registered_name,last_name,first_name,middle_name,trade_name,substreet,street,barangay,district,city,zip_code,rdo_code,phone,email,category,has_multiple_business_lines,accounting_type,fiscal_month_end,coa_format,industry,vat_registration_type';
 
 // ---------------------------------------------------------------------------
 // Incremental ("delta") sync for the highest-volume, most-frequently-edited
@@ -540,7 +542,7 @@ const persistNormalizedClient = async (client: Client, userId: string, options: 
     zip_code:client.zipCode||null,rdo_code:client.rdoCode||null,phone:client.phone||null,email:client.email||null,
     category:client.category||'private',has_multiple_business_lines:!!client.hasMultipleBusinessLines,
     accounting_type:client.accountingType||'Calendar',fiscal_month_end:client.fiscalMonthEnd||12,
-    coa_format:client.coaFormat||'numeric',industry:client.industry||'general-services',updated_at:new Date().toISOString()
+    coa_format:client.coaFormat||'numeric',industry:client.industry||'general-services',vat_registration_type:client.vatRegistrationType||null,updated_at:new Date().toISOString()
   };
   const { error: parentError } = await supabase.from('clients').upsert(parent,{onConflict:'id'});
   if (parentError) throw parentError;
@@ -734,6 +736,7 @@ export function AccountingProvider({
           zipCode: row.zip_code, rdoCode: row.rdo_code, phone: row.phone, email: row.email, category: row.category,
           hasMultipleBusinessLines: row.has_multiple_business_lines, accountingType: row.accounting_type,
           fiscalMonthEnd: row.fiscal_month_end, coaFormat: row.coa_format, industry: row.industry || 'general-services',
+          vatRegistrationType: row.vat_registration_type || 'vat',
           tinLibrary: normalized.tinLibrary ?? {customers:[], suppliers:[]},
           sales: normalized.sales ?? [], purchases: normalized.purchases ?? [], expenses: purchasesToExpenses(normalized.purchases ?? []),
           ...(normalized as any)
@@ -1712,6 +1715,7 @@ export function AccountingProvider({
       category: clientData.category || 'private', has_multiple_business_lines: !!clientData.hasMultipleBusinessLines,
       accounting_type: clientData.accountingType || 'Calendar', fiscal_month_end: clientData.fiscalMonthEnd || 12,
       coa_format: clientData.coaFormat || 'numeric', industry: clientData.industry || 'general-services',
+      vat_registration_type: clientData.vatRegistrationType || null,
       updated_at: new Date().toISOString(),
     };
     const { error } = await supabase.from('clients').upsert(row, { onConflict: 'id' });

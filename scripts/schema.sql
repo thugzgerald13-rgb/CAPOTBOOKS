@@ -59,6 +59,9 @@ create table if not exists public.clients (
   fiscal_month_end integer not null default 12,
   coa_format text not null default 'numeric',
   industry text not null default 'general-services',
+  -- BIR VAT registration type: vat | non-vat | exempt | zero-rated.
+  -- Drives RELIEF (SLSP) availability — hidden & locked for non-vat / exempt.
+  vat_registration_type text not null default 'vat',
 
   -- Temporary legacy compatibility payload.
   -- Remove only after migration verification + rollback window.
@@ -76,7 +79,9 @@ create table if not exists public.clients (
   constraint clients_coa_format_check
     check (coa_format in ('numeric', 'alphanumeric')),
   constraint clients_industry_check
-    check (industry in ('retail', 'general-services', 'manufacturing', 'construction'))
+    check (industry in ('retail', 'general-services', 'manufacturing', 'construction')),
+  constraint clients_vat_registration_type_check
+    check (vat_registration_type in ('vat', 'non-vat', 'exempt', 'zero-rated'))
 );
 
 create index if not exists idx_clients_user_id
