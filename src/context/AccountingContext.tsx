@@ -29,6 +29,7 @@ interface AccountingContextType {
   currentDat: DatSelection | null;
   historyTab: string;
   birFormTab: string;
+  reliefTab: string;
   toastMsg: string | null;
   isSyncing: boolean;
   syncError: string | null;
@@ -39,6 +40,7 @@ interface AccountingContextType {
   navigateToPage: (page: string | null) => void;
   setHistoryTab: (tab: string) => void;
   setBirFormTab: (tab: string) => void;
+  setReliefTab: (tab: string) => void;
   setCurrentClientId: (id: string) => void;
   setCurrentDat: (dat: DatSelection | null) => void;
 
@@ -687,6 +689,7 @@ export function AccountingProvider({
   const [currentDat, setCurrentDat] = useState<DatSelection | null>(null);
   const [historyTab, setHistoryTab] = useState('expenses');
   const [birFormTab, setBirFormTab] = useState('tracker');
+  const [reliefTab, setReliefTab] = useState('sales');
   const [toastMsg, setToastMsg] = useState<string | null>(null);
 
   // Device Adaptations state
@@ -2379,6 +2382,7 @@ export function AccountingProvider({
         currentDat,
         historyTab,
         birFormTab,
+        reliefTab,
         toastMsg,
         isSyncing,
         syncError,
@@ -2388,6 +2392,7 @@ export function AccountingProvider({
         navigateToPage,
         setHistoryTab,
         setBirFormTab,
+        setReliefTab,
         setCurrentClientId,
         setCurrentDat,
         saveClient,

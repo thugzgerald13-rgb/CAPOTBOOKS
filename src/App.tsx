@@ -42,6 +42,7 @@ const Diagnostics = lazy(() => import('./components/Diagnostics').then(m => ({ d
 const FileManager = lazy(() => import('./components/FileManager').then(m => ({ default: m.FileManager })));
 const Inventory = lazy(() => import('./components/Inventory').then(m => ({ default: m.Inventory })));
 const BIRForms = lazy(() => import('./components/BIRForms').then(m => ({ default: m.BIRForms })));
+const Relief = lazy(() => import('./components/Relief').then(m => ({ default: m.Relief })));
 const ComplianceTracker = lazy(() => import('./components/ComplianceTracker').then(m => ({ default: m.ComplianceTracker })));
 const AccountSettings = lazy(() => import('./components/AccountSettings').then(m => ({ default: m.AccountSettings })));
 const TeamSettings = lazy(() => import('./components/TeamSettings').then(m => ({ default: m.TeamSettings })));
@@ -202,6 +203,7 @@ function AppLayout() {
             <Route path="/files" element={<FileManager />} />
             <Route path="/inventory" element={<Inventory />} />
             <Route path="/bir-forms" element={<BIRForms />} />
+            <Route path="/relief" element={<Relief />} />
             <Route path="/compliance-tracker" element={<ComplianceTracker />} />
             <Route path="/eis-center" element={<EisCenter />} />
             <Route path="/ap-workspace" element={<Navigate to="/purchases/ap" replace />} />
