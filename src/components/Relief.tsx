@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { saveAs } from 'file-saver';
 import * as XLSX from 'xlsx';
 import { PageHeader, Button, Card, CardContent, Select, Field, Input, EmptyState, Badge, Modal } from './ui';
@@ -6,6 +6,7 @@ import { buildInquiry, inquiryAoa, inquiryPrintHtml, printHtml, formatMoney, tax
 import { ReliefReportPreviewModal } from "./ReliefReportPreviewModal";
 import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
+import { supabase } from '../lib/supabase';
 import { FileText, Receipt, ShoppingCart, Boxes, FileDown, Plus, Trash2, Undo2, Search, Printer, FileSpreadsheet, ArrowLeft } from 'lucide-react';
 
 /**
@@ -123,25 +124,27 @@ function rdo3(raw?: string): string {
 }
 
 export function Relief() {
-  const { currentClient, reliefTab, setReliefTab, showToast } = useAccounting();
+  const { currentClient, currentClientId, reliefTab, setReliefTab, showToast } = useAccounting();
   usePermission('view_reports');
 
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [importRows, setImportRows] = useState<ImportRow[]>([]);
-  // Purchases without a supplier TIN are excluded by default; tick to consolidate them into the BIR "VARIOUS PURCHASES" row (000000002).
-  // Relief asks for the non-creditable portion of input tax when generating the Purchases file (creditable = total - non-creditable).
+  const importRowsRef = useRef<ImportRow[]>(importRows);
+  importRowsRef.current = importRows;
+  const [importRowsDirty, setImportRowsDirty] = useState(false);
+  const [importRetryToken, setImportRetryToken] = useState(0);
+  const importRevisionRef = useRef(0);
+  const [loadRetryToken, setLoadRetryToken] = useState(0);
+  // These settings are RELIEF-only and are persisted per active business + tax month.
   const [nonCreditable, setNonCreditable] = useState(0);
   const [consolidateNoTinPurchases, setConsolidateNoTinPurchases] = useState(false);
-
-  const [transfers, setTransfers] = useState<TransfersMap>(() => {
-    try { return JSON.parse(localStorage.getItem('relief-purchase-transfers') || '{}'); }
-    catch { return {}; }
-  });
-  useEffect(() => {
-    try { localStorage.setItem('relief-purchase-transfers', JSON.stringify(transfers)); } catch { /* ignore */ }
-  }, [transfers]);
+  const [transfers, setTransfers] = useState<TransfersMap>({});
+  const [loadedReliefKey, setLoadedReliefKey] = useState<string | null>(null);
+  const [reliefCloudStatus, setReliefCloudStatus] = useState<'loading' | 'ready' | 'saving' | 'error'>('loading');
+  const [reliefCloudMessage, setReliefCloudMessage] = useState('');
+  const [legacyTransfersForImport, setLegacyTransfersForImport] = useState<TransfersMap | null>(null);
 
   const tab = (['sales', 'purchases', 'imports'].includes(reliefTab) ? reliefTab : 'sales') as ReliefTab;
   const activeTab = TABS.find(t => t.id === tab)!;
@@ -159,6 +162,278 @@ export function Relief() {
   const rdoCode = rdo3(owner.rdoCode); // e.g. 057, 43B
   // Last header field in the BIR samples is the fiscal-year-end month (12 for calendar-year taxpayers).
   const fyEndMonth = owner.accountingType === 'Fiscal' && owner.fiscalMonthEnd ? owner.fiscalMonthEnd : 12;
+
+  const reliefDataKey = currentClientId ? `${currentClientId}::${monthKey}` : null;
+  const activeReliefKeyRef = useRef<string | null>(reliefDataKey);
+  activeReliefKeyRef.current = reliefDataKey;
+  const reliefDataReady = !!reliefDataKey && loadedReliefKey === reliefDataKey;
+
+  const writeReliefAudit = async (
+    clientId: string,
+    action: string,
+    entityType: string,
+    entityId: string,
+    details: Record<string, unknown> = {},
+  ) => {
+    const auditId = `audit-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+    const { error } = await supabase.from('relief_records').insert({
+      client_id: clientId,
+      record_type: 'audit',
+      record_id: auditId,
+      data: {
+        action,
+        entity_type: entityType,
+        entity_id: entityId,
+        details,
+        changed_at: new Date().toISOString(),
+      },
+    });
+    // Audit failure must not silently undo an otherwise successful RELIEF change.
+    if (error) console.warn('Could not write RELIEF audit record:', error.message);
+  };
+
+  const saveReliefSetting = async (nextNonCreditable: number, nextConsolidate: boolean) => {
+    if (!currentClientId || !reliefDataReady) {
+      showToast('RELIEF data is still loading. Please try again when cloud data is ready.');
+      return;
+    }
+    setReliefCloudStatus('saving');
+    const { error } = await supabase.from('relief_records').upsert({
+      client_id: currentClientId,
+      record_type: 'settings',
+      record_id: monthKey,
+      data: {
+        monthKey,
+        nonCreditable: Math.max(0, Number(nextNonCreditable) || 0),
+        consolidateNoTinPurchases: !!nextConsolidate,
+      },
+    }, { onConflict: 'client_id,record_type,record_id' });
+    if (error) {
+      setReliefCloudStatus('error');
+      setReliefCloudMessage(`Could not save RELIEF settings: ${error.message}`);
+      showToast('Could not save RELIEF settings to Supabase. Check the migration and permissions.');
+      return;
+    }
+    await writeReliefAudit(currentClientId, 'settings_updated', 'settings', monthKey, {
+      nonCreditable: Math.max(0, Number(nextNonCreditable) || 0),
+      consolidateNoTinPurchases: !!nextConsolidate,
+    });
+    setReliefCloudStatus('ready');
+    setReliefCloudMessage('RELIEF settings saved to Supabase for this profile and month.');
+  };
+
+  const persistImportationSnapshot = async (clientId: string, period: string, rows: ImportRow[]) => {
+    const newRows = rows.map(row => ({
+      client_id: clientId,
+      record_type: 'importation',
+      record_id: `${period}|${row.id}`,
+      data: { monthKey: period, row },
+    }));
+    if (newRows.length) {
+      const { error } = await supabase.from('relief_records').upsert(newRows, {
+        onConflict: 'client_id,record_type,record_id',
+      });
+      if (error) throw new Error(`Could not save RELIEF importations: ${error.message}`);
+    }
+    const { data: existing, error: existingError } = await supabase
+      .from('relief_records').select('record_id').eq('client_id', clientId)
+      .eq('record_type', 'importation').like('record_id', `${period}|%`);
+    if (existingError) throw new Error(`Could not reconcile RELIEF importations: ${existingError.message}`);
+    const keep = new Set(newRows.map(r => r.record_id));
+    const stale = (existing || []).map((r: any) => String(r.record_id)).filter((id: string) => !keep.has(id));
+    if (stale.length) {
+      const { error: deleteError } = await supabase.from('relief_records').delete()
+        .eq('client_id', clientId).eq('record_type', 'importation').in('record_id', stale);
+      if (deleteError) throw new Error(`Could not remove deleted RELIEF importations: ${deleteError.message}`);
+    }
+    await writeReliefAudit(clientId, 'importations_saved', 'importation', period, { count: rows.length, monthKey: period });
+  };
+
+  const changePeriod = async (nextYear: number, nextMonth: number) => {
+    const nextPeriod = monthKeyOf(nextYear, nextMonth);
+    if (nextPeriod === monthKey) return;
+    if (importRowsDirty && currentClientId && reliefDataReady) {
+      const clientId = currentClientId;
+      const period = monthKey;
+      setReliefCloudStatus('saving');
+      try {
+        let version = importRevisionRef.current;
+        let snapshot = importRowsRef.current.map(r => ({ ...r }));
+        let savedStableSnapshot = false;
+        for (let attempt = 0; attempt < 5; attempt++) {
+          await persistImportationSnapshot(clientId, period, snapshot);
+          if (version === importRevisionRef.current) {
+            savedStableSnapshot = true;
+            break;
+          }
+          version = importRevisionRef.current;
+          snapshot = importRowsRef.current.map(r => ({ ...r }));
+        }
+        if (!savedStableSnapshot) throw new Error('Importation entries kept changing while saving. Please retry before changing the period.');
+        if (activeReliefKeyRef.current === `${clientId}::${period}`) {
+          setImportRowsDirty(false);
+          setReliefCloudStatus('ready');
+          setReliefCloudMessage(`RELIEF importations saved to Supabase for ${period}.`);
+        }
+      } catch (err: any) {
+        setReliefCloudStatus('error');
+        setReliefCloudMessage(err?.message || 'Could not save RELIEF importations.');
+        showToast('Could not save importation changes. The period was not changed.');
+        return;
+      }
+    }
+    setYear(nextYear);
+    setMonth(nextMonth);
+  };
+
+  // Every RELIEF-only record is loaded in the context of the currently active CAPOTBOOKS client.
+  // Purchase transactions themselves are not updated by this module.
+  useEffect(() => {
+    let cancelled = false;
+    if (!currentClientId || !monthKey) {
+      setTransfers({});
+      setImportRows([]);
+      setImportRowsDirty(false);
+      setNonCreditable(0);
+      setConsolidateNoTinPurchases(false);
+      setLoadedReliefKey(null);
+      setReliefCloudStatus('error');
+      setReliefCloudMessage('Select an active business profile to load RELIEF data.');
+      return () => { cancelled = true; };
+    }
+
+    const clientId = currentClientId;
+    const period = monthKey;
+    const activeKey = `${clientId}::${period}`;
+    setLoadedReliefKey(null);
+    setReliefCloudStatus('loading');
+    setReliefCloudMessage('Loading RELIEF-only data for the active profile…');
+    importRevisionRef.current += 1;
+    setTransfers({});
+    setImportRows([]);
+    setImportRowsDirty(false);
+    setNonCreditable(0);
+    setConsolidateNoTinPurchases(false);
+    setLegacyTransfersForImport(null);
+
+    void (async () => {
+      const { data, error } = await supabase
+        .from('relief_records')
+        .select('record_type,record_id,data')
+        .eq('client_id', clientId)
+        .in('record_type', ['purchase_transfer', 'importation', 'settings']);
+      if (cancelled) return;
+      if (error) {
+        setReliefCloudStatus('error');
+        setReliefCloudMessage(`RELIEF cloud data could not be loaded: ${error.message}. Apply scripts/relief_supabase_migration.sql first.`);
+        return;
+      }
+
+      const records = data || [];
+      const transferRecords = records.filter((r: any) => r.record_type === 'purchase_transfer');
+      const nextTransfers: TransfersMap = Object.fromEntries(
+        transferRecords.map((r: any) => [String(r.record_id), (r.data || {}) as TransferEntry]),
+      );
+      const monthImports = records
+        .filter((r: any) => r.record_type === 'importation' && r.data?.monthKey === period && r.data?.row)
+        .map((r: any) => r.data.row as ImportRow);
+      const setting = records.find((r: any) => r.record_type === 'settings' && String(r.record_id) === period)?.data || {};
+
+      setTransfers(nextTransfers);
+      setImportRows(monthImports);
+      setImportRowsDirty(false);
+      setNonCreditable(Math.max(0, Number(setting.nonCreditable) || 0));
+      setConsolidateNoTinPurchases(!!setting.consolidateNoTinPurchases);
+      setLoadedReliefKey(activeKey);
+      setReliefCloudStatus('ready');
+      setReliefCloudMessage(`RELIEF data loaded from Supabase for ${owner.registeredName || owner.name || clientId}.`);
+
+      // Older releases used one browser-wide key. Never assign those transfers to a profile silently;
+      // offer explicit import only when the selected profile has no cloud transfers.
+      if (transferRecords.length === 0) {
+        try {
+          const legacy = JSON.parse(localStorage.getItem('relief-purchase-transfers') || '{}') as TransfersMap;
+          if (legacy && Object.keys(legacy).length > 0) setLegacyTransfersForImport(legacy);
+        } catch { /* malformed legacy data is intentionally ignored */ }
+      }
+    })().catch((err: any) => {
+      if (cancelled) return;
+      setReliefCloudStatus('error');
+      setReliefCloudMessage(`RELIEF cloud data could not be loaded: ${err?.message || 'Unexpected error'}`);
+    });
+
+    return () => { cancelled = true; };
+  }, [currentClientId, monthKey, loadRetryToken]);
+
+  // Importation entry edits are debounced and stored as RELIEF rows only. No accounting transaction table is touched.
+  useEffect(() => {
+    if (!importRowsDirty || !reliefDataReady || !currentClientId) return;
+    const clientId = currentClientId;
+    const period = monthKey;
+    const rowsSnapshot = importRows.map(r => ({ ...r }));
+    const snapshotVersion = importRevisionRef.current;
+    const activeKey = `${clientId}::${period}`;
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        if (activeReliefKeyRef.current === activeKey) setReliefCloudStatus('saving');
+        try {
+          await persistImportationSnapshot(clientId, period, rowsSnapshot);
+          if (activeReliefKeyRef.current === activeKey) {
+            setReliefCloudStatus('ready');
+            setReliefCloudMessage(`RELIEF importations saved to Supabase for ${period}.`);
+            if (importRevisionRef.current === snapshotVersion) setImportRowsDirty(false);
+          }
+        } catch (err: any) {
+          if (activeReliefKeyRef.current === activeKey) {
+            setReliefCloudStatus('error');
+            setReliefCloudMessage(err?.message || 'Could not save RELIEF importations.');
+          }
+        }
+      })();
+    }, 650);
+    return () => window.clearTimeout(timer);
+  }, [importRows, importRowsDirty, reliefDataReady, currentClientId, monthKey, importRetryToken]);
+
+  const updateImportRows = (rows: ImportRow[]) => {
+    importRevisionRef.current += 1;
+    importRowsRef.current = rows;
+    setImportRows(rows);
+    setImportRowsDirty(true);
+  };
+
+  const importLegacyTransfersToActiveProfile = async () => {
+    if (!currentClientId || !reliefDataReady || !legacyTransfersForImport) {
+      showToast('RELIEF cloud data must finish loading before importing legacy transfers.');
+      return;
+    }
+    const entries = Object.entries(legacyTransfersForImport);
+    if (!entries.length) return;
+    const confirmed = window.confirm(
+      `Import ${entries.length} old browser-stored RELIEF purchase-month transfer(s) into the currently active profile (${owner.registeredName || owner.name || currentClientId})? This affects RELIEF only and will not modify purchase transactions. Confirm that these transfers belong to this profile.`,
+    );
+    if (!confirmed) return;
+    setReliefCloudStatus('saving');
+    const rows = entries.map(([recordId, value]) => ({
+      client_id: currentClientId,
+      record_type: 'purchase_transfer',
+      record_id: recordId,
+      data: value,
+    }));
+    const { error } = await supabase.from('relief_records').upsert(rows, { onConflict: 'client_id,record_type,record_id' });
+    if (error) {
+      setReliefCloudStatus('error');
+      setReliefCloudMessage(`Could not import legacy transfers: ${error.message}`);
+      showToast('Could not import old RELIEF transfers into Supabase.');
+      return;
+    }
+    setTransfers(prev => ({ ...prev, ...legacyTransfersForImport }));
+    localStorage.removeItem('relief-purchase-transfers');
+    setLegacyTransfersForImport(null);
+    await writeReliefAudit(currentClientId, 'legacy_transfers_imported', 'purchase_transfer', 'browser-local', { count: rows.length });
+    setReliefCloudStatus('ready');
+    setReliefCloudMessage(`Imported ${rows.length} legacy transfer(s) into the active profile.`);
+    showToast(`Imported ${rows.length} RELIEF transfer(s) into this profile. Purchases were not changed.`);
+  };
 
   // ---- Sales: aggregate per buyer; amounts -> exempt / zero-rated / taxable / output tax ----
   const buildSalesRows = (year: number, month: number) => {
@@ -258,22 +533,52 @@ export function Relief() {
   const { purchaseRows, noTinCount, transferredInCount } = useMemo(() => buildPurchases(year, month),
     [currentClient, year, month, monthKey, transfers, consolidateNoTinPurchases]);
 
-  const movePurchaseRow = (row: any, targetMonth: string) => {
-    const tKey = row.transferKey;
-    setTransfers(prev => {
-      const next = { ...prev };
-      if (targetMonth === row.fromMonth) delete next[tKey];
-      else next[tKey] = {
-        toMonth: targetMonth, tin: row.tin, name: row.regName, address: row.addr1,
-        exempt: Number(row.exempt || 0), zeroRated: Number(row.zeroRated || 0),
-        services: Number(row.services || 0), capital: Number(row.capital || 0),
-        goodsOther: Number(row.goodsOther || 0), inputTax: Number(row.inputTax || 0),
-      };
-      return next;
+  const movePurchaseRow = async (row: any, targetMonth: string) => {
+    if (!currentClientId || !reliefDataReady) {
+      showToast('RELIEF cloud data is still loading. Please retry the transfer.');
+      return;
+    }
+    const tKey = String(row.transferKey);
+    setReliefCloudStatus('saving');
+    if (targetMonth === row.fromMonth) {
+      const { error } = await supabase.from('relief_records').delete()
+        .eq('client_id', currentClientId).eq('record_type', 'purchase_transfer').eq('record_id', tKey);
+      if (error) {
+        setReliefCloudStatus('error');
+        setReliefCloudMessage(`Could not reset purchase-month transfer: ${error.message}`);
+        showToast('Could not save this RELIEF transfer to Supabase.');
+        return;
+      }
+      setTransfers(prev => { const next = { ...prev }; delete next[tKey]; return next; });
+      await writeReliefAudit(currentClientId, 'purchase_month_transfer_removed', 'purchase_transfer', tKey, { supplier: row.regName, fromMonth: row.fromMonth });
+      setReliefCloudStatus('ready');
+      setReliefCloudMessage('Purchase-month transfer reset in RELIEF and saved to Supabase.');
+      showToast(`Moved ${row.regName || 'supplier'} back to ${row.fromMonth}.`);
+      return;
+    }
+
+    const transfer: TransferEntry = {
+      toMonth: targetMonth, tin: row.tin, name: row.regName, address: row.addr1,
+      exempt: Number(row.exempt || 0), zeroRated: Number(row.zeroRated || 0),
+      services: Number(row.services || 0), capital: Number(row.capital || 0),
+      goodsOther: Number(row.goodsOther || 0), inputTax: Number(row.inputTax || 0),
+    };
+    const { error } = await supabase.from('relief_records').upsert({
+      client_id: currentClientId, record_type: 'purchase_transfer', record_id: tKey, data: transfer,
+    }, { onConflict: 'client_id,record_type,record_id' });
+    if (error) {
+      setReliefCloudStatus('error');
+      setReliefCloudMessage(`Could not save purchase-month transfer: ${error.message}`);
+      showToast('Could not save this RELIEF transfer to Supabase.');
+      return;
+    }
+    setTransfers(prev => ({ ...prev, [tKey]: transfer }));
+    await writeReliefAudit(currentClientId, 'purchase_month_transfer_updated', 'purchase_transfer', tKey, {
+      supplier: row.regName, fromMonth: row.fromMonth, toMonth: targetMonth, inputTax: transfer.inputTax,
     });
-    showToast(targetMonth === row.fromMonth
-      ? `Moved ${row.regName || 'supplier'} back to ${row.fromMonth}.`
-      : `Transferred ${row.regName || 'supplier'} (₱${fmt(row.inputTax)} input tax) to ${targetMonth}.`);
+    setReliefCloudStatus('ready');
+    setReliefCloudMessage(`Purchase-month transfer saved to Supabase (${row.fromMonth} → ${targetMonth}).`);
+    showToast(`Transferred ${row.regName || 'supplier'} (₱${fmt(row.inputTax)} input tax) to ${targetMonth}.`);
   };
 
   // Totals (must equal sum of details — written into the header)
@@ -411,7 +716,27 @@ export function Relief() {
     showToast(`RELIEF file ${fname} exported (${totals.count} entries, BIR Relief sample format).`);
   };
 
-  const clearAllTransfers = () => { setTransfers({}); showToast('All month transfers reset.'); };
+  const clearAllTransfers = async () => {
+    if (!currentClientId || !reliefDataReady) {
+      showToast('RELIEF cloud data is still loading. Please retry.');
+      return;
+    }
+    if (!window.confirm('Reset every purchase-month transfer for this active profile in RELIEF? Original purchase transactions will not be changed.')) return;
+    setReliefCloudStatus('saving');
+    const { error } = await supabase.from('relief_records').delete()
+      .eq('client_id', currentClientId).eq('record_type', 'purchase_transfer');
+    if (error) {
+      setReliefCloudStatus('error');
+      setReliefCloudMessage(`Could not reset transfers: ${error.message}`);
+      showToast('Could not reset transfers in Supabase.');
+      return;
+    }
+    setTransfers({});
+    await writeReliefAudit(currentClientId, 'purchase_month_transfers_cleared', 'purchase_transfer', 'all', { count: Object.keys(transfers).length });
+    setReliefCloudStatus('ready');
+    setReliefCloudMessage('All purchase-month transfers for this profile were reset in RELIEF only.');
+    showToast('All RELIEF month transfers reset. Purchase transactions were not changed.');
+  };
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-5">
@@ -425,15 +750,25 @@ export function Relief() {
         </div>}
       />
 
+      <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs ${reliefCloudStatus === 'error' ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300' : 'border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-300'}`}>
+        <span>{reliefCloudMessage || (reliefCloudStatus === 'loading' ? 'Loading RELIEF data…' : 'RELIEF cloud data status')}</span>
+        <div className="flex items-center gap-2 shrink-0">
+          {reliefCloudStatus === 'error' && <Button variant="outline" onClick={() => { if (importRowsDirty && reliefDataReady) setImportRetryToken(v => v + 1); else setLoadRetryToken(v => v + 1); }} className="py-1">Retry sync</Button>}
+          {legacyTransfersForImport && Object.keys(legacyTransfersForImport).length > 0 && Object.keys(transfers).length === 0 && reliefDataReady && (
+            <Button variant="outline" onClick={importLegacyTransfersToActiveProfile} className="py-1">Import old transfers to this profile</Button>
+          )}
+        </div>
+      </div>
+
       <Card>
         <CardContent className="flex flex-wrap items-end gap-4 py-4">
           <Field label="Year">
-            <Select value={String(year)} onChange={e => setYear(Number(e.target.value))}>
+            <Select value={String(year)} onChange={e => { void changePeriod(Number(e.target.value), month); }}>
               {years.map(y => <option key={y} value={y}>{y}</option>)}
             </Select>
           </Field>
           <Field label="Month">
-            <Select value={String(month)} onChange={e => setMonth(Number(e.target.value))}>
+            <Select value={String(month)} onChange={e => { void changePeriod(year, Number(e.target.value)); }}>
               {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
                 <option key={m} value={m}>{new Date(year, m - 1, 1).toLocaleString('en-PH', { month: 'long' })}</option>
               ))}
@@ -503,11 +838,12 @@ export function Relief() {
             <label className="flex items-center gap-1.5 text-slate-500">
               Non-creditable input tax ₱
               <input type="number" min={0} step="0.01" value={nonCreditable || ''} placeholder="0.00"
-                onChange={e => setNonCreditable(Number(e.target.value) || 0)}
+                onChange={e => setNonCreditable(Math.max(0, Number(e.target.value) || 0))}
+                onBlur={() => void saveReliefSetting(nonCreditable, consolidateNoTinPurchases)}
                 className="w-28 form-input text-xs py-1" />
             </label>
             <label className="flex items-center gap-1.5 text-slate-500 cursor-pointer">
-              <input type="checkbox" checked={consolidateNoTinPurchases} onChange={e => setConsolidateNoTinPurchases(e.target.checked)} />
+              <input type="checkbox" checked={consolidateNoTinPurchases} onChange={e => { const checked = e.target.checked; setConsolidateNoTinPurchases(checked); void saveReliefSetting(nonCreditable, checked); }} />
               Consolidate purchases without TIN as VARIOUS PURCHASES (000000002)
             </label>
             <span className="text-slate-400">Use “Claim Month” to move a supplier's input tax to another month. Export matches the BIR Relief sample format.</span>
@@ -567,7 +903,7 @@ export function Relief() {
         <Card><CardContent className="space-y-3 py-4">
           <div className="flex items-center justify-between">
             <p className="text-sm text-slate-500">Enter import entries for {monthKey}; exported as <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">D,I,</code> records (14 fields, valrlf 2.3 order).</p>
-            <Button variant="outline" onClick={() => setImportRows([...importRows, emptyImport()])} className="gap-2"><Plus className="w-4 h-4" /> Add Entry</Button>
+            <Button variant="outline" onClick={() => updateImportRows([...importRows, emptyImport()])} className="gap-2"><Plus className="w-4 h-4" /> Add Entry</Button>
           </div>
           {importRows.length === 0 ? (
             <EmptyState title="No import entries" description="Click “Add Entry” to record an importation for this month." />
@@ -575,16 +911,16 @@ export function Relief() {
             <div className="space-y-2">
               {importRows.map((r, i) => (
                 <div key={r.id} className="grid grid-cols-12 gap-2 items-center p-3 rounded-lg border border-slate-200 dark:border-slate-700">
-                  <div className="col-span-1"><Input placeholder="Entry No." value={r.entryNo} onChange={e => setImportRows(importRows.map((x, xi) => xi === i ? { ...x, entryNo: e.target.value } : x))} /></div>
-                  <div className="col-span-2"><Input type="date" value={r.assessDate} onChange={e => setImportRows(importRows.map((x, xi) => xi === i ? { ...x, assessDate: e.target.value } : x))} /></div>
-                  <div className="col-span-2"><Input placeholder="Registered name" value={r.registeredName} onChange={e => setImportRows(importRows.map((x, xi) => xi === i ? { ...x, registeredName: e.target.value } : x))} /></div>
-                  <div className="col-span-1"><Input placeholder="Country" value={r.country} onChange={e => setImportRows(importRows.map((x, xi) => xi === i ? { ...x, country: e.target.value } : x))} /></div>
-                  <div className="col-span-1"><Input type="number" placeholder="Dutiable" value={r.dutiableValue || ''} onChange={e => setImportRows(importRows.map((x, xi) => xi === i ? { ...x, dutiableValue: Number(e.target.value) } : x))} /></div>
-                  <div className="col-span-1"><Input type="number" placeholder="Charges" value={r.charges || ''} onChange={e => setImportRows(importRows.map((x, xi) => xi === i ? { ...x, charges: Number(e.target.value) } : x))} /></div>
-                  <div className="col-span-1"><Input type="number" placeholder="VAT" value={r.vat || ''} onChange={e => setImportRows(importRows.map((x, xi) => xi === i ? { ...x, vat: Number(e.target.value) } : x))} /></div>
-                  <div className="col-span-1"><Input placeholder="OR No." value={r.orNumber} onChange={e => setImportRows(importRows.map((x, xi) => xi === i ? { ...x, orNumber: e.target.value } : x))} /></div>
-                  <div className="col-span-1"><Input type="date" value={r.vatPaymentDate} onChange={e => setImportRows(importRows.map((x, xi) => xi === i ? { ...x, vatPaymentDate: e.target.value } : x))} /></div>
-                  <button onClick={() => setImportRows(importRows.filter((_, xi) => xi !== i))} className="col-span-1 text-slate-400 hover:text-red-500 flex justify-center"><Trash2 className="w-4 h-4" /></button>
+                  <div className="col-span-1"><Input placeholder="Entry No." value={r.entryNo} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, entryNo: e.target.value } : x))} /></div>
+                  <div className="col-span-2"><Input type="date" value={r.assessDate} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, assessDate: e.target.value } : x))} /></div>
+                  <div className="col-span-2"><Input placeholder="Registered name" value={r.registeredName} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, registeredName: e.target.value } : x))} /></div>
+                  <div className="col-span-1"><Input placeholder="Country" value={r.country} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, country: e.target.value } : x))} /></div>
+                  <div className="col-span-1"><Input type="number" placeholder="Dutiable" value={r.dutiableValue || ''} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, dutiableValue: Number(e.target.value) } : x))} /></div>
+                  <div className="col-span-1"><Input type="number" placeholder="Charges" value={r.charges || ''} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, charges: Number(e.target.value) } : x))} /></div>
+                  <div className="col-span-1"><Input type="number" placeholder="VAT" value={r.vat || ''} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, vat: Number(e.target.value) } : x))} /></div>
+                  <div className="col-span-1"><Input placeholder="OR No." value={r.orNumber} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, orNumber: e.target.value } : x))} /></div>
+                  <div className="col-span-1"><Input type="date" value={r.vatPaymentDate} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, vatPaymentDate: e.target.value } : x))} /></div>
+                  <button onClick={() => updateImportRows(importRows.filter((_, xi) => xi !== i))} className="col-span-1 text-slate-400 hover:text-red-500 flex justify-center"><Trash2 className="w-4 h-4" /></button>
                 </div>
               ))}
             </div>
