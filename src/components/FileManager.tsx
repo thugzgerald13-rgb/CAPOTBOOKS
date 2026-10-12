@@ -157,6 +157,9 @@ export function FileManager() {
         streamRef.current = stream;
         setCameraOpen(true);
       } else {
+        // getUserMedia failed (permission denied, no camera, or timeout).
+        // Fall back to the native picker and tell the user why.
+        showToast('Camera access needed — allow permission to skip this picker');
         cameraInputRef.current?.click();
       }
     } finally {
