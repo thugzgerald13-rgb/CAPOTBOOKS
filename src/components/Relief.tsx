@@ -3,6 +3,7 @@ import { saveAs } from 'file-saver';
 import * as XLSX from 'xlsx';
 import { PageHeader, Button, Card, CardContent, Select, Field, Input, EmptyState, Badge, Modal } from './ui';
 import { buildInquiry, inquiryAoa, inquiryPrintHtml, printHtml, formatMoney, taxMonthLabel, type InquiryReport } from '../lib/reliefInquiry';
+import { ReliefReportPreviewModal } from "./ReliefReportPreviewModal";
 import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
 import { FileText, Receipt, ShoppingCart, Boxes, FileDown, Plus, Trash2, Undo2, Search, Printer, FileSpreadsheet, ArrowLeft } from 'lucide-react';
@@ -347,6 +348,7 @@ export function Relief() {
 
   // ---- Inquire / Print (BIR Relief "Transaction Inquiry") ----
   const [inqOpen, setInqOpen] = useState(false);
+  const [inqPreviewOpen, setInqPreviewOpen] = useState(false);
   const [inqYear, setInqYear] = useState(now.getFullYear());
   const [inqMonths, setInqMonths] = useState<number[]>([now.getMonth() + 1]);
   const [inqAllTp, setInqAllTp] = useState(true);
@@ -361,7 +363,7 @@ export function Relief() {
   const toggleInqMonth = (m: number) =>
     setInqMonths(prev => prev.includes(m) ? prev.filter(x => x !== m) : [...prev, m].sort((a, b) => a - b));
 
-  const runInquiry = () => {
+  const runInquiry = (autoPreview = false) => {
     if (inqMonths.length === 0) { showToast('No month specified to inquire!'); return; }
     if (!inqAllTp && inqTin.replace(/\D/g, '') === '') { showToast('Enter a TIN, or tick “All taxpayers”.'); return; }
     const months = inqMonths.map(m => ({
@@ -378,6 +380,8 @@ export function Relief() {
       name: ownerName || owner.name || '',
       tradeName: owner.tradeName || '',
       address: [owner.substreet, owner.street, owner.barangay, owner.district, owner.city, owner.zipCode].filter(Boolean).join(' '),
+      addressLine1: [owner.substreet, owner.street].filter(Boolean).join(' '),
+      addressLine2: [owner.barangay, owner.district, owner.city, owner.zipCode].filter(Boolean).join(' '),
     }, inqAllTp ? '' : inqTin);
     const first = MONTH_NAMES[inqMonths[0] - 1];
     setInqPeriod(inqMonths.length === 1
@@ -385,8 +389,9 @@ export function Relief() {
       : `${inqMonths.map(m => MONTH_NAMES[m - 1].slice(0, 3)).join(', ')} ${inqYear}`);
     if (rep.rows.length === 0) showToast('No record/s to display');
     setInqReport(rep);
+    if (autoPreview) setInqPreviewOpen(true);
   };
-  const printInquiry = () => { if (inqReport) printHtml(inquiryPrintHtml(inqReport, inqPeriod)); };
+  const printInquiry = () => { if (inqReport) setInqPreviewOpen(true); };
   const exportInquiryXlsx = () => {
     if (!inqReport) return;
     const ws = XLSX.utils.aoa_to_sheet(inquiryAoa(inqReport));
@@ -603,7 +608,8 @@ export function Relief() {
         ) : (
           <div className="flex gap-2 justify-end w-full">
             <Button variant="outline" onClick={() => setInqOpen(false)}>Cancel</Button>
-            <Button onClick={runInquiry} className="gap-2"><Search className="w-4 h-4" /> Inquire</Button>
+            <Button variant="outline" onClick={() => runInquiry(true)} className="gap-2"><Printer className="w-4 h-4" /> Print</Button>
+            <Button onClick={() => runInquiry(false)} className="gap-2"><Search className="w-4 h-4" /> Inquire</Button>
           </div>
         )}
       >
@@ -693,6 +699,16 @@ export function Relief() {
           </div>
         )}
       </Modal>
+
+      {inqReport && (
+        <ReliefReportPreviewModal
+          open={inqPreviewOpen}
+          onClose={() => setInqPreviewOpen(false)}
+          report={inqReport}
+          periodLabel={inqPeriod}
+          onExportExcel={exportInquiryXlsx}
+        />
+      )}
 
       <p className="text-xs text-slate-400 text-center">
         Exported .DAT mirrors BIR Relief-generated samples: quoted header with totals + RDO + tax-month end date + fiscal year-end month, then <code>D,S,</code> / <code>D,P,</code> detail lines (zero amounts as <code>0</code>).
