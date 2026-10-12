@@ -9,3 +9,14 @@ import './index.css';
 createRoot(document.getElementById('root')!).render(
   <App />,
 );
+
+// Register the PWA service worker (enables the install icon in Chrome's
+// address bar + "Add to Home Screen"). Production-only so it never interferes
+// with Vite HMR during development.
+if ('serviceWorker' in navigator && import.meta.env.PROD) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/sw.js').catch((err) => {
+      console.warn('SW registration failed:', err);
+    });
+  });
+}
