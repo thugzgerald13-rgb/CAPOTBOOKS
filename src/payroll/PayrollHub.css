@@ -1,0 +1,551 @@
+.eh-app {
+  display: grid;
+  grid-template-columns: 250px 1fr;
+  min-height: 100vh;
+}
+
+.eh-sidebar {
+  background: #0f172a;
+  color: #fff;
+  padding: 18px 14px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  z-index: 20;
+}
+
+.eh-brand {
+  font-size: 19px;
+  font-weight: 800;
+  padding: 10px 12px 20px;
+}
+
+.eh-brand small {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: #9fb0ca;
+  margin-top: 4px;
+}
+
+.eh-nav button {
+  width: 100%;
+  background: transparent;
+  border: 0;
+  color: #cbd5e1;
+  text-align: left;
+  padding: 11px 12px;
+  border-radius: 10px;
+  margin: 2px 0;
+  font-size: 13px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  transition: all 0.15s ease;
+  cursor: pointer;
+}
+
+.eh-nav button:hover,
+.eh-nav button.active {
+  background: #1e293b;
+  color: #fff;
+  font-weight: 600;
+}
+
+.eh-main {
+  min-width: 0;
+}
+
+.eh-topbar {
+  height: 68px;
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 26px;
+  position: sticky;
+  top: 0;
+  z-index: 15;
+}
+
+.eh-topbar h1 {
+  font-size: 20px;
+  margin: 0;
+  font-weight: 800;
+}
+
+.eh-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.eh-btn {
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--ink);
+  padding: 8px 13px;
+  border-radius: 9px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+
+.eh-btn:hover {
+  background: #f8fafc;
+}
+
+.eh-btn.primary {
+  background: var(--brand);
+  color: #fff;
+  border-color: var(--brand);
+}
+
+.eh-btn.primary:hover {
+  background: #1e40af;
+}
+
+.eh-btn.success {
+  background: var(--ok);
+  color: #fff;
+  border-color: var(--ok);
+}
+
+.eh-btn.danger {
+  background: #fff1f2;
+  color: var(--danger);
+  border-color: #fecdd3;
+}
+
+.eh-btn.small {
+  font-size: 12px;
+  padding: 6px 9px;
+}
+
+.eh-content {
+  padding: 24px 26px 44px;
+}
+
+.eh-grid {
+  display: grid;
+  gap: 16px;
+}
+
+.eh-cards {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.eh-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 17px;
+}
+
+.eh-metric .label {
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.eh-metric .value {
+  font-size: 26px;
+  font-weight: 800;
+  margin-top: 5px;
+  color: var(--ink);
+}
+
+.eh-metric .sub {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 3px;
+}
+
+.eh-section-title {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin: 24px 0 12px;
+}
+
+.eh-section-title h2 {
+  font-size: 16px;
+  font-weight: 800;
+  margin: 0;
+}
+
+.eh-panel {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 18px;
+}
+
+.eh-two {
+  grid-template-columns: 1.15fr 0.85fr;
+}
+
+.eh-three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.eh-formgrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.eh-field label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  color: #475569;
+  margin-bottom: 5px;
+}
+
+.eh-field input,
+.eh-field select,
+.eh-field textarea {
+  width: 100%;
+  border: 1px solid #cfd7e6;
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: #fff;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.eh-field textarea {
+  min-height: 80px;
+  resize: vertical;
+}
+
+.eh-full {
+  grid-column: 1 / -1;
+}
+
+.eh-toolbar {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.eh-search {
+  min-width: 230px;
+}
+
+.eh-table-wrap {
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+
+.eh-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 800px;
+}
+
+.eh-table th,
+.eh-table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid #edf1f7;
+  text-align: left;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.eh-table th {
+  background: #f8fafc;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  font-size: 11px;
+  font-weight: 700;
+  color: #475569;
+}
+
+.eh-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.eh-right {
+  text-align: right !important;
+}
+
+.eh-tag {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 10px;
+  font-weight: 800;
+  background: #eef2ff;
+  color: #4338ca;
+}
+
+.eh-tag.ok {
+  background: #ecfdf5;
+  color: #047857;
+}
+
+.eh-tag.warn {
+  background: #fffbeb;
+  color: #b45309;
+}
+
+.eh-tag.err {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.eh-muted {
+  color: var(--muted);
+}
+
+.eh-alert {
+  padding: 11px 13px;
+  border-radius: 10px;
+  font-size: 12px;
+  margin-bottom: 12px;
+}
+
+.eh-alert.info {
+  background: #eff6ff;
+  color: #1e40af;
+}
+
+.eh-alert.warn {
+  background: #fffbeb;
+  color: #92400e;
+}
+
+.eh-alert.danger {
+  background: #fef2f2;
+  color: #991b1b;
+}
+
+.eh-kpi-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.eh-kpi-row .mini {
+  padding: 10px 12px;
+  background: #f8fafc;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  min-width: 130px;
+}
+
+.eh-kpi-row .mini b {
+  display: block;
+  font-size: 15px;
+  color: var(--ink);
+}
+
+.eh-kpi-row .mini span {
+  font-size: 10px;
+  color: var(--muted);
+}
+
+.eh-bar {
+  height: 9px;
+  background: #e5e7eb;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.eh-bar i {
+  display: block;
+  height: 100%;
+  background: var(--brand);
+}
+
+.eh-footer-note {
+  font-size: 11px;
+  color: var(--muted);
+  margin-top: 14px;
+}
+
+.eh-split {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.eh-payslip {
+  max-width: 850px;
+  margin: auto;
+  border: 1px solid #d7dce6;
+  padding: 26px;
+  background: #fff;
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+}
+
+.eh-payslip h2 {
+  margin: 0;
+}
+
+.eh-payslip .ps-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 20px;
+  font-size: 12px;
+}
+
+.eh-payslip .line {
+  border-top: 1px solid #cfd7e6;
+  margin: 12px 0;
+}
+
+.eh-payslip table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.eh-payslip td {
+  padding: 5px;
+}
+
+.eh-payslip .grand {
+  font-size: 17px;
+  font-weight: 800;
+}
+
+@media (max-width: 1050px) {
+  .eh-cards {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .eh-two,
+  .eh-three {
+    grid-template-columns: 1fr;
+  }
+  .eh-formgrid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .eh-app {
+    grid-template-columns: 210px 1fr;
+  }
+}
+
+@media (max-width: 750px) {
+  .eh-app {
+    grid-template-columns: 1fr;
+  }
+  .eh-sidebar {
+    position: static;
+    height: auto;
+  }
+  .eh-nav {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+  }
+  .eh-topbar {
+    position: static;
+  }
+  .eh-content {
+    padding: 16px;
+  }
+  .eh-formgrid {
+    grid-template-columns: 1fr;
+  }
+  .eh-cards {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media print {
+  .eh-sidebar,
+  .eh-app .eh-topbar,
+  .eh-app .no-print {
+    display: none !important;
+  }
+  .eh-app {
+    display: block;
+  }
+  .eh-content {
+    padding: 0;
+  }
+  .eh-payslip {
+    border: 0;
+    box-shadow: none;
+    max-width: none;
+  }
+}
+
+
+
+/* CAPOTBOOKS embedded payroll layout overrides */
+.eh-app {
+  --bg: #f4f7fb;
+  --panel: #fff;
+  --ink: #162033;
+  --muted: #657085;
+  --line: #dfe5ef;
+  --brand: #1d4ed8;
+  --brand2: #0f766e;
+  --danger: #b91c1c;
+  --warn: #b45309;
+  --ok: #15803d;
+  --shadow: 0 8px 24px rgba(15, 23, 42, 0.07);
+  --radius: 14px;
+  display: block;
+  width: 100%;
+  min-height: 0;
+  background: var(--bg);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: clip;
+}
+.eh-app > .eh-sidebar { display: none; }
+.eh-app .eh-topbar { padding: 12px 20px; min-height: 68px; height: auto; gap: 16px; flex-wrap: wrap; }
+.eh-app .eh-actions { flex-wrap: wrap; justify-content: flex-end; }
+.eh-app .eh-content { padding: 18px 20px 24px; }
+.eh-payroll-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 10px 18px;
+  background: #fff;
+  border-bottom: 1px solid var(--line);
+}
+.eh-payroll-tabs button {
+  border: 1px solid transparent;
+  background: transparent;
+  color: #475569;
+  padding: 8px 12px;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.eh-payroll-tabs button:hover { background: #f1f5f9; color: #1d4ed8; }
+.eh-payroll-tabs button.active { background: #dbeafe; border-color: #bfdbfe; color: #1d4ed8; }
+.eh-app .eh-dtr-toolbar { align-items: center; }
+.eh-app .eh-dtr-help { flex: 1 1 420px; font-size: 11px; }
+.eh-app .eh-upload-button { white-space: nowrap; }
+@media (max-width: 750px) {
+  .eh-app .eh-topbar { padding: 12px; align-items: flex-start; }
+  .eh-app .eh-actions { justify-content: flex-start; }
+  .eh-app .eh-content { padding: 12px; }
+  .eh-payroll-tabs { padding: 8px; gap: 4px; }
+  .eh-payroll-tabs button { padding: 7px 9px; }
+}

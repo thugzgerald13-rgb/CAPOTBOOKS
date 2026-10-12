@@ -188,6 +188,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     { label: 'Dashboard', pageId: null, icon: Home, keywords: 'home overview kpi' },
     { label: 'Chart of Accounts', pageId: 'coa', icon: BookOpen, keywords: 'accounts coa ledger' },
     { label: 'Billing / Invoices', pageId: 'billing', icon: CreditCard, keywords: 'invoice billing invoicing' },
+    { label: 'Payroll', pageId: 'payroll', icon: Banknote, keywords: 'payroll salary employee attendance dtr payslip wages' },
     { label: 'Income / Sales', pageId: 'sales', icon: Receipt, keywords: 'income sales revenue' },
     { label: 'Purchases / Bills', pageId: 'purchases', icon: ShoppingCart, keywords: 'purchases bills expenses payable' },
     { label: 'Journal Voucher', pageId: 'journal-voucher', icon: FileSignature, keywords: 'journal entry je voucher' },
@@ -226,7 +227,8 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
       case 'sales':
       case 'billing':
       case 'purchases':
-      case 'journal-voucher': return 'edit_transactions';
+      case 'journal-voucher':
+      case 'payroll': return 'edit_transactions';
       case 'history':
       case 'trialbalance':
       case 'balancesheet':
@@ -477,6 +479,22 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               )}
             </AnimatePresence>
           </div>
+
+          {/* Payroll workspace integrated from Paykaya Enterprise Hub */}
+          <button
+            disabled={!canUse('edit_transactions')}
+            onClick={() => handleNavClick('payroll')}
+            title={isCollapsed ? "Payroll" : undefined}
+            className={cn(
+              "flex items-center gap-3 px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-slate-800 dark:hover:text-emerald-400 transition-all w-full text-left group",
+              activePage === 'payroll' && "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400",
+              !canUse('edit_transactions') && 'hidden',
+              isCollapsed && "md:justify-center md:px-2"
+            )}
+          >
+            <Banknote className="w-5 h-5 opacity-70 group-hover:opacity-100 transition-opacity shrink-0" />
+            <span className={cn(isCollapsed && "md:hidden")}>Payroll</span>
+          </button>
 
           {/* Compliance Collapsible Dropdown */}
           <div className="flex flex-col">

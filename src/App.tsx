@@ -48,6 +48,7 @@ const AccountSettings = lazy(() => import('./components/AccountSettings').then(m
 const TeamSettings = lazy(() => import('./components/TeamSettings').then(m => ({ default: m.TeamSettings })));
 const PaymentApproval = lazy(() => import('./components/PaymentApproval').then(m => ({ default: m.PaymentApproval })));
 const EisCenter = lazy(() => import('./components/EisCenter').then(m => ({ default: m.EisCenter })));
+const PayrollHub = lazy(() => import('./payroll/PayrollHub').then(m => ({ default: m.PayrollHub })));
 
 /**
  * Route-level permission + module guard (Goal A). Wraps the whole <Routes> block so a
@@ -206,6 +207,13 @@ function AppLayout() {
             <Route path="/relief" element={<Relief />} />
             <Route path="/compliance-tracker" element={<ComplianceTracker />} />
             <Route path="/eis-center" element={<EisCenter />} />
+            <Route path="/payroll" element={<PayrollHub company={{
+              name: businessProfile?.tradeName || businessProfile?.registeredName || businessProfile?.name || 'CAPOTBOOKS Business',
+              tin: businessProfile?.tin || '',
+              address: [businessProfile?.substreet, businessProfile?.street, businessProfile?.barangay, businessProfile?.district, businessProfile?.city, businessProfile?.zipCode].filter(Boolean).join(', '),
+              planId: 'enterprise',
+              watermarkEnabled: false,
+            }} />} />
             <Route path="/ap-workspace" element={<Navigate to="/purchases/ap" replace />} />
             <Route path="/functions" element={<Navigate to="/account-settings" replace />} />
           </Routes>

@@ -36,6 +36,7 @@ export const ROUTE_PERMISSIONS: Record<string, Permission> = {
   '/sales': 'edit_transactions',
   '/billing': 'edit_transactions',
   '/journal-voucher': 'edit_transactions',
+  '/payroll': 'edit_transactions',
   '/purchases': 'edit_transactions',
   '/purchases/invoiced': 'edit_transactions',
   '/purchases/other-payments': 'edit_transactions',
