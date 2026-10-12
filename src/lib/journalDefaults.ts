@@ -230,6 +230,18 @@ export function getDefaultAccountsForIndustry(
 export const DEFAULT_ACCOUNTS: CoaAccount[] = getDefaultAccountsForIndustry(DEFAULT_INDUSTRY, 'numeric');
 export const DEFAULT_ACCOUNTS_ALPHA: CoaAccount[] = getDefaultAccountsForIndustry(DEFAULT_INDUSTRY, 'alphanumeric');
 
+/** Income, Costs and Expense accounts are nominal (profit & loss) accounts: they reset each year. */
+export function isNominalAccountType(type?: string): boolean {
+  const t = String(type || '').toLowerCase().trim();
+  return ['revenue','revenues','income','sales','cost','costs','cost of sales','expense','expenses'].includes(t);
+}
+
+/** Opening balance that may flow into the GL. Nominal accounts never have one (their figure is Previous Year Balance). */
+export function glOpeningBalance(account?: { type?: string; openingBalance?: number } | null): number {
+  if (!account || isNominalAccountType(account.type)) return 0;
+  return Number(account.openingBalance) || 0;
+}
+
 export function getNormalSide(type: string): 'debit' | 'credit' {
   const t = type.toLowerCase();
   if (t === 'asset' || t === 'assets' || t === 'expense' || t === 'expenses' || t === 'costs' || t === 'cost') {

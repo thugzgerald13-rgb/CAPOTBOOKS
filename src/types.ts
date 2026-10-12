@@ -86,6 +86,9 @@ export interface CoaAccount {
   parentId?: string;
   hidden?: boolean;
   openingBalance?: number;
+  // Income / Costs / Expense accounts carry a Previous Year Balance instead of an
+  // opening balance. It is reference-only and is never posted to the General Ledger.
+  previousYearBalance?: number;
   [key: string]: any;
 }
 

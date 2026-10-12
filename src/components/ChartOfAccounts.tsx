@@ -9,7 +9,7 @@ import { CoaAccount } from '../types';
 import { cn } from '../lib/utils';
 import { balanceFor } from '../lib/accountingBalances';
 
-import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide, getDefaultAccountsForIndustry, sortAccountsChronologically } from '../lib/journalDefaults';
+import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide, isNominalAccountType, getDefaultAccountsForIndustry, sortAccountsChronologically } from '../lib/journalDefaults';
 export { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide };
 
 const ACCOUNT_TYPES = ['Asset', 'Liabilities', 'Equity', 'Capital', 'Revenue', 'Costs', 'Expense'];
@@ -62,7 +62,7 @@ const IMPORT_CODE_ALIASES = [
   'accountid', 'ledgercode', 'glcode', 'glaccount'
 ];
 const IMPORT_OPENING_ALIASES = [
-  'openingbalance', 'openbalance', 'beginningbalance', 'opening', 'balance',
+  'openingbalance', 'previousyearbalance', 'prevyearbalance', 'previousbalance', 'openbalance', 'beginningbalance', 'opening', 'balance',
   'openingamount', 'openingdebit', 'openingcredit', 'debitbalance', 'creditbalance'
 ];
 const IMPORT_LEVEL_ALIASES = [
@@ -111,6 +111,19 @@ function normalizeUploadedType(raw: string): { type: string; inferred: boolean }
   if (t.includes('cogs') || t.includes('costofsales') || t === 'cost' || t === 'costs') return { type: 'Costs', inferred: false };
   if (t.includes('expense')) return { type: 'Expense', inferred: false };
   return { type: raw.trim() ? raw.trim() : 'Expense', inferred: true };
+}
+
+/** Keeps the imported figure in the right field when an account's type changes (Income/Costs/Expense -> previousYearBalance). */
+function moveBalanceForType(account: CoaAccount): CoaAccount {
+  const next: CoaAccount = { ...account };
+  const value = next.openingBalance ?? next.previousYearBalance;
+  delete next.openingBalance;
+  delete next.previousYearBalance;
+  if (value !== undefined) {
+    if (isNominalAccountType(next.type)) next.previousYearBalance = value;
+    else next.openingBalance = value;
+  }
+  return next;
 }
 
 function parseOpeningBalanceValue(value: any): number | undefined {
@@ -460,7 +473,11 @@ function smartImportAccounts(
 
     const account: CoaAccount = {
       id, name: title, type: typeInfo.type, normalSide: getNormalSide(typeInfo.type),
-      ...(openingBalance !== undefined ? { openingBalance } : {}), ...matchedValues,
+      // Income / Costs / Expense accounts take a Previous Year Balance; it is never an opening balance.
+      ...(openingBalance !== undefined
+        ? (isNominalAccountType(typeInfo.type) ? { previousYearBalance: openingBalance } : { openingBalance })
+        : {}),
+      ...matchedValues,
     };
 
     const level = normalizeHeaderToken(levelRaw);
@@ -473,7 +490,7 @@ function smartImportAccounts(
       warnings.push(`Row ${headered ? headerInfo.headerRowIndex + rowOffset + 2 : rowOffset + 1}: ${[
         typeInfo.inferred ? `type inferred as ${typeInfo.type}` : '',
         codeResult.generated ? 'code generated' : '',
-        openingBalance !== undefined ? `opening balance ${openingBalance.toLocaleString('en-PH')}` : '',
+        openingBalance !== undefined ? `${isNominalAccountType(typeInfo.type) ? 'previous year balance' : 'opening balance'} ${openingBalance.toLocaleString('en-PH')}` : '',
       ].filter(Boolean).join(', ')}`);
     }
   });
@@ -1118,7 +1135,7 @@ export function ChartOfAccounts() {
     setPendingReviewAccounts(prev => {
       const edited = prev.map(account =>
         account.id === accountId
-          ? { ...account, type, normalSide: getNormalSide(type) }
+          ? moveBalanceForType({ ...account, type, normalSide: getNormalSide(type) })
           : account
       );
 
@@ -1314,7 +1331,10 @@ export function ChartOfAccounts() {
           type: editType,
           normalSide: editNormalSide,
           parentId: resolvedParentId,
-          openingBalance,
+          // Income / Costs / Expense keep a Previous Year Balance only; never an opening balance.
+          ...(isNominalAccountType(editType)
+            ? { openingBalance: undefined, previousYearBalance: openingBalance ?? a.previousYearBalance ?? a.openingBalance }
+            : { openingBalance: openingBalance ?? undefined, previousYearBalance: undefined }),
           ...customFields
         };
       } else if (a.parentId === oldId) {
@@ -1563,7 +1583,7 @@ export function ChartOfAccounts() {
             onClick={() => uploadInputRef.current?.click()}
             disabled={isUploading}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 shadow-sm"
-            title="Upload a Chart of Accounts. Headings are optional; CAPOT can infer account titles, types, codes and opening balances."
+            title="Upload a Chart of Accounts. Headings are optional; CAPOT can infer account titles, types, codes and balances (Opening Balance for balance sheet accounts, Previous Year Balance for Income, Costs and Expenses)."
           >
             <Upload className="w-3.5 h-3.5" /> {isUploading ? 'Reading…' : 'Upload Chart of Accounts'}
           </button>
@@ -1771,7 +1791,7 @@ export function ChartOfAccounts() {
                     <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Change an account type or move it within its section. Codes are regenerated automatically and stay 6 characters.</div>
                   </div>
                   <div className="grid grid-cols-[44px_105px_minmax(0,1fr)_150px_145px_86px] gap-2 px-3 py-2 bg-slate-50 dark:bg-slate-900/60 text-[10px] uppercase font-bold tracking-wide text-slate-500">
-                    <div>#</div><div>Code</div><div>Account Title</div><div>Type</div><div className="text-right">Opening Balance</div><div className="text-center">Move</div>
+                    <div>#</div><div>Code</div><div>Account Title</div><div>Type</div><div className="text-right">Opening / Prev. Year Bal.</div><div className="text-center">Move</div>
                   </div>
                   <div className="max-h-96 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
                     {pendingReviewAccounts.map((account, index) => {
@@ -1798,9 +1818,15 @@ export function ChartOfAccounts() {
                             </select>
                           </div>
                           <div className="text-right font-mono text-slate-700 dark:text-slate-200">
-                            {account.openingBalance !== undefined
-                              ? account.openingBalance.toLocaleString('en-PH', { minimumFractionDigits: 2 })
-                              : '—'}
+                            {(() => {
+                              const v = isNominalAccountType(account.type) ? account.previousYearBalance : account.openingBalance;
+                              return v !== undefined ? (
+                                <>
+                                  {v.toLocaleString('en-PH', { minimumFractionDigits: 2 })}
+                                  {isNominalAccountType(account.type) && <div className="text-[9px] uppercase font-sans text-slate-400">Prev. year</div>}
+                                </>
+                              ) : '—';
+                            })()}
                           </div>
                           <div className="flex items-center justify-center gap-1">
                             <button
@@ -1998,7 +2024,7 @@ export function ChartOfAccounts() {
                       : "border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
                   )}
                 >
-                  Opening Balance
+                  {isNominalAccountType(editType) ? 'Previous Year Balance' : 'Opening Balance'}
                 </button>
               </div>
               
@@ -2082,7 +2108,7 @@ export function ChartOfAccounts() {
               ) : (
               <div className="flex flex-col gap-4 mb-6 max-h-[50vh] overflow-y-auto pr-1">
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Opening Balance (₱)</label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">{isNominalAccountType(editType) ? 'Previous Year Balance (₱)' : 'Opening Balance (₱)'}</label>
                   <input
                     type="number"
                     step="0.01"
@@ -2092,7 +2118,9 @@ export function ChartOfAccounts() {
                     placeholder="0.00"
                   />
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-2 leading-relaxed">
-                    Sets the starting balance for this account as of the beginning of the accounting period. This value is stored with the account but is not shown on the Chart of Accounts page.
+                    {isNominalAccountType(editType)
+                      ? 'Income, Costs and Expense accounts start each year at zero. This is the prior year\'s balance, kept for reference only — it is not populated in the General Ledger.'
+                      : 'Sets the starting balance for this account as of the beginning of the accounting period. This value is stored with the account but is not shown on the Chart of Accounts page.'}
                   </p>
                 </div>
               </div>
@@ -2274,7 +2302,10 @@ export function ChartOfAccounts() {
                                       setEditType(account.type);
                                       setEditNormalSide(account.normalSide || getNormalSide(account.type));
                                       setEditParentId(account.parentId || '');
-                                      setEditOpeningBalance(account.openingBalance !== undefined ? String(account.openingBalance) : '');
+                                      {
+                                        const v = isNominalAccountType(account.type) ? (account.previousYearBalance ?? account.openingBalance) : account.openingBalance;
+                                        setEditOpeningBalance(v !== undefined ? String(v) : '');
+                                      }
                                       setEditModalTab('details');
 
                                       // Collect custom fields

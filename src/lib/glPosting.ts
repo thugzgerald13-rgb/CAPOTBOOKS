@@ -1,5 +1,5 @@
 import { Client, CoaAccount, GeneralLedgerAccount, GeneralLedgerEntry, JournalColumn, JournalEntry } from '../types';
-import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide, DEFAULT_CRJ_COLUMNS, DEFAULT_CDJ_COLUMNS, CDJ_CASH_ON_HAND_BANK_ID, CDJ_SUNDRY_ACCOUNT_TITLE_ID, CDJ_SUNDRY_AMOUNT_ID, DEFAULT_PJ_COLUMNS, DEFAULT_SJ_COLUMNS } from './journalDefaults';
+import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide, isNominalAccountType, DEFAULT_CRJ_COLUMNS, DEFAULT_CDJ_COLUMNS, CDJ_CASH_ON_HAND_BANK_ID, CDJ_SUNDRY_ACCOUNT_TITLE_ID, CDJ_SUNDRY_AMOUNT_ID, DEFAULT_PJ_COLUMNS, DEFAULT_SJ_COLUMNS } from './journalDefaults';
 
 /**
  * Automatic General Ledger posting.
@@ -1331,7 +1331,7 @@ export function syncGeneralLedger(client: Client): Client {
       // Sourced live from the matching Chart of Accounts entry so the
       // General Ledger's beginning balance always reflects the opening
       // balance set on the Chart of Accounts, not just $0.
-      openingBalance: acct?.openingBalance ?? existingRecord?.openingBalance ?? 0,
+      openingBalance: isNominalAccountType(acct?.type || existingRecord?.accountType) ? 0 : (acct?.openingBalance ?? existingRecord?.openingBalance ?? 0),
       normalSide: acct?.normalSide || existingRecord?.normalSide || getNormalSide(acct?.type || ''),
     });
   });

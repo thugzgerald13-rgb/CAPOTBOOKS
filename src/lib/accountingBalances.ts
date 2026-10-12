@@ -1,5 +1,5 @@
 import { Client, CoaAccount, GeneralLedgerAccount, GeneralLedgerEntry } from '../types';
-import { getNormalSide, getDefaultAccountsForIndustry } from './journalDefaults';
+import { getNormalSide, getDefaultAccountsForIndustry, glOpeningBalance, isNominalAccountType } from './journalDefaults';
 
 export interface AccountBalance {
   account: CoaAccount;
@@ -44,7 +44,7 @@ export function getAccountBalances(client: Client, year = getCurrentYear(client)
   const gl = client.glAccounts || [];
   return getCoaAccounts(client).map(account => {
     const g = gl.find(x => x.accountId === account.id || x.id === account.id);
-    const opening = Number(account.openingBalance) || 0;
+    const opening = glOpeningBalance(account);
     const normal = account.normalSide || getNormalSide(account.type || '');
     let debit = normal === 'debit' ? opening : 0;
     let credit = normal === 'credit' ? opening : 0;
@@ -81,7 +81,7 @@ export function balanceFor(client: Client, accountId: string): AccountBalance | 
 
   const gl = client.glAccounts || [];
   const g = gl.find(x => x.accountId === account.id || x.id === account.id);
-  const opening = Number(account.openingBalance) || 0;
+  const opening = glOpeningBalance(account);
   const normal = account.normalSide || getNormalSide(account.type || '');
   let debit = normal === 'debit' ? opening : 0;
   let credit = normal === 'credit' ? opening : 0;
@@ -107,7 +107,7 @@ export function getRunningBalances(client: Client, account: CoaAccount): { entry
   const gl = client.glAccounts || [];
   const g = gl.find(x => x.accountId === account.id || x.id === account.id);
   const normal = account.normalSide || getNormalSide(account.type || '');
-  let running = (normal === 'debit' ? 1 : -1) * (Number(account.openingBalance) || 0);
+  let running = (normal === 'debit' ? 1 : -1) * glOpeningBalance(account);
   return (g?.entries || []).map(e => {
     const d = num(e.debit);
     const c = num(e.credit);
@@ -268,7 +268,7 @@ const glAmount = (value: unknown) => {
  * Balance column.
  */
 export function glAccountBalanceBefore(account: GeneralLedgerAccount, cutoffDateExclusive: string): number {
-  const openingRaw = glAmount(account.openingBalance);
+  const openingRaw = isNominalAccountType(account.accountType) ? 0 : glAmount(account.openingBalance);
   const opening = account.normalSide === 'credit' ? -openingRaw : openingRaw;
   return (account.entries || []).reduce((total, entry) => {
     const d = entryDateKey(entry);

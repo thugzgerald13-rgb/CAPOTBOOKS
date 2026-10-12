@@ -2,6 +2,7 @@
 // Parity: QuickBooks COA import / Xero chart of accounts CSV.
 import Papa from 'papaparse';
 import type { CoaAccount } from '../types';
+import { isNominalAccountType } from './journalDefaults';
 
 const pick = (row: Record<string, any>, ...keys: string[]): string => {
   for (const k of keys) {
@@ -43,7 +44,7 @@ export function parseCoaCsv(text: string): CoaImportResult {
     if (seen.has(code)) { errors.push(`Row ${i + 2}: duplicate code ${code} — skipped`); return; }
     seen.add(code);
     const normalSideRaw = pick(row, 'NormalSide', 'Normal Side', 'Side').toLowerCase();
-    const opening = parseFloat(pick(row, 'OpeningBalance', 'Opening Balance', 'Balance').replace(/[₱,]/g, ''));
+    const opening = parseFloat(pick(row, 'OpeningBalance', 'Opening Balance', 'PreviousYearBalance', 'Previous Year Balance', 'Balance').replace(/[₱,]/g, ''));
     const hiddenRaw = pick(row, 'Hidden', 'Inactive').toLowerCase();
     const parentId = pick(row, 'ParentCode', 'Parent Code', 'Parent', 'Subaccount Of');
     accounts.push({
@@ -52,7 +53,7 @@ export function parseCoaCsv(text: string): CoaImportResult {
       type,
       normalSide: normalSideRaw.startsWith('credit') ? 'credit' : 'debit',
       ...(parentId ? { parentId } : {}),
-      ...(!Number.isNaN(opening) ? { openingBalance: opening } : {}),
+      ...(!Number.isNaN(opening) ? (isNominalAccountType(type) ? { previousYearBalance: opening } : { openingBalance: opening }) : {}),
       ...(hiddenRaw === 'true' || hiddenRaw === 'yes' || hiddenRaw === '1' ? { hidden: true } : {}),
     });
   });
@@ -66,9 +67,9 @@ const esc = (v: string | number | undefined) => {
 
 /** Build CSV text for the given accounts. */
 export function coaToCsv(accounts: CoaAccount[]): string {
-  const header = ['Code', 'Name', 'Type', 'NormalSide', 'ParentCode', 'OpeningBalance', 'Hidden'];
+  const header = ['Code', 'Name', 'Type', 'NormalSide', 'ParentCode', 'OpeningBalance', 'PreviousYearBalance', 'Hidden'];
   const rows = accounts.map(a => [
-    a.id, a.name, a.type, a.normalSide || 'debit', a.parentId || '', a.openingBalance ?? '', a.hidden ? 'TRUE' : 'FALSE',
+    a.id, a.name, a.type, a.normalSide || 'debit', a.parentId || '', isNominalAccountType(a.type) ? '' : (a.openingBalance ?? ''), isNominalAccountType(a.type) ? (a.previousYearBalance ?? '') : '', a.hidden ? 'TRUE' : 'FALSE',
   ].map(esc).join(','));
   return [header.join(','), ...rows].join('\n');
 }

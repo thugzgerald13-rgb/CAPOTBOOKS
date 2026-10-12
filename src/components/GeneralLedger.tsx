@@ -6,7 +6,7 @@ import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
 import { GeneralLedgerAccount, GeneralLedgerEntry } from '../types';
 import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide } from './ChartOfAccounts';
-import { getDefaultAccountsForIndustry } from '../lib/journalDefaults';
+import { getDefaultAccountsForIndustry, glOpeningBalance } from '../lib/journalDefaults';
 import { supabase } from '../lib/supabase';
 import { generateCSV } from '../lib/utils';
 import { glAccountBalanceBefore } from '../lib/accountingBalances';
@@ -124,7 +124,7 @@ export function GeneralLedger() {
     accountId: selectedCoa.id,
     accountType: selectedCoa.type,
     entries: ledgerEntries,
-    openingBalance: selectedCoa.openingBalance,
+    openingBalance: glOpeningBalance(selectedCoa),
     normalSide: selectedCoa.normalSide || getNormalSide(selectedCoa.type || '')
   } : null;
 

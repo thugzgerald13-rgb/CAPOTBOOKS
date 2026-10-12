@@ -10,7 +10,7 @@ import { supabase } from '../lib/supabase';
 import { formatAccountAmount, glAccountBalanceBefore, getAccountBalances } from '../lib/accountingBalances';
 import { findAccountByLabel, syncGeneralLedger } from '../lib/glPosting';
 import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide } from './ChartOfAccounts';
-import { DEFAULT_INDUSTRY, INDUSTRY_OPTIONS, getDefaultAccountsForIndustry } from '../lib/journalDefaults';
+import { DEFAULT_INDUSTRY, INDUSTRY_OPTIONS, getDefaultAccountsForIndustry, isNominalAccountType, glOpeningBalance } from '../lib/journalDefaults';
 import { parseBirCorDocument, BirCorExtractionResult } from '../lib/birCorParser';
 
 export function Extras() {
@@ -1500,7 +1500,7 @@ export function Extras() {
                   id: String(row.account_id),
                   accountTitle: coaAccount?.name || '',
                   entries: glAccount?.entries || [],
-                  openingBalance: coaAccount?.openingBalance ?? glAccount?.openingBalance ?? 0,
+                  openingBalance: isNominalAccountType(coaAccount?.type) ? 0 : (coaAccount?.openingBalance ?? glAccount?.openingBalance ?? 0),
                   normalSide: coaAccount?.normalSide || glAccount?.normalSide || getNormalSide(coaAccount?.type || ''),
                 }, yearStart);
               };
@@ -1530,7 +1530,7 @@ export function Extras() {
               const representedIds = new Set(balances.map(x => String(resolveCoaAccount(x)?.id ?? x.account_id)));
               coaAccounts.forEach(a => {
                 if (representedIds.has(String(a.id))) return;
-                const opening = Number(a.openingBalance) || 0;
+                const opening = glOpeningBalance(a);
                 const yb = yearBalances.get(String(a.id));
                 const yearDr = yb?.currentYearDebit || 0;
                 const yearCr = yb?.currentYearCredit || 0;
