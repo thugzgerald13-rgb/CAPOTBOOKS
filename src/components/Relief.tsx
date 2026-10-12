@@ -8,24 +8,20 @@ import { FileText, Receipt, ShoppingCart, Boxes, FileDown, Plus, Trash2, Undo2 }
 /**
  * BIR RELIEF (Reconciliation of Listings for Enforcement) — SLSP.
  *
- * EXPORT FORMAT — reverse-engineered from BIR Relief v2.3 data-entry module
- * (mfilter/genfile) and conformance-tested against the validation module
- * (valrlf 2.3, procedures val_sales / val_purchase / val_imports):
+ * EXPORT FORMAT — aligned character-for-character to BIR Relief-generated
+ * samples (…S032026.DAT / …P032026.DAT):
  *
- *   FILENAME : <9-digit TIN><S|P|I><MM><YYYY>.DAT  (16 chars + .DAT)
- *   HEADER   : H,<type>,"<tin>","<regName>","<last>","<first>","<middle>",
- *                       "<tradeName>","<addr1>","<addr2>",
- *                       <totals...>,<rdoCode>,<MM/01/YYYY>,<startMonth>
- *   DETAILS  : D,S, ... (13 unquoted fields: buyer TIN, reg/last/first/middle
- *                       name, addr1/2, exempt, zero-rated, taxable, output tax,
- *                       owner TIN, tax-month date)
- *              D,P, ... (15 unquoted fields: supplier TIN, names, addr, exempt,
- *                       zero-rated, services, capital goods, goods other than
- *                       capital, input tax, owner TIN, tax-month date)
- *              D,I, ... (14 unquoted fields)
- * Amounts are written as plain numbers with 2 decimals; only the header's
- * name/address fields are double-quoted. Header totals must equal sum of
- * detail amounts (the validator enforces this, error #100).
+ *   FILENAME : <9-digit TIN><S|P|I><MM><YYYY>.DAT
+ *   H,S,"tin","regName","last","first","middle","trade","addr1","addr2",
+ *       taxable,exempt,zeroRated,outputVAT,<RDO>,<MM/DD/YYYY last day>,<FY-end month>
+ *   D,S,"tin","name",,,,"city","province",taxable,exempt,zeroRated,outputVAT,ownerTin,<date>
+ *   H,P,... same owner block, then 8 amounts:
+ *       exempt,zeroRated,services,capital,goodsOther,inputVAT,inputVAT,0.00
+ *   D,P,"tin","name",,,,"city","province",exempt,zeroRated,services,capital,goodsOther,inputVAT,ownerTin,<date>
+ *   Header amounts are always 2-decimals ("0.00"); detail zero amounts are "0".
+ *   Consolidated rows: "000000001" VARIOUS SALES / "000000002" VARIOUS PURCHASES.
+ *   D,I (importations) is unchanged (no sample supplied).
+ * Header totals must equal the sum of detail amounts.
  */
 
 type ReliefTab = 'sales' | 'purchases' | 'imports';
@@ -72,7 +68,32 @@ type TransfersMap = Record<string, TransferEntry>;
 const fmt = (n: number) => (Number(n) || 0).toFixed(2);
 const csvQ = (s: string) => `"${(s || '').replace(/"/g, '""')}"`;
 const monthKeyOf = (y: number, m: number) => `${y}-${String(m).padStart(2, '0')}`;
-const taxMonthDate = (y: number, m: number) => `${String(m).padStart(2, '0')}/01/${y}`; // VFP dtoc() = MM/DD/YYYY
+// Samples use the LAST day of the tax month, MM/DD/YYYY (e.g. 03/31/2026).
+const taxMonthDate = (y: number, m: number) =>
+  `${String(m).padStart(2, '0')}/${String(new Date(y, m, 0).getDate()).padStart(2, '0')}/${y}`;
+// Detail amounts: zero is written as "0", everything else with 2 decimals.
+const fmtD = (n: number) => ((Number(n) || 0) === 0 ? '0' : (Number(n) || 0).toFixed(2));
+const up = (s?: string) => String(s || '').toUpperCase();
+const tin9 = (s?: string) => String(s || '').replace(/\D/g, '').slice(0, 9).padStart(9, '0');
+const VARIOUS_SALES_TIN = '000000001';
+const VARIOUS_PURCHASES_TIN = '000000002';
+
+const PH_PROVINCES = ['METRO MANILA','NCR','ABRA','AGUSAN DEL NORTE','AGUSAN DEL SUR','AKLAN','ALBAY','ANTIQUE','APAYAO','AURORA','BASILAN','BATAAN','BATANES','BATANGAS','BENGUET','BILIRAN','BOHOL','BUKIDNON','BULACAN','CAGAYAN','CAMARINES NORTE','CAMARINES SUR','CAMIGUIN','CAPIZ','CATANDUANES','CAVITE','CEBU','COTABATO','DAVAO DE ORO','DAVAO DEL NORTE','DAVAO DEL SUR','DAVAO OCCIDENTAL','DAVAO ORIENTAL','DINAGAT ISLANDS','EASTERN SAMAR','GUIMARAS','IFUGAO','ILOCOS NORTE','ILOCOS SUR','ILOILO','ISABELA','KALINGA','LA UNION','LAGUNA','LANAO DEL NORTE','LANAO DEL SUR','LEYTE','MAGUINDANAO','MARINDUQUE','MASBATE','MISAMIS OCCIDENTAL','MISAMIS ORIENTAL','MOUNTAIN PROVINCE','NEGROS OCCIDENTAL','NEGROS ORIENTAL','NORTHERN SAMAR','NUEVA ECIJA','NUEVA VIZCAYA','OCCIDENTAL MINDORO','ORIENTAL MINDORO','PALAWAN','PAMPANGA','PANGASINAN','QUEZON','QUIRINO','RIZAL','ROMBLON','SAMAR','SARANGANI','SIQUIJOR','SORSOGON','SOUTH COTABATO','SOUTHERN LEYTE','SULTAN KUDARAT','SULU','SURIGAO DEL NORTE','SURIGAO DEL SUR','TARLAC','TAWI-TAWI','ZAMBALES','ZAMBOANGA DEL NORTE','ZAMBOANGA DEL SUR','ZAMBOANGA SIBUGAY'];
+
+/** Split a free-text "City, Province" / "City Province" string into separate city and province values (no commas in output). */
+function splitCityProvince(text?: string): { city: string; province: string } {
+  const t = up(text).replace(/\b\d{4}\b/g, '').replace(/\s+/g, ' ').trim();
+  if (!t) return { city: '', province: '' };
+  if (t.includes(',')) {
+    const parts = t.split(',').map(p => p.trim()).filter(Boolean);
+    if (parts.length >= 2) return { city: parts[parts.length - 2], province: parts[parts.length - 1] };
+    return { city: parts[0] || '', province: '' };
+  }
+  const prov = [...PH_PROVINCES].sort((a, b) => b.length - a.length).find(p => t === p || t.endsWith(' ' + p));
+  if (prov && t !== prov) return { city: t.slice(0, t.length - prov.length).trim(), province: prov };
+  return { city: t, province: '' };
+}
+const q = (s: string) => `"${String(s || '').replace(/"/g, '""').replace(/,/g, ' ')}"`; // quoted, never contains a comma
 
 export function Relief() {
   const { currentClient, reliefTab, setReliefTab, showToast } = useAccounting();
@@ -82,6 +103,8 @@ export function Relief() {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [importRows, setImportRows] = useState<ImportRow[]>([]);
+  // Purchases without a supplier TIN are excluded by default; tick to consolidate them into the BIR "VARIOUS PURCHASES" row (000000002).
+  const [consolidateNoTinPurchases, setConsolidateNoTinPurchases] = useState(false);
 
   const [transfers, setTransfers] = useState<TransfersMap>(() => {
     try { return JSON.parse(localStorage.getItem('relief-purchase-transfers') || '{}'); }
@@ -103,9 +126,11 @@ export function Relief() {
   }, [now]);
 
   const owner = currentClient || ({} as any);
-  const ownerTin = (owner.tin || '000000000').replace(/-/g, '').slice(0, 9);
-  const rdoCode = owner.rdoCode || '';
-  const startMonth = owner.fiscalMonthEnd ? ((owner.fiscalMonthEnd % 12) + 1) : 1;
+  const ownerTin = tin9(owner.tin);
+  const rdoRaw = String(owner.rdoCode || '').trim();
+  const rdoCode = /^\d+$/.test(rdoRaw) ? rdoRaw.padStart(3, '0') : rdoRaw; // e.g. 057
+  // Last header field in the BIR samples is the fiscal-year-end month (12 for calendar-year taxpayers).
+  const fyEndMonth = owner.accountingType === 'Fiscal' && owner.fiscalMonthEnd ? owner.fiscalMonthEnd : 12;
 
   // ---- Sales: aggregate per buyer; amounts -> exempt / zero-rated / taxable / output tax ----
   const salesRows = useMemo(() => {
@@ -130,7 +155,19 @@ export function Relief() {
       cur.count += 1;
       map.set(key, cur);
     }
-    return [...map.values()].sort((a, b) => a.regName.localeCompare(b.regName));
+    // Sales to buyers without a TIN are consolidated into the BIR "VARIOUS SALES" row.
+    const rows = [...map.values()];
+    const named = rows.filter(r => r.tin).sort((a, b) => a.regName.localeCompare(b.regName));
+    const noTin = rows.filter(r => !r.tin);
+    if (noTin.length) {
+      const various = noTin.reduce((a, r) => ({
+        ...a, exempt: a.exempt + r.exempt, zeroRated: a.zeroRated + r.zeroRated,
+        taxable: a.taxable + r.taxable, outputTax: a.outputTax + r.outputTax, count: a.count + r.count,
+      }), { tin: VARIOUS_SALES_TIN, regName: 'VARIOUS SALES', lastName: '', firstName: '', middleName: '',
+            addr1: '', addr2: '', exempt: 0, zeroRated: 0, taxable: 0, outputTax: 0, count: 0, various: true });
+      named.push(various as any);
+    }
+    return named;
   }, [currentClient, year, month]);
 
   // ---- Purchases: TIN required; 6 amount buckets; month transfers ----
@@ -141,13 +178,15 @@ export function Relief() {
       return d && d.getFullYear() === year && (d.getMonth() + 1) === month;
     });
     const withTin = inMonth.filter(p => (p.supplierTin || '').trim() !== '');
-    const noTinCount = inMonth.length - withTin.length;
+    const noTinList = inMonth.filter(p => (p.supplierTin || '').trim() === '');
+    const noTinCount = consolidateNoTinPurchases ? 0 : noTinList.length;
     const map = new Map<string, any>();
-    for (const p of withTin) {
-      const key = `${(p.supplierTin || '').trim()}|${(p.supplierName || '').trim()}`;
+    for (const p of (consolidateNoTinPurchases ? inMonth : withTin)) {
+      const noTin = (p.supplierTin || '').trim() === '';
+      const key = noTin ? VARIOUS_PURCHASES_TIN : `${(p.supplierTin || '').trim()}|${(p.supplierName || '').trim()}`;
       const cur = map.get(key) || {
-        tin: (p.supplierTin || '').trim(), regName: p.supplierName || '', lastName: '', firstName: '', middleName: '',
-        addr1: p.supplierAddress || '', addr2: '',
+        tin: noTin ? VARIOUS_PURCHASES_TIN : (p.supplierTin || '').trim(), regName: noTin ? 'VARIOUS PURCHASES' : (p.supplierName || ''), lastName: '', firstName: '', middleName: '',
+        addr1: noTin ? '' : (p.supplierAddress || ''), addr2: '', various: noTin,
         exempt: 0, zeroRated: 0, services: 0, capital: 0, goodsOther: 0, inputTax: 0, count: 0,
       };
       const amt = Number(p.amount || 0);
@@ -185,7 +224,7 @@ export function Relief() {
     }
     rows.sort((a, b) => a.regName.localeCompare(b.regName));
     return { purchaseRows: rows, noTinCount, transferredInCount };
-  }, [currentClient, year, month, monthKey, transfers]);
+  }, [currentClient, year, month, monthKey, transfers, consolidateNoTinPurchases]);
 
   const movePurchaseRow = (row: any, targetMonth: string) => {
     const tKey = row.transferKey;
@@ -225,38 +264,42 @@ export function Relief() {
     }), { v1: 0, v2: 0, v3: 0, v4: 0, v5: 0, v6: 0, count: 0 });
   }, [tab, salesRows, purchaseRows, importRows]);
 
-  // ---- Build BIR RELIEF .DAT — exact validator-conformant format ----
+  // ---- Build BIR RELIEF .DAT — mirrors the BIR Relief-generated samples ----
   const buildDat = (): string => {
-    const addr1 = [owner.substreet, owner.street, owner.barangay].filter(Boolean).join(' ');
-    const addr2 = [owner.district, owner.city, owner.zipCode].filter(Boolean).join(' ');
+    const addr1 = up([owner.substreet, owner.street, owner.barangay].filter(Boolean).join(' '));
+    // Sample addr2 keeps the empty district's leading space (" SAN PEDRO LAGUNA 4023").
+    const addr2 = up([owner.district || '', owner.city || '', owner.zipCode || ''].join(' ').replace(/ {2,}/g, ' ').replace(/ $/, ''));
+    const ownerLoc = splitCityProvince(owner.city);
     const tmd = taxMonthDate(year, month);
 
-    // Header totals (ssummary): S=4, P=6, I=5 amounts, comma-separated
+    const owned = `${q(ownerTin)},${q(up(owner.registeredName || owner.name))},` +
+      `${q(up(owner.lastName))},${q(up(owner.firstName))},${q(up(owner.middleName))},` +
+      `${q(up(owner.tradeName || owner.registeredName || owner.name))},${q(addr1)},${q(addr2)}`;
+
+    // Header amounts (always 2 decimals): S = taxable, exempt, zero-rated, output VAT.
+    // P = exempt, zero-rated, services, capital, other goods, input VAT, input VAT (creditable), 0.00.
     let ssummary: string;
-    if (tab === 'sales') ssummary = [totals.v1, totals.v2, totals.v3, totals.v4].map(fmt).join(',');
-    else if (tab === 'purchases') ssummary = [totals.v1, totals.v2, totals.v3, totals.v4, totals.v5, totals.v6].map(fmt).join(',');
+    if (tab === 'sales') ssummary = [totals.v3, totals.v1, totals.v2, totals.v4].map(fmt).join(',');
+    else if (tab === 'purchases') ssummary = [totals.v1, totals.v2, totals.v3, totals.v4, totals.v5, totals.v6, totals.v6, 0].map(fmt).join(',');
     else ssummary = [totals.v1, totals.v2, totals.v3, totals.v4, totals.v5].map(fmt).join(',');
 
-    const header = `H,${activeTab.typeCode},${csvQ(ownerTin)},${csvQ(owner.registeredName || owner.name || '')},` +
-      `${csvQ(owner.lastName || '')},${csvQ(owner.firstName || '')},${csvQ(owner.middleName || '')},` +
-      `${csvQ(owner.tradeName || '')},${csvQ(addr1)},${csvQ(addr2)},` +
-      `${ssummary},${rdoCode},${tmd},${startMonth}`;
+    const lines: string[] = [`H,${activeTab.typeCode},${owned},${ssummary},${rdoCode},${tmd},${fyEndMonth}`];
 
-    const lines: string[] = [header];
+    // Counterparty block: "tin","NAME",,,,"CITY","PROVINCE"  (last/first/middle empty & unquoted)
+    const party = (r: any) => {
+      const loc = r.various ? ownerLoc : splitCityProvince(r.addr1);
+      return `"${tin9(r.tin)}",${q(up(r.regName))},,,,${q(loc.city)},${q(loc.province)}`;
+    };
     if (tab === 'sales') {
-      // D,S: tin,regName,last,first,middle,addr1,addr2,exempt,zeroRated,taxable,outputTax,ownerTin,taxMonthDate
       for (const r of salesRows) {
-        lines.push(`D,S,${r.tin},${r.regName},${r.lastName},${r.firstName},${r.middleName},${r.addr1},${r.addr2},` +
-          `${fmt(r.exempt)},${fmt(r.zeroRated)},${fmt(r.taxable)},${fmt(r.outputTax)},${ownerTin},${tmd}`);
+        lines.push(`D,S,${party(r)},${[r.taxable, r.exempt, r.zeroRated, r.outputTax].map(fmtD).join(',')},${ownerTin},${tmd}`);
       }
     } else if (tab === 'purchases') {
-      // D,P: tin,regName,last,first,middle,addr1,addr2,exempt,zeroRated,services,capital,goodsOther,inputTax,ownerTin,taxMonthDate
       for (const r of purchaseRows) {
-        lines.push(`D,P,${r.tin},${r.regName},${r.lastName},${r.firstName},${r.middleName},${r.addr1},${r.addr2},` +
-          `${fmt(r.exempt)},${fmt(r.zeroRated)},${fmt(r.services)},${fmt(r.capital)},${fmt(r.goodsOther)},${fmt(r.inputTax)},${ownerTin},${tmd}`);
+        lines.push(`D,P,${party(r)},${[r.exempt, r.zeroRated, r.services, r.capital, r.goodsOther, r.inputTax].map(fmtD).join(',')},${ownerTin},${tmd}`);
       }
     } else {
-      // D,I: entryNo,assessDate,regName,country,landCost,dutiable,charges,geImport,gtImport,vat,orNumber,vatPayDate,ownerTin,taxMonthDate
+      // D,I (unchanged): entryNo,assessDate,regName,country,landCost,dutiable,charges,geImport,gtImport,vat,orNumber,vatPayDate,ownerTin,taxMonthDate
       for (const r of importRows) {
         lines.push(`D,I,${r.entryNo},${r.assessDate || ''},${r.registeredName},${r.country},,` +
           `${fmt(r.dutiableValue)},${fmt(r.charges)},,,${fmt(r.vat)},${r.orNumber},${r.vatPaymentDate || ''},${ownerTin},${tmd}`);
@@ -273,7 +316,7 @@ export function Relief() {
     const fname = `${ownerTin}${activeTab.typeCode}${String(month).padStart(2, '0')}${year}.DAT`;
     const blob = new Blob([buildDat()], { type: 'text/plain;charset=utf-8' });
     saveAs(blob, fname);
-    showToast(`RELIEF file ${fname} exported (${totals.count} entries, validator-conformant format).`);
+    showToast(`RELIEF file ${fname} exported (${totals.count} entries, BIR Relief sample format).`);
   };
 
   const clearAllTransfers = () => { setTransfers({}); showToast('All month transfers reset.'); };
@@ -362,7 +405,11 @@ export function Relief() {
             {transferredInCount > 0 && (
               <Badge variant="info">{transferredInCount} supplier row{transferredInCount === 1 ? '' : 's'} transferred into {monthKey}</Badge>
             )}
-            <span className="text-slate-400">Use “Claim Month” to move a supplier's input tax to another month. Export matches valrlf 2.3 format (D,P = 15 fields).</span>
+            <label className="flex items-center gap-1.5 text-slate-500 cursor-pointer">
+              <input type="checkbox" checked={consolidateNoTinPurchases} onChange={e => setConsolidateNoTinPurchases(e.target.checked)} />
+              Consolidate purchases without TIN as VARIOUS PURCHASES (000000002)
+            </label>
+            <span className="text-slate-400">Use “Claim Month” to move a supplier's input tax to another month. Export matches the BIR Relief sample format.</span>
             {Object.keys(transfers).length > 0 && (
               <button onClick={clearAllTransfers} className="ml-auto flex items-center gap-1 text-slate-400 hover:text-red-500 transition-colors">
                 <Undo2 className="w-3.5 h-3.5" /> Reset all transfers
@@ -445,7 +492,7 @@ export function Relief() {
       )}
 
       <p className="text-xs text-slate-400 text-center">
-        Exported .DAT matches BIR Relief v2.3 / valrlf 2.3: <code>H,</code> header with totals + RDO + tax month, followed by unquoted <code>D,S,</code> (13 fields), <code>D,P,</code> (15 fields), <code>D,I,</code> (14 fields) detail lines.
+        Exported .DAT mirrors BIR Relief-generated samples: quoted header with totals + RDO + tax-month end date + fiscal year-end month, then <code>D,S,</code> / <code>D,P,</code> detail lines (zero amounts as <code>0</code>).
       </p>
     </div>
   );
