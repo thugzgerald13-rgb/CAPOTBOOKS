@@ -13,15 +13,19 @@ import { FileText, Receipt, ShoppingCart, Boxes, FileDown, Plus, Trash2, Undo2 }
  *
  *   FILENAME : <9-digit TIN><S|P|I><MM><YYYY>.DAT
  *   H,S,"tin","regName","last","first","middle","trade","addr1","addr2",
- *       taxable,exempt,zeroRated,outputVAT,<RDO>,<MM/DD/YYYY last day>,<FY-end month>
- *   D,S,"tin","name",,,,"city","province",taxable,exempt,zeroRated,outputVAT,ownerTin,<date>
+ *       exempt,zeroRated,taxable,outputVAT,<RDO>,<MM/DD/YYYY last day>,<FY-end month>
+ *   D,S,"tin","name",,,,"addr1(city)","addr2(province)",exempt,zeroRated,taxable,outputVAT,ownerTin,<date>
  *   H,P,... same owner block, then 8 amounts:
- *       exempt,zeroRated,services,capital,goodsOther,inputVAT,inputVAT,0.00
+ *       exempt,zeroRated,services,capital,goodsOther,totalInputVAT,creditable,nonCreditable
  *   D,P,"tin","name",,,,"city","province",exempt,zeroRated,services,capital,goodsOther,inputVAT,ownerTin,<date>
  *   Header amounts are always 2-decimals ("0.00"); detail zero amounts are "0".
  *   Consolidated rows: "000000001" VARIOUS SALES / "000000002" VARIOUS PURCHASES.
  *   D,I (importations) is unchanged (no sample supplied).
- * Header totals must equal the sum of detail amounts.
+ * Source: reverse-engineered from BIR Relief v2.3 (birrlf2.exe genfile/mfilter) and the
+ * validation module (valrlf2.3.exe): sales amount order is Exempt, Zero-Rated, Taxable,
+ * Output Tax; purchase header Input Tax must equal Creditable + Non-Creditable; names/
+ * addresses may not contain , " $ & ' \ ` | ~ or non-ASCII; RDO is exactly 3 chars; the
+ * tax-month date is the last day of the month; header totals must equal sum of details.
  */
 
 type ReliefTab = 'sales' | 'purchases' | 'imports';
@@ -93,7 +97,27 @@ function splitCityProvince(text?: string): { city: string; province: string } {
   if (prov && t !== prov) return { city: t.slice(0, t.length - prov.length).trim(), province: prov };
   return { city: t, province: '' };
 }
-const q = (s: string) => `"${String(s || '').replace(/"/g, '""').replace(/,/g, ' ')}"`; // quoted, never contains a comma
+// Relief validator (valname) rejects: control chars, " $ & ' , \ ` | ~ and anything outside plain ASCII.
+// Ñ/ñ become N; every other offending character becomes a space. Optionally truncated to the Relief field width.
+function clean(s: any, max = 0): string {
+  let out = '';
+  for (const ch of String(s ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')) {
+    const c = ch.charCodeAt(0);
+    if (c === 209 || c === 241) out += 'N';
+    else if (c <= 31 || [34, 36, 38, 39, 44, 92, 96, 124].includes(c) || c >= 126) out += ' ';
+    else out += ch;
+  }
+  out = out.replace(/\s{2,}/g, ' ').trim();
+  return max ? out.slice(0, max).trim() : out;
+}
+const q = (s: string, max = 0) => `"${clean(s, max)}"`;
+/** Relief RDO field is exactly 3 chars: 57 -> 057, 043B -> 43B. */
+function rdo3(raw?: string): string {
+  const m = /^(\d+)([A-Za-z]?)$/.exec(String(raw || '').trim());
+  if (!m) return String(raw || '').trim().slice(0, 3);
+  const n = String(Number(m[1]));
+  return m[2] ? (n.padStart(2, '0') + m[2].toUpperCase()).slice(0, 3) : n.padStart(3, '0').slice(0, 3);
+}
 
 export function Relief() {
   const { currentClient, reliefTab, setReliefTab, showToast } = useAccounting();
@@ -104,6 +128,8 @@ export function Relief() {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [importRows, setImportRows] = useState<ImportRow[]>([]);
   // Purchases without a supplier TIN are excluded by default; tick to consolidate them into the BIR "VARIOUS PURCHASES" row (000000002).
+  // Relief asks for the non-creditable portion of input tax when generating the Purchases file (creditable = total - non-creditable).
+  const [nonCreditable, setNonCreditable] = useState(0);
   const [consolidateNoTinPurchases, setConsolidateNoTinPurchases] = useState(false);
 
   const [transfers, setTransfers] = useState<TransfersMap>(() => {
@@ -127,8 +153,7 @@ export function Relief() {
 
   const owner = currentClient || ({} as any);
   const ownerTin = tin9(owner.tin);
-  const rdoRaw = String(owner.rdoCode || '').trim();
-  const rdoCode = /^\d+$/.test(rdoRaw) ? rdoRaw.padStart(3, '0') : rdoRaw; // e.g. 057
+  const rdoCode = rdo3(owner.rdoCode); // e.g. 057, 43B
   // Last header field in the BIR samples is the fiscal-year-end month (12 for calendar-year taxpayers).
   const fyEndMonth = owner.accountingType === 'Fiscal' && owner.fiscalMonthEnd ? owner.fiscalMonthEnd : 12;
 
@@ -266,21 +291,27 @@ export function Relief() {
 
   // ---- Build BIR RELIEF .DAT — mirrors the BIR Relief-generated samples ----
   const buildDat = (): string => {
-    const addr1 = up([owner.substreet, owner.street, owner.barangay].filter(Boolean).join(' '));
-    // Sample addr2 keeps the empty district's leading space (" SAN PEDRO LAGUNA 4023").
-    const addr2 = up([owner.district || '', owner.city || '', owner.zipCode || ''].join(' ').replace(/ {2,}/g, ' ').replace(/ $/, ''));
+    // Exactly as Relief builds it: allt(a)+' '+allt(b)+' '+allt(c) — empty parts leave their space
+    // (sample addr2 = " SAN PEDRO LAGUNA 4023" because the district is blank).
+    const sp = (...p: any[]) => p.map(x => clean(x)).join(' ');
+    const addr1 = up(sp(owner.substreet, owner.street, owner.barangay));
+    const addr2 = up(sp(owner.district, owner.city, owner.zipCode));
     const ownerLoc = splitCityProvince(owner.city);
     const tmd = taxMonthDate(year, month);
 
-    const owned = `${q(ownerTin)},${q(up(owner.registeredName || owner.name))},` +
-      `${q(up(owner.lastName))},${q(up(owner.firstName))},${q(up(owner.middleName))},` +
-      `${q(up(owner.tradeName || owner.registeredName || owner.name))},${q(addr1)},${q(addr2)}`;
+    // Header text is written verbatim (leading space in addr2 is part of the format), so no trimming here.
+    const hq = (v: string) => `"${v}"`;
+    const owned = `${q(ownerTin)},${q(up(owner.registeredName || owner.name), 50)},` +
+      `${q(up(owner.lastName), 30)},${q(up(owner.firstName), 30)},${q(up(owner.middleName), 30)},` +
+      `${q(up(owner.tradeName || owner.registeredName || owner.name), 50)},${hq(addr1)},${hq(addr2)}`;
 
-    // Header amounts (always 2 decimals): S = taxable, exempt, zero-rated, output VAT.
-    // P = exempt, zero-rated, services, capital, other goods, input VAT, input VAT (creditable), 0.00.
+    // Header amounts (always 2 decimals): S = exempt, zero-rated, taxable, output VAT.
+    // P = exempt, zero-rated, services, capital, other goods, total input VAT, creditable, non-creditable.
+    const nonCred = Math.min(Math.max(Number(nonCreditable) || 0, 0), totals.v6);
+    const cred = totals.v6 - nonCred;
     let ssummary: string;
-    if (tab === 'sales') ssummary = [totals.v3, totals.v1, totals.v2, totals.v4].map(fmt).join(',');
-    else if (tab === 'purchases') ssummary = [totals.v1, totals.v2, totals.v3, totals.v4, totals.v5, totals.v6, totals.v6, 0].map(fmt).join(',');
+    if (tab === 'sales') ssummary = [totals.v1, totals.v2, totals.v3, totals.v4].map(fmt).join(',');
+    else if (tab === 'purchases') ssummary = [totals.v1, totals.v2, totals.v3, totals.v4, totals.v5, totals.v6, cred, nonCred].map(fmt).join(',');
     else ssummary = [totals.v1, totals.v2, totals.v3, totals.v4, totals.v5].map(fmt).join(',');
 
     const lines: string[] = [`H,${activeTab.typeCode},${owned},${ssummary},${rdoCode},${tmd},${fyEndMonth}`];
@@ -288,11 +319,11 @@ export function Relief() {
     // Counterparty block: "tin","NAME",,,,"CITY","PROVINCE"  (last/first/middle empty & unquoted)
     const party = (r: any) => {
       const loc = r.various ? ownerLoc : splitCityProvince(r.addr1);
-      return `"${tin9(r.tin)}",${q(up(r.regName))},,,,${q(loc.city)},${q(loc.province)}`;
+      return `"${tin9(r.tin)}",${q(up(r.regName), 50)},,,,${q(loc.city, 30)},${q(loc.province, 30)}`;
     };
     if (tab === 'sales') {
       for (const r of salesRows) {
-        lines.push(`D,S,${party(r)},${[r.taxable, r.exempt, r.zeroRated, r.outputTax].map(fmtD).join(',')},${ownerTin},${tmd}`);
+        lines.push(`D,S,${party(r)},${[r.exempt, r.zeroRated, r.taxable, r.outputTax].map(fmtD).join(',')},${ownerTin},${tmd}`);
       }
     } else if (tab === 'purchases') {
       for (const r of purchaseRows) {
@@ -405,6 +436,12 @@ export function Relief() {
             {transferredInCount > 0 && (
               <Badge variant="info">{transferredInCount} supplier row{transferredInCount === 1 ? '' : 's'} transferred into {monthKey}</Badge>
             )}
+            <label className="flex items-center gap-1.5 text-slate-500">
+              Non-creditable input tax ₱
+              <input type="number" min={0} step="0.01" value={nonCreditable || ''} placeholder="0.00"
+                onChange={e => setNonCreditable(Number(e.target.value) || 0)}
+                className="w-28 form-input text-xs py-1" />
+            </label>
             <label className="flex items-center gap-1.5 text-slate-500 cursor-pointer">
               <input type="checkbox" checked={consolidateNoTinPurchases} onChange={e => setConsolidateNoTinPurchases(e.target.checked)} />
               Consolidate purchases without TIN as VARIOUS PURCHASES (000000002)
