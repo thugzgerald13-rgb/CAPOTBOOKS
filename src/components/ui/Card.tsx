@@ -3,6 +3,8 @@ import { cn } from '@/lib/utils';
 
 export interface CardProps extends HTMLAttributes<HTMLDivElement> {
   padded?: boolean;
+  className?: string;
+  children?: ReactNode;
 }
 
 /** Surface container — consistent border, radius and shadow across all pages. */

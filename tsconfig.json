@@ -23,5 +23,6 @@
     "allowImportingTsExtensions": true,
     "noEmit": true
   },
-  "exclude": ["glPosting.ts", "dist", "node_modules"]
+  "include": ["src"],
+  "exclude": ["src/lib/glPosting.ts", "dist", "node_modules", "supabase", "app"]
 }

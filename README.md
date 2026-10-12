@@ -1,31 +1,74 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# CAPOTBOOKS - Android Accounting & BIR Tax Compliance
 
-# Run and deploy your AI Studio app
+CAPOTBOOKS is a comprehensive Philippine accounting and tax compliance application rewritten for Android using Kotlin and Jetpack Compose (Material Design 3).
 
-This contains everything you need to run your app locally.
+## Key Features
 
-View your app in AI Studio: https://ai.studio/apps/52f2e039-a5f2-44bd-8c31-450a6b2b63a0
+1. **Financial Dashboard & KPI Monitoring**:
+   - Real-time gross revenue, operating expenses, net income, cash in bank.
+   - Working capital monitoring: Accounts Receivable (AR) vs. Accounts Payable (AP).
+   - Bureau of Internal Revenue (BIR) upcoming tax alerts and compliance reminders.
 
-## Run Locally
+2. **Sales Invoicing & Official Receipts**:
+   - Invoicing with Philippine tax classification: 12% VAT Registered, Non-VAT (Percentage Tax), Zero-Rated, and VAT Exempt.
+   - Automatic deduction of Expanded Withholding Tax (Creditable WHT BIR Form 2307) using standard ATC codes (WC010, WC020, WC030, WC040, WC050, WC060, WC080, WC100).
+   - Real-time customer search by buyer name, TIN, or invoice reference number.
 
-**Prerequisites:**  Node.js
+3. **Purchases & Accounts Payable**:
+   - Track invoiced expenses, miscellaneous payments, and AP dues.
+   - Automatic 12% Input VAT calculation and tax credit verification.
+   - Supplier TIN tracking and expense categorization.
 
+4. **Statements of Account (SOA) & Billing**:
+   - Client billing statements with due dates, amounts, and recurring frequency.
+   - Quick "Mark as Paid" status toggle.
 
-1. Install dependencies:
-   `npm install`
-2. Copy `.env.example` to `.env.local` and set:
-   - `GEMINI_API_KEY` — your Gemini API key
-   - `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` — from your Supabase project (Project Settings > API)
-3. In your Supabase project, enable the **Google** provider under Authentication > Providers if you want Google sign-in to work
-4. Run the app:
-   `npm run dev`
+5. **Double-Entry Journal Vouchers (JV)**:
+   - General Journal adjustments with balanced Debit and Credit validation.
+   - Automatic posting to the General Ledger.
 
-## Backend
+6. **Books of Accounts (BIR Compliant)**:
+   - Sales Journal (SJ)
+   - Purchases Journal (PJ)
+   - Cash Receipts Journal (CRJ)
+   - Cash Disbursements Journal (CDJ)
+   - General Ledger (GL)
 
-Auth and data storage run on [Supabase](https://supabase.com) (Postgres + Auth + Realtime). Schema lives in three tables: `profiles`, `clients`, and `business_profiles`, each protected by Row Level Security so users can only read/write their own rows.
+7. **Philippine Standard Chart of Accounts (COA)**:
+   - Assets (1000s), Liabilities (2000s), Equity (3000s), Revenue (4000s), Direct Costs (5000s), Operating Expenses (6000s).
+   - Normal side designations (Debit / Credit) and running balances.
 
-## Database schema
+8. **Audited Financial Statements (AFS)**:
+   - Statement of Comprehensive Income (Profit & Loss)
+   - Statement of Financial Position (Balance Sheet)
+   - Statement of Cash Flows
+   - Trial Balance
 
-The normalized Supabase target schema is in `schema.sql`. It separates client-owned accounting entities into tables, applies shared client-owner RLS, stores runtime journals as `values jsonb`, and moves file bytes to the private `client-files` Storage bucket. See `MIGRATION_PLAN.md` before applying it to an existing production database.
+9. **Fixed Asset Lapsing Schedule (PPE)**:
+   - Straight-Line, Declining Balance, and Sum-of-Years depreciation methods.
+   - Cost, salvage value, useful life, accumulated depreciation, and net book value.
+
+10. **BIR Compliance & TIN Directory**:
+    - Tax calendar with statutory filing deadlines (BIR Forms 2550Q, 1701Q, 1601-C, 0619-E).
+    - Unified Customer and Supplier TIN directory with validation.
+
+11. **Business Profile (COR 2303)**:
+    - Official taxpayer registration parameters: Registered Name, Trade Name, TIN, Taxpayer Classification, RDO Code, and registered address.
+
+## Architecture
+
+- **Language:** Kotlin
+- **UI Framework:** Jetpack Compose (Material Design 3)
+- **Architecture Pattern:** MVVM (Model-View-ViewModel) with unidirectional data flow
+- **Local Persistence:** Room Database (`CapotDatabase`) with reactive Kotlin Coroutines `Flow`
+- **Build System:** Gradle (Kotlin DSL, Version Catalog `libs.versions.toml`)
+
+## Building & Running
+
+1. **Prerequisites:** Android Studio Ladybug or later, JDK 21, Android SDK 36.
+2. **Build Debug APK:**
+   ```bash
+   gradle :app:assembleDebug
+   ```
+3. Output APK location:
+   `app/build/outputs/apk/debug/app-debug.apk`

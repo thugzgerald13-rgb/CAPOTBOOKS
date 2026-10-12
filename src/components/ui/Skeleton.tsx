@@ -1,8 +1,9 @@
+import { type HTMLAttributes } from 'react';
 import { cn } from '@/lib/utils';
 
 /** Shimmer placeholder — use while lazy routes / data load. */
-export function Skeleton({ className }: { className?: string }) {
-  return <div className={cn('skeleton-shimmer rounded-md', className)} aria-hidden="true" />;
+export function Skeleton({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
+  return <div className={cn('skeleton-shimmer rounded-md', className)} aria-hidden="true" {...props} />;
 }
 
 /** A block of N text lines. */

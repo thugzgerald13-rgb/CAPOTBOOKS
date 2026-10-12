@@ -1,4 +1,4 @@
-import { type HTMLAttributes } from 'react';
+import { type HTMLAttributes, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 
 export type BadgeVariant = 'neutral' | 'brand' | 'success' | 'warning' | 'danger' | 'info' | 'outline';
@@ -8,6 +8,8 @@ export interface BadgeProps extends HTMLAttributes<HTMLSpanElement> {
   variant?: BadgeVariant;
   size?: BadgeSize;
   dot?: boolean;
+  className?: string;
+  children?: ReactNode;
 }
 
 const variantClasses: Record<BadgeVariant, string> = {

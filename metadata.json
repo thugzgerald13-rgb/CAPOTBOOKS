@@ -1,6 +1,8 @@
 {
   "name": "CAPOTBOOKS",
-  "description": "CAPO ACCOUNTING SOFTWARE",
+  "description": "CAPOT Books - Philippine Accounting & Tax Compliance Android Application",
   "requestFramePermissions": [],
-  "majorCapabilities": []
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }
