@@ -92,10 +92,29 @@ function RequirePermission({ children }: { children: React.ReactNode }) {
 
 function AppLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const { clients, navigateToPage, activePage, businessProfile } = useAccounting();
+  const { clients, currentClient, navigateToPage, activePage, businessProfile } = useAccounting();
   const { userRole, isAdmin } = useAuth();
 
   const hasClients = Object.keys(clients).length > 0;
+
+  // Payroll company identity follows the same active profile used throughout
+  // CAPOTBOOKS (currentClient), rather than always showing the account owner's
+  // Business Profile when a Client Profile is selected.
+  const payrollCompany = currentClient ? {
+    name: currentClient.registeredName || currentClient.tradeName || currentClient.name || 'CAPOTBOOKS Business',
+    tin: currentClient.tin || '',
+    address: [currentClient.substreet, currentClient.street, currentClient.barangay, currentClient.district, currentClient.city, currentClient.zipCode].filter(Boolean).join(', '),
+    email: currentClient.email || '',
+    planId: 'enterprise',
+    watermarkEnabled: false,
+  } : {
+    name: businessProfile?.tradeName || businessProfile?.registeredName || businessProfile?.name || 'CAPOTBOOKS Business',
+    tin: businessProfile?.tin || '',
+    address: [businessProfile?.substreet, businessProfile?.street, businessProfile?.barangay, businessProfile?.district, businessProfile?.city, businessProfile?.zipCode].filter(Boolean).join(', '),
+    email: businessProfile?.email || '',
+    planId: 'enterprise',
+    watermarkEnabled: false,
+  };
 
   // Onboarding gate: once a role (Business Owner or Accountant) is chosen,
   // the Business Profile must be completed — TIN, Taxpayer Classification,
@@ -207,20 +226,8 @@ function AppLayout() {
             <Route path="/relief" element={<Relief />} />
             <Route path="/compliance-tracker" element={<ComplianceTracker />} />
             <Route path="/eis-center" element={<EisCenter />} />
-            <Route path="/payroll" element={<PayrollHub company={{
-              name: businessProfile?.tradeName || businessProfile?.registeredName || businessProfile?.name || 'CAPOTBOOKS Business',
-              tin: businessProfile?.tin || '',
-              address: [businessProfile?.substreet, businessProfile?.street, businessProfile?.barangay, businessProfile?.district, businessProfile?.city, businessProfile?.zipCode].filter(Boolean).join(', '),
-              planId: 'enterprise',
-              watermarkEnabled: false,
-            }} initialPage="dashboard" />} />
-            <Route path="/payroll/settings" element={<PayrollHub company={{
-              name: businessProfile?.tradeName || businessProfile?.registeredName || businessProfile?.name || 'CAPOTBOOKS Business',
-              tin: businessProfile?.tin || '',
-              address: [businessProfile?.substreet, businessProfile?.street, businessProfile?.barangay, businessProfile?.district, businessProfile?.city, businessProfile?.zipCode].filter(Boolean).join(', '),
-              planId: 'enterprise',
-              watermarkEnabled: false,
-            }} initialPage="settings" />} />
+            <Route path="/payroll" element={<PayrollHub company={payrollCompany} initialPage="dashboard" />} />
+            <Route path="/payroll/settings" element={<PayrollHub company={payrollCompany} initialPage="settings" />} />
             <Route path="/ap-workspace" element={<Navigate to="/purchases/ap" replace />} />
             <Route path="/functions" element={<Navigate to="/account-settings" replace />} />
           </Routes>

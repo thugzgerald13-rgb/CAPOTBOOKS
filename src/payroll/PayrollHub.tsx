@@ -78,6 +78,7 @@ export interface PayrollCompany {
   name: string;
   tin?: string;
   address?: string;
+  email?: string;
   planId?: string;
   watermarkEnabled?: boolean;
 }
@@ -229,12 +230,12 @@ function dateFmt(d: string): string {
   });
 }
 
-function defaultPayrollSettings(company: { name: string; tin?: string; address?: string }) {
+function defaultPayrollSettings(company: PayrollCompany) {
   return {
     companyName: company.name,
     companyTIN: company.tin || '',
     companyAddress: company.address || '',
-    payrollEmail: '',
+    payrollEmail: company.email || '',
     hoursPerDay: 8,
     daysMonth: 26,
     periodsMonthly: 1,
@@ -270,7 +271,7 @@ function defaultPayrollSettings(company: { name: string; tin?: string; address?:
 }
 
 export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage = 'dashboard' }) => {
-  const { currentClientId } = useAccounting();
+  const { currentClientId, currentClient } = useAccounting();
   const { user } = useAuth();
   const [cloudReady, setCloudReady] = useState(false);
   const [loadedCloudClientId, setLoadedCloudClientId] = useState<string | null>(null);
@@ -279,10 +280,21 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
   const [cloudRetryCount, setCloudRetryCount] = useState(0);
   const [cloudStatus, setCloudStatus] = useState<'offline' | 'signin' | 'select-business' | 'loading' | 'synced' | 'error'>('offline');
   const [cloudError, setCloudError] = useState<string | null>(null);
-  const currentCompany = {
+  // Resolve company identity from CAPOTBOOKS' currently active profile. The
+  // prop is retained as a fallback for standalone rendering, but when an active
+  // Client Profile exists it is the source of truth for name, TIN, address and email.
+  const currentCompany = currentClient ? {
+    name: currentClient.registeredName || currentClient.tradeName || currentClient.name || 'CAPOTBOOKS Business',
+    tin: currentClient.tin || '',
+    address: [currentClient.substreet, currentClient.street, currentClient.barangay, currentClient.district, currentClient.city, currentClient.zipCode].filter(Boolean).join(', '),
+    email: currentClient.email || '',
+    planId: company.planId || 'enterprise',
+    watermarkEnabled: Boolean(company.watermarkEnabled),
+  } : {
     name: company.name || 'CAPOTBOOKS Business',
     tin: company.tin || '',
     address: company.address || '',
+    email: company.email || '',
     planId: company.planId || 'enterprise',
     watermarkEnabled: Boolean(company.watermarkEnabled),
   };
@@ -355,7 +367,7 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
   const [errorsList, setErrorsList] = useState<ValidationError[]>([]);
 
   // Settings State
-  const [settings, setSettings] = useState(() => readPayrollStore(`${storageKey}:settings`, defaultPayrollSettings(currentCompany)));
+  const [settings, setSettings] = useState(() => ({ ...readPayrollStore(`${storageKey}:settings`, defaultPayrollSettings(currentCompany)), companyName: currentCompany.name, companyTIN: currentCompany.tin || '', companyAddress: currentCompany.address || '' }));
 
   useEffect(() => {
     const legacyEmployees = readPayrollStore<EmployeeRecord[]>(`${legacyStorageKey}:employees`, []).filter(
@@ -370,6 +382,19 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
     const hasLegacyRecords = legacyEmployees.length > 0 || legacyAttendance.length > 0 || legacyPayrolls.length > 0;
     setLegacyLocalAvailable(hasLegacyRecords);
   }, [legacyStorageKey]);
+
+  // Keep payroll company identity synchronized when Business Profile / Client
+  // Profiles is edited without changing the active profile ID. Calculation and
+  // statutory settings remain payroll-specific and are not reset by profile edits.
+  useEffect(() => {
+    setSettings((previous: any) => ({
+      ...previous,
+      companyName: currentCompany.name,
+      companyTIN: currentCompany.tin || '',
+      companyAddress: currentCompany.address || '',
+      payrollEmail: previous?.payrollEmail || currentCompany.email || '',
+    }));
+  }, [currentCompany.name, currentCompany.tin, currentCompany.address, currentCompany.email]);
 
   // Keep local records keyed by business as an offline cache. When cloud sync is
   // active, do not write into a tenant cache until that same tenant has loaded.
@@ -409,7 +434,8 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
     setPayrolls(readPayrollStore<ProcessedPayrollPeriod[]>(`${storageKey}:payrolls`, [])
       .filter((period) => !DEMO_PAYROLL_IDS.has(period.id))
       .map((period) => ({ ...period, rows: (period.rows || []).filter((row) => !DEMO_EMPLOYEE_IDS.has(row.employeeId)) })));
-    setSettings(readPayrollStore(`${storageKey}:settings`, defaultPayrollSettings(currentCompany)));
+    const cachedSettings = readPayrollStore<any>(`${storageKey}:settings`, defaultPayrollSettings(currentCompany));
+    setSettings({ ...defaultPayrollSettings(currentCompany), ...cachedSettings, companyName: currentCompany.name, companyTIN: currentCompany.tin || '', companyAddress: currentCompany.address || '', payrollEmail: cachedSettings?.payrollEmail || currentCompany.email || '' });
     setAuditLog(readPayrollStore<AuditEvent[]>(`${storageKey}:audit`, []));
 
     if (!payrollCloudAvailable()) {
@@ -434,7 +460,10 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
         setEmployees((snapshot.employees || []) as EmployeeRecord[]);
         setAttendance((snapshot.attendance || []) as AttendanceRow[]);
         setPayrolls((snapshot.payrolls || []) as ProcessedPayrollPeriod[]);
-        if (snapshot.settings) setSettings(snapshot.settings as any);
+        if (snapshot.settings) {
+          const savedSettings = snapshot.settings as any;
+          setSettings({ ...defaultPayrollSettings(currentCompany), ...savedSettings, companyName: currentCompany.name, companyTIN: currentCompany.tin || '', companyAddress: currentCompany.address || '', payrollEmail: savedSettings.payrollEmail || currentCompany.email || '', sss: { ...defaultPayrollSettings(currentCompany).sss, ...(savedSettings.sss || {}) }, ph: { ...defaultPayrollSettings(currentCompany).ph, ...(savedSettings.ph || {}) }, pi: { ...defaultPayrollSettings(currentCompany).pi, ...(savedSettings.pi || {}) } });
+        }
         setAuditLog((snapshot.auditLog || []) as AuditEvent[]);
       }
       setLoadedCloudClientId(currentClientId);
@@ -519,7 +548,8 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
     setEmployees(legacyEmployees);
     setAttendance(legacyAttendance);
     setPayrolls(legacyPayrolls);
-    setSettings(readPayrollStore(`${legacyStorageKey}:settings`, defaultPayrollSettings(currentCompany)) as any);
+    const legacySettings = readPayrollStore<any>(`${legacyStorageKey}:settings`, defaultPayrollSettings(currentCompany));
+    setSettings({ ...defaultPayrollSettings(currentCompany), ...legacySettings, companyName: currentCompany.name, companyTIN: currentCompany.tin || '', companyAddress: currentCompany.address || '', payrollEmail: legacySettings?.payrollEmail || currentCompany.email || '', sss: { ...defaultPayrollSettings(currentCompany).sss, ...(legacySettings?.sss || {}) }, ph: { ...defaultPayrollSettings(currentCompany).ph, ...(legacySettings?.ph || {}) }, pi: { ...defaultPayrollSettings(currentCompany).pi, ...(legacySettings?.pi || {}) } });
     setAuditLog(readPayrollStore<AuditEvent[]>(`${legacyStorageKey}:audit`, []));
     setLegacyLocalAvailable(false);
     setCloudHasRecords(true);
@@ -2100,22 +2130,17 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
               <div className="eh-grid eh-two">
                 <div className="eh-panel">
                   <div className="eh-section-title">
-                    <h2>Company</h2>
+                    <h2>Active Profile</h2>
                   </div>
+                  <p className="eh-muted text-xs mb-3">Company name, TIN and address are linked to the active CAPOTBOOKS profile: <strong>{currentCompany.name}</strong>. To change them, update Business Profile or Client Profiles.</p>
                   <div className="eh-formgrid">
                     <div className="eh-field">
                       <label>Company Name</label>
-                      <input
-                        value={settings.companyName}
-                        onChange={(e) => setSettings({ ...settings, companyName: e.target.value })}
-                      />
+                      <input value={settings.companyName} readOnly title="Synced from the active CAPOTBOOKS profile" />
                     </div>
                     <div className="eh-field">
                       <label>Company TIN</label>
-                      <input
-                        value={settings.companyTIN}
-                        onChange={(e) => setSettings({ ...settings, companyTIN: e.target.value })}
-                      />
+                      <input value={settings.companyTIN} readOnly title="Synced from the active CAPOTBOOKS profile" />
                     </div>
                     <div className="eh-field">
                       <label>Currency</label>
@@ -2123,10 +2148,7 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
                     </div>
                     <div className="eh-field eh-full">
                       <label>Address</label>
-                      <input
-                        value={settings.companyAddress}
-                        onChange={(e) => setSettings({ ...settings, companyAddress: e.target.value })}
-                      />
+                      <input value={settings.companyAddress} readOnly title="Synced from the active CAPOTBOOKS profile" />
                     </div>
                     <div className="eh-field eh-full">
                       <label>Payroll Email</label>
