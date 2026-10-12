@@ -1,9 +1,9 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { saveAs } from 'file-saver';
-import { PageHeader, Button, Card, CardContent, Select, Field, Input, EmptyState } from './ui';
+import { PageHeader, Button, Card, CardContent, Select, Field, Input, EmptyState, Badge } from './ui';
 import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
-import { FileText, Receipt, ShoppingCart, Boxes, FileDown, Plus, Trash2 } from 'lucide-react';
+import { FileText, Receipt, ShoppingCart, Boxes, FileDown, Plus, Trash2, Undo2 } from 'lucide-react';
 
 /**
  * BIR RELIEF (Reconciliation of Listings for Enforcement) — Summary List of
@@ -11,6 +11,11 @@ import { FileText, Receipt, ShoppingCart, Boxes, FileDown, Plus, Trash2 } from '
  * flow of the legacy BIR Relief v2.3 desktop app: aggregate per-counterparty
  * for a chosen month, then export a BIR-format .DAT (CSV) file with an `H,`
  * header record and `D,S,` / `D,P,` / `D,I,` detail records.
+ *
+ * Purchases-tab rules:
+ *  - Transactions with NO supplier TIN are excluded (BIR SLSP requires TIN).
+ *  - Each aggregated supplier row is transferable to another claim month so
+ *    the user can adjust input-tax timing; transfers persist in localStorage.
  */
 
 type ReliefTab = 'sales' | 'purchases' | 'imports';
@@ -39,8 +44,24 @@ const emptyImport = (): ImportRow => ({
   dutiableValue: 0, charges: 0, vat: 0, orNumber: '',
 });
 
+interface TransferEntry {
+  toMonth: string;       // 'YYYY-MM'
+  tin: string;
+  name: string;
+  address: string;
+  goods: number;
+  services: number;
+  capital: number;
+  others: number;
+  inputTax: number;
+}
+type TransfersMap = Record<string, TransferEntry>; // key = `${tin}|${fromMonth}`
+
 const fmt = (n: number) => (n || 0).toFixed(2);
 const csv = (s: string) => `"${(s || '').replace(/"/g, '""')}"`;
+const monthKeyOf = (y: number, m: number) => `${y}-${String(m).padStart(2, '0')}`;
+
+const emptyTransfer = (): TransfersMap => ({});
 
 export function Relief() {
   const { currentClient, reliefTab, setReliefTab, showToast } = useAccounting();
@@ -51,10 +72,28 @@ export function Relief() {
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [importRows, setImportRows] = useState<ImportRow[]>([]);
 
+  // Transfers of aggregated purchase rows between claim months (persisted)
+  const [transfers, setTransfers] = useState<TransfersMap>(() => {
+    try { return JSON.parse(localStorage.getItem('relief-purchase-transfers') || '{}'); }
+    catch { return emptyTransfer(); }
+  });
+  useEffect(() => {
+    try { localStorage.setItem('relief-purchase-transfers', JSON.stringify(transfers)); } catch { /* ignore */ }
+  }, [transfers]);
+
   const tab = (['sales', 'purchases', 'imports'].includes(reliefTab) ? reliefTab : 'sales') as ReliefTab;
   const activeTab = TABS.find(t => t.id === tab)!;
+  const monthKey = monthKeyOf(year, month);
 
-  const monthKey = `${year}-${String(month).padStart(2, '0')}`;
+  const years = [now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1];
+  const monthOptions = useMemo(() => {
+    // Offer a rolling window of months around the selected one for transfer targets
+    const opts: string[] = [];
+    for (let y = now.getFullYear() - 1; y <= now.getFullYear() + 1; y++) {
+      for (let m = 1; m <= 12; m++) opts.push(monthKeyOf(y, m));
+    }
+    return opts;
+  }, [now]);
 
   // ---- Sales aggregation (per buyer TIN/name) for the chosen month ----
   const salesRows = useMemo(() => {
@@ -84,18 +123,23 @@ export function Relief() {
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
   }, [currentClient, year, month]);
 
-  // ---- Purchases aggregation (per supplier TIN/name) ----
-  const purchaseRows = useMemo(() => {
+  // ---- Purchases: require supplier TIN; support month transfers ----
+  const { purchaseRows, noTinCount, transferredInCount } = useMemo(() => {
     const purchases = (currentClient?.purchases || []) as any[];
     const inMonth = purchases.filter(p => {
       const d = p.date ? new Date(p.date) : null;
       return d && d.getFullYear() === year && (d.getMonth() + 1) === month;
     });
+    // 1) Exclude transactions with no supplier TIN
+    const withTin = inMonth.filter(p => (p.supplierTin || '').trim() !== '');
+    const noTinCount = inMonth.length - withTin.length;
+
+    // 2) Aggregate by supplier (TIN + name)
     const map = new Map<string, any>();
-    for (const p of inMonth) {
-      const key = `${(p.supplierTin || '')}|${(p.supplierName || '').trim()}`;
+    for (const p of withTin) {
+      const key = `${(p.supplierTin || '').trim()}|${(p.supplierName || '').trim()}`;
       const cur = map.get(key) || {
-        tin: p.supplierTin || '', name: p.supplierName || '', address: p.supplierAddress || '',
+        tin: (p.supplierTin || '').trim(), name: p.supplierName || '', address: p.supplierAddress || '',
         goods: 0, services: 0, capital: 0, others: 0, inputTax: 0, count: 0,
       };
       const amt = Number(p.amount || 0);
@@ -108,8 +152,55 @@ export function Relief() {
       cur.count += 1;
       map.set(key, cur);
     }
-    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
-  }, [currentClient, year, month]);
+
+    // 3) Apply transfers: rows moved AWAY from this month are dropped; rows
+    //    moved INTO this month are appended. Transfer key = tin|fromMonth.
+    const rows: any[] = [];
+    for (const [key, r] of map) {
+      const tKey = `${r.tin}|${monthKey}`;
+      const t = transfers[tKey];
+      if (t && t.toMonth !== monthKey) continue; // transferred away
+      rows.push({ ...r, transferKey: tKey, fromMonth: monthKey, transferredIn: false });
+    }
+    let transferredInCount = 0;
+    for (const [tKey, t] of Object.entries(transfers)) {
+      if (t.toMonth !== monthKey) continue;
+      const fromMonth = tKey.split('|').slice(1).join('|');
+      if (fromMonth === monthKey) continue; // not an inbound transfer
+      rows.push({
+        tin: t.tin, name: t.name, address: t.address,
+        goods: t.goods, services: t.services, capital: t.capital, others: t.others,
+        inputTax: t.inputTax, count: 0, transferKey: tKey, fromMonth, transferredIn: true,
+      });
+      transferredInCount++;
+    }
+    rows.sort((a, b) => a.name.localeCompare(b.name));
+    return { purchaseRows: rows, noTinCount, transferredInCount };
+  }, [currentClient, year, month, monthKey, transfers]);
+
+  const movePurchaseRow = (row: any, targetMonth: string) => {
+    const tKey = row.transferKey;
+    setTransfers(prev => {
+      const next = { ...prev };
+      if (targetMonth === row.fromMonth) {
+        delete next[tKey]; // reset to original claim month
+      } else {
+        next[tKey] = {
+          toMonth: targetMonth,
+          tin: row.tin, name: row.name, address: row.address,
+          goods: Number(row.goods || 0), services: Number(row.services || 0),
+          capital: Number(row.capital || 0), others: Number(row.others || 0),
+          inputTax: Number(row.inputTax || 0),
+        };
+      }
+      return next;
+    });
+    if (targetMonth === row.fromMonth) {
+      showToast(`Moved ${row.name || 'supplier'} back to ${row.fromMonth}.`);
+    } else {
+      showToast(`Transferred ${row.name || 'supplier'} (₱${fmt(row.inputTax)} input tax) to ${targetMonth}.`);
+    }
+  };
 
   const totals = useMemo(() => {
     if (tab === 'sales') {
@@ -170,10 +261,13 @@ export function Relief() {
     const fname = `${tin}${activeTab.typeCode}${String(month).padStart(2, '0')}${year}.DAT`;
     const blob = new Blob([buildDat()], { type: 'text/plain;charset=utf-8' });
     saveAs(blob, fname);
-    showToast(`RELIEF file ${fname} exported (${totals.count} entries).`);
+    showToast(`RELIEF file ${fname} exported (${purchaseRows.length} purchase entries${transferredInCount ? `, ${transferredInCount} transferred in` : ''}).`);
   };
 
-  const years = [now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1];
+  const clearAllTransfers = () => {
+    setTransfers(emptyTransfer());
+    showToast('All month transfers reset.');
+  };
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-5">
@@ -273,55 +367,93 @@ export function Relief() {
         </Card>
       )}
 
-      {/* Purchases table */}
+      {/* Purchases table — TIN-required, transferable between months */}
       {tab === 'purchases' && (
-        <Card>
-          <CardContent className="p-0 overflow-x-auto">
-            {purchaseRows.length === 0 ? (
-              <EmptyState title="No purchases this month" description="Record purchases in Purchases / Bills to include them here." />
-            ) : (
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 text-xs uppercase">
-                  <tr>
-                    <th className="text-left px-4 py-3">Supplier TIN</th>
-                    <th className="text-left px-4 py-3">Registered Name</th>
-                    <th className="text-right px-4 py-3">Goods</th>
-                    <th className="text-right px-4 py-3">Services</th>
-                    <th className="text-right px-4 py-3">Capital</th>
-                    <th className="text-right px-4 py-3">Others</th>
-                    <th className="text-right px-4 py-3">Input Tax</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {purchaseRows.map((r, i) => (
-                    <tr key={i} className="border-t border-slate-100 dark:border-slate-800">
-                      <td className="px-4 py-2.5 font-mono text-xs">{r.tin || '—'}</td>
-                      <td className="px-4 py-2.5">{r.name || '(unnamed)'}</td>
-                      <td className="px-4 py-2.5 text-right">{fmt(r.goods)}</td>
-                      <td className="px-4 py-2.5 text-right">{fmt(r.services)}</td>
-                      <td className="px-4 py-2.5 text-right">{fmt(r.capital)}</td>
-                      <td className="px-4 py-2.5 text-right">{fmt(r.others)}</td>
-                      <td className="px-4 py-2.5 text-right font-medium">{fmt(r.inputTax)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot className="bg-slate-50 dark:bg-slate-800/60 font-semibold">
-                  <tr>
-                    <td className="px-4 py-3" colSpan={2}>Total ({purchaseRows.length})</td>
-                    <td className="px-4 py-3 text-right">{fmt(purchaseRows.reduce((a, r) => a + r.goods, 0))}</td>
-                    <td className="px-4 py-3 text-right">{fmt(purchaseRows.reduce((a, r) => a + r.services, 0))}</td>
-                    <td className="px-4 py-3 text-right">{fmt(purchaseRows.reduce((a, r) => a + r.capital, 0))}</td>
-                    <td className="px-4 py-3 text-right">{fmt(purchaseRows.reduce((a, r) => a + r.others, 0))}</td>
-                    <td className="px-4 py-3 text-right">{fmt(totals.tax)}</td>
-                  </tr>
-                </tfoot>
-              </table>
+        <>
+          <div className="flex flex-wrap items-center gap-3 text-xs">
+            {noTinCount > 0 && (
+              <Badge variant="warning">
+                {noTinCount} purchase{noTinCount === 1 ? '' : 's'} without supplier TIN excluded (BIR SLSP requires a TIN)
+              </Badge>
             )}
-          </CardContent>
-        </Card>
+            {transferredInCount > 0 && (
+              <Badge variant="info">{transferredInCount} supplier row{transferredInCount === 1 ? '' : 's'} transferred into {monthKey}</Badge>
+            )}
+            <span className="text-slate-400">Use the “Claim Month” column to move a supplier's input tax to another month.</span>
+            {Object.keys(transfers).length > 0 && (
+              <button onClick={clearAllTransfers} className="ml-auto flex items-center gap-1 text-slate-400 hover:text-red-500 transition-colors">
+                <Undo2 className="w-3.5 h-3.5" /> Reset all transfers
+              </button>
+            )}
+          </div>
+          <Card>
+            <CardContent className="p-0 overflow-x-auto">
+              {purchaseRows.length === 0 ? (
+                <EmptyState title="No TIN-bearing purchases this month" description="Record purchases with a supplier TIN in Purchases / Bills to include them here." />
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 text-xs uppercase">
+                    <tr>
+                      <th className="text-left px-4 py-3">Supplier TIN</th>
+                      <th className="text-left px-4 py-3">Registered Name</th>
+                      <th className="text-right px-4 py-3">Goods</th>
+                      <th className="text-right px-4 py-3">Services</th>
+                      <th className="text-right px-4 py-3">Capital</th>
+                      <th className="text-right px-4 py-3">Others</th>
+                      <th className="text-right px-4 py-3">Input Tax</th>
+                      <th className="text-left px-4 py-3 min-w-[150px]">Claim Month</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {purchaseRows.map((r, i) => (
+                      <tr key={i} className={`border-t border-slate-100 dark:border-slate-800 ${r.transferredIn ? 'bg-amber-50/40 dark:bg-amber-950/10' : ''}`}>
+                        <td className="px-4 py-2.5 font-mono text-xs">{r.tin || '—'}</td>
+                        <td className="px-4 py-2.5">
+                          <div className="flex items-center gap-2">
+                            {r.name || '(unnamed)'}
+                            {r.transferredIn && (
+                              <Badge variant="warning">from {r.fromMonth}</Badge>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-4 py-2.5 text-right">{fmt(r.goods)}</td>
+                        <td className="px-4 py-2.5 text-right">{fmt(r.services)}</td>
+                        <td className="px-4 py-2.5 text-right">{fmt(r.capital)}</td>
+                        <td className="px-4 py-2.5 text-right">{fmt(r.others)}</td>
+                        <td className="px-4 py-2.5 text-right font-medium">{fmt(r.inputTax)}</td>
+                        <td className="px-4 py-2.5">
+                          <Select
+                            value={r.transferredIn ? monthKey : r.fromMonth}
+                            onChange={e => movePurchaseRow(r, e.target.value)}
+                            className="text-xs py-1"
+                          >
+                            {monthOptions.map(mk => (
+                              <option key={mk} value={mk}>{mk}{mk === r.fromMonth ? ' (original)' : ''}</option>
+                            ))}
+                          </Select>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot className="bg-slate-50 dark:bg-slate-800/60 font-semibold">
+                    <tr>
+                      <td className="px-4 py-3" colSpan={2}>Total ({purchaseRows.length})</td>
+                      <td className="px-4 py-3 text-right">{fmt(purchaseRows.reduce((a, r) => a + r.goods, 0))}</td>
+                      <td className="px-4 py-3 text-right">{fmt(purchaseRows.reduce((a, r) => a + r.services, 0))}</td>
+                      <td className="px-4 py-3 text-right">{fmt(purchaseRows.reduce((a, r) => a + r.capital, 0))}</td>
+                      <td className="px-4 py-3 text-right">{fmt(purchaseRows.reduce((a, r) => a + r.others, 0))}</td>
+                      <td className="px-4 py-3 text-right">{fmt(totals.tax)}</td>
+                      <td />
+                    </tr>
+                  </tfoot>
+                </table>
+              )}
+            </CardContent>
+          </Card>
+        </>
       )}
 
-      {/* Importation — editable entry list (no dedicated import ledger in app yet) */}
+      {/* Importation — editable entry list */}
       {tab === 'imports' && (
         <Card>
           <CardContent className="space-y-3 py-4">
