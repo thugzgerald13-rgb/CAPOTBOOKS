@@ -1,4 +1,6 @@
 import React, { useState, useEffect } from 'react';
+import { useAccounting } from '../context/AccountingContext';
+import { useAuth } from '../context/AuthContext';
 import './PayrollHub.css';
 import {
   Calculator,
@@ -69,6 +71,7 @@ import {
   sendPayslipEmail,
   PayslipEmailPayload
 } from './services/payslipPdfService';
+import { loadPayrollSnapshot, payrollCloudAvailable, savePayrollSnapshot } from './services/payrollRepository';
 
 
 export interface PayrollCompany {
@@ -226,7 +229,56 @@ function dateFmt(d: string): string {
   });
 }
 
+function defaultPayrollSettings(company: { name: string; tin?: string; address?: string }) {
+  return {
+    companyName: company.name,
+    companyTIN: company.tin || '',
+    companyAddress: company.address || '',
+    payrollEmail: '',
+    hoursPerDay: 8,
+    daysMonth: 26,
+    periodsMonthly: 1,
+    periodsSemi: 2,
+    periodsWeekly: 4,
+    periodsBiweekly: 2.167,
+    ndRate: 0.10,
+    otRate: 1.25,
+    sss: {
+      ee: 0.05,
+      er: 0.10,
+      min: 5000,
+      max: 35000,
+      step: 500,
+      ecLow: 10,
+      ecHigh: 30,
+      source: 'SSS Act of 2018 (RA 11199) / 2025 15% Contribution Schedule'
+    },
+    ph: {
+      rate: 0.05,
+      floor: 10000,
+      ceiling: 100000,
+      source: 'PhilHealth Universal Health Care Act (RA 11223) / Circular 2024-0031'
+    },
+    pi: {
+      lowRate: 0.01,
+      highRate: 0.02,
+      erRate: 0.02,
+      ceiling: 5000,
+      source: 'HDMF Circular No. 274 / Pag-IBIG Fund Ceiling'
+    }
+  };
+}
+
 export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage = 'dashboard' }) => {
+  const { currentClientId } = useAccounting();
+  const { user } = useAuth();
+  const [cloudReady, setCloudReady] = useState(false);
+  const [loadedCloudClientId, setLoadedCloudClientId] = useState<string | null>(null);
+  const [cloudHasRecords, setCloudHasRecords] = useState<boolean | null>(null);
+  const [legacyLocalAvailable, setLegacyLocalAvailable] = useState(false);
+  const [cloudRetryCount, setCloudRetryCount] = useState(0);
+  const [cloudStatus, setCloudStatus] = useState<'offline' | 'signin' | 'select-business' | 'loading' | 'synced' | 'error'>('offline');
+  const [cloudError, setCloudError] = useState<string | null>(null);
   const currentCompany = {
     name: company.name || 'CAPOTBOOKS Business',
     tin: company.tin || '',
@@ -234,7 +286,12 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
     planId: company.planId || 'enterprise',
     watermarkEnabled: Boolean(company.watermarkEnabled),
   };
-  const storageKey = `capotbooks-payroll-v1:${(currentCompany.tin || currentCompany.name).toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+  const legacyStorageKey = `capotbooks-payroll-v1:${(currentCompany.tin || currentCompany.name).toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+  // New local caches are tenant-scoped by CAPOTBOOKS' active client id. The
+  // previous company-name cache is kept separate to prevent cross-business imports.
+  const storageKey = currentClientId && payrollCloudAvailable() && user?.id
+    ? `capotbooks-payroll-v2:${currentClientId}`
+    : legacyStorageKey;
   // Payroll workspace tabs retained from Paykaya Enterprise Hub.
   const [currentPage, setCurrentPage] = useState<
     'dashboard' | 'employees' | 'attendance' | 'payroll' | 'payslip' | 'reports' | 'settings'
@@ -298,46 +355,27 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
   const [errorsList, setErrorsList] = useState<ValidationError[]>([]);
 
   // Settings State
-  const [settings, setSettings] = useState(() => readPayrollStore(`${storageKey}:settings`, {
-    companyName: currentCompany.name,
-    companyTIN: currentCompany.tin,
-    companyAddress: currentCompany.address,
-    payrollEmail: '',
-    hoursPerDay: 8,
-    daysMonth: 26,
-    periodsMonthly: 1,
-    periodsSemi: 2,
-    periodsWeekly: 4,
-    periodsBiweekly: 2.167,
-    ndRate: 0.10,
-    otRate: 1.25,
-    sss: {
-      ee: 0.05,
-      er: 0.10,
-      min: 5000,
-      max: 35000,
-      step: 500,
-      ecLow: 10,
-      ecHigh: 30,
-      source: 'SSS Act of 2018 (RA 11199) / 2025 15% Contribution Schedule'
-    },
-    ph: {
-      rate: 0.05,
-      floor: 10000,
-      ceiling: 100000,
-      source: 'PhilHealth Universal Health Care Act (RA 11223) / Circular 2024-0031'
-    },
-    pi: {
-      lowRate: 0.01,
-      highRate: 0.02,
-      erRate: 0.02,
-      ceiling: 5000,
-      source: 'HDMF Circular No. 274 / Pag-IBIG Fund Ceiling'
-    }
-  }));
+  const [settings, setSettings] = useState(() => readPayrollStore(`${storageKey}:settings`, defaultPayrollSettings(currentCompany)));
 
-  // Persist payroll records and Enterprise Hub settings separately per business.
   useEffect(() => {
+    const legacyEmployees = readPayrollStore<EmployeeRecord[]>(`${legacyStorageKey}:employees`, []).filter(
+      (employee) => !DEMO_EMPLOYEE_IDS.has(employee.employeeId) && !DEMO_EMPLOYEE_NUMBERS.has(employee.employeeNumber)
+    );
+    const legacyAttendance = readPayrollStore<AttendanceRow[]>(`${legacyStorageKey}:attendance`, []).filter(
+      (row) => !DEMO_EMPLOYEE_IDS.has(row.employeeId) && !['Loaded test record', 'Loaded overtime test'].includes(row.remarks)
+    );
+    const legacyPayrolls = readPayrollStore<ProcessedPayrollPeriod[]>(`${legacyStorageKey}:payrolls`, []).filter(
+      (period) => !DEMO_PAYROLL_IDS.has(period.id)
+    );
+    const hasLegacyRecords = legacyEmployees.length > 0 || legacyAttendance.length > 0 || legacyPayrolls.length > 0;
+    setLegacyLocalAvailable(hasLegacyRecords);
+  }, [legacyStorageKey]);
+
+  // Keep local records keyed by business as an offline cache. When cloud sync is
+  // active, do not write into a tenant cache until that same tenant has loaded.
+  useEffect(() => {
+    const cloudTenant = payrollCloudAvailable() && Boolean(user?.id) && Boolean(currentClientId);
+    if (cloudTenant && loadedCloudClientId !== currentClientId) return;
     try {
       window.localStorage.setItem(`${storageKey}:employees`, JSON.stringify(employees));
       window.localStorage.setItem(`${storageKey}:attendance`, JSON.stringify(attendance));
@@ -345,9 +383,101 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
       window.localStorage.setItem(`${storageKey}:settings`, JSON.stringify(settings));
       window.localStorage.setItem(`${storageKey}:audit`, JSON.stringify(auditLog));
     } catch (error) {
-      console.warn('Payroll data could not be saved locally. Export a backup before clearing browser data.', error);
+      console.warn('Payroll local cache could not be saved. Export a backup before clearing browser data.', error);
     }
-  }, [storageKey, employees, attendance, payrolls, settings, auditLog]);
+  }, [storageKey, currentClientId, user?.id, loadedCloudClientId, employees, attendance, payrolls, settings, auditLog]);
+
+  // Hydrate the selected CAPOTBOOKS business from Supabase. Offline records are
+  // kept in a client-id scoped cache. The old company-name cache is deliberately
+  // not uploaded automatically because it cannot be reliably mapped to a tenant;
+  // use Import Backup after confirming the target business when migrating legacy data.
+  useEffect(() => {
+    let cancelled = false;
+    setCloudReady(false);
+    setLoadedCloudClientId(null);
+    setCloudHasRecords(null);
+    setCloudError(null);
+
+    // Warm the selected tenant's own local cache first, so a network problem
+    // doesn't display another client's in-memory data while the request runs.
+    setEmployees(readPayrollStore<EmployeeRecord[]>(`${storageKey}:employees`, []).filter(
+      (employee) => !DEMO_EMPLOYEE_IDS.has(employee.employeeId) && !DEMO_EMPLOYEE_NUMBERS.has(employee.employeeNumber)
+    ));
+    setAttendance(readPayrollStore<AttendanceRow[]>(`${storageKey}:attendance`, []).filter(
+      (row) => !DEMO_EMPLOYEE_IDS.has(row.employeeId) && !['Loaded test record', 'Loaded overtime test'].includes(row.remarks)
+    ));
+    setPayrolls(readPayrollStore<ProcessedPayrollPeriod[]>(`${storageKey}:payrolls`, [])
+      .filter((period) => !DEMO_PAYROLL_IDS.has(period.id))
+      .map((period) => ({ ...period, rows: (period.rows || []).filter((row) => !DEMO_EMPLOYEE_IDS.has(row.employeeId)) })));
+    setSettings(readPayrollStore(`${storageKey}:settings`, defaultPayrollSettings(currentCompany)));
+    setAuditLog(readPayrollStore<AuditEvent[]>(`${storageKey}:audit`, []));
+
+    if (!payrollCloudAvailable()) {
+      setCloudStatus('offline');
+      setLoadedCloudClientId(currentClientId);
+      return () => { cancelled = true; };
+    }
+    if (!user?.id) {
+      setCloudStatus('signin');
+      return () => { cancelled = true; };
+    }
+    if (!currentClientId) {
+      setCloudStatus('select-business');
+      return () => { cancelled = true; };
+    }
+
+    setCloudStatus('loading');
+    void loadPayrollSnapshot(currentClientId).then(({ hasRecords, hasPayrollData, snapshot }) => {
+      if (cancelled) return;
+      setCloudHasRecords(hasPayrollData);
+      if (hasRecords) {
+        setEmployees((snapshot.employees || []) as EmployeeRecord[]);
+        setAttendance((snapshot.attendance || []) as AttendanceRow[]);
+        setPayrolls((snapshot.payrolls || []) as ProcessedPayrollPeriod[]);
+        if (snapshot.settings) setSettings(snapshot.settings as any);
+        setAuditLog((snapshot.auditLog || []) as AuditEvent[]);
+      }
+      setLoadedCloudClientId(currentClientId);
+      setCloudReady(true);
+      setCloudStatus('synced');
+    }).catch((error: unknown) => {
+      if (cancelled) return;
+      const message = error instanceof Error ? error.message : String(error);
+      setCloudError(message);
+      setCloudStatus('error');
+      // Save edits made during an outage to this tenant's cache only. No remote
+      // writes are attempted until a successful reload enables cloudReady again.
+      setLoadedCloudClientId(currentClientId);
+      console.error('Payroll Supabase load failed:', error);
+    });
+
+    return () => { cancelled = true; };
+  }, [currentClientId, user?.id, storageKey, cloudRetryCount]);
+
+  // Shared persistence uses the established CAPOTBOOKS Supabase client and
+  // active client id. SQL Row Level Security, not the UI, enforces tenant access.
+  useEffect(() => {
+    if (!cloudReady || !currentClientId || !user?.id || loadedCloudClientId !== currentClientId || !payrollCloudAvailable()) return;
+    setCloudStatus('loading');
+    setCloudError(null);
+    void savePayrollSnapshot(currentClientId, {
+      employees,
+      attendance,
+      payrolls,
+      settings: settings as Record<string, unknown>,
+      auditLog,
+    }).then(() => {
+      const hasPayrollData = employees.length > 0 || attendance.length > 0 || payrolls.length > 0;
+      setCloudHasRecords(hasPayrollData);
+      if (hasPayrollData) setLegacyLocalAvailable(false);
+      setCloudStatus('synced');
+    }).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      setCloudError(message);
+      setCloudStatus('error');
+      console.error('Payroll Supabase save failed:', error);
+    });
+  }, [cloudReady, currentClientId, loadedCloudClientId, user?.id, employees, attendance, payrolls, settings, auditLog]);
 
   const logAction = (action: string, ref: string, result = 'SUCCESS') => {
     setAuditLog((prev) => [
@@ -360,6 +490,40 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
       },
       ...prev.slice(0, 200)
     ]);
+  };
+
+  const handleMigrateLegacyLocalData = () => {
+    if (!user?.id || !currentClientId || !cloudReady || cloudHasRecords !== false) {
+      alert('Legacy migration is available only after the selected business has loaded successfully and has no payroll records in Supabase.');
+      return;
+    }
+    const legacyEmployees = readPayrollStore<EmployeeRecord[]>(`${legacyStorageKey}:employees`, []).filter(
+      (employee) => !DEMO_EMPLOYEE_IDS.has(employee.employeeId) && !DEMO_EMPLOYEE_NUMBERS.has(employee.employeeNumber)
+    );
+    const legacyAttendance = readPayrollStore<AttendanceRow[]>(`${legacyStorageKey}:attendance`, []).filter(
+      (row) => !DEMO_EMPLOYEE_IDS.has(row.employeeId) && !['Loaded test record', 'Loaded overtime test'].includes(row.remarks)
+    );
+    const legacyPayrolls = readPayrollStore<ProcessedPayrollPeriod[]>(`${legacyStorageKey}:payrolls`, [])
+      .filter((period) => !DEMO_PAYROLL_IDS.has(period.id))
+      .map((period) => ({ ...period, rows: (period.rows || []).filter((row) => !DEMO_EMPLOYEE_IDS.has(row.employeeId)) }));
+    if (!legacyEmployees.length && !legacyAttendance.length && !legacyPayrolls.length) {
+      setLegacyLocalAvailable(false);
+      alert('No employee, attendance, or payroll records were found in the legacy local cache.');
+      return;
+    }
+    const confirmed = window.confirm(
+      `Import ${legacyEmployees.length} employees, ${legacyAttendance.length} attendance rows, and ${legacyPayrolls.length} payroll periods from this browser's older local cache into the currently selected CAPOTBOOKS business? This is allowed only because that business has no payroll records in Supabase. Verify the business name before continuing.`
+    );
+    if (!confirmed) return;
+
+    setEmployees(legacyEmployees);
+    setAttendance(legacyAttendance);
+    setPayrolls(legacyPayrolls);
+    setSettings(readPayrollStore(`${legacyStorageKey}:settings`, defaultPayrollSettings(currentCompany)) as any);
+    setAuditLog(readPayrollStore<AuditEvent[]>(`${legacyStorageKey}:audit`, []));
+    setLegacyLocalAvailable(false);
+    setCloudHasRecords(true);
+    logAction('Migrate legacy local payroll data to Supabase', currentClientId);
   };
 
   const todayIso = new Date().toISOString().slice(0, 10);
@@ -852,6 +1016,27 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
               <span className="font-mono">{settings.companyTIN}</span>
               <span>&bull;</span>
               <span className="eh-tag ok">INTEGRATED PAYROLL</span>
+              <span
+                className={`eh-tag ${cloudStatus === 'synced' ? 'ok' : cloudStatus === 'error' ? 'err' : 'warn'}`}
+                title={cloudError || 'Payroll cloud storage status'}
+              >
+                {cloudStatus === 'synced' && 'SUPABASE SYNCED'}
+                {cloudStatus === 'loading' && 'SYNCING…'}
+                {cloudStatus === 'offline' && 'LOCAL MODE'}
+                {cloudStatus === 'signin' && 'SIGN IN TO SYNC'}
+                {cloudStatus === 'select-business' && 'SELECT BUSINESS'}
+                {cloudStatus === 'error' && 'CLOUD SYNC ERROR'}
+              </span>
+              {cloudStatus === 'error' && (
+                <button className="eh-btn small" onClick={() => setCloudRetryCount((count) => count + 1)} title={cloudError || 'Retry Supabase connection'}>
+                  <RefreshCw className="h-3.5 w-3.5" /> Retry Sync
+                </button>
+              )}
+              {cloudStatus === 'synced' && cloudHasRecords === false && legacyLocalAvailable && (
+                <button className="eh-btn small" onClick={handleMigrateLegacyLocalData} title="Import older browser-local payroll records into this empty business">
+                  <Database className="h-3.5 w-3.5" /> Migrate Local Data
+                </button>
+              )}
             </div>
           </div>
 
@@ -1003,8 +1188,9 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
                       Statutory Tables: <b>Active 2025/2026 Rules</b>
                     </div>
                     <div>
-                      Storage Mode: <b>Offline-First + Drive Ready</b>
+                      Storage Mode: <b>{cloudStatus === 'synced' ? 'Supabase Cloud + Local Backup' : cloudStatus === 'loading' ? 'Connecting to Supabase…' : cloudStatus === 'error' ? 'Cloud sync needs attention' : cloudStatus === 'signin' ? 'Local Cache — Sign In to Sync' : cloudStatus === 'select-business' ? 'Local Cache — Select Business' : 'Local Mode — Supabase Not Configured'}</b>
                     </div>
+                    {cloudError && <div className="text-rose-600 break-words" role="status">Supabase: {cloudError}</div>}
                   </div>
                 </div>
 
