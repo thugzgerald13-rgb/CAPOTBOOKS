@@ -40,12 +40,7 @@ import {
   Code2,
   Zap
 } from 'lucide-react';
-import {
-  FICTIONAL_EMPLOYEES,
-  EmployeeRecord,
-  FICTIONAL_BANK_DETAILS,
-  FICTIONAL_GOVERNMENT_IDS
-} from './data/employeeDatabase';
+import { FICTIONAL_EMPLOYEES, EmployeeRecord } from './data/employeeDatabase';
 import {
   PAYROLL_PERIODS_2025,
   PayrollPeriodRecord
@@ -53,8 +48,7 @@ import {
 import {
   PayrollCalculationRecord,
   PayrollInputRecord,
-  computePayrollRow,
-  FICTIONAL_PAYROLL_INPUTS_OCT_P1
+  computePayrollRow
 } from './data/payrollCalculationData';
 import {
   EmployeePayslipData,
@@ -87,6 +81,8 @@ export interface PayrollCompany {
 
 export interface EnterpriseHubProps {
   company: PayrollCompany;
+  /** Settings are opened from CAPOTBOOKS' main Settings sidebar, not Payroll tabs. */
+  initialPage?: 'dashboard' | 'employees' | 'attendance' | 'payroll' | 'payslip' | 'reports' | 'settings';
 }
 
 export interface AttendanceRow {
@@ -154,6 +150,12 @@ function readPayrollStore<T>(key: string, fallback: T): T {
     return fallback;
   }
 }
+
+// Used only to clean previously stored demo fixtures on upgrade. New payroll
+// accounts always start with empty employee, attendance and payroll lists.
+const DEMO_EMPLOYEE_IDS = new Set(FICTIONAL_EMPLOYEES.map((employee) => employee.employeeId));
+const DEMO_EMPLOYEE_NUMBERS = new Set(FICTIONAL_EMPLOYEES.map((employee) => employee.employeeNumber));
+const DEMO_PAYROLL_IDS = new Set(['PR-2025-10-P1', 'PR-2025-09-P2']);
 
 function normalizeHeader(value: string): string {
   return String(value || '').trim().toLowerCase().replace(/[_\-]+/g, ' ').replace(/\s+/g, '').replace(/[^a-z0-9]/g, '');
@@ -224,7 +226,7 @@ function dateFmt(d: string): string {
   });
 }
 
-export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
+export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage = 'dashboard' }) => {
   const currentCompany = {
     name: company.name || 'CAPOTBOOKS Business',
     tin: company.tin || '',
@@ -236,11 +238,20 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
   // Payroll workspace tabs retained from Paykaya Enterprise Hub.
   const [currentPage, setCurrentPage] = useState<
     'dashboard' | 'employees' | 'attendance' | 'payroll' | 'payslip' | 'reports' | 'settings'
-  >('dashboard');
+  >(initialPage);
 
 
-  // Master State
-  const [employees, setEmployees] = useState<EmployeeRecord[]>(() => readPayrollStore(`${storageKey}:employees`, FICTIONAL_EMPLOYEES));
+  useEffect(() => {
+    setCurrentPage(initialPage);
+  }, [initialPage]);
+
+  // Master State: never pre-populate employees. This also removes the known
+  // fictional fixture records that may have been persisted by an earlier build.
+  const [employees, setEmployees] = useState<EmployeeRecord[]>(() =>
+    readPayrollStore<EmployeeRecord[]>(`${storageKey}:employees`, []).filter(
+      (employee) => !DEMO_EMPLOYEE_IDS.has(employee.employeeId) && !DEMO_EMPLOYEE_NUMBERS.has(employee.employeeNumber)
+    )
+  );
   const [employeeSearch, setEmployeeSearch] = useState<string>('');
   const [employeeStatusFilter, setEmployeeStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
   const [editingEmployee, setEditingEmployee] = useState<Partial<EmployeeRecord> | null>(null);
@@ -249,114 +260,41 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
   // Attendance State
   const [attMonth, setAttMonth] = useState<string>(new Date().toISOString().slice(0, 7));
   const [attEmployeeFilter, setAttEmployeeFilter] = useState<string>('ALL');
-  const [attendance, setAttendance] = useState<AttendanceRow[]>(() => readPayrollStore(`${storageKey}:attendance`, [
-    {
-      id: 'ATT-001',
-      employeeId: 'EMP-2022-0001',
-      date: '2025-10-01',
-      in: '08:00',
-      out: '17:00',
-      breakMin: 60,
-      ot: 0,
-      nd: 0,
-      holiday: 'None',
-      rest: false,
-      leave: 'None',
-      leaveHours: 0,
-      approval: 'Approved',
-      remarks: 'Regular on-time attendance'
-    },
-    {
-      id: 'ATT-002',
-      employeeId: 'EMP-2022-0001',
-      date: '2025-10-02',
-      in: '08:00',
-      out: '19:30',
-      breakMin: 60,
-      ot: 2.5,
-      nd: 0,
-      holiday: 'None',
-      rest: false,
-      leave: 'None',
-      leaveHours: 0,
-      approval: 'Approved',
-      remarks: 'Approved overtime for quarter-end billing'
-    },
-    {
-      id: 'ATT-003',
-      employeeId: 'EMP-2022-0002',
-      date: '2025-10-01',
-      in: '08:15',
-      out: '17:00',
-      breakMin: 60,
-      ot: 0,
-      nd: 0,
-      holiday: 'None',
-      rest: false,
-      leave: 'None',
-      leaveHours: 0,
-      approval: 'Approved',
-      remarks: '15 mins tardiness logged'
-    }
-  ]));
+  const [attendance, setAttendance] = useState<AttendanceRow[]>(() =>
+    readPayrollStore<AttendanceRow[]>(`${storageKey}:attendance`, []).filter(
+      (row) => !DEMO_EMPLOYEE_IDS.has(row.employeeId) && !['Loaded test record', 'Loaded overtime test'].includes(row.remarks)
+    )
+  );
   const [editingAttendance, setEditingAttendance] = useState<Partial<AttendanceRow> | null>(null);
   const [showAttendanceModal, setShowAttendanceModal] = useState<boolean>(false);
 
   // Payroll Processing State
-  const [payrolls, setPayrolls] = useState<ProcessedPayrollPeriod[]>(() => readPayrollStore(`${storageKey}:payrolls`, [
-    {
-      id: 'PR-2025-10-P1',
-      from: '2025-10-01',
-      to: '2025-10-15',
-      payDate: '2025-10-15',
-      frequency: 'Semi-Monthly',
-      status: 'APPROVED',
-      rows: FICTIONAL_EMPLOYEES.map((emp) => {
-        const inp = FICTIONAL_PAYROLL_INPUTS_OCT_P1.find((i) => i.employeeId === emp.employeeId);
-        return computePayrollRow(PAYROLL_PERIODS_2025[18], emp, inp);
-      }),
-      created: '2025-10-01T08:00:00.000Z',
-      locked: false
-    },
-    {
-      id: 'PR-2025-09-P2',
-      from: '2025-09-16',
-      to: '2025-09-30',
-      payDate: '2025-09-30',
-      frequency: 'Semi-Monthly',
-      status: 'LOCKED',
-      rows: FICTIONAL_EMPLOYEES.map((emp) => {
-        return computePayrollRow(PAYROLL_PERIODS_2025[17], emp, undefined);
-      }),
-      created: '2025-09-16T08:00:00.000Z',
-      locked: true
+  const [payrolls, setPayrolls] = useState<ProcessedPayrollPeriod[]>(() =>
+    readPayrollStore<ProcessedPayrollPeriod[]>(`${storageKey}:payrolls`, [])
+      .filter((period) => !DEMO_PAYROLL_IDS.has(period.id))
+      .map((period) => ({
+        ...period,
+        rows: (period.rows || []).filter((row) => !DEMO_EMPLOYEE_IDS.has(row.employeeId))
+      }))
+  );
+  const [selectedPayrollId, setSelectedPayrollId] = useState<string>('');
+
+  useEffect(() => {
+    if (payrolls.length > 0 && !payrolls.some((period) => period.id === selectedPayrollId)) {
+      setSelectedPayrollId(payrolls[0].id);
+    } else if (payrolls.length === 0 && selectedPayrollId) {
+      setSelectedPayrollId('');
     }
-  ]));
-  const [selectedPayrollId, setSelectedPayrollId] = useState<string>('PR-2025-10-P1');
+  }, [payrolls, selectedPayrollId]);
 
   // Payslip State
-  const [selectedPayslipEmpId, setSelectedPayslipEmpId] = useState<string>('EMP-2022-0001');
+  const [selectedPayslipEmpId, setSelectedPayslipEmpId] = useState<string>('');
   const [showPdfPreviewModal, setShowPdfPreviewModal] = useState<boolean>(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState<boolean>(false);
   const [pdfStatusMessage, setPdfStatusMessage] = useState<string | null>(null);
 
   // Audit and Error Checks State
-  const [auditLog, setAuditLog] = useState<AuditEvent[]>(() => readPayrollStore(`${storageKey}:audit`, [
-    {
-      time: new Date().toISOString(),
-      action: 'System Initialized',
-      user: 'Administrator',
-      ref: 'ENTERPRISE-HUB',
-      result: 'SUCCESS'
-    },
-    {
-      time: new Date(Date.now() - 3600000).toISOString(),
-      action: 'Batch Calculation Run',
-      user: 'System Engine',
-      ref: 'PR-2025-10-P1',
-      result: 'PASSED'
-    }
-  ]));
+  const [auditLog, setAuditLog] = useState<AuditEvent[]>(() => readPayrollStore(`${storageKey}:audit`, []));
   const [errorsList, setErrorsList] = useState<ValidationError[]>([]);
 
   // Settings State
@@ -364,7 +302,7 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
     companyName: currentCompany.name,
     companyTIN: currentCompany.tin,
     companyAddress: currentCompany.address,
-    payrollEmail: 'payroll@andromeda.ph',
+    payrollEmail: '',
     hoursPerDay: 8,
     daysMonth: 26,
     periodsMonthly: 1,
@@ -424,10 +362,15 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
     ]);
   };
 
-  const currentPayroll = payrolls.find((p) => p.id === selectedPayrollId) || payrolls[0];
-  const targetPeriod: PayrollPeriodRecord = PAYROLL_PERIODS_2025.find((p) => p.payrollId === currentPayroll?.id) || (() => {
-    const from = currentPayroll?.from || new Date().toISOString().slice(0, 10);
-    const to = currentPayroll?.to || from;
+  const todayIso = new Date().toISOString().slice(0, 10);
+  // A blank, unsaved period keeps the UI stable until the user creates a run.
+  const currentPayroll: ProcessedPayrollPeriod = payrolls.find((p) => p.id === selectedPayrollId) || payrolls[0] || {
+    id: '', from: todayIso, to: todayIso, payDate: todayIso, frequency: 'Semi-Monthly',
+    status: 'DRAFT', rows: [], created: '', locked: false
+  };
+  const targetPeriod: PayrollPeriodRecord = PAYROLL_PERIODS_2025.find((p) => p.payrollId === currentPayroll.id) || (() => {
+    const from = currentPayroll.from || todayIso;
+    const to = currentPayroll.to || from;
     const isSecondHalf = Number(to.slice(8, 10)) >= 16;
     const days = Math.max(1, Math.round((new Date(`${to}T00:00:00`).getTime() - new Date(`${from}T00:00:00`).getTime()) / 86400000) + 1);
     return {
@@ -527,12 +470,13 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
 
   // Payslip Data preparation
   const targetPayslipEmp = employees.find((e) => e.employeeId === selectedPayslipEmpId) || employees[0];
-  const targetCalc =
-    (currentPayroll?.rows || []).find((r) => r.employeeId === selectedPayslipEmpId) ||
-    calculatePayrollWithDtr(targetPeriod, targetPayslipEmp, undefined);
-  const rawPayslip = buildEmployeePayslip(targetCalc, targetPeriod);
+  const targetCalc = targetPayslipEmp && currentPayroll.id
+    ? ((currentPayroll.rows || []).find((r) => r.employeeId === targetPayslipEmp.employeeId)
+      || calculatePayrollWithDtr(targetPeriod, targetPayslipEmp, undefined))
+    : undefined;
+  const rawPayslip = targetCalc ? buildEmployeePayslip(targetCalc, targetPeriod) : null;
   const payslipData: EmployeePayslipData = {
-    ...rawPayslip,
+    ...(rawPayslip || {} as EmployeePayslipData),
     companyName: settings.companyName,
     companyAddress: settings.companyAddress,
     companyTin: settings.companyTIN
@@ -798,6 +742,10 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
 
   // Download Official PDF Payslip
   const handleDownloadOfficialPdf = async () => {
+    if (!targetPayslipEmp || !currentPayroll.id || !targetCalc) {
+      alert('Add an employee, create a payroll period, and process payroll before generating a payslip.');
+      return;
+    }
     try {
       setIsGeneratingPdf(true);
       const res = await generatePayslipFromCurrentState({
@@ -881,16 +829,6 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
             <span>Reports</span>
           </button>
 
-          <button
-            onClick={() => setCurrentPage('settings')}
-            className={currentPage === 'settings' ? 'active' : ''}
-          >
-            <span>⚙</span>
-            <span>Settings</span>
-          </button>
-
-
-
         </nav>
       </aside>
 
@@ -906,7 +844,7 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
               {currentPage === 'payroll' && 'Payroll Processing'}
               {currentPage === 'payslip' && 'Official Payslip Generator'}
               {currentPage === 'reports' && 'Reports & Remittance'}
-              {currentPage === 'settings' && 'Settings & Compliance'}
+              {currentPage === 'settings' && 'Payroll Settings & Compliance'}
             </h1>
             <div className="text-[11px] text-slate-500 flex items-center gap-2 mt-0.5">
               <span>{settings.companyName}</span>
@@ -937,21 +875,23 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
               }}
             />
 
-            <button
-              className="eh-btn primary small"
-              onClick={() => {
-                setEditingEmployee(null);
-                setShowEmployeeModal(true);
-              }}
-            >
-              <Plus className="h-3.5 w-3.5" />
-              <span>+ Employee</span>
-            </button>
+            {currentPage !== 'settings' && (
+              <button
+                className="eh-btn primary small"
+                onClick={() => {
+                  setEditingEmployee(null);
+                  setShowEmployeeModal(true);
+                }}
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>+ Employee</span>
+              </button>
+            )}
 
           </div>
         </header>
 
-        <nav className="eh-payroll-tabs no-print" aria-label="Payroll sections">
+        {currentPage !== 'settings' && <nav className="eh-payroll-tabs no-print" aria-label="Payroll sections">
           {([
             ['dashboard', 'Dashboard'],
             ['employees', 'Employees'],
@@ -959,13 +899,12 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
             ['payroll', 'Payroll'],
             ['payslip', 'Payslip'],
             ['reports', 'Reports'],
-            ['settings', 'Settings'],
           ] as const).map(([page, label]) => (
             <button key={page} type="button" onClick={() => setCurrentPage(page)} className={currentPage === page ? 'active' : ''}>
               {label}
             </button>
           ))}
-        </nav>
+        </nav>}
 
         {/* CONTENT CONTAINER */}
         <div className="eh-content">
@@ -1074,6 +1013,7 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
                     <h2>Recent Payroll Runs</h2>
                   </div>
                   <div className="space-y-2 text-xs">
+                    {payrolls.length === 0 && <div className="eh-muted">No payroll runs yet. Create a period to begin.</div>}
                     {payrolls.map((p) => (
                       <div key={p.id} className="eh-split py-1.5 border-b border-slate-100">
                         <span className="font-mono font-semibold">{p.id}</span>
@@ -1115,7 +1055,7 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
               <div className="eh-section-title">
                 <div>
                   <h2>Employee Master</h2>
-                  <div className="eh-muted">Add, edit, search and manage 201 records.</div>
+                  <div className="eh-muted">Add, edit, search and manage your company's employee records.</div>
                 </div>
                 <button
                   className="eh-btn primary"
@@ -1166,6 +1106,9 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
                       </tr>
                     </thead>
                     <tbody>
+                      {employees.length === 0 && (
+                        <tr><td colSpan={9} className="eh-empty-state">No employees added yet. Select <b>+ Add Employee</b> to create your first employee record.</td></tr>
+                      )}
                       {employees
                         .filter((e) => {
                           const matchesFilter =
@@ -1247,6 +1190,8 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
                 <div className="flex items-center gap-2">
                   <button
                     className="eh-btn primary"
+                    disabled={employees.length === 0}
+                    title={employees.length === 0 ? 'Add an employee before recording attendance.' : undefined}
                     onClick={() => {
                       setEditingAttendance(null);
                       setShowAttendanceModal(true);
@@ -1296,49 +1241,6 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
                       </option>
                     ))}
                   </select>
-                  <button
-                    className="eh-btn small"
-                    onClick={() => {
-                      const newRecords: AttendanceRow[] = [
-                        {
-                          id: `ATT-${Date.now()}-1`,
-                          employeeId: 'EMP-2025-0001',
-                          date: `${attMonth}-03`,
-                          in: '08:00',
-                          out: '17:00',
-                          breakMin: 60,
-                          ot: 0,
-                          nd: 0,
-                          holiday: 'None',
-                          rest: false,
-                          leave: 'None',
-                          leaveHours: 0,
-                          approval: 'Approved',
-                          remarks: 'Loaded test record'
-                        },
-                        {
-                          id: `ATT-${Date.now()}-2`,
-                          employeeId: 'EMP-2025-0002',
-                          date: `${attMonth}-03`,
-                          in: '08:00',
-                          out: '18:30',
-                          breakMin: 60,
-                          ot: 1.5,
-                          nd: 0,
-                          holiday: 'None',
-                          rest: false,
-                          leave: 'None',
-                          leaveHours: 0,
-                          approval: 'Approved',
-                          remarks: 'Loaded overtime test'
-                        }
-                      ];
-                      setAttendance((prev) => [...newRecords, ...prev]);
-                      logAction('Load Test Attendance', 'SEED');
-                    }}
-                  >
-                    Load Test Attendance
-                  </button>
                 </div>
 
                 <div className="eh-table-wrap">
@@ -1359,6 +1261,9 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
                       </tr>
                     </thead>
                     <tbody>
+                      {attendance.filter((a) => a.date.startsWith(attMonth) && (attEmployeeFilter === 'ALL' || a.employeeId === attEmployeeFilter)).length === 0 && (
+                        <tr><td colSpan={11} className="eh-empty-state">No attendance rows for this month. Upload a DTR file or add an employee and record attendance.</td></tr>
+                      )}
                       {attendance
                         .filter(
                           (a) =>
@@ -1401,6 +1306,7 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
                 <div>
                   <h2>Payroll Processing</h2>
                   <div className="eh-muted">Create period, calculate payroll, validate, approve and lock.</div>
+                  {payrolls.length === 0 && <div className="eh-alert info mt-2">No payroll periods yet. Select <b>+ New Period</b> to create your first payroll run.</div>}
                 </div>
                 <div className="eh-toolbar">
                   <button
@@ -1465,15 +1371,17 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
 
                   <button
                     className="eh-btn primary"
+                    disabled={!employees.length || !payrolls.some((period) => period.id === currentPayroll.id)}
                     onClick={() => {
                       if (currentPayroll.locked) {
                         alert('This payroll is locked and immutable.');
                         return;
                       }
-                      const calculatedRows = employees.map((emp) => {
-                        const inp = FICTIONAL_PAYROLL_INPUTS_OCT_P1.find((i) => i.employeeId === emp.employeeId);
-                        return calculatePayrollWithDtr(targetPeriod, emp, inp);
-                      });
+                      if (!payrolls.some((period) => period.id === currentPayroll.id) || employees.length === 0) {
+                        alert('Add at least one employee and create a payroll period before processing payroll.');
+                        return;
+                      }
+                      const calculatedRows = employees.map((emp) => calculatePayrollWithDtr(targetPeriod, emp, undefined));
                       const updated = payrolls.map((p) =>
                         p.id === currentPayroll.id ? { ...p, rows: calculatedRows, status: 'DRAFT' as const } : p
                       );
@@ -1564,6 +1472,7 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
                   </button>
                   <button
                     className="eh-btn small"
+                    disabled={!payrolls.some((period) => period.id === currentPayroll.id)}
                     onClick={() => {
                       const updated = payrolls.map((p) =>
                         p.id === currentPayroll.id ? { ...p, status: 'CHECKED' as const } : p
@@ -1576,6 +1485,7 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
                   </button>
                   <button
                     className="eh-btn small"
+                    disabled={!payrolls.some((period) => period.id === currentPayroll.id)}
                     onClick={() => {
                       const updated = payrolls.map((p) =>
                         p.id === currentPayroll.id ? { ...p, status: 'APPROVED' as const } : p
@@ -1588,6 +1498,7 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
                   </button>
                   <button
                     className="eh-btn small danger"
+                    disabled={!payrolls.some((period) => period.id === currentPayroll.id)}
                     onClick={() => {
                       if (currentPayroll.status !== 'APPROVED') {
                         alert('Only APPROVED payroll can be locked.');
@@ -1630,6 +1541,9 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
                       </tr>
                     </thead>
                     <tbody>
+                      {(currentPayroll.rows || []).length === 0 && (
+                        <tr><td colSpan={14} className="eh-empty-state">{employees.length === 0 ? 'Add your employees before processing payroll.' : 'Create a payroll period and select Process Payroll to calculate employee pay.'}</td></tr>
+                      )}
                       {(currentPayroll.rows || []).map((r) => (
                         <tr key={r.employeeId}>
                           <td>
@@ -1685,7 +1599,7 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
                   </select>
 
                   <select
-                    value={selectedPayslipEmpId}
+                    value={selectedPayslipEmpId || employees[0]?.employeeId || ''}
                     onChange={(e) => setSelectedPayslipEmpId(e.target.value)}
                     className="eh-field"
                     style={{ maxWidth: 220 }}
@@ -1697,17 +1611,17 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
                     ))}
                   </select>
 
-                  <button className="eh-btn" onClick={() => setShowPdfPreviewModal(true)}>
+                  <button className="eh-btn" disabled={!targetPayslipEmp || !currentPayroll.id || !targetCalc} onClick={() => setShowPdfPreviewModal(true)}>
                     <Eye className="h-3.5 w-3.5" />
                     <span>Read-Only PDF Preview</span>
                   </button>
 
-                  <button className="eh-btn primary" onClick={handleDownloadOfficialPdf}>
+                  <button className="eh-btn primary" disabled={!targetPayslipEmp || !currentPayroll.id || !targetCalc} onClick={handleDownloadOfficialPdf}>
                     <FileDown className="h-3.5 w-3.5" />
                     <span>Download Official PDF</span>
                   </button>
 
-                  <button className="eh-btn" onClick={() => window.print()}>
+                  <button className="eh-btn" disabled={!targetPayslipEmp || !currentPayroll.id || !targetCalc} onClick={() => window.print()}>
                     <Printer className="h-3.5 w-3.5" />
                     <span>Print</span>
                   </button>
@@ -1721,7 +1635,12 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
                 </div>
               )}
 
-              {/* Exact Attached HTML Printable Payslip Card */}
+              {!targetPayslipEmp || !currentPayroll.id || !targetCalc ? (
+                <div className="eh-panel eh-empty-state">
+                  Add an employee, create a payroll period, and process payroll to generate an official payslip.
+                </div>
+              ) : (
+              /* Exact Attached HTML Printable Payslip Card */
               <div className="eh-payslip">
                 <div className="eh-split">
                   <div>
@@ -1871,6 +1790,7 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
                   Generated by PH Payroll Pro Enterprise Hub &bull; Confidential pursuant to RA 10173 (Data Privacy Act of 2012)
                 </div>
               </div>
+              )}
             </div>
           )}
 
@@ -1913,6 +1833,7 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
                     <h2>Year-to-Date Snapshot</h2>
                   </div>
                   <div className="space-y-2 text-xs max-h-48 overflow-y-auto">
+                    {employees.length === 0 && <div className="eh-muted">Employee records will appear here after you add them.</div>}
                     {employees.map((e) => (
                       <div key={e.employeeId} className="eh-split py-1 border-b border-slate-100">
                         <span>
@@ -2269,7 +2190,7 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
                 <div className="eh-field">
                   <label>Employee ID *</label>
                   <input
-                    value={editingEmployee?.employeeId || `EMP-2025-00${employees.length + 1}`}
+                    value={editingEmployee?.employeeId || ''}
                     onChange={(e) =>
                       setEditingEmployee({ ...editingEmployee, employeeId: e.target.value.toUpperCase() })
                     }
@@ -2307,7 +2228,7 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
                 <div className="eh-field">
                   <label>Department</label>
                   <input
-                    value={editingEmployee?.department || 'Operations'}
+                    value={editingEmployee?.department || ''}
                     onChange={(e) =>
                       setEditingEmployee({ ...editingEmployee, department: e.target.value })
                     }
@@ -2317,7 +2238,7 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
                 <div className="eh-field">
                   <label>Position</label>
                   <input
-                    value={editingEmployee?.position || 'Specialist'}
+                    value={editingEmployee?.position || ''}
                     onChange={(e) =>
                       setEditingEmployee({ ...editingEmployee, position: e.target.value })
                     }
@@ -2328,7 +2249,7 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
                   <label>Monthly Salary (PHP)</label>
                   <input
                     type="number"
-                    value={editingEmployee?.monthlySalary || 30000}
+                    value={editingEmployee?.monthlySalary ?? ''}
                     onChange={(e) =>
                       setEditingEmployee({
                         ...editingEmployee,
@@ -2386,8 +2307,8 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
               <button
                 className="eh-btn primary"
                 onClick={() => {
-                  if (!editingEmployee?.employeeId || !editingEmployee?.fullName) {
-                    alert('Employee ID and Name are required.');
+                  if (!editingEmployee?.employeeId?.trim() || !editingEmployee?.firstName?.trim() || !editingEmployee?.lastName?.trim()) {
+                    alert('Employee ID, first name and last name are required.');
                     return;
                   }
                   const existingIndex = employees.findIndex(
@@ -2408,28 +2329,28 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
                       suffix: '',
                       fullName: editingEmployee.fullName || '',
                       preferredName: editingEmployee.firstName || '',
-                      dateOfBirth: '1995-05-10',
+                      dateOfBirth: '',
                       civilStatus: 'Single',
                       dependentsCount: 0,
-                      address: 'Metro Manila, Philippines',
-                      contactNumber: '0917-000-0000',
-                      workEmail: editingEmployee.workEmail || `${editingEmployee.employeeId.toLowerCase()}@company.ph`,
-                      dateHired: '2024-01-15',
-                      dateRegularized: '2024-07-15',
+                      address: '',
+                      contactNumber: '',
+                      workEmail: editingEmployee.workEmail || '',
+                      dateHired: '',
+                      dateRegularized: '',
                       dateSeparated: '',
                       employmentStatus: 'Regular',
                       employmentCategory: 'Rank & File',
-                      department: editingEmployee.department || 'Operations',
-                      position: editingEmployee.position || 'Staff',
-                      location: 'Head Office - BGC',
-                      supervisorId: 'EMP-2025-0001',
+                      department: editingEmployee.department || '',
+                      position: editingEmployee.position || '',
+                      location: '',
+                      supervisorId: '',
                       payType: editingEmployee.payType || 'Monthly',
                       payrollFrequency: editingEmployee.payrollFrequency || 'Semi-Monthly',
-                      monthlySalary: editingEmployee.monthlySalary || 30000,
-                      dailyRate: (editingEmployee.monthlySalary || 30000) / 26,
-                      hourlyRate: (editingEmployee.monthlySalary || 30000) / 26 / 8,
+                      monthlySalary: Number(editingEmployee.monthlySalary) || 0,
+                      dailyRate: Number(editingEmployee.dailyRate ?? (Number(editingEmployee.monthlySalary) / 26)) || 0,
+                      hourlyRate: Number(editingEmployee.hourlyRate ?? (Number(editingEmployee.monthlySalary) / 26 / 8)) || 0,
                       activeStatus: 'ACTIVE',
-                      remarks: 'Added via Enterprise Hub'
+                      remarks: ''
                     };
                     setEmployees([...employees, newEmp]);
                     logAction('Add Employee', newEmp.employeeId);
@@ -2463,7 +2384,8 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
                 <div className="eh-field">
                   <label>Employee *</label>
                   <select
-                    value={editingAttendance?.employeeId || employees[0]?.employeeId}
+                    disabled={employees.length === 0}
+                    value={editingAttendance?.employeeId || employees[0]?.employeeId || ''}
                     onChange={(e) =>
                       setEditingAttendance({ ...editingAttendance, employeeId: e.target.value })
                     }
@@ -2544,6 +2466,10 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company }) => {
               <button
                 className="eh-btn primary"
                 onClick={() => {
+                  if (employees.length === 0) {
+                    alert('Add an employee before recording attendance.');
+                    return;
+                  }
                   const newAtt: AttendanceRow = {
                     id: `ATT-${Date.now()}`,
                     employeeId: editingAttendance?.employeeId || employees[0].employeeId,

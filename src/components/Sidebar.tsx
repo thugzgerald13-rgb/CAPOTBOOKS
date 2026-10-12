@@ -189,6 +189,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     { label: 'Chart of Accounts', pageId: 'coa', icon: BookOpen, keywords: 'accounts coa ledger' },
     { label: 'Billing / Invoices', pageId: 'billing', icon: CreditCard, keywords: 'invoice billing invoicing' },
     { label: 'Payroll', pageId: 'payroll', icon: Banknote, keywords: 'payroll salary employee attendance dtr payslip wages' },
+    { label: 'Payroll Settings', pageId: 'payroll/settings', icon: Settings, keywords: 'payroll settings statutory contributions withholding tax overtime work hours' },
     { label: 'Income / Sales', pageId: 'sales', icon: Receipt, keywords: 'income sales revenue' },
     { label: 'Purchases / Bills', pageId: 'purchases', icon: ShoppingCart, keywords: 'purchases bills expenses payable' },
     { label: 'Journal Voucher', pageId: 'journal-voucher', icon: FileSignature, keywords: 'journal entry je voucher' },
@@ -229,6 +230,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
       case 'purchases':
       case 'journal-voucher':
       case 'payroll': return 'edit_transactions';
+      case 'payroll/settings': return 'manage_settings';
       case 'history':
       case 'trialbalance':
       case 'balancesheet':
@@ -837,7 +839,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               title={isCollapsed ? "Settings" : undefined}
               className={cn(
                 "flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl transition-all w-full text-left group",
-                (isSettingsOpen || ['business','clients','tinlibrary','account-settings','team'].includes(activePage)) ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
+                (isSettingsOpen || ['business','clients','tinlibrary','account-settings','team','payroll/settings'].includes(activePage)) ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
                 isCollapsed && "md:justify-center md:px-2"
               )}
             >
@@ -886,6 +888,14 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       </button>
                     </>
                   )}
+                  <button
+                    disabled={!canUse('manage_settings')}
+                    onClick={() => handleNavClick('payroll/settings')}
+                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold rounded-lg transition-all w-full text-left", activePage === 'payroll/settings' ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200', !canUse('manage_settings') && 'hidden')}
+                  >
+                    <Settings className="w-4 h-4" />
+                    Payroll Settings
+                  </button>
                   <button
                     disabled={!canUse('manage_settings')}
                     onClick={() => handleNavClick('tinlibrary')}

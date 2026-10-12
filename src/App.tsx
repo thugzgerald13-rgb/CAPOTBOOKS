@@ -213,7 +213,14 @@ function AppLayout() {
               address: [businessProfile?.substreet, businessProfile?.street, businessProfile?.barangay, businessProfile?.district, businessProfile?.city, businessProfile?.zipCode].filter(Boolean).join(', '),
               planId: 'enterprise',
               watermarkEnabled: false,
-            }} />} />
+            }} initialPage="dashboard" />} />
+            <Route path="/payroll/settings" element={<PayrollHub company={{
+              name: businessProfile?.tradeName || businessProfile?.registeredName || businessProfile?.name || 'CAPOTBOOKS Business',
+              tin: businessProfile?.tin || '',
+              address: [businessProfile?.substreet, businessProfile?.street, businessProfile?.barangay, businessProfile?.district, businessProfile?.city, businessProfile?.zipCode].filter(Boolean).join(', '),
+              planId: 'enterprise',
+              watermarkEnabled: false,
+            }} initialPage="settings" />} />
             <Route path="/ap-workspace" element={<Navigate to="/purchases/ap" replace />} />
             <Route path="/functions" element={<Navigate to="/account-settings" replace />} />
           </Routes>

@@ -549,3 +549,214 @@
   .eh-payroll-tabs { padding: 8px; gap: 4px; }
   .eh-payroll-tabs button { padding: 7px 9px; }
 }
+
+/* Follow CAPOTBOOKS' global theme toggle inside the embedded payroll workspace. */
+html.dark .eh-app,
+body.dark .eh-app {
+  --bg: #0b1220;
+  --panel: #111827;
+  --ink: #e5e7eb;
+  --muted: #a4afc0;
+  --line: #334155;
+  --brand: #3b82f6;
+  --brand2: #2dd4bf;
+  --danger: #f87171;
+  --warn: #fbbf24;
+  --ok: #34d399;
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
+  background: var(--bg);
+  color: var(--ink);
+  border-color: var(--line);
+  color-scheme: dark;
+}
+
+html.dark .eh-app .eh-topbar,
+body.dark .eh-app .eh-topbar,
+html.dark .eh-app .eh-payroll-tabs,
+body.dark .eh-app .eh-payroll-tabs,
+html.dark .eh-app .eh-panel,
+body.dark .eh-app .eh-panel,
+html.dark .eh-app .eh-card,
+body.dark .eh-app .eh-card,
+html.dark .eh-app .eh-payslip,
+body.dark .eh-app .eh-payslip,
+html.dark .eh-app .bg-white,
+body.dark .eh-app .bg-white {
+  background-color: #111827 !important;
+  color: #e5e7eb;
+  border-color: #334155;
+}
+
+html.dark .eh-app .eh-section-title h2,
+body.dark .eh-app .eh-section-title h2,
+html.dark .eh-app .eh-metric .value,
+body.dark .eh-app .eh-metric .value,
+html.dark .eh-app .eh-kpi-row .mini b,
+body.dark .eh-app .eh-kpi-row .mini b,
+html.dark .eh-app .text-slate-950,
+body.dark .eh-app .text-slate-950,
+html.dark .eh-app .text-slate-900,
+body.dark .eh-app .text-slate-900,
+html.dark .eh-app .text-slate-800,
+body.dark .eh-app .text-slate-800,
+html.dark .eh-app .text-slate-700,
+body.dark .eh-app .text-slate-700,
+html.dark .eh-app .text-slate-600,
+body.dark .eh-app .text-slate-600,
+html.dark .eh-app .eh-table td,
+body.dark .eh-app .eh-table td {
+  color: #e5e7eb !important;
+}
+
+html.dark .eh-app .eh-muted,
+body.dark .eh-app .eh-muted,
+html.dark .eh-app .text-slate-500,
+body.dark .eh-app .text-slate-500,
+html.dark .eh-app .eh-field label {
+  color: #a4afc0 !important;
+}
+
+html.dark .eh-app .eh-field input,
+html.dark .eh-app .eh-field select,
+html.dark .eh-app .eh-field textarea,
+body.dark .eh-app .eh-field input,
+body.dark .eh-app .eh-field select,
+body.dark .eh-app .eh-field textarea {
+  background-color: #0f172a;
+  color: #e5e7eb;
+  border-color: #475569;
+  color-scheme: dark;
+}
+
+html.dark .eh-app .eh-table th,
+body.dark .eh-app .eh-table th {
+  background: #1e293b;
+  color: #cbd5e1;
+  border-color: #334155;
+}
+html.dark .eh-app .eh-table td,
+body.dark .eh-app .eh-table td,
+html.dark .eh-app .eh-table-wrap,
+body.dark .eh-app .eh-table-wrap {
+  border-color: #334155;
+}
+
+html.dark .eh-app .eh-payroll-tabs button,
+body.dark .eh-app .eh-payroll-tabs button {
+  color: #cbd5e1;
+}
+html.dark .eh-app .eh-payroll-tabs button:hover,
+body.dark .eh-app .eh-payroll-tabs button:hover {
+  color: #93c5fd;
+  background: #1e293b;
+}
+html.dark .eh-app .eh-payroll-tabs button.active,
+body.dark .eh-app .eh-payroll-tabs button.active {
+  background: #1e3a8a;
+  border-color: #1d4ed8;
+  color: #dbeafe;
+}
+
+html.dark .eh-app .eh-btn,
+body.dark .eh-app .eh-btn {
+  background-color: #1e293b;
+  color: #e2e8f0;
+  border-color: #475569;
+}
+html.dark .eh-app .eh-btn:hover,
+body.dark .eh-app .eh-btn:hover {
+  background-color: #334155;
+}
+html.dark .eh-app .eh-btn.primary,
+body.dark .eh-app .eh-btn.primary {
+  background-color: #1d4ed8;
+  border-color: #2563eb;
+  color: #fff;
+}
+html.dark .eh-app .eh-btn.success,
+body.dark .eh-app .eh-btn.success {
+  background-color: #047857;
+  border-color: #059669;
+  color: #fff;
+}
+html.dark .eh-app .eh-btn.danger,
+body.dark .eh-app .eh-btn.danger {
+  background-color: #451a1a;
+  color: #fecaca;
+  border-color: #7f1d1d;
+}
+html.dark .eh-app .eh-btn:disabled,
+body.dark .eh-app .eh-btn:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+}
+
+html.dark .eh-app .bg-slate-50,
+body.dark .eh-app .bg-slate-50,
+html.dark .eh-app .bg-slate-100,
+body.dark .eh-app .bg-slate-100 {
+  background-color: #1e293b !important;
+}
+html.dark .eh-app .border-slate-100,
+body.dark .eh-app .border-slate-100,
+html.dark .eh-app .border-slate-200,
+body.dark .eh-app .border-slate-200,
+html.dark .eh-app .border-slate-300,
+body.dark .eh-app .border-slate-300 {
+  border-color: #334155 !important;
+}
+
+html.dark .eh-app .eh-alert.info,
+body.dark .eh-app .eh-alert.info {
+  background: #172554;
+  color: #bfdbfe;
+}
+html.dark .eh-app .eh-alert.warn,
+body.dark .eh-app .eh-alert.warn {
+  background: #422006;
+  color: #fde68a;
+}
+html.dark .eh-app .eh-alert.danger,
+body.dark .eh-app .eh-alert.danger {
+  background: #450a0a;
+  color: #fecaca;
+}
+html.dark .eh-app .eh-kpi-row .mini,
+body.dark .eh-app .eh-kpi-row .mini,
+html.dark .eh-app .eh-bar,
+body.dark .eh-app .eh-bar {
+  background-color: #1e293b;
+  border-color: #334155;
+}
+html.dark .eh-app .eh-payslip .line,
+body.dark .eh-app .eh-payslip .line {
+  border-top-color: #475569;
+}
+html.dark .eh-app .eh-empty-state,
+body.dark .eh-app .eh-empty-state {
+  padding: 22px;
+  text-align: center;
+  color: #a4afc0 !important;
+}
+
+@media print {
+  html.dark .eh-app .eh-payslip,
+  body.dark .eh-app .eh-payslip {
+    background: #fff !important;
+    color: #111827 !important;
+  }
+  html.dark .eh-app .eh-payslip * ,
+  body.dark .eh-app .eh-payslip * {
+    color: #111827 !important;
+  }
+}
+
+.eh-app .eh-btn:disabled { opacity: 0.48; cursor: not-allowed; }
+.eh-app .eh-empty-state { padding: 22px; text-align: center; color: var(--muted); }
+
+html.dark .eh-app .bg-emerald-50,
+body.dark .eh-app .bg-emerald-50 { background-color: #064e3b !important; }
+html.dark .eh-app .text-emerald-800,
+body.dark .eh-app .text-emerald-800 { color: #a7f3d0 !important; }
+html.dark .eh-app .text-rose-700,
+body.dark .eh-app .text-rose-700 { color: #fca5a5 !important; }
