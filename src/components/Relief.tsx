@@ -1,9 +1,11 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { saveAs } from 'file-saver';
-import { PageHeader, Button, Card, CardContent, Select, Field, Input, EmptyState, Badge } from './ui';
+import * as XLSX from 'xlsx';
+import { PageHeader, Button, Card, CardContent, Select, Field, Input, EmptyState, Badge, Modal } from './ui';
+import { buildInquiry, inquiryAoa, inquiryPrintHtml, printHtml, formatMoney, taxMonthLabel, type InquiryReport } from '../lib/reliefInquiry';
 import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
-import { FileText, Receipt, ShoppingCart, Boxes, FileDown, Plus, Trash2, Undo2 } from 'lucide-react';
+import { FileText, Receipt, ShoppingCart, Boxes, FileDown, Plus, Trash2, Undo2, Search, Printer, FileSpreadsheet, ArrowLeft } from 'lucide-react';
 
 /**
  * BIR RELIEF (Reconciliation of Listings for Enforcement) — SLSP.
@@ -158,7 +160,7 @@ export function Relief() {
   const fyEndMonth = owner.accountingType === 'Fiscal' && owner.fiscalMonthEnd ? owner.fiscalMonthEnd : 12;
 
   // ---- Sales: aggregate per buyer; amounts -> exempt / zero-rated / taxable / output tax ----
-  const salesRows = useMemo(() => {
+  const buildSalesRows = (year: number, month: number) => {
     const sales = (currentClient?.sales || []) as any[];
     const inMonth = sales.filter(s => {
       const d = s.date ? new Date(s.date) : null;
@@ -193,10 +195,12 @@ export function Relief() {
       named.push(various as any);
     }
     return named;
-  }, [currentClient, year, month]);
+  };
+  const salesRows = useMemo(() => buildSalesRows(year, month), [currentClient, year, month]);
 
   // ---- Purchases: TIN required; 6 amount buckets; month transfers ----
-  const { purchaseRows, noTinCount, transferredInCount } = useMemo(() => {
+  const buildPurchases = (year: number, month: number) => {
+    const monthKey = monthKeyOf(year, month);
     const purchases = (currentClient?.purchases || []) as any[];
     const inMonth = purchases.filter(p => {
       const d = p.date ? new Date(p.date) : null;
@@ -249,7 +253,9 @@ export function Relief() {
     }
     rows.sort((a, b) => a.regName.localeCompare(b.regName));
     return { purchaseRows: rows, noTinCount, transferredInCount };
-  }, [currentClient, year, month, monthKey, transfers, consolidateNoTinPurchases]);
+  };
+  const { purchaseRows, noTinCount, transferredInCount } = useMemo(() => buildPurchases(year, month),
+    [currentClient, year, month, monthKey, transfers, consolidateNoTinPurchases]);
 
   const movePurchaseRow = (row: any, targetMonth: string) => {
     const tKey = row.transferKey;
@@ -339,6 +345,56 @@ export function Relief() {
     return lines.join('\r\n') + '\r\n';
   };
 
+  // ---- Inquire / Print (BIR Relief "Transaction Inquiry") ----
+  const [inqOpen, setInqOpen] = useState(false);
+  const [inqYear, setInqYear] = useState(now.getFullYear());
+  const [inqMonths, setInqMonths] = useState<number[]>([now.getMonth() + 1]);
+  const [inqAllTp, setInqAllTp] = useState(true);
+  const [inqTin, setInqTin] = useState('');
+  const [inqReport, setInqReport] = useState<InquiryReport | null>(null);
+  const [inqPeriod, setInqPeriod] = useState('');
+  const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+  const openInquiry = () => {
+    setInqYear(year); setInqMonths([month]); setInqAllTp(true); setInqTin(''); setInqReport(null); setInqOpen(true);
+  };
+  const toggleInqMonth = (m: number) =>
+    setInqMonths(prev => prev.includes(m) ? prev.filter(x => x !== m) : [...prev, m].sort((a, b) => a - b));
+
+  const runInquiry = () => {
+    if (inqMonths.length === 0) { showToast('No month specified to inquire!'); return; }
+    if (!inqAllTp && inqTin.replace(/\D/g, '') === '') { showToast('Enter a TIN, or tick “All taxpayers”.'); return; }
+    const months = inqMonths.map(m => ({
+      year: inqYear, month: m,
+      rows: tab === 'sales' ? buildSalesRows(inqYear, m)
+        : tab === 'purchases' ? buildPurchases(inqYear, m).purchaseRows
+        // Importation entries are kept for the period selected on the page.
+        : (inqYear === year && m === month ? importRows : []),
+    }));
+    const ownerName = (owner.registeredName || '').trim()
+      || `${owner.lastName || ''}, ${owner.firstName || ''} ${owner.middleName || ''}`.trim();
+    const rep = buildInquiry(tab, months, {
+      tin: ownerTin,
+      name: ownerName || owner.name || '',
+      tradeName: owner.tradeName || '',
+      address: [owner.substreet, owner.street, owner.barangay, owner.district, owner.city, owner.zipCode].filter(Boolean).join(' '),
+    }, inqAllTp ? '' : inqTin);
+    const first = MONTH_NAMES[inqMonths[0] - 1];
+    setInqPeriod(inqMonths.length === 1
+      ? `${first} ${inqYear}`
+      : `${inqMonths.map(m => MONTH_NAMES[m - 1].slice(0, 3)).join(', ')} ${inqYear}`);
+    if (rep.rows.length === 0) showToast('No record/s to display');
+    setInqReport(rep);
+  };
+  const printInquiry = () => { if (inqReport) printHtml(inquiryPrintHtml(inqReport, inqPeriod)); };
+  const exportInquiryXlsx = () => {
+    if (!inqReport) return;
+    const ws = XLSX.utils.aoa_to_sheet(inquiryAoa(inqReport));
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, inqReport.title.slice(0, 31));
+    XLSX.writeFile(wb, `${ownerTin}${activeTab.typeCode}_inquiry_${inqYear}.xlsx`);
+  };
+
   const handleExport = () => {
     if (totals.count === 0 && tab !== 'imports') {
       showToast(`No ${tab} records found for ${monthKey}.`);
@@ -358,7 +414,10 @@ export function Relief() {
         title="BIR RELIEF — SLSP"
         icon={<FileText className="w-6 h-6 text-indigo-600" />}
         badge="Summary List of Sales, Purchases & Importations"
-        actions={<Button onClick={handleExport} className="gap-2"><FileDown className="w-4 h-4" /> Export .DAT</Button>}
+        actions={<div className="flex gap-2">
+          <Button variant="outline" onClick={openInquiry} className="gap-2"><Search className="w-4 h-4" /> Inquire / Print</Button>
+          <Button onClick={handleExport} className="gap-2"><FileDown className="w-4 h-4" /> Export .DAT</Button>
+        </div>}
       />
 
       <Card>
@@ -527,6 +586,113 @@ export function Relief() {
           )}
         </CardContent></Card>
       )}
+
+
+      <Modal
+        open={inqOpen}
+        onClose={() => setInqOpen(false)}
+        size="xl"
+        title={`Transaction Inquiry — ${activeTab.label}`}
+        description={inqReport ? undefined : 'Select the taxable year and month(s) to inquire, like the RELIEF Inquire / Print facility.'}
+        footer={inqReport ? (
+          <div className="flex flex-wrap gap-2 justify-end w-full">
+            <Button variant="outline" onClick={() => setInqReport(null)} className="gap-2"><ArrowLeft className="w-4 h-4" /> Back</Button>
+            <Button variant="outline" onClick={exportInquiryXlsx} disabled={inqReport.rows.length === 0} className="gap-2"><FileSpreadsheet className="w-4 h-4" /> Export Excel</Button>
+            <Button onClick={printInquiry} disabled={inqReport.rows.length === 0} className="gap-2"><Printer className="w-4 h-4" /> Print</Button>
+          </div>
+        ) : (
+          <div className="flex gap-2 justify-end w-full">
+            <Button variant="outline" onClick={() => setInqOpen(false)}>Cancel</Button>
+            <Button onClick={runInquiry} className="gap-2"><Search className="w-4 h-4" /> Inquire</Button>
+          </div>
+        )}
+      >
+        {!inqReport ? (
+          <div className="space-y-4">
+            <Field label="Taxable year">
+              <Select value={String(inqYear)} onChange={e => setInqYear(Number(e.target.value))}>
+                {years.map(y => <option key={y} value={y}>{y}</option>)}
+              </Select>
+            </Field>
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold uppercase tracking-wide text-slate-500">Taxable month(s)</span>
+                <span className="text-xs space-x-3">
+                  <button type="button" className="text-indigo-600 hover:underline" onClick={() => setInqMonths([1,2,3,4,5,6,7,8,9,10,11,12])}>Select all</button>
+                  <button type="button" className="text-slate-500 hover:underline" onClick={() => setInqMonths([])}>Clear</button>
+                </span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {MONTH_NAMES.map((name, i) => (
+                  <label key={name} className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input type="checkbox" checked={inqMonths.includes(i + 1)} onChange={() => toggleInqMonth(i + 1)} /> {name}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input type="checkbox" checked={inqAllTp} onChange={e => setInqAllTp(e.target.checked)} /> All taxpayers
+              </label>
+              {!inqAllTp && (
+                <Field label={`Query by TIN (${tab === 'sales' ? 'customer' : 'supplier'})`}>
+                  <Input value={inqTin} maxLength={11} placeholder="999-999-999"
+                    onChange={e => setInqTin(e.target.value.replace(/[^\d-]/g, ''))} />
+                </Field>
+              )}
+            </div>
+            {tab === 'imports' && (
+              <p className="text-xs text-slate-400">Importation entries are the ones entered on this page for {monthKey}.</p>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-3 text-xs">
+            <div className="text-center">
+              <div className="text-sm font-bold">{inqReport.title}</div>
+              <div className="text-slate-500">RECONCILIATION OF LISTING FOR ENFORCEMENT</div>
+            </div>
+            <div className="font-semibold space-y-0.5">
+              <div>TIN : {inqReport.owner.tin}</div>
+              <div>OWNER'S NAME: {inqReport.owner.name}</div>
+              {inqReport.type !== 'imports' && <div>OWNER'S TRADE NAME : {inqReport.owner.tradeName}</div>}
+              <div>OWNER'S ADDRESS: {inqReport.owner.address}</div>
+              <div className="font-normal text-slate-500">Taxable period: {inqPeriod}</div>
+            </div>
+            <div className="overflow-x-auto border border-slate-200 dark:border-slate-700 rounded-lg">
+              <table className="w-full whitespace-nowrap">
+                <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 uppercase text-[10px] align-bottom">
+                  <tr>{inqReport.columns.map((c, i) => (
+                    <th key={i} className={`px-3 py-2 ${c.numeric ? 'text-right' : 'text-left'}`}>
+                      {c.head.map((h, k) => <div key={k}>{h}</div>)}<div className="font-normal">({i + 1})</div>
+                    </th>))}</tr>
+                </thead>
+                <tbody>
+                  {inqReport.rows.length === 0 ? (
+                    <tr><td colSpan={inqReport.columns.length} className="px-3 py-6 text-center text-slate-400">No record/s to display</td></tr>
+                  ) : inqReport.rows.map((r, ri) => (
+                    <tr key={ri} className="border-t border-slate-100 dark:border-slate-800">
+                      {r.map((v, ci) => (
+                        <td key={ci} className={`px-3 py-1.5 ${inqReport.columns[ci].numeric ? 'text-right font-mono' : ''}`}>
+                          {inqReport.columns[ci].numeric ? formatMoney(Number(v)) : String(v)}
+                        </td>))}
+                    </tr>))}
+                </tbody>
+                {inqReport.rows.length > 0 && (
+                  <tfoot className="bg-slate-50 dark:bg-slate-800/60 font-semibold">
+                    <tr>
+                      {inqReport.columns.map((c, i) => (
+                        <td key={i} className={`px-3 py-2 ${c.numeric ? 'text-right font-mono' : ''}`}>
+                          {i === 0 ? 'Grand Total :' : c.total ? formatMoney(inqReport.totals[i] || 0) : ''}
+                        </td>))}
+                    </tr>
+                  </tfoot>
+                )}
+              </table>
+            </div>
+            <div className="text-center font-semibold text-slate-500">END OF REPORT</div>
+          </div>
+        )}
+      </Modal>
 
       <p className="text-xs text-slate-400 text-center">
         Exported .DAT mirrors BIR Relief-generated samples: quoted header with totals + RDO + tax-month end date + fiscal year-end month, then <code>D,S,</code> / <code>D,P,</code> detail lines (zero amounts as <code>0</code>).
