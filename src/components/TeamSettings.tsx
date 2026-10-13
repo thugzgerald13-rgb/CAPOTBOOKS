@@ -30,10 +30,6 @@ import { useAccounting } from '../context/AccountingContext';
 import { ALL_PERMISSIONS, type Permission } from '../lib/accessControl';
 import {
   MEMBER_ROLE_PERMISSIONS,
-  PERMISSION_LABELS,
-  MATRIX_ROLES,
-  roleHasPermission,
-  MEMBER_ROLE_LABELS,
 } from '../lib/teamPermissions';
 
 const ROLE_OPTIONS: { value: MemberRole; label: string; desc: string }[] = [
@@ -43,12 +39,27 @@ const ROLE_OPTIONS: { value: MemberRole; label: string; desc: string }[] = [
   { value: 'viewer', label: 'Viewer', desc: 'Read-only access to reports and records.' },
 ];
 
-// A Business Owner invitation creates an accountant/client relationship, not
-// a shared-ownership/team membership. Only professional accountant roles are
-// valid targets for that relationship.
-const OWNER_INVITE_ROLE_OPTIONS = ROLE_OPTIONS.filter((role) =>
-  role.value === 'accountant' || role.value === 'bookkeeper'
-);
+/**
+ * Pick the least-privileged MemberRole whose permission set is a superset of
+ * the selected permissions. Roles are the server-side cap; the granular
+ * per-client grants chosen at invite time are what the user actually controls.
+ */
+function deriveRoleFromPermissions(selected: Permission[]): MemberRole {
+  const set = new Set(selected);
+  const ordered: MemberRole[] = ['viewer', 'bookkeeper', 'accountant'];
+  for (const role of ordered) {
+    const allowed = new Set(MEMBER_ROLE_PERMISSIONS[role] || []);
+    if ([...set].every((p) => allowed.has(p))) return role;
+  }
+  return 'accountant';
+}
+
+/** Default grants shown when opening the invite form. */
+function defaultInvitePermissions(): Record<string, boolean> {
+  return Object.fromEntries(
+    (MEMBER_ROLE_PERMISSIONS.bookkeeper || []).map((p) => [p, true])
+  );
+}
 
 function roleLabel(role: string) {
   return ROLE_OPTIONS.find((r) => r.value === role)?.label ?? role;
@@ -157,12 +168,9 @@ export function TeamSettings() {
   const clientList = Object.values(clients).filter((client) => client.id !== ownerClientId).sort((a, b) => a.name.localeCompare(b.name));
   const isBusinessOwner = userRole === 'owner';
   const canInvite = isBusinessOwner || userRole === 'accountant' || userRole === 'bookkeeper';
-  const inviteRoleOptions = isBusinessOwner ? OWNER_INVITE_ROLE_OPTIONS : ROLE_OPTIONS;
   const [email, setEmail] = useState('');
-  const [staffLogin, setStaffLogin] = useState('');
-  const [staffPassword, setStaffPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
-  const [memberRole, setMemberRole] = useState<MemberRole>('bookkeeper');
+  const [invitePermissions, setInvitePermissions] = useState<Record<string, boolean>>(defaultInvitePermissions());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notEnabled, setNotEnabled] = useState(false);
@@ -242,6 +250,13 @@ export function TeamSettings() {
     setPermissionGrants((prev) => ({ ...prev, [permissionClientId]: defaults }));
   };
 
+  const toggleInvitePermission = (permission: Permission) => {
+    setInvitePermissions((prev) => ({ ...prev, [permission]: !Boolean(prev[permission]) }));
+  };
+
+  const selectedInvitePermissions = (): Permission[] =>
+    ALL_PERMISSIONS.map((p) => p.key).filter((key) => invitePermissions[key]);
+
   const handleInvite = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
@@ -250,32 +265,27 @@ export function TeamSettings() {
       setError('Only a Business Owner or an Accountant/Bookkeeper can send team invitations.');
       return;
     }
-    if (isBusinessOwner && memberRole !== 'accountant' && memberRole !== 'bookkeeper') {
-      setError('Business Owners can invite only Accountant or Bookkeeper accounts.');
-      return;
-    }
-    if (memberRole === 'staff') {
-      if (!/^[a-z0-9._-]{3,32}$/.test(staffLogin.trim().toLowerCase())) {
-        setError('Enter a Staff Login using 3-32 lowercase letters, numbers, dot, underscore, or hyphen.');
-        return;
-      }
-      if (staffPassword.length < 6) {
-        setError('Staff password must be at least 6 characters.');
-        return;
-      }
-    } else if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) {
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) {
       setError('Enter a valid email address.');
       return;
     }
+    const selected = selectedInvitePermissions();
+    if (selected.length === 0) {
+      setError('Select at least one permission to grant.');
+      return;
+    }
+    const memberRole = deriveRoleFromPermissions(selected);
+    // Business-owner invitations create a professional client relationship
+    // server-side, which requires at least bookkeeper level.
+    const effectiveRole: MemberRole =
+      isBusinessOwner && memberRole === 'viewer' ? 'bookkeeper' : memberRole;
     setBusy(true);
     try {
-      const result = await inviteSubuser(email, displayName, memberRole, memberRole === 'staff' ? { loginName: staffLogin, password: staffPassword } : undefined);
-      setSecret({ email: result.email, password: result.temporaryPassword, existingUser: result.existingUser, invitationPending: result.invitationPending, managedStaff: memberRole === 'staff' });
+      const result = await inviteSubuser(email, displayName, effectiveRole);
+      setSecret({ email: result.email, password: result.temporaryPassword, existingUser: result.existingUser, invitationPending: result.invitationPending, managedStaff: false });
       setEmail('');
-      setStaffLogin('');
-      setStaffPassword('');
       setDisplayName('');
-      setMemberRole('bookkeeper');
+      setInvitePermissions(defaultInvitePermissions());
       await refreshTeamMembers();
     } catch (err) {
       if (err instanceof SubusersNotEnabledError) {
@@ -423,51 +433,63 @@ export function TeamSettings() {
                   <UserPlus className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
                   <h3 className="font-bold text-slate-800 dark:text-slate-100">{isBusinessOwner ? 'Invite an Accountant / Bookkeeper' : 'Invite a team member'}</h3>
                 </div>
-                <div className="grid md:grid-cols-3 gap-4">
+                <div className="grid md:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">{memberRole === 'staff' ? 'Staff Login *' : 'Email *'}</label>
-                    <input type={memberRole === 'staff' ? 'text' : 'email'} required value={memberRole === 'staff' ? staffLogin : email} onChange={(e) => memberRole === 'staff' ? setStaffLogin(e.target.value.toLowerCase()) : setEmail(e.target.value)} placeholder={memberRole === 'staff' ? 'e.g. maria.staff' : (isBusinessOwner ? 'accountant@company.com' : 'teammate@company.com')}
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Email *</label>
+                    <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder={isBusinessOwner ? 'accountant@company.com' : 'teammate@company.com'}
                       className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500" />
                   </div>
-                  {memberRole === 'staff' ? (
-                    <div>
-                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Initial password *</label>
-                      <input type="password" required minLength={6} value={staffPassword} onChange={(e) => setStaffPassword(e.target.value)} placeholder="At least 6 characters"
-                        className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500" />
-                    </div>
-                  ) : <div />}
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Display name</label>
-                    <input type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="e.g. Maria, Staff"
+                    <input type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="e.g. Maria, Accountant"
                       className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500" />
                   </div>
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Role</label>
-                    <select value={memberRole} onChange={(e) => setMemberRole(e.target.value as MemberRole)}
-                      className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500">
-                      {inviteRoleOptions.map((r) => (<option key={r.value} value={r.value}>{r.label}</option>))}
-                    </select>
+                </div>
+                <div className="mt-4">
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-500">Permissions *</label>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={() => setInvitePermissions(defaultInvitePermissions())}
+                        className="text-[11px] font-bold text-cyan-600 dark:text-cyan-400 hover:underline">Bookkeeper defaults</button>
+                      <span className="text-slate-300 dark:text-slate-600">·</span>
+                      <button type="button" onClick={() => setInvitePermissions(Object.fromEntries(ALL_PERMISSIONS.map((p) => [p.key, true])))}
+                        className="text-[11px] font-bold text-cyan-600 dark:text-cyan-400 hover:underline">Select all</button>
+                      <span className="text-slate-300 dark:text-slate-600">·</span>
+                      <button type="button" onClick={() => setInvitePermissions({})}
+                        className="text-[11px] font-bold text-slate-400 hover:underline">Clear</button>
+                    </div>
+                  </div>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
+                    Select exactly which functions the invited user may use. A matching access level is applied server-side; you can further refine per-client access from the team list after they join.
+                  </p>
+                  <div className="grid sm:grid-cols-2 gap-2">
+                    {ALL_PERMISSIONS.map((p) => {
+                      const on = Boolean(invitePermissions[p.key]);
+                      return (
+                        <button
+                          type="button"
+                          key={p.key}
+                          onClick={() => toggleInvitePermission(p.key)}
+                          className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition-all active:scale-[0.98] ${
+                            on
+                              ? 'border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/20'
+                              : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 hover:border-slate-300 dark:hover:border-slate-600'
+                          }`}
+                        >
+                          <span className={`flex items-center justify-center w-5 h-5 rounded-md border-2 shrink-0 transition-colors ${
+                            on ? 'bg-emerald-500 border-emerald-500 text-white' : 'border-slate-300 dark:border-slate-600 bg-transparent'
+                          }`}>
+                            {on && <Check className="w-3.5 h-3.5" strokeWidth={3} />}
+                          </span>
+                          <span className={`text-sm font-medium ${on ? 'text-emerald-800 dark:text-emerald-200' : 'text-slate-500 dark:text-slate-400'}`}>
+                            {p.label}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mt-3">{ROLE_OPTIONS.find((r) => r.value === memberRole)?.desc}</p>
-                <p className="text-xs text-cyan-600 dark:text-cyan-400 mt-2">{isBusinessOwner ? 'The invited professional must already have their own CAPOT account. Your business is added to their Client Profiles after acceptance.' : memberRole === 'staff' ? 'Staff are managed credentials under your account. They do not create a separate CAPOT webapp account. Assign client-specific permissions below.' : 'The invited member uses their existing CAPOT account. Their access is limited to the clients and functions you grant.'}</p>
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  {ALL_PERMISSIONS.map((p) => {
-                    const allowed = (MEMBER_ROLE_PERMISSIONS[memberRole] || []).includes(p.key);
-                    return (
-                      <span
-                        key={p.key}
-                        className={`inline-flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-semibold border ${
-                          allowed
-                            ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800'
-                            : 'bg-slate-50 dark:bg-slate-900/40 text-slate-400 border-slate-200 dark:border-slate-700 line-through'
-                        }`}
-                      >
-                        {allowed ? '✓' : '✕'} {p.label}
-                      </span>
-                    );
-                  })}
-                </div>
+                <p className="text-xs text-cyan-600 dark:text-cyan-400 mt-3">{isBusinessOwner ? 'The invited professional must already have their own CAPOT account. Your business is added to their Client Profiles after acceptance.' : 'The invited member uses their existing CAPOT account. Their access is limited to the functions you grant above.'}</p>
                 <div className="mt-4 flex items-center gap-3">
                   <button type="submit" disabled={busy}
                     className="flex items-center gap-2 px-6 py-3 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl font-bold shadow-md transition-all active:scale-95 disabled:opacity-50">
@@ -477,46 +499,6 @@ export function TeamSettings() {
                   <span className="text-xs text-slate-400">Signed in as {user?.email}</span>
                 </div>
               </form>
-
-              <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-5">
-                <div className="flex items-center gap-2 mb-4">
-                  <ShieldCheck className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
-                  <h3 className="font-bold text-slate-800 dark:text-slate-100">What each role can do</h3>
-                </div>
-                <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
-                  The role sets the maximum capabilities an invited user can receive. Use <span className="font-semibold">Client access</span> below to choose exactly which clients they can open and which permitted functions they can use on each client. Permissions are enforced server-side.
-                </p>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="text-left text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                        <th className="py-2 pr-3 font-bold">Permission</th>
-                        {MATRIX_ROLES.map((r) => (
-                          <th key={r} className="py-2 px-2 font-bold text-center capitalize">
-                            {r === 'owner' ? 'Owner (you)' : MEMBER_ROLE_LABELS[r as MemberRole]}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100 dark:divide-slate-700/60">
-                      {ALL_PERMISSIONS.map((p) => (
-                        <tr key={p.key}>
-                          <td className="py-2 pr-3 text-slate-700 dark:text-slate-200 font-medium">{p.label}</td>
-                          {MATRIX_ROLES.map((r) => (
-                            <td key={r} className="py-2 px-2 text-center">
-                              {roleHasPermission(r, p.key) ? (
-                                <span className="inline-flex w-5 h-5 items-center justify-center rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300 font-bold">✓</span>
-                              ) : (
-                                <span className="inline-flex w-5 h-5 items-center justify-center rounded-full bg-slate-100 dark:bg-slate-800 text-slate-400 font-bold">—</span>
-                              )}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
 
               <div>
                 <div className="flex items-center justify-between mb-3">
