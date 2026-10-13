@@ -2,69 +2,86 @@
  * pagePermissions.ts — Route-level access control (Goal A).
  *
  * Single source of truth mapping each client-side route to the capability
- * required to open it. Used by the route guard in App.tsx so a restricted user
- * cannot reach a sensitive screen just by typing its URL (e.g. #/team,
- * #/business, #/developertools/systemconfig).
+ * required to open it. Used by the route guard in App.tsx (RequirePermission)
+ * AND by the command palette so a restricted user cannot reach a sensitive
+ * screen just by typing its URL (e.g. #/sales-journal, #/cash-receipt) or
+ * picking it from the palette.
  *
  * Enforcement model mirrors the Sidebar `canUse` rule:
  *   - Non-subusers (Owner / standalone Accountant / Bookkeeper accounts) are
  *     NOT gated at route level — the server RPC still enforces what they can
  *     *do*, and the Sidebar already shows them all pages.
- *   - Team subusers are gated by their effective server-sourced permissions
- *     (AuthContext.hasPermission, backed by get_my_account_permissions()).
+ *   - Team subusers (isSubuser = true) are gated by their effective
+ *     server-sourced permissions (AuthContext.hasPermission, backed by
+ *     get_my_account_permissions()).
  *   - Developer/admin-only routes have no regular Permission and are blocked
  *     for everyone except the developer account (isAdmin).
  *
- * Routes NOT listed here are open to any authenticated user: Dashboard (/),
- * journals & ledger (/journal, /ledger, /sales-journal, /purchase-journal,
- * /cash-disbursement, /cash-receipt), Account Settings, etc.
+ * FAIL-CLOSED: every route must be explicitly classified. Any route that is
+ * neither OPEN_ROUTES nor listed in ROUTE_PERMISSIONS nor admin-only defaults
+ * to requiring `manage_users` — which no subuser holds — so an unmapped route
+ * is never silently reachable by an invited user. Add new routes here.
  */
 import type { Permission } from './accessControl';
 
+/** Routes that are genuinely open to any authenticated user (self-service). */
+const OPEN_ROUTES: ReadonlySet<string> = new Set([
+  '/',                 // dashboard
+  '/account-settings', // user changes their own password / display name
+  '/functions',        // legacy alias → redirects to /account-settings
+]);
+
 /** Exact route path (HashRouter pathname, leading slash) -> required permission. */
 export const ROUTE_PERMISSIONS: Record<string, Permission> = {
-  // User / team management — Owner/Admin only.
+  // ---- User / team management — Owner/Admin only ----
   '/team': 'manage_users',
-  // Account configuration — subusers cannot reconfigure the books.
+
+  // ---- Account configuration — subusers cannot reconfigure the books ----
   '/business': 'manage_settings',
   '/clients': 'manage_settings',
   '/coa': 'manage_settings',
   '/tinlibrary': 'manage_settings',
-  // Transaction entry — Viewer (read-only) is excluded.
-  // NOTE: /inventory is developer-only (see ADMIN_ONLY_ROUTES) until further notice.
-  '/files': 'edit_transactions',
+  '/payroll/settings': 'manage_settings',
+
+  // ---- Transaction-entry workspaces (Viewer excluded) ----
   '/sales': 'edit_transactions',
   '/billing': 'edit_transactions',
   '/journal-voucher': 'edit_transactions',
+  '/files': 'edit_transactions',
   '/payroll': 'edit_transactions',
-  '/payroll/settings': 'manage_settings',
+  '/eis-center': 'edit_transactions',
   '/purchases': 'edit_transactions',
   '/purchases/invoiced': 'edit_transactions',
   '/purchases/other-payments': 'edit_transactions',
   '/purchases/ap': 'edit_transactions',
-  // Reports / compliance / BIR — any role with view access.
+  '/ap-workspace': 'edit_transactions', // alias → /purchases/ap
+  // Special journals are transaction-entry workspaces, not view-only registers.
+  '/cash-receipt': 'edit_transactions',
+  '/cash-disbursement': 'edit_transactions',
+  '/sales-journal': 'edit_transactions',
+  '/purchase-journal': 'edit_transactions',
+
+  // ---- View-only registers / reports / compliance (any role with view access) ----
+  '/journal': 'view_reports',        // General Journal — posted entries, read-only view
+  '/ledger': 'view_reports',         // General Ledger — read-only register
   '/history': 'view_reports',
   '/trialbalance': 'view_reports',
   '/balancesheet': 'view_reports',
   '/pl': 'view_reports',
   '/assetlapsing': 'view_reports',
   '/cashflow': 'view_reports',
-  // NOTE: /compliance-tracker is developer-only (see ADMIN_ONLY_ROUTES) until further notice.
   '/bir-forms': 'view_reports',
-  // BIR E-Invoicing (EIS) center — build/transmit e-invoices; transaction role.
-  '/eis-center': 'edit_transactions',
+  '/relief': 'view_reports',
+  '/reports': 'view_reports',
+  '/taxnotes': 'view_reports',
+  '/books': 'view_reports',
   '/afs-financial-position': 'view_reports',
   '/afs-income-statements': 'view_reports',
   '/afs-equity-retained-earnings': 'view_reports',
   '/afs-ppe': 'view_reports',
-  '/reports': 'view_reports',
-  '/taxnotes': 'view_reports',
-  '/books': 'view_reports',
 };
 
-/** Developer/admin-only routes — no regular Permission covers these.
- *  Compliance Tracker and Inventory are hidden from regular users until the
- *  developer finishes building them out. */
+/** Developer/admin-only routes — no regular Permission covers these. */
 export const ADMIN_ONLY_ROUTES: ReadonlySet<string> = new Set([
   '/developertools/systemconfig',
   '/developertools/diagnostics',
@@ -74,9 +91,18 @@ export const ADMIN_ONLY_ROUTES: ReadonlySet<string> = new Set([
   '/admin/payments',
 ]);
 
-/** Permission required to open `pathname`, or null if the route is open. */
+/**
+ * Permission required to open `pathname`.
+ *  - open self-service routes → null (no permission needed)
+ *  - mapped routes → their required permission
+ *  - anything else (fail-closed) → 'manage_users', which no subuser holds,
+ *    so an unmapped route bounces an invited user back to the dashboard.
+ */
 export function routeRequiresPermission(pathname: string): Permission | null {
-  return ROUTE_PERMISSIONS[pathname] ?? null;
+  if (OPEN_ROUTES.has(pathname)) return null;
+  if (pathname in ROUTE_PERMISSIONS) return ROUTE_PERMISSIONS[pathname];
+  if (ADMIN_ONLY_ROUTES.has(pathname)) return null; // handled by routeIsAdminOnly
+  return 'manage_users';
 }
 
 /** True if `pathname` is restricted to the developer account. */
