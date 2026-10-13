@@ -52,7 +52,15 @@ export async function inviteSubuser(
         displayName: displayName.trim() || null,
       },
     });
-    if (error) throw new Error(error.message);
+    if (error) {
+      const msg = String(error.message || '');
+      const networkFailure = /failed to send|failed to fetch|networkerror|cors|load failed/i.test(msg) || !msg;
+      throw new Error(
+        networkFailure
+          ? 'Could not reach the managed-staff Edge Function. Deploy it to your Supabase project first: supabase functions deploy managed-staff (or upload supabase/functions/managed-staff in the Dashboard → Edge Functions).'
+          : msg
+      );
+    }
     if (!data || data.error) throw new Error(String(data?.error || 'Could not create managed staff login.'));
 
     return {
