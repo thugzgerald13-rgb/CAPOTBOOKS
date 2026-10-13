@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { BookOpen, Plus, Trash2, RefreshCcw, Edit2, ClipboardList, Check, X, Columns, ArrowUp, ArrowDown, Upload, MoreVertical } from 'lucide-react';
 import { flattenCoaHierarchy } from '../lib/coaImport';
 import { PageHeader } from './ui/PageHeader';
@@ -705,6 +706,7 @@ export function ChartOfAccounts() {
 
   const [showPresets, setShowPresets] = useState(false);
   const presetsRef = useRef<HTMLDivElement>(null);
+  const presetsMenuRef = useRef<HTMLDivElement>(null);
 
   const [isUploading, setIsUploading] = useState(false);
   const uploadInputRef = useRef<HTMLInputElement>(null);
@@ -804,7 +806,8 @@ export function ChartOfAccounts() {
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (presetsRef.current && !presetsRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (presetsRef.current && !presetsRef.current.contains(target) && !presetsMenuRef.current?.contains(target)) {
         setShowPresets(false);
       }
     }
@@ -923,6 +926,18 @@ export function ChartOfAccounts() {
   const filteredAccounts = typeFilter === 'All'
     ? accounts
     : accounts.filter(a => a.type.toLowerCase() === typeFilter.toLowerCase());
+
+  const displayRows = hierarchyMode ? flattenCoaHierarchy(accounts) : filteredAccounts;
+  const typeBadgeClass = (type: string) => {
+    const t = (type || '').toLowerCase();
+    if (t.startsWith('asset')) return 'bg-blue-50 text-blue-700 ring-blue-600/15 dark:bg-blue-500/10 dark:text-blue-300 dark:ring-blue-400/20';
+    if (t.startsWith('liab')) return 'bg-orange-50 text-orange-700 ring-orange-600/15 dark:bg-orange-500/10 dark:text-orange-300 dark:ring-orange-400/20';
+    if (t.startsWith('equity') || t.startsWith('capital')) return 'bg-violet-50 text-violet-700 ring-violet-600/15 dark:bg-violet-500/10 dark:text-violet-300 dark:ring-violet-400/20';
+    if (t.startsWith('rev') || t.startsWith('income')) return 'bg-emerald-50 text-emerald-700 ring-emerald-600/15 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-400/20';
+    if (t.startsWith('cost')) return 'bg-amber-50 text-amber-700 ring-amber-600/15 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-400/20';
+    if (t.startsWith('exp')) return 'bg-rose-50 text-rose-700 ring-rose-600/15 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-400/20';
+    return 'bg-slate-100 text-slate-700 ring-slate-500/15 dark:bg-slate-700/40 dark:text-slate-300 dark:ring-slate-400/20';
+  };
 
   const handleSaveAccounts = async (updatedAccounts: CoaAccount[], coaFormat?: 'numeric' | 'alphanumeric'): Promise<boolean> => {
     const format = coaFormat || currentClient.coaFormat || 'numeric';
@@ -1570,7 +1585,7 @@ export function ChartOfAccounts() {
   return (
     <div className="w-full flex flex-col">
       <PageHeader title="Chart of Accounts" icon={<BookOpen />} actions={
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           <input
             ref={uploadInputRef}
             type="file"
@@ -1578,61 +1593,70 @@ export function ChartOfAccounts() {
             className="hidden"
             onChange={handleUploadFile}
           />
+          <div ref={presetsRef}>
+            <button
+              type="button"
+              onClick={() => setShowPresets(!showPresets)}
+              aria-haspopup="menu"
+              aria-label="Reset / Choose Format"
+              title="Reset / Choose Format"
+              aria-expanded={showPresets}
+              className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border border-border bg-surface text-xs font-semibold text-text-secondary hover:bg-surface-subtle transition-colors"
+            >
+              <RefreshCcw className="w-3.5 h-3.5" /> <span className="hidden md:inline">Reset / Choose Format</span>
+            </button>
+            {showPresets && presetsRef.current && createPortal(
+              <div
+                ref={presetsMenuRef}
+                role="menu"
+                style={{ position: 'fixed', top: presetsRef.current.getBoundingClientRect().bottom + 8, left: Math.max(8, presetsRef.current.getBoundingClientRect().right - 208) }}
+                className="w-52 bg-surface border border-border rounded-xl shadow-pop overflow-hidden z-[60] py-1"
+              >
+                <button role="menuitem" onClick={() => applyPreset('numeric')} className="w-full text-left px-4 py-2.5 hover:bg-surface-subtle text-xs font-medium text-text-primary">
+                  Numeric Code Format
+                </button>
+                <button role="menuitem" onClick={() => applyPreset('alphanumeric')} className="w-full text-left px-4 py-2.5 hover:bg-surface-subtle text-xs font-medium text-text-primary">
+                  Alphanumeric Format
+                </button>
+              </div>,
+              document.body
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowColumnManager(!showColumnManager)}
+            aria-pressed={showColumnManager}
+            aria-label="Configure Columns"
+            title="Configure Columns"
+            className={cn('inline-flex items-center gap-1.5 h-8 px-3 rounded-lg border text-xs font-semibold transition-colors',
+              showColumnManager
+                ? 'border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-500/10 dark:text-brand-300'
+                : 'border-border bg-surface text-text-secondary hover:bg-surface-subtle')}
+          >
+            <Columns className="w-3.5 h-3.5" /> <span className="hidden md:inline">Configure Columns</span>
+          </button>
           <button
             type="button"
             onClick={() => uploadInputRef.current?.click()}
             disabled={isUploading}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-lg bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50 shadow-sm"
+            aria-label="Upload Chart of Accounts"
+            className="inline-flex items-center gap-1.5 h-8 px-3 text-xs font-semibold rounded-lg border border-border bg-surface text-text-secondary hover:bg-surface-subtle disabled:opacity-50 transition-colors"
             title="Upload a Chart of Accounts. Headings are optional; CAPOT can infer account titles, types, codes and balances (Opening Balance for balance sheet accounts, Previous Year Balance for Income, Costs and Expenses)."
           >
-            <Upload className="w-3.5 h-3.5" /> {isUploading ? 'Reading…' : 'Upload Chart of Accounts'}
+            <Upload className="w-3.5 h-3.5" /> <span className="hidden md:inline">{isUploading ? 'Reading…' : 'Upload Chart of Accounts'}</span>
+          </button>
+          <button
+            id="add-account-btn"
+            type="button"
+            onClick={() => setIsAdding(true)}
+            className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold shadow-sm transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" /> <span className="whitespace-nowrap">Add Account</span>
           </button>
         </div>
       } />
       <div className="p-4 md:p-6 flex-1">
-      <div className="p-4 sm:p-6 bg-slate-50 dark:bg-slate-950/20">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-          <div>
-            <p className="text-slate-500 dark:text-slate-400 text-sm">
-              Manage your ledger accounts, normal sides, and current balances.
-            </p>
-            <div className="flex flex-wrap items-center gap-2 mt-2">
-              <div className="relative" ref={presetsRef}>
-                <button 
-                  onClick={() => setShowPresets(!showPresets)}
-                  className="text-xs font-bold text-slate-600 dark:text-slate-300 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 px-3 py-1.5 rounded-lg flex items-center gap-2 transition-colors"
-                >
-                  <RefreshCcw className="w-3 h-3" /> Reset / Choose Format
-                </button>
-                {showPresets && (
-                  <div className="absolute top-full mt-2 left-0 w-48 bg-white dark:bg-slate-800 shadow-xl border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden z-20">
-                    <button 
-                      onClick={() => applyPreset('numeric')}
-                      className="w-full text-left px-4 py-2.5 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-medium text-slate-700 dark:text-slate-300"
-                    >
-                      Numeric Code Format
-                    </button>
-                    <button 
-                      onClick={() => applyPreset('alphanumeric')}
-                      className="w-full text-left px-4 py-2.5 hover:bg-slate-100 dark:hover:bg-slate-700 text-xs font-medium text-slate-700 dark:text-slate-300"
-                    >
-                      Alphanumeric Format
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              <button 
-                onClick={() => setShowColumnManager(!showColumnManager)}
-                className="text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-750 px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors shadow-sm"
-              >
-                <Columns className="w-3.5 h-3.5" /> Configure Columns
-              </button>
-            </div>
-          </div>
-          
-        </div>
-
+      <div>
         {/* Dynamic Column/Category Manager Section */}
         {showColumnManager && (
           <div className="mb-6 p-4 sm:p-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800/80 rounded-2xl shadow-sm">
@@ -2143,72 +2167,36 @@ export function ChartOfAccounts() {
           </div>
         )}
 
-        {/* Chart of Accounts card layout matching image exactly */}
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden shadow-sm">
-          {/* Card Header */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 border-b border-slate-200 dark:border-slate-800">
-            <div className="flex items-center gap-2.5">
-              <ClipboardList className="text-slate-500 dark:text-slate-400 w-5 h-5" />
-              <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">
-                Chart of Accounts
-              </h2>
-            </div>
-            
-            <div className="flex flex-wrap items-center gap-3">
-              {/* Account Type Filter — options come from the Account Type column data */}
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">Filter:</span>
-                <select
-                  id="type-filter"
-                  value={typeFilter}
-                  onChange={(e) => setTypeFilter(e.target.value)}
-                  className="text-xs font-semibold py-1.5 px-3 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 rounded-lg text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-500 cursor-pointer"
-                >
-                  <option value="All">All Account Types</option>
-                  {availableFilterTypes.map(t => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </select>
-              </div>
-
-              <button 
-                id="add-account-btn"
-                onClick={() => setIsAdding(true)}
-                className="bg-[#0a4a94] hover:bg-[#07366b] text-white font-bold text-[11px] px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5 uppercase tracking-wide shadow-sm"
-              >
-                <Plus className="w-3.5 h-3.5 stroke-[3px]" /> Add Account
-              </button>
-            </div>
-          </div>
-
-          {/* Table representing exact layout in screenshot */}
+        <div className="card-surface overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full min-w-[860px] text-left border-collapse">
               <thead>
-                <tr className="bg-slate-100 dark:bg-slate-800 border-b border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 uppercase tracking-wide">
+                <tr className="bg-surface-muted border-b border-border text-[11px] font-bold text-text-secondary uppercase tracking-wider">
                   {coaColumns.map(col => {
                     let widthClass = "";
-                    if (col.id === 'id') widthClass = "w-[100px]";
-                    if (col.id === 'type') widthClass = "w-[130px]";
-                    if (col.id === 'normalSide') widthClass = "w-[120px]";
+                    if (col.id === 'id') widthClass = "w-[110px]";
+                    if (col.id === 'type') widthClass = "w-[140px]";
+                    if (col.id === 'normalSide') widthClass = "w-[130px]";
                     return (
-                      <th key={col.id} className={cn("px-4 py-3.5 leading-5", widthClass)}>
+                      <th key={col.id} className={cn("px-4 py-3 leading-5 whitespace-nowrap", widthClass)}>
                         {col.name}
                       </th>
                     );
                   })}
-                  <th className="px-4 py-3.5 text-right w-[170px]">Running Balance</th>
+                  <th className="px-4 py-3 text-right w-[200px]">Running Balance</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 dark:divide-slate-700/80">
-                {filteredAccounts.length === 0 ? (
+              <tbody className="divide-y divide-border">
+                {displayRows.length === 0 ? (
                   <tr>
-                    <td colSpan={coaColumns.length} className="px-4 py-12 text-center text-slate-500 text-sm">
-                      No accounts found matching the filter criteria.
+                    <td colSpan={coaColumns.length + 1} className="px-4 py-16 text-center">
+                      <ClipboardList className="w-8 h-8 mx-auto text-text-muted mb-2" />
+                      <p className="text-sm font-semibold text-text-secondary">No accounts found</p>
+                      <p className="text-xs text-text-muted mt-1">Add an account to get started.</p>
                     </td>
                   </tr>
                 ) : (
-                  (hierarchyMode ? flattenCoaHierarchy(accounts) : filteredAccounts).map((account, index) => {
+                  displayRows.map((account, index) => {
                     const balanceValue = getAccountBalance(account);
 
                     const parentAccount = account.parentId ? accounts.find(a => a.id === account.parentId) : null;
@@ -2217,23 +2205,23 @@ export function ChartOfAccounts() {
                       <tr 
                         key={account.id} 
                         className={cn(
-                          "group hover:bg-slate-50/50 dark:hover:bg-slate-800/20 transition-colors",
+                          "group hover:bg-surface-muted transition-colors",
                         )}
                       >
                         {coaColumns.map(col => {
                           if (col.id === 'id') {
                             return (
-                              <td key={col.id} className="px-4 py-3.5 font-mono text-slate-800 dark:text-slate-100 text-[13px] sm:text-sm font-semibold">
+                              <td key={col.id} className="px-4 py-3 font-mono text-text-secondary text-[13px] font-medium tabular-nums">
                                 {account.id}
                               </td>
                             );
                           }
                           if (col.id === 'name') {
                             return (
-                              <td key={col.id} className="px-4 py-3.5 font-sans font-semibold text-slate-900 dark:text-white text-sm sm:text-[15px] leading-6">
+                              <td key={col.id} className="px-4 py-3 font-sans font-semibold text-text-primary text-sm leading-6">
                                 <div className="flex items-start gap-2">
                                   {account.parentId && (
-                                    <span className="text-slate-500 dark:text-slate-400 font-mono text-base ml-2 select-none">↳</span>
+                                    <span className="text-text-muted font-mono text-base ml-2 select-none">↳</span>
                                   )}
                                   <div className="flex flex-col">
                                     <span>{account.name}</span>
@@ -2249,30 +2237,30 @@ export function ChartOfAccounts() {
                           }
                           if (col.id === 'type') {
                             return (
-                              <td key={col.id} className="px-4 py-3.5 text-slate-800 dark:text-slate-100 text-sm sm:text-[15px] font-medium">
-                                {account.type}
+                              <td key={col.id} className="px-4 py-3">
+                                <span className={cn('inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ring-inset', typeBadgeClass(account.type))}>{account.type}</span>
                               </td>
                             );
                           }
                           if (col.id === 'normalSide') {
                             return (
-                              <td key={col.id} className="px-4 py-3.5 text-slate-800 dark:text-slate-100 text-sm sm:text-[15px] font-medium capitalize">
+                              <td key={col.id} className="px-4 py-3 text-sm text-text-secondary font-medium capitalize">
                                 {account.normalSide || getNormalSide(account.type)}
                               </td>
                             );
                           }
                           return (
-                            <td key={col.id} className="px-4 py-3.5 text-slate-800 dark:text-slate-100 text-sm sm:text-[15px] font-medium">
+                            <td key={col.id} className="px-4 py-3 text-sm text-text-primary">
                               {account[col.id] != null && account[col.id] !== ''
                                 ? account[col.id]
                                 : <span className="text-slate-400 dark:text-slate-600">—</span>}
                             </td>
                           );
                         })}
-                        <td className="px-4 py-3.5 text-right font-mono text-slate-900 dark:text-white text-sm sm:text-[15px] font-bold">
+                        <td className="px-4 py-3 text-right font-mono text-text-primary text-sm font-semibold tabular-nums">
                           <div className="flex items-center justify-end gap-2.5">
-                            <span>
-                              ₱ {balanceValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            <span className={cn(balanceValue < 0 && 'text-danger-600 dark:text-rose-400')}>
+                              {balanceValue < 0 ? '−' : ''}₱{Math.abs(balanceValue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                             </span>
                             
                             <div
@@ -2282,10 +2270,10 @@ export function ChartOfAccounts() {
                               <button
                                 onClick={() => setOpenActionMenuId(openActionMenuId === account.id ? null : account.id)}
                                 className={cn(
-                                  "p-1 rounded transition-colors",
+                                  "p-1.5 rounded-md transition-colors focus-visible:opacity-100",
                                   openActionMenuId === account.id
-                                    ? "bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-200"
-                                    : "hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-slate-400"
+                                    ? "bg-surface-subtle text-text-primary"
+                                    : "md:opacity-0 md:group-hover:opacity-100 hover:bg-surface-subtle text-text-muted hover:text-text-primary"
                                 )}
                                 title="Actions"
                               >
@@ -2293,7 +2281,7 @@ export function ChartOfAccounts() {
                               </button>
 
                               {openActionMenuId === account.id && (
-                                <div className="absolute right-0 top-full mt-1 w-44 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-lg py-1 z-20 text-left">
+                                <div className={cn("absolute right-0 w-44 bg-surface border border-border rounded-lg shadow-pop py-1 z-30 text-left font-sans", index >= displayRows.length - 2 && displayRows.length > 3 ? "bottom-full mb-1" : "top-full mt-1")}>
                                   <button
                                     onClick={() => {
                                       setEditingId(account.id);
@@ -2344,10 +2332,10 @@ export function ChartOfAccounts() {
                                       handleMoveDown(account.id);
                                       setOpenActionMenuId(null);
                                     }}
-                                    disabled={index === filteredAccounts.length - 1}
+                                    disabled={index === displayRows.length - 1}
                                     className={cn(
                                       "w-full flex items-center gap-2 px-3 py-2 text-xs font-medium transition-colors",
-                                      index === filteredAccounts.length - 1
+                                      index === displayRows.length - 1
                                         ? "text-slate-300 dark:text-slate-700 cursor-not-allowed"
                                         : "text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30"
                                     )}
