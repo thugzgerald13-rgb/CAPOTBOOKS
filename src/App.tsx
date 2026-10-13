@@ -53,20 +53,25 @@ const PayrollHub = lazy(() => import('./payroll/PayrollHub').then(m => ({ defaul
 /**
  * Route-level permission + module guard (Goal A). Wraps the whole <Routes> block so a
  * restricted user cannot open a sensitive page by typing its URL directly.
- * Mirrors the Sidebar `canUse` rule: only team subusers are gated by their
- * server-sourced permissions; developer-only routes are blocked for everyone
- * except the developer account. Denied navigation bounces back to the Dashboard
- * ("/") and writes an audit-log entry.
+ * Mirrors the Sidebar `canUse` rule: every non-owner user (team subusers AND
+ * standalone Accountant/Bookkeeper accounts viewing a shared client) is gated
+ * by their client-scoped permissions; developer-only routes are blocked for
+ * everyone except the developer account. Denied navigation bounces back to
+ * the Dashboard ("/") and writes an audit-log entry.
  */
 function RequirePermission({ children }: { children: React.ReactNode }) {
-  const { isSubuser, hasPermission, isAdmin, user } = useAuth();
+  const { hasPermission, isAdmin, user } = useAuth();
   const ent = useEntitlements();
   const location = useLocation();
   const path = location.pathname;
 
   const adminOnly = routeIsAdminOnly(path);
   const required = routeRequiresPermission(path);
-  const denied = adminOnly ? !isAdmin : Boolean(required && isSubuser && !hasPermission(required));
+  // Applies to BOTH invited team subusers AND standalone Accountant/Bookkeeper
+  // accounts viewing a shared client — hasPermission() is client-scoped and
+  // returns full access for the user's own clients. Owners/admins bypass via
+  // hasPermission itself (returns true), so no role check is needed here.
+  const denied = adminOnly ? !isAdmin : Boolean(required && !hasPermission(required));
   // Hard feature allowlist: every page EXCEPT those explicitly allowed is
   // blocked for every non-developer user (new and existing alike). The
   // developer account (isAdmin) bypasses this lock entirely.

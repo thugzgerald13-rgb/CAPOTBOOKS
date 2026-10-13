@@ -272,11 +272,29 @@ export function AuthProvider({ children }: AuthProviderProps) {
         return;
       }
 
-      // Account holders retain full access. Their role-permission response is
-      // kept for compatibility, but client-specific restrictions apply only to
-      // invited team members.
+      // Non-subusers: standalone Accountant / Bookkeeper accounts.
+      // On their own dashboard they keep their full role permission set.
+      // When a specific client is active, load the effective per-client grant
+      // so a shared client (invited by a Business Owner) restricts exactly the
+      // functions that were granted — own clients still resolve to all-true
+      // server-side. Fallback to role permissions while loading / on error so
+      // the route guard never flickers them into a redirect loop.
       if (!membership.isSubuser) {
-        if (!cancelled) setPermissions(rolePermissions);
+        if (!activePermissionClientId) {
+          if (!cancelled) setPermissions(rolePermissions);
+          return;
+        }
+        try {
+          const { data, error } = await supabase.rpc('get_my_client_permissions', {
+            p_client_id: activePermissionClientId,
+          });
+          if (error) throw error;
+          if (!cancelled) {
+            setPermissions((data && Object.keys(data).length > 0 ? data : rolePermissions) as Record<string, boolean>);
+          }
+        } catch {
+          if (!cancelled) setPermissions(rolePermissions);
+        }
         return;
       }
 
