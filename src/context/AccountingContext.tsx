@@ -101,21 +101,27 @@ const ownerClientId = (userId: string) => `client_owner_${userId}`;
 const defaultBusinessProfile = (name: string): BusinessProfile => ({
   id: name, // placeholder, immediately overwritten with user.id by the caller
   name,
-  tin: '000-000-000-000',
+  // Onboarding fields are intentionally left empty. The previous dummy
+  // values ('000-000-000-000', 'General Trade/Services', 'Main Street',
+  // '043B', ...) passed the AppLayout onboarding gate's non-empty checks,
+  // so a brand-new user was never navigated to the Business Profile form
+  // after choosing a role. Empty values keep the gate open until the user
+  // genuinely fills them in. taxpayerClassification keeps a sensible default.
+  tin: '',
   taxpayerClassification: 'Individual',
   vatRegistrationType: 'vat',
   registeredName: name,
   lastName: '',
   firstName: '',
   middleName: '',
-  tradeName: 'General Trade/Services',
+  tradeName: '',
   substreet: '',
-  street: 'Main Street',
-  barangay: 'Barangay 1',
-  district: 'District 1',
-  city: 'Metro Manila',
-  zipCode: '1000',
-  rdoCode: '043B',
+  street: '',
+  barangay: '',
+  district: '',
+  city: '',
+  zipCode: '',
+  rdoCode: '',
   accountingType: 'Calendar',
   fiscalMonthEnd: 12,
 });

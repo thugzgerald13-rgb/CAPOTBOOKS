@@ -106,7 +106,11 @@ export function Extras() {
     if (activePage === 'business') {
       if (businessProfile) {
         setEditingBusiness({ ...businessProfile });
-        setIsBusinessLocked(true);
+        // Lock the form only once the required onboarding fields are filled.
+        // A fresh (default) profile has empty TIN / Trade Name / Address /
+        // RDO Code and must open in edit mode so the new user can complete
+        // it immediately instead of being shown a read-only form.
+        setIsBusinessLocked(missingBusinessFields(businessProfile).length === 0);
       } else {
         setEditingBusiness(null);
         setIsBusinessLocked(false);
