@@ -1298,7 +1298,13 @@ export function AccountingProvider({
       if (clientsChannel) supabase.removeChannel(clientsChannel);
       if (bizChannel) supabase.removeChannel(bizChannel);
     };
-  }, [user?.id]);
+    // dataOwnerId is included on purpose: for managed staff / team subusers the
+    // owner id is resolved asynchronously by AuthContext (after userRole is
+    // already set). Without it, this effect ran once under the staff's own
+    // user id (empty clients + a default, incomplete business profile), which
+    // both starved the workspace of the owner's data and fed the onboarding
+    // redirect loop. Re-running when the owner id resolves loads the real data.
+  }, [user?.id, dataOwnerId]);
 
   // Sync Business Profile to the current user's owner client
   useEffect(() => {
