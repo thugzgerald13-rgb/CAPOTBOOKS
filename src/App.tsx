@@ -250,7 +250,7 @@ function AppLayout() {
 
 
 function MainApp() {
-  const { user, loading, userRole, setUserRole } = useAuth();
+  const { user, loading, accountReady, userRole, setUserRole } = useAuth();
 
   // Load trial + module entitlements from the server once the user has chosen a
   // role (the server starts the trial clock on this first call), then refresh
@@ -264,7 +264,7 @@ function MainApp() {
     return () => document.removeEventListener('visibilitychange', onVisible);
   }, [entitlementUserId]);
 
-  if (loading) {
+  if (loading || (user && !accountReady)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 font-sans">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-cyan-600"></div>

@@ -172,6 +172,7 @@ export function TeamSettings() {
   const [email, setEmail] = useState('');
   const [staffLogin, setStaffLogin] = useState('');
   const [staffPassword, setStaffPassword] = useState('');
+  const [staffClientIds, setStaffClientIds] = useState<string[]>([]);
   const [inviteType, setInviteType] = useState<'email' | 'staff'>('email');
   const [displayName, setDisplayName] = useState('');
   const [invitePermissions, setInvitePermissions] = useState<Record<string, boolean>>(defaultInvitePermissions());
@@ -275,6 +276,10 @@ export function TeamSettings() {
       return;
     }
     const selectedPermissionsRecord = Object.fromEntries(selected.map((p) => [p, true]));
+    if (inviteType === 'staff' && staffClientIds.length === 0) {
+      setError('Select at least one Client Profile for this staff login.');
+      return;
+    }
     setBusy(true);
     try {
       if (inviteType === 'staff') {
@@ -301,16 +306,19 @@ export function TeamSettings() {
         const login = staffLogin.trim().toLowerCase();
         setStaffLogin('');
         setStaffPassword('');
+        const permittedClientIds = [...staffClientIds];
+        setStaffClientIds([]);
         setDisplayName('');
         setInvitePermissions(defaultInvitePermissions());
         await refreshTeamMembers();
         // Managed staff is created immediately (no pending invite). Seed the
-        // selected permissions on every client so the grant applies at once.
+        // Seed grants only on the explicitly selected Client Profiles.
+        // No grant row is created for unselected profiles.
         const after = await listMySubusers().catch(() => []);
         const created = after.find((m) => m.memberKind === 'managed' && m.email === login);
         if (created && Object.keys(staffPermissions).length > 0) {
-          for (const client of Object.values(clients)) {
-            await setSubuserClientPermissions(created.userId, client.id, staffPermissions).catch(() => undefined);
+          for (const clientId of permittedClientIds) {
+            await setSubuserClientPermissions(created.userId, clientId, staffPermissions);
           }
         }
       } else {
@@ -491,6 +499,28 @@ export function TeamSettings() {
                   <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
                     Staff are managed credentials under your account. They do not create a separate CAPOT webapp account. They sign in with the login name and password you set below, with access limited to the clients and functions you grant.
                   </p>
+                )}
+                {inviteType === 'staff' && (
+                  <div className="mb-5 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+                    <div className="flex items-center justify-between gap-3 mb-3">
+                      <p className="text-sm font-bold text-slate-800 dark:text-slate-100">Permitted Client Profiles *</p>
+                      <div className="flex gap-3 text-xs">
+                        <button type="button" className="font-semibold text-cyan-600 hover:underline" onClick={() => setStaffClientIds(Object.values(clients).map((c) => c.id))}>Select all</button>
+                        <button type="button" className="font-semibold text-slate-500 hover:underline" onClick={() => setStaffClientIds([])}>Clear</button>
+                      </div>
+                    </div>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Choose one or more profiles. The staff login will receive access only to the profiles selected here.</p>
+                    <div className="grid sm:grid-cols-2 gap-2 max-h-48 overflow-y-auto">
+                      {Object.values(clients).sort((a, b) => a.name.localeCompare(b.name)).map((client) => (
+                        <label key={client.id} className="flex items-start gap-2 rounded-lg px-3 py-2 bg-slate-50 dark:bg-slate-900 cursor-pointer">
+                          <input type="checkbox" checked={staffClientIds.includes(client.id)} onChange={(e) => setStaffClientIds((prev) => e.target.checked ? [...prev, client.id] : prev.filter((id) => id !== client.id))} className="mt-0.5 accent-cyan-600" />
+                          <span className="text-sm text-slate-700 dark:text-slate-200">{client.name}</span>
+                        </label>
+                      ))}
+                      {Object.keys(clients).length === 0 && <p className="text-xs text-amber-600">No Client Profiles found. Create a profile before adding staff.</p>}
+                    </div>
+                    <p className="text-xs text-slate-500 mt-2">{staffClientIds.length} profile{staffClientIds.length === 1 ? '' : 's'} selected</p>
+                  </div>
                 )}
                 <div className={`grid gap-4 ${inviteType === 'staff' ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
                   {inviteType === 'staff' ? (

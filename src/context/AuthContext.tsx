@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import {
@@ -56,6 +56,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [membership, setMembership] = useState<AccountMembership>(DEFAULT_MEMBERSHIP);
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [pendingApproval, setPendingApproval] = useState(false);
+  // Auth can emit SIGNED_IN followed quickly by TOKEN_REFRESHED. Do not run
+  // overlapping profile/membership syncs for the same user: concurrent syncs
+  // were resetting permissions and workspace membership during initial render,
+  // which made the staff workspace appear to flicker.
+  const syncingUserId = useRef<string | null>(null);
 
   const DEVELOPER_EMAIL =
     (import.meta.env.VITE_ADMIN_EMAIL || 'thugz.gerald13@gmail.com').trim().toLowerCase();
@@ -92,6 +97,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     };
 
     const syncUser = async (usr: User) => {
+      if (syncingUserId.current === usr.id) return;
+      syncingUserId.current = usr.id;
       try {
         syncAccountSetupState(usr);
 
@@ -190,6 +197,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setMembership(DEFAULT_MEMBERSHIP);
         setTeamMembers([]);
       } finally {
+        if (syncingUserId.current === usr.id) syncingUserId.current = null;
         if (active) setAccountReady(true);
       }
     };

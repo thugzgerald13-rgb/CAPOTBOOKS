@@ -672,6 +672,24 @@ export function AccountingProvider({
   const { user, userRole, membership, setActivePermissionClientId } = useAuth();
   const dataOwnerId: string =
     membership?.isSubuser && membership?.ownerId ? membership.ownerId : user?.id ?? '';
+
+  // Team members (including managed staff) should only load Client Profiles
+  // for which the server reports at least one effective permission. Failing
+  // closed here prevents ungranted profiles from flashing into the workspace
+  // while the permission context is still initializing.
+  const filterPermittedClientRows = async (rows: any[]) => {
+    if (!membership?.isSubuser) return rows;
+    const checks = await Promise.all(rows.map(async (row) => {
+      try {
+        const { data, error } = await supabase.rpc('get_my_client_permissions', { p_client_id: row.id });
+        if (error || !data) return null;
+        return Object.values(data as Record<string, unknown>).some((value) => value === true) ? row : null;
+      } catch {
+        return null;
+      }
+    }));
+    return checks.filter((row): row is any => Boolean(row));
+  };
   const [clients, setClients] = useState<Record<string, Client>>({});
   const [currentClientId, setCurrentClientId] = useState<string | null>(null);
   const [businessProfile, setBusinessProfile] = useState<BusinessProfile | null>(null);
@@ -732,7 +750,8 @@ export function AccountingProvider({
       if (error) throw error;
       // A manual sync means "give me exactly what Supabase has now".
       clearNormalizedClientCache();
-      const cloudEntries = await Promise.all((data || []).map(async (row: any) => {
+      const permittedRows = await filterPermittedClientRows(data || []);
+      const cloudEntries = await Promise.all(permittedRows.map(async (row: any) => {
         const normalized = await loadNormalizedClient(row.id);
         const client = {
           id: row.id, name: row.name || 'Client',
@@ -952,7 +971,8 @@ export function AccountingProvider({
         if (error) throw error;
 
         clearTimeout(timeout);
-        const cloudEntries = await Promise.all((data || []).map(async (row: any) => {
+        const permittedRows = await filterPermittedClientRows(data || []);
+        const cloudEntries = await Promise.all(permittedRows.map(async (row: any) => {
           const normalized = await loadNormalizedClient(row.id);
           const client = { id: row.id, name: row.name || 'Client',
             tin: row.tin, taxpayerClassification: row.taxpayer_classification, registeredName: row.registered_name,
