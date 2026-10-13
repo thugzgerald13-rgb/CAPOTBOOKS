@@ -61,6 +61,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // were resetting permissions and workspace membership during initial render,
   // which made the staff workspace appear to flicker.
   const syncingUserId = useRef<string | null>(null);
+  // Watchdog: if getSession() or the background profile/RPC sync hangs (e.g. a
+  // slow/unreachable Supabase call that never resolves OR rejects), the app
+  // would otherwise spin forever on the loading spinner. Force the gate open
+  // after a bounded wait so the user can always reach the UI; background sync
+  // continues and updates state whenever it eventually completes.
+  const loadingWatchdog = useRef<number | null>(null);
+  const accountReadyWatchdog = useRef<number | null>(null);
+  const clearWatchdogs = () => {
+    if (loadingWatchdog.current !== null) { clearTimeout(loadingWatchdog.current); loadingWatchdog.current = null; }
+    if (accountReadyWatchdog.current !== null) { clearTimeout(accountReadyWatchdog.current); accountReadyWatchdog.current = null; }
+  };
 
   const DEVELOPER_EMAIL =
     (import.meta.env.VITE_ADMIN_EMAIL || 'thugz.gerald13@gmail.com').trim().toLowerCase();
@@ -80,6 +91,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
   useEffect(() => {
     let active = true;
     let initialSessionHandled = false;
+    // Fail-safe: even if the Supabase session check never settles, drop the
+    // full-screen spinner after 15s so the user is never stuck on a blank
+    // loading page. Cleared by the normal getSession() finally path below.
+    loadingWatchdog.current = window.setTimeout(() => {
+      if (!active) return;
+      setLoading(false);
+      setAccountReady(true);
+    }, 15000);
 
     const clearAuthState = () => {
       if (!active) return;
@@ -197,12 +216,23 @@ export function AuthProvider({ children }: AuthProviderProps) {
         setMembership(DEFAULT_MEMBERSHIP);
         setTeamMembers([]);
       } finally {
+        if (accountReadyWatchdog.current !== null) {
+          clearTimeout(accountReadyWatchdog.current);
+          accountReadyWatchdog.current = null;
+        }
         if (syncingUserId.current === usr.id) syncingUserId.current = null;
         if (active) setAccountReady(true);
       }
     };
 
     const deferUserSync = (usr: User) => {
+      // Arm the account-ready watchdog every time a user sync is deferred, so
+      // a hanging background sync never leaves the app on the spinner — this
+      // covers both initial session restore and later SIGNED_IN events.
+      if (accountReadyWatchdog.current !== null) clearTimeout(accountReadyWatchdog.current);
+      accountReadyWatchdog.current = window.setTimeout(() => {
+        if (active) setAccountReady(true);
+      }, 10000);
       window.setTimeout(() => {
         if (active) void syncUser(usr);
       }, 0);
@@ -254,6 +284,13 @@ export function AuthProvider({ children }: AuthProviderProps) {
           // application-specific profile and permissions sync in the
           // background.
           deferUserSync(sessionUser);
+          // Fail-safe: if the background sync (profile upsert, RPC calls,
+          // subuser list) hangs and never settles, force accountReady open
+          // after 10s. syncUser() clears this timer in its own finally when
+          // it completes normally.
+          accountReadyWatchdog.current = window.setTimeout(() => {
+            if (active) setAccountReady(true);
+          }, 10000);
         } else if (!initialSessionHandled) {
           clearAuthState();
         }
@@ -261,12 +298,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
         console.error('Failed to initialize auth session:', error);
         clearAuthState();
       } finally {
+        if (loadingWatchdog.current !== null) {
+          clearTimeout(loadingWatchdog.current);
+          loadingWatchdog.current = null;
+        }
         if (active) setLoading(false);
       }
     })();
 
     return () => {
       active = false;
+      clearWatchdogs();
       subscription.unsubscribe();
     };
   }, []);
