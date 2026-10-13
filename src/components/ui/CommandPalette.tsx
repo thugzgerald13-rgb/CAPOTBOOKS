@@ -3,7 +3,7 @@ import { Search, CornerDownLeft, FileText, Receipt, ShoppingCart, FileSignature,
 import { cn } from '@/lib/utils';
 import { useAccounting } from '@/context/AccountingContext';
 import { useAuth } from '@/context/AuthContext';
-import { routeRequiresPermission } from '@/lib/pagePermissions';
+import { routeRequiresPermission, featureAllows } from '@/lib/pagePermissions';
 
 interface PaletteItem {
   id: string;
@@ -73,7 +73,8 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     const route = COMMAND_ROUTE[item.id];
     const required = route ? routeRequiresPermission(route) : null;
     return (!isSubuser || !required || hasPermission(required))
-      && (!ADMIN_ONLY_COMMANDS.has(item.id) || isAdmin);
+      && (!ADMIN_ONLY_COMMANDS.has(item.id) || isAdmin)
+      && (isAdmin || featureAllows(item.id));
   }), [navigateToPage, setHistoryTab, isSubuser, hasPermission, isAdmin]);
 
   const filtered = useMemo(() => {

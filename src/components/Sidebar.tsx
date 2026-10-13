@@ -6,6 +6,7 @@ import { useAccounting } from '../context/AccountingContext';
 import { useAuth } from '../context/AuthContext';
 import { useEntitlements, isTrialActive, trialDaysLeft, hasTrialEnded } from '../lib/subscription';
 import type { Permission } from '../lib/accessControl';
+import { featureAllows } from '../lib/pagePermissions';
 import { supabase } from '../lib/supabase';
 import { 
   Users, Building2, BookText, BookOpen, 
@@ -267,6 +268,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
         const p = pagePermission(i.pageId);
         return !p || canUse(p);
       }).filter(i => !ADMIN_ONLY_PAGES.has(String(i.pageId)) || isAdmin)
+        .filter(i => isAdmin || featureAllows(i.pageId))
     : [];
 
   // Persistent "selected" highlight — applied to the nav button whose page
@@ -425,7 +427,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       navigateToPage('billing');
                       setIsOpen(false);
                     }}
-                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'billing' && activeIndigo, !canUse('edit_transactions') && 'hidden')}
+                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'billing' && activeIndigo, (!canUse('edit_transactions') || (!isAdmin && !featureAllows('billing'))) && 'hidden')}
                   >
                     <CreditCard className="w-4 h-4" />
                     Billing
@@ -436,7 +438,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       handleNavClick('sales');
                       setIsOpen(false);
                     }}
-                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'sales' && activeIndigo, !canUse('edit_transactions') && 'hidden')}
+                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'sales' && activeIndigo, (!canUse('edit_transactions') || (!isAdmin && !featureAllows('sales'))) && 'hidden')}
                   >
                     <Receipt className="w-4 h-4" />
                     Income
@@ -466,7 +468,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
 
                   <hr className="border-slate-100 dark:border-slate-800 my-1" />
 
-                  {historyItems.map((subItem) => {
+                  {historyItems.filter(() => isAdmin || featureAllows('history')).map((subItem) => {
                     const SubIcon = subItem.icon;
                     return (
                       <button
@@ -496,7 +498,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
             className={cn(
               "flex items-center gap-3 px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-slate-800 dark:hover:text-emerald-400 transition-all w-full text-left group",
               activePage === 'payroll' && "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400",
-              !canUse('edit_transactions') && 'hidden',
+              (!canUse('edit_transactions') || (!isAdmin && !featureAllows('payroll'))) && 'hidden',
               isCollapsed && "md:justify-center md:px-2"
             )}
           >
@@ -512,7 +514,8 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               className={cn(
                 "flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl transition-all w-full text-left group",
                 (isFormsOpen || activePage === 'compliance-tracker' || activePage === 'bir-forms' || activePage === 'relief' || ['afs-financial-position','afs-income-statements','afs-equity-retained-earnings','afs-ppe','cashflow'].includes(activePage)) ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
-                isCollapsed && "md:justify-center md:px-2"
+                isCollapsed && "md:justify-center md:px-2",
+                (!isAdmin && !featureAllows('compliance-tracker')) && 'hidden'
               )}
             >
               <div className="flex items-center gap-3">
@@ -726,7 +729,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
             </AnimatePresence>
           </div>
 
-          {navItems.filter((i) => (!ADMIN_ONLY_PAGES.has(i.id) || isAdmin)).map((item) => {
+          {navItems.filter((i) => (!ADMIN_ONLY_PAGES.has(i.id) || isAdmin) && (isAdmin || featureAllows(i.id))).map((item) => {
             const Icon = item.icon;
             return (
               <button
@@ -775,7 +778,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   transition={{ duration: 0.2 }}
                   className="overflow-hidden flex flex-col gap-1 mt-1 pl-4"
                 >
-                  {reportItems.map((subItem) => {
+                  {reportItems.filter((i) => isAdmin || featureAllows(i.id)).map((subItem) => {
                     const SubIcon = subItem.icon;
                     return (
                       <button
@@ -822,7 +825,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   transition={{ duration: 0.2 }}
                   className="overflow-hidden flex flex-col gap-1 mt-1 pl-4"
                 >
-                  {bookItems.map((subItem) => {
+                  {bookItems.filter((i) => isAdmin || featureAllows(i.id)).map((subItem) => {
                     const SubIcon = subItem.icon;
                     return (
                       <button

@@ -83,3 +83,54 @@ export function routeRequiresPermission(pathname: string): Permission | null {
 export function routeIsAdminOnly(pathname: string): boolean {
   return ADMIN_ONLY_ROUTES.has(pathname);
 }
+
+
+// ---------------------------------------------------------------------------
+// Hard feature allowlist (global lock).
+//
+// Every authenticated user EXCEPT the developer account (isAdmin) may open
+// ONLY the pages listed below. All other routes — even if typed directly in
+// the URL bar or reached via a dashboard widget — are bounced back to the
+// dashboard by the RequirePermission guard in App.tsx. The Sidebar submenus,
+// inline search and command palette are filtered by the same allowlist so
+// locked functions are hidden as well.
+//
+// Allowed: Dashboard (/), Chart of Accounts, Purchases (all sub-workspaces),
+// Journal Voucher, Expense/Income History, Upload Files, General Journal,
+// General Ledger, Business Profiles, TIN Library, Account Settings,
+// Team & Subusers, Trial Balance.
+// ---------------------------------------------------------------------------
+
+const FEATURE_ALLOWED_PAGE_IDS: ReadonlySet<string> = new Set([
+  'coa',
+  'purchases',
+  'journal-voucher',
+  'history',
+  'files',
+  'journal',
+  'ledger',
+  'business',
+  'tinlibrary',
+  'account-settings',
+  'team',
+  'trialbalance',
+]);
+
+/**
+ * True if `pageIdOrPath` (a sidebar pageId like 'coa' or a route path like
+ * '/purchases/invoiced') is inside the feature allowlist. The dashboard
+ * (null / '' / '/') is always allowed so the user is never bounced into a
+ * redirect loop.
+ */
+export function featureAllows(pageIdOrPath: string | null): boolean {
+  if (pageIdOrPath == null) return true;
+  const norm = String(pageIdOrPath).trim().replace(/^\/+/, '').split(/[?#]/)[0];
+  if (norm === '') return true; // dashboard
+  if (norm === 'purchases' || norm.startsWith('purchases/')) return true;
+  return FEATURE_ALLOWED_PAGE_IDS.has(norm);
+}
+
+/** True if `pathname` is outside the feature allowlist (blocked for non-devs). */
+export function routeIsFeatureLocked(pathname: string): boolean {
+  return !featureAllows(pathname);
+}

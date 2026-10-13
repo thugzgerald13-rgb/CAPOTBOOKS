@@ -9,7 +9,7 @@ import { AuthContainer } from './components/AuthContainer';
 import { RoleSelection } from './components/RoleSelection';
 import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { ToastContainer } from './components/ui/Toast';
-import { routeRequiresPermission, routeIsAdminOnly } from './lib/pagePermissions';
+import { routeRequiresPermission, routeIsAdminOnly, routeIsFeatureLocked } from './lib/pagePermissions';
 import { moduleForRoute } from './lib/modules';
 import { useEntitlements, loadEntitlements, resetEntitlements, isModuleUnlocked, isResolving } from './lib/subscription';
 import { ModuleLocked } from './components/ModuleLocked';
@@ -67,24 +67,28 @@ function RequirePermission({ children }: { children: React.ReactNode }) {
   const adminOnly = routeIsAdminOnly(path);
   const required = routeRequiresPermission(path);
   const denied = adminOnly ? !isAdmin : Boolean(required && isSubuser && !hasPermission(required));
+  // Hard feature allowlist: every page EXCEPT those explicitly allowed is
+  // blocked for every non-developer user (new and existing alike). The
+  // developer account (isAdmin) bypasses this lock entirely.
+  const featureLocked = !isAdmin && routeIsFeatureLocked(path);
   // Module gate: Core routes are never locked. Paid-module routes need an
   // active trial or paid entitlement (the developer account is exempt).
   const moduleId = moduleForRoute(path);
   const moduleLocked = moduleId !== null && !isModuleUnlocked(ent, moduleId, isAdmin);
 
   useEffect(() => {
-    if (denied && user) {
+    if ((denied || featureLocked) && user) {
       logAudit({
         userEmail: user.email || 'unknown',
         action: 'route_access_denied',
         entity: path,
-        details: adminOnly ? 'admin-only route' : `missing permission: ${required}`,
+        details: featureLocked ? 'feature not in allowlist' : adminOnly ? 'admin-only route' : `missing permission: ${required}`,
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [denied, path]);
+  }, [denied, featureLocked, path]);
 
-  if (denied) return <Navigate to="/" replace />;
+  if (denied || featureLocked) return <Navigate to="/" replace />;
   if (moduleId && !isAdmin && isResolving(ent)) return <PageSkeleton />;
   if (moduleLocked && moduleId) return <ModuleLocked moduleId={moduleId} />;
   return <>{children}</>;
