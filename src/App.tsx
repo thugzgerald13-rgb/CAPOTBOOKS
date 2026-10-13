@@ -102,7 +102,7 @@ function RequirePermission({ children }: { children: React.ReactNode }) {
 function AppLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const { clients, currentClient, navigateToPage, activePage, businessProfile } = useAccounting();
-  const { userRole, isAdmin } = useAuth();
+  const { userRole, isAdmin, isSubuser, hasPermission } = useAuth();
 
   const hasClients = Object.keys(clients).length > 0;
 
@@ -130,6 +130,16 @@ function AppLayout() {
   // Trade Name, Address and RDO Code — before any other page can be opened.
   useEffect(() => {
     if (!userRole) return;
+    // Team members / managed staff work inside the OWNER's workspace — they do
+    // not own a Business Profile and cannot open /business (it requires the
+    // manage_settings capability, which staff/viewer roles never hold).
+    // Force-navigating them to /business bounces them straight back to "/" via
+    // the RequirePermission guard, and this effect re-fires on the return —
+    // an infinite "/" <-> "/business" redirect loop that renders as constant
+    // screen flickering after staff login. Skip the gate for any user who
+    // cannot reach /business in the first place.
+    if (isSubuser) return;
+    if (!isAdmin && userRole !== 'owner' && !hasPermission('manage_settings')) return;
     if (activePage === 'business') return;
     const p = businessProfile;
     const incomplete = !p
@@ -156,9 +166,9 @@ function AppLayout() {
               <div className="mt-8 card-surface">
                 <EmptyState
                   icon={<Wallet className="w-7 h-7" />}
-                  title="Welcome to your workspace"
-                  description="Set up your business profile (TIN, Taxpayer Classification, Trade Name, Address and RDO Code) to begin tracking transactions and generating reports."
-                  action={<Button size="lg" onClick={() => navigateToPage('business')}>Set up Business Profile</Button>}
+                  title={isSubuser ? 'No client workspaces assigned yet' : 'Welcome to your workspace'}
+                  description={isSubuser ? 'Ask the account owner to grant you access to a client workspace. You will see it here once the permission is active.' : 'Set up your business profile (TIN, Taxpayer Classification, Trade Name, Address and RDO Code) to begin tracking transactions and generating reports.'}
+                  action={!isSubuser ? <Button size="lg" onClick={() => navigateToPage('business')}>Set up Business Profile</Button> : undefined}
                 />
               </div>
             )
