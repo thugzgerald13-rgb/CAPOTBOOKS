@@ -105,7 +105,7 @@ export function AuthContainer() {
           <div>
             <label className="block text-sm font-bold text-slate-600 dark:text-slate-400 mb-1">Email or Staff Login</label>
             <input
-              type="email"
+              type={isLogin ? "text" : "email"}
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-cyan-500"
