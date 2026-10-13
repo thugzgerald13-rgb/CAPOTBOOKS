@@ -309,7 +309,7 @@ export function TeamSettings() {
   const handleRemove = async () => {
     if (!confirmRemove) return;
     try {
-      await removeSubuser(confirmRemove.userId);
+      await removeSubuser(confirmRemove.userId, confirmRemove.memberKind);
       setConfirmRemove(null);
       await refreshTeamMembers();
     } catch (err) {
@@ -549,7 +549,11 @@ export function TeamSettings() {
                               <td className="px-4 py-3">
                                 <p className="font-bold text-slate-800 dark:text-slate-100">{m.displayName || '—'}</p>
                                 <p className="text-xs text-slate-500 dark:text-slate-400 break-all">{m.email}</p>
-                                {m.memberKind === 'independent' ? (
+                                {m.inviteMode === 'owner_to_accountant' ? (
+                                  <span className="inline-flex mt-1 px-1.5 py-0.5 rounded-md bg-teal-50 text-teal-700 dark:bg-teal-900/20 dark:text-teal-300 text-[10px] font-bold">Client relationship · own account</span>
+                                ) : m.status === 'invited' ? (
+                                  <span className="inline-flex mt-1 px-1.5 py-0.5 rounded-md bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300 text-[10px] font-bold">Awaiting acceptance</span>
+                                ) : m.memberKind === 'independent' ? (
                                   <span className="inline-flex mt-1 px-1.5 py-0.5 rounded-md bg-cyan-50 text-cyan-700 dark:bg-cyan-900/20 dark:text-cyan-300 text-[10px] font-bold">Own CAPOT account</span>
                                 ) : (
                                   <span className="inline-flex mt-1 px-1.5 py-0.5 rounded-md bg-violet-50 text-violet-700 dark:bg-violet-900/20 dark:text-violet-300 text-[10px] font-bold">Managed under this account</span>
@@ -557,7 +561,8 @@ export function TeamSettings() {
                               </td>
                               <td className="px-4 py-3">
                                 <select value={m.memberRole} onChange={(e) => handleRoleChange(m, e.target.value as MemberRole)}
-                                  className="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs font-bold text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-cyan-500">
+                                  disabled={m.status === 'invited' || m.inviteMode === 'owner_to_accountant'}
+                                  className="px-2 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-xs font-bold text-slate-700 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-cyan-500 disabled:opacity-50 disabled:cursor-not-allowed">
                                   {(m.memberKind === 'managed' ? ROLE_OPTIONS.filter((r) => r.value === 'staff') : ROLE_OPTIONS).map((r) => (<option key={r.value} value={r.value}>{r.label}</option>))}
                                 </select>
                               </td>
@@ -567,7 +572,7 @@ export function TeamSettings() {
                                   : m.status === 'invited' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
                                   : 'bg-slate-200 text-slate-600 dark:bg-slate-700 dark:text-slate-300'}`}>
                                   {m.status === 'active' ? <CheckCircle2 className="w-3 h-3" /> : <AlertTriangle className="w-3 h-3" />}
-                                  {m.status}
+                                  {m.status === 'invited' ? 'Invited' : m.status}
                                 </span>
                               </td>
                               <td className="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">{m.lastLogin ? new Date(m.lastLogin).toLocaleString() : 'Never'}</td>
@@ -575,9 +580,9 @@ export function TeamSettings() {
                                 <div className="flex items-center justify-end gap-1">
                                   <button
                                     onClick={() => openClientPermissions(m)}
-                                    disabled={m.status !== 'active'}
-                                    className={`p-2 rounded-lg text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-900/20 transition-colors ${m.status !== 'active' ? 'opacity-40 cursor-not-allowed pointer-events-none' : ''}`}
-                                    title={m.status === 'active' ? 'Client access & permissions' : 'Client access is available after the user becomes active'}
+                                    disabled={m.status !== 'active' || m.inviteMode === 'owner_to_accountant'}
+                                    className={`p-2 rounded-lg text-slate-400 hover:text-cyan-600 hover:bg-cyan-50 dark:hover:bg-cyan-900/20 transition-colors ${(m.status !== 'active' || m.inviteMode === 'owner_to_accountant') ? 'opacity-40 cursor-not-allowed pointer-events-none' : ''}`}
+                                    title={m.inviteMode === 'owner_to_accountant' ? 'This professional keeps their own account; client permissions do not apply' : m.status === 'active' ? 'Client access & permissions' : 'Client access is available after the user becomes active'}
                                   >
                                     <SlidersHorizontal className="w-4 h-4" />
                                   </button>
@@ -586,7 +591,7 @@ export function TeamSettings() {
                                       <KeyRound className="w-4 h-4" />
                                     </button>
                                   )}
-                                  <button onClick={() => handleToggleStatus(m)} className="p-2 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors" title={m.status === 'disabled' ? 'Enable access' : 'Disable access'}>
+                                  <button onClick={() => handleToggleStatus(m)} disabled={m.status === 'invited' || m.inviteMode === 'owner_to_accountant'} className={`p-2 rounded-lg text-slate-400 hover:text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors ${(m.status === 'invited' || m.inviteMode === 'owner_to_accountant') ? 'opacity-40 cursor-not-allowed pointer-events-none' : ''}`} title={m.inviteMode === 'owner_to_accountant' ? 'This professional keeps their own account and cannot be disabled here' : m.status === 'invited' ? 'A pending invitation cannot be disabled — revoke it instead' : m.status === 'disabled' ? 'Enable access' : 'Disable access'}>
                                     <Ban className="w-4 h-4" />
                                   </button>
                                   <button onClick={() => setConfirmRemove(m)} className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors" title="Remove from account">
@@ -721,13 +726,21 @@ export function TeamSettings() {
               <div className="w-10 h-10 rounded-xl bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400 flex items-center justify-center">
                 <Trash2 className="w-5 h-5" />
               </div>
-              <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Remove subuser?</h3>
+              <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">
+                {confirmRemove.status === 'invited' ? 'Revoke invitation?' : confirmRemove.inviteMode === 'owner_to_accountant' ? 'Remove accountant relationship?' : 'Remove subuser?'}
+              </h3>
             </div>
             <p className="text-sm text-slate-600 dark:text-slate-300 mb-6">
-              <span className="font-semibold">{confirmRemove.email}</span> will lose access to your account data.{' '}
-              {confirmRemove.memberKind === 'managed'
-                ? 'Their managed Staff Login will be disabled.'
-                : 'Their existing CAPOT account remains theirs; only its link to your account is removed.'}
+              <span className="font-semibold">{confirmRemove.email}</span>
+              {confirmRemove.status === 'invited'
+                ? ' has a pending invitation that has not been accepted yet. Revoking it means they will no longer be able to accept access to your account.'
+                : confirmRemove.inviteMode === 'owner_to_accountant'
+                  ? ' is linked as your Accountant/Bookkeeper. Removing the relationship severs the client link; their own CAPOT account and the synced client profile remain intact.'
+                  : <> will lose access to your account data.{' '}
+                      {confirmRemove.memberKind === 'managed'
+                        ? 'Their managed Staff Login will be disabled.'
+                        : 'Their existing CAPOT account remains theirs; only its link to your account is removed.'}
+                    </>}
             </p>
             <div className="flex justify-end gap-2">
               <button onClick={() => setConfirmRemove(null)} className="px-4 py-2 rounded-xl border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 font-bold text-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-all">Cancel</button>

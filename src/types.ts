@@ -601,6 +601,10 @@ export interface TeamMember {
   lastLogin?: string | null;
   createdAt?: string | null;
   memberKind?: 'managed' | 'independent';
+  /** Invitation model used. 'owner_to_accountant' = Business Owner invited a
+   *  professional who keeps their own CAPOT account (client relationship).
+   *  Null for legacy managed subusers. */
+  inviteMode?: 'team_member' | 'owner_to_accountant' | null;
 }
 
 export interface ClientPermissionAssignment {

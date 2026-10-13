@@ -118,6 +118,7 @@ export async function listMySubusers(): Promise<TeamMember[]> {
     lastLogin: (r.last_login as string) || null,
     createdAt: (r.created_at as string) || null,
     memberKind: (r.member_kind as 'managed' | 'independent') || 'managed',
+    inviteMode: (r.invite_mode as TeamMember['inviteMode']) ?? null,
   }));
 }
 
@@ -143,15 +144,30 @@ export async function setSubuserStatus(
   });
 }
 
-/** Remove a team member. Managed staff credentials are disabled; professional
- * accounts are merely unlinked from the inviter's workspace. */
-export async function removeSubuser(userId: string): Promise<void> {
-  const { data, error } = await supabase.functions.invoke('managed-staff', {
-    body: { action: 'remove', userId },
-  });
-  if (!error && data && !data.error) return;
-  if (error) throw new Error(error.message);
-  if (data?.error) throw new Error(String(data.error));
+/** Remove a team member. Managed staff credentials are disabled via the
+ *  managed-staff edge function; independent professional accounts are
+ *  unlinked and pending invitations are revoked by the remove_subuser RPC,
+ *  which also handles legacy managed subusers.
+ *
+ *  The edge function is only tried for managed members. Previously it was
+ *  always invoked first, and its 400 "Team member not found" (e.g. for a
+ *  pending invitation, which has no account_team_links row yet) was thrown
+ *  before the RPC fallback ever ran — so pending invites could not be
+ *  revoked from the UI. */
+export async function removeSubuser(
+  userId: string,
+  memberKind?: 'managed' | 'independent'
+): Promise<void> {
+  if (memberKind === 'managed') {
+    try {
+      const { data, error } = await supabase.functions.invoke('managed-staff', {
+        body: { action: 'remove', userId },
+      });
+      if (!error && data && !data.error) return;
+    } catch {
+      /* fall through to the RPC below for legacy managed subusers */
+    }
+  }
   await callRpc<void>('remove_subuser', { p_user_id: userId });
 }
 
