@@ -53,11 +53,27 @@ export async function inviteSubuser(
       },
     });
     if (error) {
-      const msg = String(error.message || '');
+      // Supabase FunctionsHttpError keeps the non-2xx Response in `context`.
+      // Read its JSON body so the UI shows the Edge Function's real validation
+      // or database error instead of the generic "non-2xx status code" message.
+      let msg = String(error.message || '');
+      const context = (error as Error & { context?: unknown }).context;
+      if (context instanceof Response) {
+        try {
+          const payload = await context.clone().json() as { error?: unknown; message?: unknown };
+          const serverMessage = payload?.error ?? payload?.message;
+          if (typeof serverMessage === 'string' && serverMessage.trim()) {
+            msg = serverMessage.trim();
+          }
+        } catch {
+          // The response may not contain JSON; keep the SDK message as fallback.
+        }
+      }
+
       const networkFailure = /failed to send|failed to fetch|networkerror|cors|load failed/i.test(msg) || !msg;
       throw new Error(
         networkFailure
-          ? 'Could not reach the managed-staff Edge Function. Deploy it to your Supabase project first: supabase functions deploy managed-staff (or upload supabase/functions/managed-staff in the Dashboard → Edge Functions).'
+          ? 'Could not reach the managed-staff Edge Function. Deploy it to your Supabase project first: npx supabase functions deploy managed-staff (or upload supabase/functions/managed-staff in the Dashboard → Edge Functions).'
           : msg
       );
     }
