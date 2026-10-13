@@ -740,6 +740,15 @@ export function AccountingProvider({
   const [isReady, setIsReady] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncError, setSyncError] = useState<string | null>(null);
+  // Fail-safe: if the cloud data load (clients, cloud prefs, active client
+  // restore) hangs and never settles, force the data gate open after 15s so
+  // the user is never stuck on "Syncing your data...". Local data renders
+  // immediately and the cloud sync continues in the background.
+  const [forceReady, setForceReady] = useState(false);
+  useEffect(() => {
+    const t = window.setTimeout(() => setForceReady(true), 15000);
+    return () => clearTimeout(t);
+  }, []);
 
   const syncData = async () => {
     if (!user || !isReady) return;
@@ -2375,7 +2384,7 @@ export function AccountingProvider({
   // cloudPrefsLoaded, and - if there are clients to restore - for
   // currentClientId to actually be picked.
   const dataFullyReady =
-    isReady && (!user || cloudPrefsLoaded) && (Object.keys(clients).length === 0 || !!currentClientId);
+    forceReady || (isReady && (!user || cloudPrefsLoaded) && (Object.keys(clients).length === 0 || !!currentClientId));
 
   if (!dataFullyReady) {
     return (
