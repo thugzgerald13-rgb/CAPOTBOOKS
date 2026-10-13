@@ -963,6 +963,11 @@ export function AccountingProvider({
           'Connection timeout. Supabase is taking too long to respond. This usually happens if your project is paused or your internet is slow.'
         );
         setIsSyncing(false);
+        // Open the data gate even on timeout — local/cached data renders
+        // immediately and the cloud sync continues in the background.
+        // Without this, the "Syncing your data..." spinner would stay up
+        // until the separate 15s forceReady watchdog fires.
+        setIsReady(true);
       }
     }, 12000);
 
@@ -1281,9 +1286,11 @@ export function AccountingProvider({
     // forcing one clean full re-sync from the authoritative tables. It runs
     // in milliseconds, so awaiting it before initClients is safe.
     (async () => {
-      await validateCacheSchema();
-      initClients();
-      initBizProfile();
+      try { await validateCacheSchema(); } catch { /* ignore cache validation errors */ }
+      // initClients / initBizProfile are fire-and-forget; ensure a Supabase
+      // rejection never leaves the data gate closed (would spin forever).
+      Promise.resolve(initClients()).catch(() => { setIsReady(true); });
+      Promise.resolve(initBizProfile()).catch(() => {});
     })();
 
     return () => {

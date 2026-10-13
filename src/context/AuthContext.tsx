@@ -68,6 +68,11 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // continues and updates state whenever it eventually completes.
   const loadingWatchdog = useRef<number | null>(null);
   const accountReadyWatchdog = useRef<number | null>(null);
+  // Once flipped true by the hard backstop below, the auth gate stays open
+  // forever — further setAccountReady(false) calls (from a storm of
+  // SIGNED_IN / TOKEN_REFRESHED events while Supabase is unreachable) are
+  // ignored, so the app can never get stuck on the full-screen spinner.
+  const gateForcedOpen = useRef(false);
   const clearWatchdogs = () => {
     if (loadingWatchdog.current !== null) { clearTimeout(loadingWatchdog.current); loadingWatchdog.current = null; }
     if (accountReadyWatchdog.current !== null) { clearTimeout(accountReadyWatchdog.current); accountReadyWatchdog.current = null; }
@@ -99,6 +104,16 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setLoading(false);
       setAccountReady(true);
     }, 15000);
+    // HARD BACKSTOP — never cleared by auth events or sync deferrals. If the
+    // account-ready sync hangs (unreachable/paused Supabase, network block,
+    // or a storm of TOKEN_REFRESHED/SIGNED_IN events that keep clearing the
+    // per-sync watchdog), force the gate open after 12s and keep it open.
+    const gateBackstop = window.setTimeout(() => {
+      if (!active) return;
+      gateForcedOpen.current = true;
+      setLoading(false);
+      setAccountReady(true);
+    }, 12000);
 
     const clearAuthState = () => {
       if (!active) return;
@@ -244,7 +259,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const nextUser = session?.user ?? null;
       setUser(nextUser);
       if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
-        setAccountReady(false);
+        if (!gateForcedOpen.current) setAccountReady(false);
       }
 
       // INITIAL_SESSION is handled by the explicit getSession() call below.
@@ -276,7 +291,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
         const sessionUser = session?.user ?? null;
         setUser(sessionUser);
-        setAccountReady(false);
+        if (!gateForcedOpen.current) setAccountReady(false);
 
         if (sessionUser) {
           // Do not block the auth gate on profile/RPC/database work.
@@ -308,6 +323,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     return () => {
       active = false;
+      clearTimeout(gateBackstop);
       clearWatchdogs();
       subscription.unsubscribe();
     };
@@ -448,7 +464,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
   return (
     <AuthContext.Provider value={{
-      user, loading, pendingApproval, isAdmin, userRole, permissions, hasPermission, setUserRole, signOut,
+      user, loading, accountReady, pendingApproval, isAdmin, userRole, permissions, hasPermission, setUserRole, signOut,
       needsAccountSetup, completeAccountSetup,
       subusersEnabled, membership, isSubuser: membership.isSubuser, teamMembers, refreshTeamMembers, setActivePermissionClientId,
     }}>
