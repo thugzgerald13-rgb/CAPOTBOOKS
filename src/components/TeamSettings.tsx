@@ -274,6 +274,7 @@ export function TeamSettings() {
       setError('Select at least one permission to grant.');
       return;
     }
+    const selectedPermissionsRecord = Object.fromEntries(selected.map((p) => [p, true]));
     const memberRole = deriveRoleFromPermissions(selected);
     // Business-owner invitations create a professional client relationship
     // server-side, which requires at least bookkeeper level.
@@ -281,7 +282,7 @@ export function TeamSettings() {
       isBusinessOwner && memberRole === 'viewer' ? 'bookkeeper' : memberRole;
     setBusy(true);
     try {
-      const result = await inviteSubuser(email, displayName, effectiveRole);
+      const result = await inviteSubuser(email, displayName, effectiveRole, { permissions: selectedPermissionsRecord });
       setSecret({ email: result.email, password: result.temporaryPassword, existingUser: result.existingUser, invitationPending: result.invitationPending, managedStaff: false });
       setEmail('');
       setDisplayName('');

@@ -41,7 +41,7 @@ export async function inviteSubuser(
   email: string,
   displayName: string,
   memberRole: MemberRole,
-  options?: { loginName?: string; password?: string }
+  options?: { loginName?: string; password?: string; permissions?: Record<string, boolean> }
 ): Promise<InviteResult> {
   if (memberRole === 'staff') {
     const { data, error } = await supabase.functions.invoke('managed-staff', {
@@ -68,6 +68,7 @@ export async function inviteSubuser(
     p_email: email.trim(),
     p_display_name: displayName.trim() || null,
     p_member_role: memberRole,
+    p_permissions: options?.permissions ?? {},
   });
   const r = rows?.[0];
   if (!r) throw new Error('Invitation could not be created.');
