@@ -23,6 +23,7 @@ import {
   resetSubuserPassword,
   listSubuserClientPermissions,
   setSubuserClientPermissions,
+  listMySubusers,
   SubusersNotEnabledError,
 } from '../lib/subusers';
 import type { MemberRole, TeamMember } from '../types';
@@ -169,6 +170,9 @@ export function TeamSettings() {
   const isBusinessOwner = userRole === 'owner';
   const canInvite = isBusinessOwner || userRole === 'accountant' || userRole === 'bookkeeper';
   const [email, setEmail] = useState('');
+  const [staffLogin, setStaffLogin] = useState('');
+  const [staffPassword, setStaffPassword] = useState('');
+  const [inviteType, setInviteType] = useState<'email' | 'staff'>('email');
   const [displayName, setDisplayName] = useState('');
   const [invitePermissions, setInvitePermissions] = useState<Record<string, boolean>>(defaultInvitePermissions());
   const [busy, setBusy] = useState(false);
@@ -265,29 +269,68 @@ export function TeamSettings() {
       setError('Only a Business Owner or an Accountant/Bookkeeper can send team invitations.');
       return;
     }
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) {
-      setError('Enter a valid email address.');
-      return;
-    }
     const selected = selectedInvitePermissions();
     if (selected.length === 0) {
       setError('Select at least one permission to grant.');
       return;
     }
     const selectedPermissionsRecord = Object.fromEntries(selected.map((p) => [p, true]));
-    const memberRole = deriveRoleFromPermissions(selected);
-    // Business-owner invitations create a professional client relationship
-    // server-side, which requires at least bookkeeper level.
-    const effectiveRole: MemberRole =
-      isBusinessOwner && memberRole === 'viewer' ? 'bookkeeper' : memberRole;
     setBusy(true);
     try {
-      const result = await inviteSubuser(email, displayName, effectiveRole, { permissions: selectedPermissionsRecord });
-      setSecret({ email: result.email, password: result.temporaryPassword, existingUser: result.existingUser, invitationPending: result.invitationPending, managedStaff: false });
-      setEmail('');
-      setDisplayName('');
-      setInvitePermissions(defaultInvitePermissions());
-      await refreshTeamMembers();
+      if (inviteType === 'staff') {
+        if (!/^[a-z0-9._-]{3,32}$/.test(staffLogin.trim().toLowerCase())) {
+          setError('Enter a Staff Login using 3-32 lowercase letters, numbers, dot, underscore, or hyphen.');
+          setBusy(false);
+          return;
+        }
+        if (staffPassword.length < 6) {
+          setError('Staff password must be at least 6 characters.');
+          setBusy(false);
+          return;
+        }
+        // Staff role cap: only edit_transactions + view_reports are grantable.
+        const staffAllowed = new Set(MEMBER_ROLE_PERMISSIONS.staff || []);
+        const staffPermissions = Object.fromEntries(
+          selected.filter((p) => staffAllowed.has(p)).map((p) => [p, true])
+        );
+        const result = await inviteSubuser(staffLogin, displayName, 'staff', {
+          loginName: staffLogin.trim().toLowerCase(),
+          password: staffPassword,
+        });
+        setSecret({ email: result.email, password: staffPassword, existingUser: false, invitationPending: false, managedStaff: true });
+        const login = staffLogin.trim().toLowerCase();
+        setStaffLogin('');
+        setStaffPassword('');
+        setDisplayName('');
+        setInvitePermissions(defaultInvitePermissions());
+        await refreshTeamMembers();
+        // Managed staff is created immediately (no pending invite). Seed the
+        // selected permissions on every client so the grant applies at once.
+        const after = await listMySubusers().catch(() => []);
+        const created = after.find((m) => m.memberKind === 'managed' && m.email === login);
+        if (created && Object.keys(staffPermissions).length > 0) {
+          for (const client of Object.values(clients)) {
+            await setSubuserClientPermissions(created.userId, client.id, staffPermissions).catch(() => undefined);
+          }
+        }
+      } else {
+        if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim())) {
+          setError('Enter a valid email address.');
+          setBusy(false);
+          return;
+        }
+        const memberRole = deriveRoleFromPermissions(selected);
+        // Business-owner invitations create a professional client relationship
+        // server-side, which requires at least bookkeeper level.
+        const effectiveRole: MemberRole =
+          isBusinessOwner && memberRole === 'viewer' ? 'bookkeeper' : memberRole;
+        const result = await inviteSubuser(email, displayName, effectiveRole, { permissions: selectedPermissionsRecord });
+        setSecret({ email: result.email, password: result.temporaryPassword, existingUser: result.existingUser, invitationPending: result.invitationPending, managedStaff: false });
+        setEmail('');
+        setDisplayName('');
+        setInvitePermissions(defaultInvitePermissions());
+        await refreshTeamMembers();
+      }
     } catch (err) {
       if (err instanceof SubusersNotEnabledError) {
         setNotEnabled(true);
@@ -432,17 +475,47 @@ export function TeamSettings() {
               <form onSubmit={handleInvite} className="rounded-2xl border border-slate-200 dark:border-slate-700 p-5">
                 <div className="flex items-center gap-2 mb-4">
                   <UserPlus className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
-                  <h3 className="font-bold text-slate-800 dark:text-slate-100">{isBusinessOwner ? 'Invite an Accountant / Bookkeeper' : 'Invite a team member'}</h3>
+                  <h3 className="font-bold text-slate-800 dark:text-slate-100">{inviteType === 'staff' ? 'Create a Managed Staff Login' : isBusinessOwner ? 'Invite an Accountant / Bookkeeper' : 'Invite a team member'}</h3>
                 </div>
-                <div className="grid md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Email *</label>
-                    <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder={isBusinessOwner ? 'accountant@company.com' : 'teammate@company.com'}
-                      className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500" />
-                  </div>
+                <div className="inline-flex rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-1 mb-4">
+                  <button type="button" onClick={() => setInviteType('email')}
+                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${inviteType === 'email' ? 'bg-cyan-600 text-white shadow' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>
+                    Email invitation
+                  </button>
+                  <button type="button" onClick={() => { setInviteType('staff'); const allowed = new Set(MEMBER_ROLE_PERMISSIONS.staff || []); setInvitePermissions((prev) => Object.fromEntries(Object.entries(prev).filter(([k, v]) => Boolean(v) && allowed.has(k as Permission)))); }}
+                    className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${inviteType === 'staff' ? 'bg-cyan-600 text-white shadow' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}>
+                    Managed Staff Login
+                  </button>
+                </div>
+                {inviteType === 'staff' && (
+                  <p className="text-xs text-slate-500 dark:text-slate-400 mb-4">
+                    Staff are managed credentials under your account. They do not create a separate CAPOT webapp account. They sign in with the login name and password you set below, with access limited to the clients and functions you grant.
+                  </p>
+                )}
+                <div className={`grid gap-4 ${inviteType === 'staff' ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
+                  {inviteType === 'staff' ? (
+                    <>
+                      <div>
+                        <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Staff Login *</label>
+                        <input type="text" required value={staffLogin} onChange={(e) => setStaffLogin(e.target.value.toLowerCase())} placeholder="e.g. maria.staff"
+                          className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Initial password *</label>
+                        <input type="password" required minLength={6} value={staffPassword} onChange={(e) => setStaffPassword(e.target.value)} placeholder="At least 6 characters"
+                          className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+                      </div>
+                    </>
+                  ) : (
+                    <div>
+                      <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Email *</label>
+                      <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder={isBusinessOwner ? 'accountant@company.com' : 'teammate@company.com'}
+                        className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500" />
+                    </div>
+                  )}
                   <div>
                     <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Display name</label>
-                    <input type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="e.g. Maria, Accountant"
+                    <input type="text" value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder={inviteType === 'staff' ? 'e.g. Maria, Staff' : 'e.g. Maria, Accountant'}
                       className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-cyan-500" />
                   </div>
                 </div>
@@ -453,7 +526,7 @@ export function TeamSettings() {
                       <button type="button" onClick={() => setInvitePermissions(defaultInvitePermissions())}
                         className="text-[11px] font-bold text-cyan-600 dark:text-cyan-400 hover:underline">Bookkeeper defaults</button>
                       <span className="text-slate-300 dark:text-slate-600">·</span>
-                      <button type="button" onClick={() => setInvitePermissions(Object.fromEntries(ALL_PERMISSIONS.map((p) => [p.key, true])))}
+                      <button type="button" onClick={() => { const all = Object.fromEntries(ALL_PERMISSIONS.map((p) => [p.key, true])); if (inviteType === 'staff') { const allowed = new Set(MEMBER_ROLE_PERMISSIONS.staff || []); Object.keys(all).forEach((k) => { if (!allowed.has(k as Permission)) delete all[k]; }); } setInvitePermissions(all); }}
                         className="text-[11px] font-bold text-cyan-600 dark:text-cyan-400 hover:underline">Select all</button>
                       <span className="text-slate-300 dark:text-slate-600">·</span>
                       <button type="button" onClick={() => setInvitePermissions({})}
@@ -461,17 +534,21 @@ export function TeamSettings() {
                     </div>
                   </div>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">
-                    Select exactly which functions the invited user may use. A matching access level is applied server-side; you can further refine per-client access from the team list after they join.
+                    {inviteType === 'staff'
+                      ? 'Select which functions this staff login may use. Staff logins can only edit transactions and view reports; other functions are reserved for higher roles.'
+                      : 'Select exactly which functions the invited user may use. A matching access level is applied server-side; you can further refine per-client access from the team list after they join.'}
                   </p>
                   <div className="grid sm:grid-cols-2 gap-2">
                     {ALL_PERMISSIONS.map((p) => {
                       const on = Boolean(invitePermissions[p.key]);
+                      const allowedForType = inviteType === 'staff' ? (MEMBER_ROLE_PERMISSIONS.staff || []).includes(p.key) : true;
                       return (
                         <button
                           type="button"
                           key={p.key}
+                          disabled={!allowedForType}
                           onClick={() => toggleInvitePermission(p.key)}
-                          className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition-all active:scale-[0.98] ${
+                          className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border text-left transition-all ${allowedForType ? 'active:scale-[0.98]' : 'opacity-40 cursor-not-allowed'} ${
                             on
                               ? 'border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/20'
                               : 'border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 hover:border-slate-300 dark:hover:border-slate-600'
@@ -484,18 +561,19 @@ export function TeamSettings() {
                           </span>
                           <span className={`text-sm font-medium ${on ? 'text-emerald-800 dark:text-emerald-200' : 'text-slate-500 dark:text-slate-400'}`}>
                             {p.label}
+                            {!allowedForType && <span className="block text-[10px] font-normal text-slate-400">Not available for Staff logins</span>}
                           </span>
                         </button>
                       );
                     })}
                   </div>
                 </div>
-                <p className="text-xs text-cyan-600 dark:text-cyan-400 mt-3">{isBusinessOwner ? 'The invited professional must already have their own CAPOT account. Your business is added to their Client Profiles after acceptance.' : 'The invited member uses their existing CAPOT account. Their access is limited to the functions you grant above.'}</p>
+                <p className="text-xs text-cyan-600 dark:text-cyan-400 mt-3">{inviteType === 'staff' ? 'The staff login is active immediately. Share the login name and initial password securely. Permissions are applied to all your clients automatically.' : isBusinessOwner ? 'The invited professional must already have their own CAPOT account. Your business is added to their Client Profiles after acceptance.' : 'The invited member uses their existing CAPOT account. Their access is limited to the functions you grant above.'}</p>
                 <div className="mt-4 flex items-center gap-3">
                   <button type="submit" disabled={busy}
                     className="flex items-center gap-2 px-6 py-3 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl font-bold shadow-md transition-all active:scale-95 disabled:opacity-50">
                     {busy ? <RefreshCw className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
-                    {busy ? 'Sending...' : 'Send Invitation'}
+                    {busy ? 'Sending...' : inviteType === 'staff' ? 'Create Staff Login' : 'Send Invitation'}
                   </button>
                   <span className="text-xs text-slate-400">Signed in as {user?.email}</span>
                 </div>
