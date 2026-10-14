@@ -247,3 +247,28 @@ export async function setSubuserClientPermissions(
     p_permissions: permissions,
   });
 }
+
+/** Load explicitly saved module/action/dropdown grants for a team member. */
+export async function listSubuserClientUiPermissions(userId: string): Promise<ClientPermissionAssignment[]> {
+  const rows = await callRpc<Array<Record<string, unknown>>>('list_subuser_client_ui_permissions', {
+    p_user_id: userId,
+  });
+  return (rows || []).map((r) => ({
+    clientId: String(r.client_id),
+    clientName: null,
+    permissions: (r.permissions || {}) as Record<string, boolean>,
+  }));
+}
+
+/** Save the fine-grained module, action and dropdown grant for one client. */
+export async function setSubuserClientUiPermissions(
+  userId: string,
+  clientId: string,
+  permissions: Record<string, boolean>
+): Promise<void> {
+  await callRpc<void>('set_subuser_client_ui_permissions', {
+    p_user_id: userId,
+    p_client_id: clientId,
+    p_permissions: permissions,
+  });
+}

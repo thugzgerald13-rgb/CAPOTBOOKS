@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { useEntitlements, isTrialActive, trialDaysLeft, hasTrialEnded } from '../lib/subscription';
 import type { Permission } from '../lib/accessControl';
 import { featureAllows } from '../lib/pagePermissions';
+import { dropdownPermissionKey, moduleIdForSidebarPage, modulePermissionKey } from '../lib/granularPermissions';
 import { supabase } from '../lib/supabase';
 import { 
   Users, Building2, BookText, BookOpen, 
@@ -148,8 +149,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   };
 
   const handleNavClick = (pageId: string, historyType?: string) => {
-    const permission = pagePermission(pageId);
-    if (permission && !canUse(permission)) return;
+    if (!canUsePage(pageId)) return;
 
     if (historyType) {
       setHistoryTab(historyType);
@@ -268,12 +268,18 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     }
   };
 
+  const canUsePage = (pageId: string | null): boolean => {
+    const permission = pagePermission(pageId);
+    if (permission && !canUse(permission)) return false;
+    const moduleId = moduleIdForSidebarPage(pageId);
+    return !moduleId || hasPermission(modulePermissionKey(moduleId));
+  };
+
   const sidebarFiltered = sidebarQuery.trim()
     ? SIDEBAR_NAV_INDEX.filter(i =>
         i.label.toLowerCase().includes(sidebarQuery.trim().toLowerCase()) ||
         i.keywords.includes(sidebarQuery.trim().toLowerCase())).filter(i => {
-        const p = pagePermission(i.pageId);
-        return !p || canUse(p);
+        return canUsePage(i.pageId);
       }).filter(i => !ADMIN_ONLY_PAGES.has(String(i.pageId)) || isAdmin)
         .filter(i => isAdmin || featureAllows(i.pageId))
     : [];
@@ -350,7 +356,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   return (
                     <button
                       key={item.label}
-                      disabled={!!pagePermission(item.pageId) && !canUse(pagePermission(item.pageId)!)}
+                      disabled={!canUsePage(item.pageId)}
                       onClick={() => {
                         if (item.historyTab) setHistoryTab(item.historyTab);
                         navigateToPage(item.pageId);
@@ -359,7 +365,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       }}
                       className={cn(
                         "w-full flex items-center gap-2.5 px-3 py-2 text-sm text-slate-700 dark:text-slate-200 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:text-blue-700 dark:hover:text-blue-300 transition-colors text-left",
-                        !!pagePermission(item.pageId) && !canUse(pagePermission(item.pageId)!) && "opacity-40 grayscale cursor-not-allowed pointer-events-none"
+                        !canUsePage(item.pageId) && "opacity-40 grayscale cursor-not-allowed pointer-events-none"
                       )}
                     >
                       <Icon className="w-4 h-4 text-slate-400 shrink-0" />
@@ -377,12 +383,14 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
           </div>
           <button
             onClick={() => {
+              if (!canUsePage(null)) return;
               navigateToPage(null);
               setIsOpen(false);
             }}
             title={isCollapsed ? "Dashboard" : undefined}
             className={cn(
               "flex items-center gap-3 px-4 py-3 text-sm font-bold text-blue-700 dark:text-blue-400 rounded-xl bg-blue-50/60 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-all w-full text-left group mb-1",
+              !canUsePage(null) && 'hidden',
               isCollapsed && "md:justify-center md:px-2"
             )}
           >
@@ -398,7 +406,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               className={cn(
                 "flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl transition-all w-full text-left group",
                 (isTransactionsOpen || ['coa','billing','sales','journal-voucher','history'].includes(activePage) || activePage?.startsWith('purchases')) ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
-                !canAny('edit_transactions', 'view_reports', 'manage_settings') && 'hidden',
+                (!canAny('edit_transactions', 'view_reports', 'manage_settings') || !['coa','billing','sales','purchases','journal-voucher','history'].some(canUsePage)) && 'hidden',
                 isCollapsed && "md:justify-center md:px-2"
               )}
             >
@@ -424,7 +432,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       handleNavClick('coa');
                       setIsOpen(false);
                     }}
-                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'coa' && activeIndigo, !canUse('manage_settings') && 'hidden')}
+                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'coa' && activeIndigo, (!canUse('manage_settings') || !canUsePage('coa')) && 'hidden')}
                   >
                     <BookOpen className="w-4 h-4" />
                     Chart of Accounts
@@ -432,10 +440,10 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   <button
                     disabled={!canUse('edit_transactions')}
                     onClick={() => {
-                      navigateToPage('billing');
+                      handleNavClick('billing');
                       setIsOpen(false);
                     }}
-                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'billing' && activeIndigo, (!canUse('edit_transactions') || (!isAdmin && !featureAllows('billing'))) && 'hidden')}
+                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'billing' && activeIndigo, (!canUse('edit_transactions') || !canUsePage('billing') || (!isAdmin && !featureAllows('billing'))) && 'hidden')}
                   >
                     <CreditCard className="w-4 h-4" />
                     Billing
@@ -446,7 +454,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       handleNavClick('sales');
                       setIsOpen(false);
                     }}
-                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'sales' && activeIndigo, (!canUse('edit_transactions') || (!isAdmin && !featureAllows('sales'))) && 'hidden')}
+                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'sales' && activeIndigo, (!canUse('edit_transactions') || !canUsePage('sales') || (!isAdmin && !featureAllows('sales'))) && 'hidden')}
                   >
                     <Receipt className="w-4 h-4" />
                     Income
@@ -454,10 +462,10 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   <button
                     disabled={!canUse('edit_transactions')}
                     onClick={() => {
-                        navigateToPage('purchases');
+                        handleNavClick('purchases');
                         setIsOpen(false);
                     }}
-                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage?.startsWith('purchases') && activeIndigo, !canUse('edit_transactions') && 'hidden')}
+                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage?.startsWith('purchases') && activeIndigo, (!canUse('edit_transactions') || !canUsePage('purchases')) && 'hidden')}
                   >
                     <ShoppingCart className="w-4 h-4" />
                     Purchases
@@ -468,7 +476,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       navigateToPage('journal-voucher');
                       setIsOpen(false);
                     }}
-                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'journal-voucher' && activeIndigo, !canUse('edit_transactions') && 'hidden')}
+                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'journal-voucher' && activeIndigo, (!canUse('edit_transactions') || !canUsePage('journal-voucher')) && 'hidden')}
                   >
                     <FileSignature className="w-4 h-4" />
                     Journal Voucher
@@ -476,7 +484,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
 
                   <hr className="border-slate-100 dark:border-slate-800 my-1" />
 
-                  {historyItems.filter(() => isAdmin || featureAllows('history')).map((subItem) => {
+                  {historyItems.filter((item) => (isAdmin || featureAllows('history')) && canUsePage('history') && hasPermission(dropdownPermissionKey('history', 'history_type', item.id))).map((subItem) => {
                     const SubIcon = subItem.icon;
                     return (
                       <button
@@ -506,7 +514,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
             className={cn(
               "flex items-center gap-3 px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-slate-800 dark:hover:text-emerald-400 transition-all w-full text-left group",
               activePage === 'payroll' && "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400",
-              (!canUse('edit_transactions') || (!isAdmin && !featureAllows('payroll'))) && 'hidden',
+              (!canUse('edit_transactions') || !canUsePage('payroll') || (!isAdmin && !featureAllows('payroll'))) && 'hidden',
               isCollapsed && "md:justify-center md:px-2"
             )}
           >
@@ -524,7 +532,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                 (isFormsOpen || activePage === 'compliance-tracker' || activePage === 'bir-forms' || activePage === 'relief' || ['afs-financial-position','afs-income-statements','afs-equity-retained-earnings','afs-ppe','cashflow'].includes(activePage)) ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
                 isCollapsed && "md:justify-center md:px-2",
                 (!isAdmin && !featureAllows('compliance-tracker')) && 'hidden',
-                !canUse('view_reports') && 'hidden'
+                (!canUse('view_reports') || !['bir-forms','relief','cashflow','afs-financial-position','afs-income-statements','afs-equity-retained-earnings','afs-ppe'].some(canUsePage)) && 'hidden'
               )}
             >
               <div className="flex items-center gap-3">
@@ -768,7 +776,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               className={cn(
                 "flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl transition-all w-full text-left group",
                 (isReportsOpen || ['trialbalance','balancesheet','pl','assetlapsing'].includes(activePage)) ? "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
-                !canUse('view_reports') && 'hidden',
+                (!canUse('view_reports') || !['trialbalance','balancesheet','pl','assetlapsing'].some(canUsePage)) && 'hidden',
                 isCollapsed && "md:justify-center md:px-2"
               )}
             >
@@ -788,7 +796,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   transition={{ duration: 0.2 }}
                   className="overflow-hidden flex flex-col gap-1 mt-1 pl-4"
                 >
-                  {reportItems.filter((i) => isAdmin || featureAllows(i.id)).map((subItem) => {
+                  {reportItems.filter((i) => (isAdmin || featureAllows(i.id)) && canUsePage(i.id)).map((subItem) => {
                     const SubIcon = subItem.icon;
                     return (
                       <button
@@ -836,7 +844,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   transition={{ duration: 0.2 }}
                   className="overflow-hidden flex flex-col gap-1 mt-1 pl-4"
                 >
-                  {bookItems.filter((i) => isAdmin || featureAllows(i.id)).map((subItem) => {
+                  {bookItems.filter((i) => (isAdmin || featureAllows(i.id)) && canUsePage(i.id)).map((subItem) => {
                     const SubIcon = subItem.icon;
                     return (
                       <button
@@ -886,7 +894,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                     <button
                       disabled={!canUse('manage_settings')}
                       onClick={() => handleNavClick('business')}
-                      className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-all w-full text-left", !canUse('manage_settings') && 'hidden')}
+                      className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-all w-full text-left", (!canUse('manage_settings') || !canUsePage('business')) && 'hidden')}
                     >
                       <Building2 className="w-4 h-4" />
                       Business Profiles
@@ -896,7 +904,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       <button
                         disabled={!canUse('manage_settings')}
                         onClick={() => handleNavClick('clients')}
-                        className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-all w-full text-left", !canUse('manage_settings') && 'hidden')}
+                        className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-all w-full text-left", (!canUse('manage_settings') || !canUsePage('clients')) && 'hidden')}
                       >
                         <Users className="w-4 h-4" />
                         Client Profiles
@@ -904,7 +912,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       <button
                         disabled={!canUse('manage_settings')}
                         onClick={() => handleNavClick('business')}
-                        className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-all w-full text-left", !canUse('manage_settings') && 'hidden')}
+                        className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-all w-full text-left", (!canUse('manage_settings') || !canUsePage('business')) && 'hidden')}
                       >
                         <Building2 className="w-4 h-4" />
                         Business Profiles
@@ -914,7 +922,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   <button
                     disabled={!canUse('manage_settings')}
                     onClick={() => handleNavClick('payroll/settings')}
-                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold rounded-lg transition-all w-full text-left", activePage === 'payroll/settings' ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200', (!canUse('manage_settings') || (!isAdmin && !featureAllows('payroll/settings'))) && 'hidden')}
+                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold rounded-lg transition-all w-full text-left", activePage === 'payroll/settings' ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200', (!canUse('manage_settings') || !canUsePage('payroll/settings') || (!isAdmin && !featureAllows('payroll/settings'))) && 'hidden')}
                   >
                     <Settings className="w-4 h-4" />
                     Payroll Settings
@@ -922,7 +930,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   <button
                     disabled={!canUse('manage_settings')}
                     onClick={() => handleNavClick('tinlibrary')}
-                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-all w-full text-left", !canUse('manage_settings') && 'hidden')}
+                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200 transition-all w-full text-left", (!canUse('manage_settings') || !canUsePage('tinlibrary')) && 'hidden')}
                   >
                     <Building2 className="w-4 h-4" />
                     TIN Library
@@ -937,7 +945,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   <button
                     disabled={!canUse('manage_users')}
                     onClick={() => handleNavClick('team')}
-                    className={`flex items-center gap-3 px-4 py-2 text-xs font-bold rounded-lg transition-all w-full text-left ${!canUse('manage_users') ? 'hidden ' : ''}${activePage === 'team' ? 'bg-cyan-50 text-cyan-700 dark:bg-cyan-900/20 dark:text-cyan-400' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200'}`}
+                    className={`flex items-center gap-3 px-4 py-2 text-xs font-bold rounded-lg transition-all w-full text-left ${(!canUse('manage_users') || !canUsePage('team')) ? 'hidden ' : ''}${activePage === 'team' ? 'bg-cyan-50 text-cyan-700 dark:bg-cyan-900/20 dark:text-cyan-400' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200'}`}
                   >
                     <Users className="w-4 h-4" />
                     Team &amp; Subusers

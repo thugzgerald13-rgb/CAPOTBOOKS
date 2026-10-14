@@ -5,6 +5,7 @@ import { FileSignature, Plus, Trash2, Check, X, ChevronDown, ChevronUp, Save, Fo
 import { DEFAULT_GJ_COLUMNS } from './GeneralJournal';
 import { JournalVoucher as JournalVoucherType, JournalVoucherLine, JournalEntry } from '../types';
 import { addIntervalISO, loadJVTemplates, persistJVTemplates, readJVAttachment, type JVTemplate, type JVAttachment, type RecurrenceFrequency } from '../lib/glPosting';
+import { useGranularPermissions } from '../lib/useGranularPermissions';
 
 interface DraftLine {
   id: string;
@@ -34,6 +35,7 @@ function isCashPaymentVoucher(voucher: { lines: Array<{ accountName?: string; cr
 
 export function JournalVoucher() {
   const { currentClient, currentClientId, saveJournalVoucher, deleteJournalVoucher, showToast } = useAccounting();
+  const { canAction: canJournalVoucherAction } = useGranularPermissions('journal_voucher');
 
   const today = new Date().toISOString().split('T')[0];
   const [date, setDate] = useState(today);
@@ -92,6 +94,7 @@ export function JournalVoucher() {
   };
 
   const handleSave = async () => {
+    if (!canJournalVoucherAction('add')) { showToast('Your profile does not have permission to add journal vouchers.'); return; }
     if (!date || !reference.trim()) {
       alert('Date and Reference are required.');
       return;
@@ -140,6 +143,7 @@ export function JournalVoucher() {
   };
 
   const handleDelete = async (id: string) => {
+    if (!canJournalVoucherAction('delete')) { showToast('Your profile does not have permission to delete journal vouchers.'); return; }
     try {
       await deleteJournalVoucher(currentClientId, id);
     } catch {
@@ -148,6 +152,7 @@ export function JournalVoucher() {
   };
   // ---- Run 010 / T010 handlers ----
   const handleSaveTemplate = () => {
+    if (!canJournalVoucherAction('edit')) { showToast('Your profile does not have permission to manage journal voucher templates.'); return; }
     const validLines = lines.filter(l => l.accountName && (parseFloat(l.debit) > 0 || parseFloat(l.credit) > 0));
     if (validLines.length < 2 || !templateName.trim()) {
       alert('Enter a template name and at least two balanced lines before saving.');
@@ -165,6 +170,7 @@ export function JournalVoucher() {
     showToast(`Template "${tpl.name}" saved`);
   };
   const handleApplyTemplate = (tpl: JVTemplate) => {
+    if (!canJournalVoucherAction('add')) { showToast('Your profile does not have permission to add journal vouchers.'); return; }
     setMemo(tpl.memo);
     setLines(tpl.lines.map(l => ({ id: crypto.randomUUID(), accountId: l.accountId, accountName: l.accountName, debit: l.debit ? String(l.debit) : '', credit: l.credit ? String(l.credit) : '' })));
     showToast(`Template "${tpl.name}" applied`);
@@ -180,6 +186,7 @@ export function JournalVoucher() {
     e.target.value = '';
   };
   const handleGenerateNext = (v: JournalVoucherType & { nextDate?: string; recurrenceFrequency?: RecurrenceFrequency }) => {
+    if (!canJournalVoucherAction('add')) { showToast('Your profile does not have permission to generate journal vouchers.'); return; }
     if (!v.nextDate || !v.recurrenceFrequency) return;
     const generated: any = {
       ...v,
@@ -202,6 +209,7 @@ export function JournalVoucher() {
     <div className="w-full flex flex-col">
       <PageHeader title="Journal Voucher" icon={<FileSignature className="w-5 h-5 text-cyan-500" />} />
       <div className="p-4 md:p-6 flex-1">
+      {canJournalVoucherAction('add') && <section>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-100 dark:border-slate-700">
         <div>
           <label className="form-label">Date</label>
@@ -350,6 +358,8 @@ export function JournalVoucher() {
         <Plus className="w-5 h-5" /> Save Journal Voucher
       </button>
 
+      </section>}
+
       <h3 className="text-sm font-black text-slate-700 dark:text-slate-300 uppercase tracking-wider mb-3">Voucher Register</h3>
       <div className="space-y-2">
         {vouchers.length === 0 && (
@@ -376,16 +386,16 @@ export function JournalVoucher() {
                 </div>
                 <div className="flex items-center gap-3">
                   <span className="text-xs font-black text-slate-700 dark:text-slate-300">₱{vTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                  {canGenerateNext && (
+                  {canGenerateNext && canJournalVoucherAction('add') && (
                     <button onClick={(e) => { e.stopPropagation(); handleGenerateNext(vAny); }} className="inline-flex items-center gap-1 text-[10px] font-bold text-cyan-700 dark:text-cyan-400 border border-cyan-200 dark:border-cyan-800 rounded-lg px-2 py-1 hover:bg-cyan-50 dark:hover:bg-cyan-950/20 transition">
                       <RefreshCw className="w-3 h-3" /> Generate Next
                     </button>
                   )}
                   {vAny.isRecurring && <span className="text-[10px] font-bold text-cyan-600 dark:text-cyan-400">Recurring · {vAny.recurrenceFrequency}</span>}
                   {vAny.attachments?.length > 0 && <span className="text-[10px] text-slate-400 inline-flex items-center gap-0.5"><Paperclip className="w-3 h-3" />{vAny.attachments.length}</span>}
-                  <button onClick={(e) => { e.stopPropagation(); handleDelete(v.id); }} className="p-1 text-slate-300 hover:text-red-500 rounded transition">
+                  {canJournalVoucherAction('delete') && <button onClick={(e) => { e.stopPropagation(); handleDelete(v.id); }} className="p-1 text-slate-300 hover:text-red-500 rounded transition">
                     <Trash2 className="w-3.5 h-3.5" />
-                  </button>
+                  </button>}
                   {isExpanded ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
                 </div>
               </div>

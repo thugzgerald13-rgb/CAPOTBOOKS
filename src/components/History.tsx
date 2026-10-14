@@ -5,6 +5,7 @@ import { Modal } from './ui/Modal';
 import { Purchases } from './Purchases';
 import { AttachmentViewer } from './AttachmentViewer';
 import { useAccounting } from '../context/AccountingContext';
+import { useGranularPermissions } from '../lib/useGranularPermissions';
 import { Search, Trash2, Receipt, ShoppingCart, FolderClock, History as HistoryIcon, FileDown, FileSpreadsheet, Download, Pencil, Columns3, ChevronDown, X, Eye, Bookmark } from 'lucide-react';
 import { cn, MONTHS, generateCSV, formatTIN } from '../lib/utils';
 import { getAttachmentViewUrl } from '../lib/supabaseUtils';
@@ -94,6 +95,11 @@ type HistoryTab = 'expenses' | 'income' | 'slp' | 'sls';
 export function History() {
   const { currentClient, currentClientId, savePurchase, deletePurchase, saveSale, deleteSale, saveTinEntry, showToast, navigateToPage, historyTab, setHistoryTab, activeDevice } = useAccounting();
   const navigate = useNavigate();
+  const { canView: canHistoryView, canAction: canHistoryAction, canDropdownOption: canHistoryDropdown } = useGranularPermissions('history');
+  const { canAction: canPurchaseAction } = useGranularPermissions('purchases');
+  const { canAction: canSalesAction } = useGranularPermissions('sales');
+  const { canAction: canPurchaseJournalAction } = useGranularPermissions('purchase_journal');
+  const { canAction: canSalesJournalAction } = useGranularPermissions('sales_journal');
   const [searchTerm, setSearchTerm] = useState('');
   const [localHistoryPurchases, setLocalHistoryPurchases] = useState<any[]>([]);
   const [localHistorySales, setLocalHistorySales] = useState<any[]>([]);
@@ -441,6 +447,7 @@ export function History() {
   };
 
   const handleExportExpenses = (format: 'xlsx' | 'csv') => {
+    if (!canHistoryAction('export')) { showToast('You do not have permission to export history.'); return; }
     if (!filteredPurchases.length) {
       showToast(`No expense records to export for ${targetFormatted}.`);
       setShowExpenseExport(false);
@@ -579,7 +586,21 @@ export function History() {
   };
 
   const activeTab = historyTab as HistoryTab;
-  const setActiveTab = (tab: HistoryTab) => setHistoryTab(tab);
+  const canViewHistoryTab = (tab: HistoryTab) => {
+    if (tab === 'expenses' || tab === 'income') return canHistoryDropdown('history_type', tab);
+    if (tab === 'slp') return canPurchaseJournalAction('view');
+    return canSalesJournalAction('view');
+  };
+  const setActiveTab = (tab: HistoryTab) => {
+    if (!canViewHistoryTab(tab)) { showToast('You do not have permission to open this history section.'); return; }
+    setHistoryTab(tab);
+  };
+  useEffect(() => {
+    if (canViewHistoryTab(activeTab)) return;
+    const fallback: HistoryTab[] = ['expenses', 'income', 'slp', 'sls'];
+    const next = fallback.find(canViewHistoryTab);
+    if (next) setHistoryTab(next);
+  }, [activeTab, canHistoryView, canHistoryDropdown, canPurchaseJournalAction, canSalesJournalAction, setHistoryTab]);
   const targetFormatted = `${MONTHS[selectedMonth - 1]} ${selectedYear}`;
 
   // History is intentionally period-scoped. Do not depend on AccountingContext
@@ -754,6 +775,7 @@ export function History() {
 
 
   const handleDeleteExpense = async (id: string | number) => {
+    if (!canPurchaseAction('delete')) { showToast('You do not have permission to delete purchases.'); return; }
     if (!currentClientId) return;
     try {
       await deletePurchase(String(id));
@@ -767,6 +789,7 @@ export function History() {
   };
 
   const handleEditExpense = (purchase: typeof purchases[number]) => {
+    if (!canPurchaseAction('edit')) { showToast('You do not have permission to edit purchases.'); return; }
     // Open the matching Purchases form (Invoiced vs Other Payments) in a modal
     // instead of navigating away, so the user stays on Expense History.
     setEditPurchaseMode(purchase.invoiceNo && purchase.supplierTin ? 'invoiced' : 'other-payments');
@@ -785,6 +808,7 @@ export function History() {
   // Persist an inline Account Title edit straight to the normalized purchases
   // table and mirror it in local state so the table updates immediately.
   const handleSaveAccountTitle = async (id: string | number, rawValue: string) => {
+    if (!canPurchaseAction('edit')) { showToast('You do not have permission to edit purchases.'); return; }
     // Escape was pressed — discard the draft without persisting.
     if (cancelEditRef.current) { cancelEditRef.current = false; return; }
     const trimmed = rawValue.trim();
@@ -817,6 +841,7 @@ export function History() {
   };
 
   const handleDeleteIncome = async (id: number) => {
+    if (!canSalesAction('delete')) { showToast('You do not have permission to delete sales.'); return; }
     if (!currentClientId) return;
     try {
       await deleteSale(String(id));
@@ -901,6 +926,7 @@ export function History() {
 
 
   const handleExportSLP = () => {
+    if (!canPurchaseJournalAction('export')) { showToast('You do not have permission to export the Purchase Journal.'); return; }
     if (!purchases.length || !currentClient) return;
 
     const workbook = XLSX.utils.book_new();
@@ -978,6 +1004,7 @@ export function History() {
   };
 
   const handleExportSLS = () => {
+    if (!canSalesJournalAction('export')) { showToast('You do not have permission to export the Sales Journal.'); return; }
     if (!sales.length || !currentClient) return;
 
     const workbook = XLSX.utils.book_new();
@@ -1062,6 +1089,10 @@ export function History() {
     XLSX.utils.book_append_sheet(workbook, worksheet, 'SLS');
     XLSX.writeFile(workbook, `SLS_${targetFormatted.replace(' ', '_')}.xlsx`);
   };
+
+  if (!canHistoryView && !canPurchaseJournalAction('view') && !canSalesJournalAction('view')) {
+    return <div className="p-8 text-center text-sm text-slate-500">You do not have permission to view history.</div>;
+  }
 
   return (
     <div className="w-full flex flex-col">
@@ -1148,7 +1179,7 @@ export function History() {
                       )}
                     </div>
 
-                    <div ref={expenseExportRef} className="relative">
+                    {canHistoryAction('export') && <div ref={expenseExportRef} className="relative">
                       <button type="button" onClick={() => { setShowExpenseExport(v => !v); setShowExpenseColumns(false); }} className="inline-flex items-center gap-2 px-3 py-2 text-xs font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">
                         <FileDown className="w-4 h-4" /> Export <ChevronDown className="w-3.5 h-3.5" />
                       </button>
@@ -1162,7 +1193,7 @@ export function History() {
                           </button>
                         </div>
                       )}
-                    </div>
+                    </div>}
                   </div>
                 )}
                 <div className="relative">
@@ -1398,7 +1429,7 @@ export function History() {
                                 className="mt-0.5 w-full px-2 py-1 text-xs font-bold text-blue-800 dark:text-blue-200 bg-blue-50 dark:bg-blue-900/20 border border-blue-300 dark:border-blue-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
                               />
                             ) : (
-                              <button
+                              canPurchaseAction('edit') ? <button
                                 type="button"
                                 onClick={() => startEditingAccountTitle(p)}
                                 disabled={savingAccountId === String(p.id)}
@@ -1406,7 +1437,7 @@ export function History() {
                                 className="font-semibold bg-blue-50 dark:bg-blue-900/30 px-2 py-0.5 rounded text-blue-700 dark:text-blue-300 block w-max mt-0.5 max-w-full truncate disabled:opacity-60"
                               >
                                 {p.accountTitle || 'General Expense'}
-                              </button>
+                              </button> : <span className="font-semibold px-2 py-0.5 block mt-0.5">{p.accountTitle || 'General Expense'}</span>
                             )}
                           </div>
                         </div>
@@ -1445,19 +1476,19 @@ export function History() {
                               <Download className="w-3.5 h-3.5" /> Download
                             </button>
                           )}
-                          <button 
+                          {canPurchaseAction('edit') && <button 
                             onClick={() => handleEditExpense(p)}
                             className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-950/20 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 rounded-lg text-xs font-bold transition-all flex items-center gap-1"
                             title="Edit Entry"
                           >
                             <Pencil className="w-3.5 h-3.5" /> Edit
-                          </button>
-                          <button 
+                          </button>}
+                          {canPurchaseAction('delete') && <button 
                             onClick={() => handleDeleteExpense(p.id)}
                             className="px-3 py-1.5 bg-red-50 dark:bg-red-950/20 text-red-500 hover:text-red-700 hover:bg-red-100 dark:hover:bg-red-900/40 rounded-lg text-xs font-bold transition-all flex items-center gap-1"
                           >
                             <Trash2 className="w-3.5 h-3.5" /> Delete
-                          </button>
+                          </button>}
                         </div>
                       </div>
                     ))
@@ -1511,12 +1542,12 @@ export function History() {
                         </div>
 
                         <div className="flex justify-end pt-2 border-t border-slate-200/60 dark:border-slate-800 mt-1">
-                          <button 
+                          {canSalesAction('delete') && <button 
                             onClick={() => handleDeleteIncome(s.id)}
                             className="p-1 px-3 bg-red-50 dark:bg-red-950/20 text-red-500 hover:text-red-700 rounded-lg text-xs font-semibold transition-all flex items-center gap-1"
                           >
                             <Trash2 className="w-3.5 h-3.5" /> Delete
-                          </button>
+                          </button>}
                         </div>
                       </div>
                     ))
@@ -1638,7 +1669,7 @@ export function History() {
                                       className="w-full min-w-[140px] px-2 py-1 text-xs font-bold text-blue-800 dark:text-blue-200 bg-blue-50 dark:bg-blue-900/20 border border-blue-300 dark:border-blue-700 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 dark:focus:ring-blue-500"
                                     />
                                   ) : (
-                                    <button
+                                    canPurchaseAction('edit') ? <button
                                       type="button"
                                       onClick={() => startEditingAccountTitle(p)}
                                       disabled={savingAccountId === String(p.id)}
@@ -1651,7 +1682,7 @@ export function History() {
                                       ) : (
                                         <Pencil className="w-3 h-3 opacity-0 group-hover/acc:opacity-60 shrink-0" />
                                       )}
-                                    </button>
+                                    </button> : <span className="font-bold text-blue-700 dark:text-blue-300 px-2 py-1">{p.accountTitle || '—'}</span>
                                   )
                                 ) : (
                                   <span className={key === 'transactionNo' ? 'font-mono text-slate-400 dark:text-slate-500' : key === 'accountTitle' ? 'font-bold text-blue-700 dark:text-blue-300' : 'text-slate-700 dark:text-slate-300'}>{formatExpenseColumnValue(p, key)}</span>
@@ -1666,8 +1697,8 @@ export function History() {
                                 {p.attachment && !visibleExpenseColumns.includes('attachment') && (
                                   <button onClick={() => handleDownloadAttachment(p.attachment)} className="p-1.5 text-slate-300 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg" title="Download attachment"><Download className="w-4 h-4" /></button>
                                 )}
-                                <button onClick={() => handleEditExpense(p)} className="p-1.5 text-slate-300 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg" title="Edit Entry"><Pencil className="w-4 h-4" /></button>
-                                <button onClick={() => handleDeleteExpense(p.id)} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg" title="Delete Entry"><Trash2 className="w-4 h-4" /></button>
+                                {canPurchaseAction('edit') && <button onClick={() => handleEditExpense(p)} className="p-1.5 text-slate-300 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg" title="Edit Entry"><Pencil className="w-4 h-4" /></button>}
+                                {canPurchaseAction('delete') && <button onClick={() => handleDeleteExpense(p.id)} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg" title="Delete Entry"><Trash2 className="w-4 h-4" /></button>}
                               </div>
                             </td>
                           </tr>
@@ -1683,7 +1714,7 @@ export function History() {
                             <td className="px-3 py-3 text-sm font-bold text-emerald-700 dark:text-emerald-400 text-right align-top whitespace-nowrap bg-emerald-50/30 dark:bg-emerald-900/10">₱{s.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                             <td className="px-3 py-3 text-sm text-slate-900 dark:text-white text-right align-top whitespace-nowrap">₱{getSaleVatBreakdown(s).netOfVat.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                             <td className="px-3 py-3 text-sm text-blue-600 dark:text-blue-400 text-right align-top whitespace-nowrap">₱{getSaleVatBreakdown(s).outputTax.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                            <td className="px-3 py-3 text-center align-top sticky right-0 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/50 z-10 border-l border-slate-100 dark:border-slate-800"><button onClick={() => handleDeleteIncome(s.id)} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all" title="Delete Entry"><Trash2 className="w-4 h-4" /></button></td>
+                            <td className="px-3 py-3 text-center align-top sticky right-0 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/50 z-10 border-l border-slate-100 dark:border-slate-800">{canSalesAction('delete') && <button onClick={() => handleDeleteIncome(s.id)} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all" title="Delete Entry"><Trash2 className="w-4 h-4" /></button>}</td>
                           </tr>
                         ))
                       )}
@@ -1731,7 +1762,7 @@ export function History() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  {purchases.length > 0 && (
+                  {purchases.length > 0 && canPurchaseJournalAction('export') && (
                     <button 
                       onClick={handleExportSLP}
                       className="px-3 py-1.5 text-xs font-bold bg-cyan-600 text-white rounded-lg hover:bg-cyan-700 transition-colors flex items-center gap-2"
@@ -1867,7 +1898,7 @@ export function History() {
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
-                  {sales.length > 0 && (
+                  {sales.length > 0 && canSalesJournalAction('export') && (
                     <button 
                       onClick={handleExportSLS}
                       className="px-3 py-1.5 text-xs font-bold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2"

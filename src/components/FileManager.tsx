@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
+import { useGranularPermissions } from '../lib/useGranularPermissions';
 import { AppFolder, AppFile } from '../types';
 import { parsePdf } from '../lib/pdfParser';
 import { parseBankStatement, type BankTxn } from '../lib/bankImport';
@@ -26,7 +27,11 @@ export interface StagedFile {
 }
 
 export function FileManager() {
-  const canDelete = usePermission('delete_transactions');
+  const { canAction: canFilesAction, canDropdownOption: canFilesDropdown } = useGranularPermissions('files');
+  const canDelete = usePermission('delete_transactions') && canFilesAction('delete');
+  const canAddFiles = canFilesAction('add') && canFilesDropdown('file_action', 'upload');
+  const canEditFiles = canFilesAction('edit');
+  const canDownloadFiles = canFilesAction('download') && canFilesDropdown('file_action', 'download');
 
   const { currentClient, saveFolder, deleteFolder, saveFile, deleteFile, showToast } = useAccounting();
   const [selectedFolderId, setSelectedFolderId] = useState<string>('folder_revenue');
@@ -73,6 +78,7 @@ export function FileManager() {
   // bypassing the staging queue (used by both the in-app camera and the
   // native capture="environment" fallback).
   const autoUploadPhoto = useCallback(async (file: File) => {
+    if (!canAddFiles) { showToast('You do not have permission to upload files.'); return; }
     let compressed = file;
     if (file.type.startsWith('image/') && file.type !== 'image/svg+xml') {
       try {
@@ -115,7 +121,7 @@ export function FileManager() {
       folderId: activeFolderIdRef.current, storagePath, description: 'Captured with camera',
     });
     showToast('Photo captured & uploaded automatically');
-  }, [currentClient, saveFile, showToast]);
+  }, [canAddFiles, currentClient, saveFile, showToast]);
 
   // Open the camera. On touch devices (phones/tablets) the native
   // capture="environment" input opens the system camera app instantly — that
@@ -128,6 +134,7 @@ export function FileManager() {
   // a file picker on touchscreen Windows laptops. 3s timeout per constraint
   // so a hung permission prompt falls back fast to the native picker.
   const openCamera = useCallback(async () => {
+    if (!canAddFiles) { showToast('You do not have permission to upload files.'); return; }
     if (cameraBusy) return;
     setCameraBusy(true);
     try {
@@ -192,7 +199,7 @@ export function FileManager() {
     } finally {
       setCameraBusy(false);
     }
-  }, [cameraBusy, closeCamera, autoUploadPhoto]);
+  }, [canAddFiles, cameraBusy, closeCamera, autoUploadPhoto, showToast]);
 
   // Native camera-input fallback (mobile) — auto-upload, no staging.
   const handleCameraFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -217,6 +224,7 @@ export function FileManager() {
 
   const handleCreateFolder = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canAddFiles) { showToast('You do not have permission to add file folders.'); return; }
     if (!newFolderName.trim()) return;
 
     const newFolder: AppFolder = {
@@ -233,6 +241,7 @@ export function FileManager() {
   };
 
   const handleStartRename = (folder: AppFolder) => {
+    if (!canEditFiles) return;
     setEditingFolderId(folder.id);
     setEditingFolderName(folder.name);
   };
@@ -243,6 +252,7 @@ export function FileManager() {
   };
 
   const handleSaveRename = async (folderId: string) => {
+    if (!canEditFiles) { showToast('You do not have permission to rename folders.'); return; }
     if (!editingFolderName.trim()) return;
 
     const folder = folders.find(f => f.id === folderId);
@@ -254,6 +264,7 @@ export function FileManager() {
   };
 
   const handleDeleteFolder = async (folder: AppFolder) => {
+    if (!canDelete) { showToast('You do not have permission to delete folders.'); return; }
     if (folder.isDefault) {
       showToast('Default folders cannot be deleted');
       return;
@@ -358,6 +369,7 @@ export function FileManager() {
   };
 
   const handleConfirmUpload = async () => {
+    if (!canAddFiles) { showToast('You do not have permission to upload files.'); return; }
     if (stagedFiles.length === 0) return;
 
     const newFiles: AppFile[] = [];
@@ -423,6 +435,7 @@ export function FileManager() {
   };
 
   const handleDownloadFile = async (file: AppFile) => {
+    if (!canDownloadFiles) { showToast('You do not have permission to download files.'); return; }
     try {
       if (file.storagePath) {
         // Dexie blob cache first; signed-URL fetch only on miss (signed URLs
@@ -445,6 +458,7 @@ export function FileManager() {
   };
 
   const handleDeleteFile = async (fileId: string) => {
+    if (!canDelete) { showToast('You do not have permission to delete files.'); return; }
     const fileToDelete = files.find(f => f.id === fileId);
     if (fileToDelete?.storagePath) {
       const { error } = await supabase.storage.from('client-files').remove([fileToDelete.storagePath]);
@@ -492,7 +506,7 @@ export function FileManager() {
           <button
             type="button"
             onClick={openCamera}
-            disabled={cameraBusy}
+            disabled={cameraBusy || !canAddFiles}
             className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-60 disabled:cursor-wait text-white rounded-xl text-xs font-bold shadow-sm shadow-emerald-500/20 transition-all"
             title="Open camera to capture a receipt/document and upload automatically"
           >
@@ -607,7 +621,7 @@ export function FileManager() {
 
                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity ml-2">
                           <button
-                            onClick={() => handleStartRename(folder)}
+                            onClick={() => handleStartRename(folder)} disabled={!canEditFiles}
                             className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-slate-500 dark:text-slate-400"
                             title="Rename folder"
                           >
@@ -632,7 +646,7 @@ export function FileManager() {
             </div>
           </div>
 
-          <form onSubmit={handleCreateFolder} className="mt-auto pt-4 border-t border-slate-100 dark:border-slate-800">
+          {canAddFiles && <form onSubmit={handleCreateFolder} className="mt-auto pt-4 border-t border-slate-100 dark:border-slate-800">
             <h5 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
               New Folder
             </h5>
@@ -652,7 +666,7 @@ export function FileManager() {
                 <Plus className="w-4 h-4" />
               </button>
             </div>
-          </form>
+          </form>}
         </div>
 
         {/* Right Side: Active Folder Contents & Upload Engine */}
@@ -765,7 +779,7 @@ export function FileManager() {
                 </button>
                 <button
                   type="button"
-                  onClick={handleConfirmUpload}
+                  onClick={handleConfirmUpload} disabled={!canAddFiles}
                   className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm shadow-blue-500/20"
                 >
                   <Check className="w-4 h-4" />
@@ -929,7 +943,7 @@ export function FileManager() {
               <button
                 type="button"
                 onClick={captureAndUpload}
-                disabled={cameraBusy}
+                disabled={cameraBusy || !canAddFiles}
                 className="relative w-16 h-16 rounded-full bg-white hover:bg-emerald-400 transition-all flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
                 title="Capture & upload"
               >

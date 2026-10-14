@@ -17,6 +17,7 @@ import { listTemplatesFor, getTemplate } from '../lib/invoiceTemplates';
 import { useMemo } from 'react';
 import type { InvoiceTemplate } from '../types';
 import { Pencil } from 'lucide-react';
+import { useGranularPermissions } from '../lib/useGranularPermissions';
 
 const CASH_RECEIPT_PAYMENT_TYPES = ['Cash', 'Check', 'E-Payment', 'Bank Transfer'];
 
@@ -31,6 +32,19 @@ function addInterval(dateStr: string, frequency: 'Monthly' | 'Quarterly' | 'Annu
 export function Billing() {
   const { currentClient, currentClientId, saveBillingInvoice, deleteBillingInvoice, saveSale, saveJournalEntry, showToast, businessProfile } = useAccounting();
   const navigate = useNavigate();
+  const { canAction: canBillingAction, canDropdownOption: canBillingDropdown } = useGranularPermissions('billing');
+  const { canAction: canEisAction } = useGranularPermissions('eis_center');
+  const billingPaymentOptions = [
+    { value: 'Cash', label: 'Cash', permission: 'cash' },
+    { value: 'Check', label: 'Check', permission: 'check' },
+    { value: 'E-Payment', label: 'E-Payment', permission: 'e_payment' },
+    { value: 'Bank Transfer', label: 'Bank Transfer', permission: 'bank_transfer' },
+    { value: 'Credit Card', label: 'Credit Card', permission: 'credit_card' },
+    { value: 'On Account', label: 'On Account', permission: 'on_account' },
+  ].filter((option) => canBillingDropdown('payment_type', option.permission));
+  const canInvoiceTab = canBillingDropdown('document_type', 'invoice');
+  const canSoaTab = canBillingDropdown('document_type', 'statement_of_account');
+  const canEInvoiceTab = canEisAction('view');
   const eisBadgeFor = (invoiceId: string) => {
     const t = currentClientId ? getTransmissionByInvoice(currentClientId, invoiceId) : undefined;
     if (!t) return null;
@@ -92,6 +106,8 @@ export function Billing() {
   }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   const handleAddInvoice = () => {
+    if (!canBillingAction('add')) { showToast('Your profile does not have permission to create invoices.'); return; }
+    if (!canInvoiceTab) { showToast('Invoice creation is not enabled for your profile.'); return; }
     if (!invoiceNo.trim() || !customerTin.trim() || !customerName.trim() || !customerAddress.trim()) {
       alert('Invoice #, Customer TIN, Customer Name, and Customer Address are all required.');
       return;
@@ -133,6 +149,7 @@ export function Billing() {
   };
 
   const handleGenerateNext = (template: BillingInvoice) => {
+    if (!canBillingAction('add')) { showToast('Your profile does not have permission to create invoices.'); return; }
     if (!template.nextBillingDate || !template.recurrenceFrequency) return;
     const newDueDate = addInterval(template.nextBillingDate, template.recurrenceFrequency);
 
@@ -174,6 +191,9 @@ export function Billing() {
   };
 
   const handleConfirmPaid = (inv: BillingInvoice) => {
+    if (!canBillingAction('post')) { showToast('Your profile does not have permission to post invoice payments.'); return; }
+    const payment = billingPaymentOptions.find((option) => option.value === payPaymentType);
+    if (!payment || !canBillingDropdown('payment_type', payment.permission)) { showToast('The selected payment method is not permitted for your profile.'); return; }
     const updatedInvoice: BillingInvoice = {
       ...inv,
       status: 'Paid',
@@ -220,18 +240,22 @@ export function Billing() {
   };
 
   const handleDelete = (id: string) => {
+    if (!canBillingAction('delete')) { showToast('Your profile does not have permission to delete invoices.'); return; }
     deleteBillingInvoice(id).catch((e) => { console.error(e); showToast('Failed to delete invoice'); });
   };
   // Run 007 / T007 — PDF export, payment link copy, email reminder
   const handleDownloadPdf = (inv: BillingInvoice) => {
+    if (!canBillingAction('print')) { showToast('Your profile does not have permission to print invoices.'); return; }
     try { downloadTemplatedInvoicePdf(inv, businessProfile, selectedTemplate); showToast('Invoice PDF downloaded'); }
     catch { showToast('Failed to generate PDF'); }
   };
   const handleCopyPaymentLink = async (inv: BillingInvoice) => {
+    if (!canBillingAction('edit')) { showToast('Your profile does not have permission to manage invoice follow-ups.'); return; }
     const ok = await copyPaymentMessage(inv, businessProfile);
     showToast(ok ? 'Payment details copied — paste to your customer' : 'Could not copy payment details');
   };
   const handleSendReminder = (inv: BillingInvoice) => {
+    if (!canBillingAction('edit')) { showToast('Your profile does not have permission to manage invoice follow-ups.'); return; }
     openPaymentReminderEmail(inv, businessProfile);
     toast.info(`Payment reminder drafted for ${inv.invoiceNo}`);
   };
@@ -252,31 +276,31 @@ export function Billing() {
       <div className="flex items-center justify-between gap-3 flex-wrap mb-5">
         <div className="flex gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
           {([
-            ['billing', 'Billing Invoice', false],
-            ['e-invoice', 'E-Invoice (EIS)', true],
-            ['soa', 'SOA', false],
-          ] as const).map(([key, label, isEis]) => (
+            ['billing', 'Billing Invoice', false, canInvoiceTab],
+            ['e-invoice', 'E-Invoice (EIS)', true, canEInvoiceTab],
+            ['soa', 'SOA', false, canSoaTab],
+          ] as const).filter(([, , , allowed]) => allowed).map(([key, label, isEis]) => (
             <button key={key} onClick={() => setActiveTab(key)} className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${activeTab === key ? (isEis ? 'bg-emerald-600 text-white shadow' : 'bg-indigo-600 text-white shadow') : 'text-slate-600 dark:text-slate-300 hover:text-indigo-600'}`}>
               {label}
               {isEis && <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-black ${activeTab === key ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-700'}`}>EIS</span>}
             </button>
           ))}
         </div>
-        {activeTab === 'billing' && (
+        {activeTab === 'billing' && canInvoiceTab && (
           <div className="flex items-center gap-2">
             <select value={templateId} onChange={e => setTemplateId(e.target.value)} className="text-xs font-bold border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 bg-white dark:bg-slate-800">
               {templates.map(t => <option key={t.id} value={t.id}>Template: {t.name}{t.builtin ? ' (built-in)' : ''}</option>)}
             </select>
-            <button onClick={() => { setEditingTpl(null); setEditorOpen(true); }} className="text-xs font-bold border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-1.5">
+            {canBillingAction('edit') && <button onClick={() => { setEditingTpl(null); setEditorOpen(true); }} className="text-xs font-bold border border-slate-300 dark:border-slate-600 rounded-lg px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-1.5">
               <Pencil className="w-3.5 h-3.5" /> Customize
-            </button>
+            </button>}
           </div>
         )}
       </div>
 
-      {activeTab === 'e-invoice' && <EInvoiceTab />}
-      {activeTab === 'soa' && <SoaTab />}
-      {activeTab === 'billing' && (<>
+      {activeTab === 'e-invoice' && canEInvoiceTab && <EInvoiceTab />}
+      {activeTab === 'soa' && canSoaTab && <SoaTab />}
+      {activeTab === 'billing' && canInvoiceTab && (<>
       <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-2xl mb-6 border border-indigo-100 dark:border-indigo-800 flex justify-between items-center">
         <span className="font-bold text-indigo-700 dark:text-indigo-400">Total Outstanding (incl. Overdue)</span>
         <span className="text-xl font-extrabold text-indigo-600 dark:text-indigo-400">₱{outstandingTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
@@ -286,7 +310,7 @@ export function Billing() {
         <span>Billing invoices are demand-for-payment documents and are <strong>not</strong> transmitted to BIR. For BIR E-Invoicing (EIS), use the <strong className="text-emerald-600">E-Invoice (EIS)</strong> tab — only structured e-invoices qualify under RMC 98-2026.</span>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-100 dark:border-slate-700">
+      {canBillingAction('add') && <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-100 dark:border-slate-700">
         <div>
           <label className="form-label">Date</label>
           <input type="date" value={date} onChange={e => setDate(e.target.value)} className="form-input" />
@@ -353,7 +377,7 @@ export function Billing() {
             <Plus className="w-5 h-5" /> Create Invoice
           </button>
         </div>
-      </div>
+      </div>}
 
       <div className="flex items-center gap-2 mb-4">
         <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Filter:</label>
@@ -406,47 +430,42 @@ export function Billing() {
               {payingId === inv.id ? (
                 <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center gap-2">
                   <select value={payPaymentType} onChange={e => setPayPaymentType(e.target.value)} className="text-xs font-bold border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 rounded-lg outline-none">
-                    <option>Cash</option>
-                    <option>Check</option>
-                    <option>E-Payment</option>
-                    <option>Bank Transfer</option>
-                    <option>Credit Card</option>
-                    <option>On Account</option>
+                    {billingPaymentOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                   </select>
-                  <button onClick={() => handleConfirmPaid(inv)} className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg transition">Confirm Payment</button>
+                  {canBillingAction('post') && billingPaymentOptions.length > 0 && <button onClick={() => handleConfirmPaid(inv)} className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg transition">Confirm Payment</button>}
                   <button onClick={() => setPayingId(null)} className="text-xs text-slate-400 hover:text-slate-600 font-semibold px-2">Cancel</button>
                 </div>
               ) : (
                 <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center gap-2 justify-end">
-                  {canGenerateNext && (
+                  {canGenerateNext && canBillingAction('add') && (
                     <button onClick={() => handleGenerateNext(inv)} className="text-xs text-cyan-700 dark:text-cyan-400 font-bold border border-cyan-200 dark:border-cyan-800 rounded-lg px-3 py-1.5 hover:bg-cyan-50 dark:hover:bg-cyan-950/20 transition flex items-center gap-1.5">
                       <RefreshCw className="w-3.5 h-3.5" /> Generate Next Invoice
                     </button>
                   )}
-                  <button onClick={() => handleDownloadPdf(inv)} className="text-xs text-slate-600 dark:text-slate-300 font-bold border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 transition flex items-center gap-1.5">
+                  {canBillingAction('print') && <button onClick={() => handleDownloadPdf(inv)} className="text-xs text-slate-600 dark:text-slate-300 font-bold border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 transition flex items-center gap-1.5">
                     <FileDown className="w-3.5 h-3.5" /> PDF
-                  </button>
-                  <button onClick={() => navigate('/eis-center')} className="text-xs text-violet-700 dark:text-violet-400 font-bold border border-violet-200 dark:border-violet-800 rounded-lg px-3 py-1.5 hover:bg-violet-50 dark:hover:bg-violet-950/20 transition flex items-center gap-1.5" title="Build & transmit this invoice as a BIR e-invoice (EIS)">
+                  </button>}
+                  {canEInvoiceTab && <button onClick={() => navigate('/eis-center')} className="text-xs text-violet-700 dark:text-violet-400 font-bold border border-violet-200 dark:border-violet-800 rounded-lg px-3 py-1.5 hover:bg-violet-50 dark:hover:bg-violet-950/20 transition flex items-center gap-1.5" title="Build & transmit this invoice as a BIR e-invoice (EIS)">
                     <FileSignature className="w-3.5 h-3.5" /> EIS
-                  </button>
-                  {inv.status !== 'Paid' && (
+                  </button>}
+                  {inv.status !== 'Paid' && canBillingAction('edit') && (
                     <button onClick={() => handleCopyPaymentLink(inv)} className="text-xs text-indigo-600 dark:text-indigo-400 font-bold border border-indigo-200 dark:border-indigo-800 rounded-lg px-3 py-1.5 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 transition flex items-center gap-1.5">
                       <Link2 className="w-3.5 h-3.5" /> Copy Payment Link
                     </button>
                   )}
-                  {inv.status !== 'Paid' && (
+                  {inv.status !== 'Paid' && canBillingAction('edit') && (
                     <button onClick={() => handleSendReminder(inv)} className="text-xs text-amber-600 dark:text-amber-400 font-bold border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-1.5 hover:bg-amber-50 dark:hover:bg-amber-950/20 transition flex items-center gap-1.5">
                       <Bell className="w-3.5 h-3.5" /> Remind
                     </button>
                   )}
-                  {inv.status !== 'Paid' && (
-                    <button onClick={() => { setPayingId(inv.id); setPayPaymentType('Cash'); }} className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg transition flex items-center gap-1.5">
+                  {inv.status !== 'Paid' && canBillingAction('post') && billingPaymentOptions.length > 0 && (
+                    <button onClick={() => { setPayingId(inv.id); setPayPaymentType(billingPaymentOptions[0].value); }} className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg transition flex items-center gap-1.5">
                       <CheckCircle2 className="w-3.5 h-3.5" /> Mark as Paid
                     </button>
                   )}
-                  <button onClick={() => handleDelete(inv.id)} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all">
+                  {canBillingAction('delete') && <button onClick={() => handleDelete(inv.id)} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all">
                     <Trash2 className="w-4 h-4" />
-                  </button>
+                  </button>}
                 </div>
               )}
             </div>
@@ -456,8 +475,8 @@ export function Billing() {
       </>)}
       <TemplateEditor open={editorOpen} onClose={() => setEditorOpen(false)} clientId={currentClientId!} docType="billing"
         editing={editingTpl}
-        onSave={(tpl) => { import('../lib/invoiceTemplates').then(m => { m.saveTemplate(currentClientId!, tpl); setTemplateId(tpl.id); showToast('Template saved'); }); }}
-        onDelete={(id) => { import('../lib/invoiceTemplates').then(m => { m.deleteTemplate(currentClientId!, id); setTemplateId('builtin-standard-blue'); }); }} />
+        onSave={(tpl) => { if (!canBillingAction('edit')) { showToast('Your profile does not have permission to edit billing templates.'); return; } import('../lib/invoiceTemplates').then(m => { m.saveTemplate(currentClientId!, tpl); setTemplateId(tpl.id); showToast('Template saved'); }); }}
+        onDelete={(id) => { if (!canBillingAction('delete')) { showToast('Your profile does not have permission to delete billing templates.'); return; } import('../lib/invoiceTemplates').then(m => { m.deleteTemplate(currentClientId!, id); setTemplateId('builtin-standard-blue'); }); }} />
           </div>
     </div>
   );

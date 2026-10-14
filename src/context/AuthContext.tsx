@@ -8,6 +8,7 @@ import {
   SubusersNotEnabledError,
 } from '../lib/subusers';
 import type { TeamMember, AccountMembership } from '../types';
+import { buildDefaultUiPermissions } from '../lib/granularPermissions';
 
 interface AuthContextType {
   user: User | null;
@@ -194,7 +195,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
         } else {
           const loadedRolePermissions = (permissionData || {}) as Record<string, boolean>;
           setRolePermissions(loadedRolePermissions);
-          setPermissions(loadedRolePermissions);
+          // Until a client is selected, retain the account role and sensible
+          // legacy-compatible module defaults. Client-scoped grants replace
+          // these defaults after the active profile permission RPC completes.
+          setPermissions({ ...loadedRolePermissions, ...buildDefaultUiPermissions(loadedRolePermissions) });
         }
 
         try {
@@ -347,7 +351,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       // the route guard never flickers them into a redirect loop.
       if (!membership.isSubuser) {
         if (!activePermissionClientId) {
-          if (!cancelled) setPermissions(rolePermissions);
+          if (!cancelled) setPermissions({ ...rolePermissions, ...buildDefaultUiPermissions(rolePermissions) });
           return;
         }
         try {
@@ -356,10 +360,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
           });
           if (error) throw error;
           if (!cancelled) {
-            setPermissions((data && Object.keys(data).length > 0 ? data : rolePermissions) as Record<string, boolean>);
+            const base = (data && Object.keys(data).length > 0 ? data : rolePermissions) as Record<string, boolean>;
+            let ui: Record<string, boolean> = buildDefaultUiPermissions(base);
+            try {
+              const { data: uiData, error: uiError } = await supabase.rpc('get_my_client_ui_permissions', { p_client_id: activePermissionClientId });
+              if (uiError) throw uiError;
+              ui = { ...ui, ...((uiData || {}) as Record<string, boolean>) };
+            } catch (uiError) {
+              // Older deployments have not applied the granular migration yet.
+              // Keep the pre-existing role-based access until that migration is installed.
+              console.info('Granular UI permission migration not installed; using base permissions.', uiError);
+            }
+            setPermissions({ ...base, ...ui });
           }
         } catch {
-          if (!cancelled) setPermissions(rolePermissions);
+          if (!cancelled) setPermissions({ ...rolePermissions, ...buildDefaultUiPermissions(rolePermissions) });
         }
         return;
       }
@@ -379,7 +394,18 @@ export function AuthProvider({ children }: AuthProviderProps) {
         });
         if (error) throw error;
         if (!cancelled) {
-          setPermissions((data || {}) as Record<string, boolean>);
+          const base = (data || {}) as Record<string, boolean>;
+          let ui: Record<string, boolean> = buildDefaultUiPermissions(base);
+          try {
+            const { data: uiData, error: uiError } = await supabase.rpc('get_my_client_ui_permissions', { p_client_id: activePermissionClientId });
+            if (uiError) throw uiError;
+            ui = { ...ui, ...((uiData || {}) as Record<string, boolean>) };
+          } catch (uiError) {
+            // A missing migration must not break existing team access. The base
+            // server permission RPC remains authoritative for legacy deployments.
+            console.info('Granular UI permission migration not installed; using base permissions.', uiError);
+          }
+          setPermissions({ ...base, ...ui });
         }
       } catch (error) {
         console.error('Client permission load error:', error);
@@ -396,7 +422,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // Standalone Accountant/Bookkeeper accounts use the role permissions
     // returned by get_my_account_permissions(), while team subusers use their
     // client-specific effective permissions.
-    if (isAdmin || userRole === 'owner') return true;
+    if (isAdmin || (userRole === 'owner' && !membership.isSubuser && !activePermissionClientId)) return true;
     return Boolean(permissions[permission]);
   };
 

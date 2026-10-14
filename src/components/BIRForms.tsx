@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
+import { useGranularPermissions } from '../lib/useGranularPermissions';
 import { 
   FileText, Printer, Sparkles, CheckCircle2, FileDown
 } from 'lucide-react';
@@ -185,12 +186,21 @@ export function generateStandardDeadlines(year: number): TaxDeadline[] {
 
 export function BIRForms() {
   const canEdit = usePermission('edit_transactions');
-  const canExport = usePermission('export_data');
+  const { canAction: canBirAction, canDropdownOption: canBirDropdown } = useGranularPermissions('bir_forms');
+  const canExport = usePermission('export_data') && canBirAction('export');
+  const canPrint = usePermission('view_reports') && canBirAction('print');
 
   const { currentClient, currentClientId, setCurrentClientId, clients, businessProfile, activePage, navigateToPage, birFormTab, ownerClientId } = useAccounting();
 
   // Active form choice: '2550Q' | '1701Q' | '2551Q' | '1601-C' | '0619-E' | '1601-EQ'
   const [activeFormType, setActiveFormType] = useState<'2550Q' | '1701Q' | '2551Q' | '1601-C' | '0619-E' | '1601-EQ'>('2550Q');
+  const birFormPermissionId: Record<string, string> = { '2550Q': '2550q', '1701Q': '1701q', '2551Q': '2551q', '1601-C': '1601c', '0619-E': '0619e', '1601-EQ': '1601eq' };
+  const allowedBirFormTypes = ['2550Q', '1701Q', '2551Q', '1601-C', '0619-E', '1601-EQ'].filter(type => canBirDropdown('bir_form', birFormPermissionId[type]));
+  useEffect(() => {
+    if (!canBirDropdown('bir_form', birFormPermissionId[activeFormType]) && allowedBirFormTypes.length > 0) {
+      setActiveFormType(allowedBirFormTypes[0] as typeof activeFormType);
+    }
+  }, [activeFormType, canBirDropdown, allowedBirFormTypes.join('|')]);
 
   // Query configurations use the real device date; DAT no longer controls forms.
   const effectiveYear = new Date().getFullYear();
@@ -580,26 +590,35 @@ export function BIRForms() {
   };
 
   const handlePrint = () => {
+    if (!canPrint || !canBirDropdown('bir_form', birFormPermissionId[activeFormType])) return;
     window.print();
   };
 
   const yearsList = [2026, 2025, 2024, 2023];
   // ---- T013: validation + PDF export ----
   const birValidationErrors = validateBirForm(activeFormType, compiledData, businessProfile as any);
-  const handleDownloadBirPdf = () => downloadBirFormPdf(activeFormType, compiledData, { year: selectedYear, quarter: selectedQuarter, month: selectedMonth, profile: businessProfile as any });
+  const handleDownloadBirPdf = () => {
+    if (!canExport || !canBirDropdown('bir_form', birFormPermissionId[activeFormType])) return;
+    downloadBirFormPdf(activeFormType, compiledData, { year: selectedYear, quarter: selectedQuarter, month: selectedMonth, profile: businessProfile as any });
+  };
+  const canViewActiveBirForm = canBirDropdown('bir_form', birFormPermissionId[activeFormType]);
+
+  if (!canViewActiveBirForm || allowedBirFormTypes.length === 0) {
+    return <div className="m-6 rounded-xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-800">You do not have permission to open this BIR form. Contact your account administrator to request access.</div>;
+  }
 
   return (
     <div className="w-full flex flex-col">
       <PageHeader title="Philippine BIR Tax Declarations" icon={<FileText className="text-blue-600 w-5 h-5" />} />
       <div className="p-4 md:p-6 flex-1">
-      {birValidationErrors.length > 0 && (
+      {birValidationErrors.length > 0 && canViewActiveBirForm && (
         <div className="mb-4 rounded-xl border border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/30 px-4 py-3 text-xs text-rose-700 dark:text-rose-300">
           <div className="font-bold mb-1">Validation — please fix before filing:</div>
           <ul className="list-disc list-inside space-y-0.5">{birValidationErrors.map((e, i) => <li key={i}>{e}</li>)}</ul>
         </div>
       )}
       <div className="mb-4 flex justify-end">
-        <button type="button" onClick={handleDownloadBirPdf} disabled={!canExport} title={canExport ? 'Download Form PDF' : 'Export Data permission not granted'} className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-sm disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed">
+        <button type="button" onClick={handleDownloadBirPdf} disabled={!canExport || !canViewActiveBirForm} title={canExport && canViewActiveBirForm ? 'Download Form PDF' : 'Export or BIR form permission not granted'} className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-sm disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed">
           <FileDown className="w-4 h-4" /> Download Form PDF
         </button>
       </div>
@@ -651,10 +670,10 @@ export function BIRForms() {
                 { type: '1601-C', label: 'BIR Form 1601-C', desc: 'Monthly Withholding on Salaries' },
                 { type: '0619-E', label: 'BIR Form 0619-E', desc: 'Monthly Remittance of EWT' },
                 { type: '1601-EQ', label: 'BIR Form 1601-EQ', desc: 'Quarterly Remittance of EWT' }
-              ].map((f) => (
+              ].filter((f) => canBirDropdown('bir_form', birFormPermissionId[f.type])).map((f) => (
                 <button
                   key={f.type}
-                  onClick={() => setActiveFormType(f.type as any)}
+                  onClick={() => { if (canBirDropdown('bir_form', birFormPermissionId[f.type])) setActiveFormType(f.type as any); }}
                   className={`w-full p-3 text-left border rounded-xl transition-all ${
                     activeFormType === f.type 
                       ? 'bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-500/10' 
@@ -1019,8 +1038,8 @@ export function BIRForms() {
           <div className="mt-auto space-y-2">
             <button 
               onClick={handlePrint}
-              disabled={!canExport}
-              title={canExport ? 'Print BIR Return' : 'Export Data permission not granted'}
+              disabled={!canPrint || !canViewActiveBirForm}
+              title={canPrint && canViewActiveBirForm ? 'Print BIR Return' : 'Print or BIR form permission not granted'}
               className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed"
             >
               <Printer className="w-4 h-4" /> Print BIR Return

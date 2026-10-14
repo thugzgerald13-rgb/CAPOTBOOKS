@@ -99,3 +99,31 @@ For each member (both kinds) you can:
   owner); they work inside the owner's existing clients.
 - A user can be an active member of **one** account at a time; accepting a new
   invite while already a member of another requires leaving the first one.
+
+## 6. Hierarchical permissions (sidebar, actions and dropdowns)
+
+To allow the owner to control exactly which sidebar modules, page actions, and
+dropdown options each team profile can use, apply this additional migration
+after `scripts/client_specific_permissions.sql` and after the team/subuser
+migrations above:
+
+1. Open Supabase → SQL Editor → New query.
+2. Paste and run the complete `scripts/granular_permissions_migration.sql` file.
+3. Reload CAPOTBOOKS, open Settings → Team & Subusers, then choose **Permissions**
+   for a member and client. Configure **Sidebar access**, **Main buttons & actions**,
+   and **Dropdown options**. Use **Select all** or **Clear all** as needed, then save.
+
+The editor cannot grant a capability that the member's role or existing
+client-level permissions do not allow. Turning off a module disables its child
+actions and dropdown choices. Purchases sub-pages also require parent Purchases
+sidebar access. The app hides forbidden navigation/actions, blocks direct page
+URLs, and the migration adds matching Supabase row-level security checks for the
+normalized client-data tables and private client files. Existing permission rows
+without a granular matrix retain their former role-based behavior until you save
+a granular matrix for that member/client.
+
+**Password confirmation:** secondary profiles are asked to re-enter their own
+login password before opening the workspace. Each profile must therefore have a
+valid password-based CAPOT login; if the profile was created with a provider-only
+login, set up a password for that login before using this extra gate.
+

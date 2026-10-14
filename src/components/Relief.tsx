@@ -6,6 +6,7 @@ import { buildInquiry, inquiryAoa, inquiryPrintHtml, printHtml, formatMoney, tax
 import { ReliefReportPreviewModal } from "./ReliefReportPreviewModal";
 import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
+import { useGranularPermissions } from '../lib/useGranularPermissions';
 import { supabase } from '../lib/supabase';
 import { FileText, Receipt, ShoppingCart, Boxes, FileDown, Plus, Trash2, Undo2, Search, Printer, FileSpreadsheet, ArrowLeft } from 'lucide-react';
 
@@ -125,7 +126,11 @@ function rdo3(raw?: string): string {
 
 export function Relief() {
   const { currentClient, currentClientId, reliefTab, setReliefTab, showToast } = useAccounting();
-  usePermission('view_reports');
+  const { canAction: canReliefAction, canDropdownOption: canReliefDropdown } = useGranularPermissions('relief');
+  const canPrint = usePermission('view_reports') && canReliefAction('print');
+  const canExport = usePermission('export_data') && canReliefAction('export');
+  const canEditTransfers = canReliefAction('edit') && canReliefDropdown('relief_action', 'edit_transfers');
+  const canResetTransfers = usePermission('delete_transactions') && canReliefDropdown('relief_action', 'reset_transfers');
 
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
@@ -395,6 +400,7 @@ export function Relief() {
   }, [importRows, importRowsDirty, reliefDataReady, currentClientId, monthKey, importRetryToken]);
 
   const updateImportRows = (rows: ImportRow[]) => {
+    if (!canReliefAction('edit')) { showToast('You do not have permission to edit RELIEF importation rows.'); return; }
     importRevisionRef.current += 1;
     importRowsRef.current = rows;
     setImportRows(rows);
@@ -402,6 +408,7 @@ export function Relief() {
   };
 
   const importLegacyTransfersToActiveProfile = async () => {
+    if (!canEditTransfers) { showToast('You do not have permission to edit RELIEF transfers.'); return; }
     if (!currentClientId || !reliefDataReady || !legacyTransfersForImport) {
       showToast('RELIEF cloud data must finish loading before importing legacy transfers.');
       return;
@@ -534,6 +541,7 @@ export function Relief() {
     [currentClient, year, month, monthKey, transfers, consolidateNoTinPurchases]);
 
   const movePurchaseRow = async (row: any, targetMonth: string) => {
+    if (!canEditTransfers) { showToast('You do not have permission to edit RELIEF transfers.'); return; }
     if (!currentClientId || !reliefDataReady) {
       showToast('RELIEF cloud data is still loading. Please retry the transfer.');
       return;
@@ -663,6 +671,7 @@ export function Relief() {
   const MONTH_NAMES = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
   const openInquiry = () => {
+    if (!canPrint || !canReliefDropdown('relief_action', 'view_schedule')) return;
     setInqYear(year); setInqMonths([month]); setInqAllTp(true); setInqTin(''); setInqReport(null); setInqOpen(true);
   };
   const toggleInqMonth = (m: number) =>
@@ -696,9 +705,9 @@ export function Relief() {
     setInqReport(rep);
     if (autoPreview) setInqPreviewOpen(true);
   };
-  const printInquiry = () => { if (inqReport) setInqPreviewOpen(true); };
+  const printInquiry = () => { if (canPrint && inqReport) setInqPreviewOpen(true); };
   const exportInquiryXlsx = () => {
-    if (!inqReport) return;
+    if (!canExport || !inqReport) return;
     const ws = XLSX.utils.aoa_to_sheet(inquiryAoa(inqReport));
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, inqReport.title.slice(0, 31));
@@ -706,6 +715,7 @@ export function Relief() {
   };
 
   const handleExport = () => {
+    if (!canExport) return;
     if (totals.count === 0 && tab !== 'imports') {
       showToast(`No ${tab} records found for ${monthKey}.`);
       return;
@@ -717,6 +727,7 @@ export function Relief() {
   };
 
   const clearAllTransfers = async () => {
+    if (!canResetTransfers) { showToast('You do not have permission to reset RELIEF transfers.'); return; }
     if (!currentClientId || !reliefDataReady) {
       showToast('RELIEF cloud data is still loading. Please retry.');
       return;
@@ -745,8 +756,8 @@ export function Relief() {
         icon={<FileText className="w-6 h-6 text-indigo-600" />}
         badge="Summary List of Sales, Purchases & Importations"
         actions={<div className="flex gap-2">
-          <Button variant="outline" onClick={openInquiry} className="gap-2"><Search className="w-4 h-4" /> Inquire / Print</Button>
-          <Button onClick={handleExport} className="gap-2"><FileDown className="w-4 h-4" /> Export .DAT</Button>
+          {canPrint && canReliefDropdown('relief_action', 'view_schedule') && <Button variant="outline" onClick={openInquiry} className="gap-2"><Search className="w-4 h-4" /> Inquire / Print</Button>}
+          {canExport && <Button onClick={handleExport} className="gap-2"><FileDown className="w-4 h-4" /> Export .DAT</Button>}
         </div>}
       />
 
@@ -755,7 +766,7 @@ export function Relief() {
         <div className="flex items-center gap-2 shrink-0">
           {reliefCloudStatus === 'error' && <Button variant="outline" onClick={() => { if (importRowsDirty && reliefDataReady) setImportRetryToken(v => v + 1); else setLoadRetryToken(v => v + 1); }} className="py-1">Retry sync</Button>}
           {legacyTransfersForImport && Object.keys(legacyTransfersForImport).length > 0 && Object.keys(transfers).length === 0 && reliefDataReady && (
-            <Button variant="outline" onClick={importLegacyTransfersToActiveProfile} className="py-1">Import old transfers to this profile</Button>
+            <Button variant="outline" onClick={importLegacyTransfersToActiveProfile} disabled={!canEditTransfers} className="py-1">Import old transfers to this profile</Button>
           )}
         </div>
       </div>
@@ -848,7 +859,7 @@ export function Relief() {
             </label>
             <span className="text-slate-400">Use “Claim Month” to move a supplier's input tax to another month. Export matches the BIR Relief sample format.</span>
             {Object.keys(transfers).length > 0 && (
-              <button onClick={clearAllTransfers} className="ml-auto flex items-center gap-1 text-slate-400 hover:text-red-500 transition-colors">
+              <button onClick={clearAllTransfers} disabled={!canResetTransfers} className="ml-auto flex items-center gap-1 text-slate-400 hover:text-red-500 transition-colors">
                 <Undo2 className="w-3.5 h-3.5" /> Reset all transfers
               </button>
             )}
@@ -879,7 +890,7 @@ export function Relief() {
                       <td className="px-4 py-2.5 text-right font-medium">{fmt(r.inputTax)}</td>
                       <td className="px-4 py-2.5">
                         <Select value={r.transferredIn ? monthKey : r.fromMonth}
-                          onChange={e => movePurchaseRow(r, e.target.value)} className="text-xs py-1">
+                          onChange={e => movePurchaseRow(r, e.target.value)} disabled={!canEditTransfers} className="text-xs py-1">
                           {monthOptions.map(mk => <option key={mk} value={mk}>{mk}{mk === r.fromMonth ? ' (original)' : ''}</option>)}
                         </Select>
                       </td>

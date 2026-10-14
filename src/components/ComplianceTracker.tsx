@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
+import { useGranularPermissions } from '../lib/useGranularPermissions';
 import {
   FileText, Printer, Sparkles, CheckCircle2, AlertCircle, Calendar
 } from 'lucide-react';
@@ -11,7 +12,9 @@ import { generateStandardDeadlines } from './BIRForms';
 import { supabase } from '../lib/supabase';
 
 export function ComplianceTracker() {
-  const canEdit = usePermission('edit_transactions');
+  const { canAction: canComplianceAction, canDropdownOption: canComplianceDropdown } = useGranularPermissions('compliance_tracker');
+  const canEdit = usePermission('edit_transactions') && canComplianceAction('edit');
+  const canPrint = usePermission('view_reports') && canComplianceAction('print');
 
   const { currentClient, currentClientId, setCurrentClientId, clients, businessProfile, activePage, navigateToPage, setBirFormTab, saveTaxDeadlines, ownerClientId } = useAccounting();
 
@@ -302,6 +305,10 @@ export function ComplianceTracker() {
 
   // Status Change handler
   const handleUpdateDeadlineStatus = (deadlineId: string, updates: Partial<TaxDeadline>) => {
+    const isStatusMutation = Object.keys(updates).some(k => ['status', 'dateFiled', 'datePaid', 'amountPaid', 'referenceNo', 'confirmationNo', 'notes'].includes(k));
+    if (isStatusMutation && !canEdit) return;
+    if (updates.status === 'Paid' && !canComplianceDropdown('compliance_action', 'mark_paid')) return;
+    if (updates.status === 'Filed' && !canComplianceDropdown('compliance_action', 'mark_filed')) return;
     if (!currentClient) return;
     
     let existingDeadlines = currentClient.taxDeadlines || [];
@@ -324,6 +331,7 @@ export function ComplianceTracker() {
   };
 
   const handlePrint = () => {
+    if (!canPrint) return;
     window.print();
   };
 
@@ -450,6 +458,7 @@ export function ComplianceTracker() {
           <div className="mt-auto space-y-2">
             <button 
               onClick={handlePrint}
+              disabled={!canPrint}
               className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow"
             >
               <Printer className="w-4 h-4" /> Print BIR Return
@@ -798,14 +807,14 @@ export function ComplianceTracker() {
                                 <div className="flex items-center gap-2 flex-wrap">
                                   {deadline.status === 'Filed' && deadline.taxStatus !== 'W/O Payable' && (
                                     <button
-                                      disabled={!canEdit}
+                                      disabled={!canEdit || !canComplianceDropdown('compliance_action', 'mark_paid')}
                                       onClick={() => {
                                         handleUpdateDeadlineStatus(deadline.id, {
                                           status: 'Paid',
                                           datePaid: getSimulatedToday()
                                         });
                                       }}
-                                      title={canEdit ? 'Mark as Paid' : 'Edit Transactions permission not granted'}
+                                      title={canEdit && canComplianceDropdown('compliance_action', 'mark_paid') ? 'Mark as Paid' : 'Permission not granted'}
                                       className="text-xs bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold rounded-xl px-4 py-2 shadow-sm shadow-emerald-500/10 transition disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed"
                                     >
                                       Mark as Paid
@@ -889,8 +898,8 @@ export function ComplianceTracker() {
                                       Log Detailed Filing...
                                     </button>
                                     <button
-                                      disabled={!canEdit}
-                                      title={canEdit ? 'Mark Filed' : 'Edit Transactions permission not granted'}
+                                      disabled={!canEdit || !canComplianceDropdown('compliance_action', 'mark_filed')}
+                                      title={canEdit && canComplianceDropdown('compliance_action', 'mark_filed') ? 'Mark Filed' : 'Permission not granted'}
                                       onClick={() => {
                                         handleUpdateDeadlineStatus(deadline.id, {
                                           status: 'Filed',

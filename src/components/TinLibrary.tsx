@@ -2,12 +2,16 @@ import { useState, useRef } from 'react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
+import { useGranularPermissions } from '../lib/useGranularPermissions';
 import { formatTIN } from '../lib/utils';
 import { Building2, Search, Trash2, Plus, Users, Factory, Upload } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 export function TinLibrary() {
-  const canDelete = usePermission('delete_transactions');
+  const { canAction: canTinAction } = useGranularPermissions('tinlibrary');
+  const canDelete = usePermission('delete_transactions') && canTinAction('delete');
+  const canAdd = canTinAction('add');
+  const canImport = canTinAction('import');
 
   const { currentClient, currentClientId, saveTinEntry, deleteTinEntry, showToast } = useAccounting();
   const [activeTab, setActiveTab] = useState<'customers' | 'suppliers'>('customers');
@@ -28,6 +32,7 @@ export function TinLibrary() {
   );
 
   const handleFileUpload = (e: any) => {
+    if (!canImport) { showToast('You do not have permission to import TIN records.'); return; }
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -195,6 +200,7 @@ export function TinLibrary() {
   };
 
   const handleAdd = async () => {
+    if (!canAdd) { showToast('You do not have permission to add TIN records.'); return; }
     if (!currentClient || !currentClientId) return;
     if (!tin || !name) {
       alert('TIN and Name are required');
@@ -220,6 +226,7 @@ export function TinLibrary() {
   };
 
   const handleDelete = async (id: number | string) => {
+     if (!canDelete) { showToast('You do not have permission to delete TIN records.'); return; }
      if (!currentClientId) return;
      try {
        await deleteTinEntry(String(id), activeTab === 'customers' ? 'customer' : 'supplier');
@@ -270,9 +277,9 @@ export function TinLibrary() {
              <input type="text" value={address} onChange={e => setAddress(e.target.value)} placeholder="Business Address" className="form-input" />
           </div>
         )}
-        <button onClick={handleAdd} className="bg-purple-600 hover:bg-purple-700 text-white font-bold px-6 py-2.5 rounded-xl transition-colors shadow-sm flex items-center gap-2 h-[42px]">
+        {canAdd && <button onClick={handleAdd} className="bg-purple-600 hover:bg-purple-700 text-white font-bold px-6 py-2.5 rounded-xl transition-colors shadow-sm flex items-center gap-2 h-[42px]">
           <Plus className="w-5 h-5" /> Add
-        </button>
+        </button>}
       </div>
 
       <div className="mt-8">
@@ -281,19 +288,19 @@ export function TinLibrary() {
           <div className="flex items-center gap-3 w-full md:w-auto">
             {activeTab === 'suppliers' && (
               <>
-                <input 
+                {canImport && <input 
                   type="file" 
                   accept="*" 
                   ref={fileInputRef} 
                   onChange={handleFileUpload} 
                   className="hidden" 
-                />
-                <button 
+                />}
+                {canImport && <button 
                   onClick={() => fileInputRef.current?.click()}
                   className="px-4 py-2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-bold text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors flex items-center gap-2"
                 >
                   <Upload className="w-4 h-4" /> Upload
-                </button>
+                </button>}
               </>
             )}
             <div className="relative flex-1 md:w-64">

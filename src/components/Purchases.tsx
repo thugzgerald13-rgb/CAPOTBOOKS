@@ -9,6 +9,9 @@ import { ShoppingCart, Plus, Trash2, X, Paperclip, Upload, FileText, Image as Im
 import { DEFAULT_ACCOUNTS, getNormalSide, resequenceAccounts } from './ChartOfAccounts';
 import { getDefaultAccountsForIndustry } from '../lib/journalDefaults';
 import { ATC_SCHEDULE } from '../lib/atcSchedule';
+import { useGranularPermissions } from '../lib/useGranularPermissions';
+import { useAuth } from '../context/AuthContext';
+import { modulePermissionKey, actionPermissionKey } from '../lib/granularPermissions';
 
 
 // Embedded mode lets the Expense History page open the Invoiced / Other
@@ -136,6 +139,32 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
   const navigate = useNavigate();
   const isOtherPayments = embedded ? mode === 'other-payments' : location.pathname === '/purchases/other-payments';
   const isAP = embedded ? false : location.pathname === '/purchases/ap';
+  const activePermissionModule = isAP ? 'purchases_ap' : isOtherPayments ? 'purchases_other_payments' : 'purchases_invoiced';
+  const { canAction: canPurchaseSubmoduleAction } = useGranularPermissions(activePermissionModule);
+  const { canAction: canParentPurchaseAction } = useGranularPermissions('purchases');
+  // Root Purchases grants stay authoritative for the shared purchases table;
+  // the active subpage grant narrows access further.
+  const canPurchaseAction = (actionId: string) => canParentPurchaseAction(actionId) && canPurchaseSubmoduleAction(actionId);
+  const { canDropdownOption: canPurchaseDropdown } = useGranularPermissions('purchases');
+  const { hasPermission } = useAuth();
+  const canViewOtherPayments = hasPermission(modulePermissionKey('purchases')) && hasPermission(modulePermissionKey('purchases_other_payments')) && hasPermission(actionPermissionKey('purchases_other_payments', 'view'));
+  const canViewAp = hasPermission(modulePermissionKey('purchases')) && hasPermission(modulePermissionKey('purchases_ap')) && hasPermission(actionPermissionKey('purchases_ap', 'view'));
+  const paymentMethodOptions = [
+    { value: 'Cash', label: '💵 Cash', permission: 'cash' },
+    { value: 'Check', label: '📝 Check', permission: 'check' },
+    { value: 'E-payments', label: '💳 E-payments', permission: 'bank_transfer' },
+    { value: 'On Account', label: '📋 On Account', permission: 'credit' },
+  ].filter((option) => canPurchaseDropdown('payment_method', option.permission));
+  const vatTypeOptions = [
+    { value: 'vat', label: 'VAT', permission: 'vat' },
+    { value: 'non-vat', label: 'Non-VAT', permission: 'non_vat' },
+    { value: 'vat-nonvat', label: 'VAT + Non-VAT', permission: 'vat_nonvat' },
+    { value: 'zero-rated', label: 'Zero-rated', permission: 'zero_rated' },
+  ].filter((option) => canPurchaseDropdown('vat_type', option.permission));
+  const withholdingOptions = [
+    { value: 'w/o', label: 'No withholding', permission: 'none' },
+    { value: 'with', label: 'Apply withholding tax', permission: 'withholding' },
+  ].filter((option) => canPurchaseDropdown('withholding', option.permission));
   const { currentClient, currentClientId, currentDat, saveCoaAccounts, savePurchase, deletePurchase, showToast, setCurrentDat } = useAccounting();
   // Run 009 / T009 — AP aging summary (unpaid = On Account)
   const apAging = useMemo(() => isAP ? computeApAging(currentClient?.purchases || [], new Date().toISOString().split('T')[0]) : null, [currentClient?.purchases, isAP]);
@@ -215,6 +244,7 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
   };
 
   const handleAddPaymentAccount = () => {
+    if (!hasPermission(modulePermissionKey('coa')) || !hasPermission(actionPermissionKey('coa', 'add'))) { showToast('Your profile cannot add chart-of-accounts entries.'); return; }
     if (!currentClient || !currentClientId) return;
     const name = newPaymentAccountName.trim();
     if (!name) {
@@ -441,6 +471,14 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
   }, [date, currentDat]);
 
   const handleAddPurchase = async () => {
+    const editingExisting = embedded ? Boolean(editPurchase) || viewIndex !== null : viewIndex !== null;
+    if (!canPurchaseAction(editingExisting ? 'edit' : 'add')) { showToast(`Your profile does not have permission to ${editingExisting ? 'edit' : 'add'} purchases.`); return; }
+    const paymentPermission = paymentMethodOptions.find((option) => option.value === paymentMethod)?.permission;
+    if (!isAP && !isOtherPayments && (!paymentPermission || !canPurchaseDropdown('payment_method', paymentPermission))) { showToast('The selected payment method is not permitted for your profile.'); return; }
+    const vatPermission = vatTypeOptions.find((option) => option.value === vatType)?.permission;
+    if (!isOtherPayments && !isAP && (!vatPermission || !canPurchaseDropdown('vat_type', vatPermission))) { showToast('The selected VAT option is not permitted for your profile.'); return; }
+    const withholdingPermission = withholdingOptions.find((option) => option.value === withholdingOption)?.permission;
+    if (!isAP && (!withholdingPermission || !canPurchaseDropdown('withholding', withholdingPermission))) { showToast('The selected withholding option is not permitted for your profile.'); return; }
     if (!currentClient || !currentClientId) return;
 
     // Validate the values currently shown in the form. In edit mode, fields
@@ -568,7 +606,6 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
     setWithholdingOption('w/o');
     setAtcCode('');
     setWhtAmount(0);
-    setExpenseType('Capital Goods');
     setAccountTitle('');
     setTransactionDetails('');
     setInputTax(0);
@@ -583,6 +620,7 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
   };
 
   const handleDelete = async (id: number) => {
+    if (!canPurchaseAction('delete')) { showToast('Your profile does not have permission to delete purchases.'); return; }
     if (!currentClient || !currentClientId) return;
     try {
       await deletePurchase(String(id));
@@ -600,9 +638,9 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
 
       {!embedded && (
       <div className="mb-6 flex flex-wrap gap-2 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 shadow-sm">
-        <button type="button" onClick={() => navigate('/purchases/invoiced')} className={`flex-1 min-w-[140px] px-4 py-3 rounded-xl text-sm font-bold transition-all ${!isOtherPayments && !isAP ? 'bg-amber-500 text-slate-900 shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Invoiced</button>
-        <button type="button" onClick={() => navigate('/purchases/other-payments')} className={`flex-1 min-w-[140px] px-4 py-3 rounded-xl text-sm font-bold transition-all ${isOtherPayments ? 'bg-amber-500 text-slate-900 shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Other Payments</button>
-        <button type="button" onClick={() => navigate('/purchases/ap')} className={`flex-1 min-w-[140px] px-4 py-3 rounded-xl text-sm font-bold transition-all ${isAP ? 'bg-amber-500 text-slate-900 shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Accounts Payable (AP)</button>
+        {hasPermission(modulePermissionKey('purchases')) && hasPermission(actionPermissionKey('purchases', 'view')) && <button type="button" onClick={() => navigate('/purchases/invoiced')} className={`flex-1 min-w-[140px] px-4 py-3 rounded-xl text-sm font-bold transition-all ${!isOtherPayments && !isAP ? 'bg-amber-500 text-slate-900 shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Invoiced</button>}
+        {canViewOtherPayments && <button type="button" onClick={() => navigate('/purchases/other-payments')} className={`flex-1 min-w-[140px] px-4 py-3 rounded-xl text-sm font-bold transition-all ${isOtherPayments ? 'bg-amber-500 text-slate-900 shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Other Payments</button>}
+        {canViewAp && <button type="button" onClick={() => navigate('/purchases/ap')} className={`flex-1 min-w-[140px] px-4 py-3 rounded-xl text-sm font-bold transition-all ${isAP ? 'bg-amber-500 text-slate-900 shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Accounts Payable (AP)</button>}
       </div>
       )}
 
@@ -644,15 +682,8 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
             {!isAP && (
               <div className="w-full md:w-2/3 flex flex-col justify-end">
                 <label className="form-label">Payment Method</label>
-                <select
-                  value={paymentMethod}
-                  onChange={e => setPaymentMethod(e.target.value)}
-                  className="form-input"
-                >
-                  <option value="Cash">💵 Cash</option>
-                  <option value="Check">📝 Check</option>
-                  <option value="E-payments">💳 E-payments</option>
-                  <option value="On Account">📋 On Account</option>
+                <select value={paymentMethod} onChange={e => setPaymentMethod(e.target.value)} className="form-input" disabled={paymentMethodOptions.length === 0}>
+                  {paymentMethodOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </select>
               </div>
             )}
@@ -800,9 +831,9 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
             <label className="form-label">{currentDat ? "Account Title" : "Payment for"}</label>
             {!currentDat && (
               <div className="flex items-center gap-1 mb-1.5">
-                <button type="button" onClick={() => setShowAddPaymentAccount(v => !v)} className="p-1 rounded hover:bg-emerald-100 dark:hover:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 transition-colors" title="Add a new account">
+                {hasPermission(modulePermissionKey('coa')) && hasPermission(actionPermissionKey('coa', 'add')) && <button type="button" onClick={() => setShowAddPaymentAccount(v => !v)} className="p-1 rounded hover:bg-emerald-100 dark:hover:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 transition-colors" title="Add a new account">
                   <Plus className="w-3.5 h-3.5" />
-                </button>
+                </button>}
               </div>
             )}
           </div>
@@ -868,7 +899,7 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
 
         <div className="lg:col-span-3 flex justify-end items-center mt-2 border-t border-slate-200 dark:border-slate-700 pt-4">
            <div className="flex gap-3">
-             {viewIndex !== null && !embedded && (
+             {viewIndex !== null && !embedded && canPurchaseAction('delete') && (
                <button 
                  onClick={() => {
                    if (confirm('Are you sure you want to delete this entry?')) {
@@ -886,9 +917,9 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
                  Cancel
                </button>
              )}
-             <button onClick={handleAddPurchase} className="bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold px-8 py-2.5 rounded-xl transition-colors shadow-sm shadow-amber-500/20 flex items-center gap-2">
+             {canPurchaseAction(viewIndex !== null ? 'edit' : 'add') && <button onClick={handleAddPurchase} className="bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold px-8 py-2.5 rounded-xl transition-colors shadow-sm shadow-amber-500/20 flex items-center gap-2">
                <Plus className="w-5 h-5" /> {viewIndex !== null ? 'Update Entry' : 'Add Entry'}
-             </button>
+             </button>}
            </div>
         </div>
       </div>

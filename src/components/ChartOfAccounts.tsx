@@ -5,6 +5,7 @@ import { flattenCoaHierarchy } from '../lib/coaImport';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
+import { useGranularPermissions } from '../lib/useGranularPermissions';
 import { supabase } from '../lib/supabase';
 import { CoaAccount } from '../types';
 import { cn } from '../lib/utils';
@@ -684,6 +685,15 @@ export function closeCodeGaps(
 
 export function ChartOfAccounts() {
   const canDelete = usePermission('delete_transactions');
+  const { canAction: canCoaAction, canDropdownOption: canCoaDropdown } = useGranularPermissions('coa');
+  const coaTypeOptions = [
+    { value: 'Asset', permission: 'asset' },
+    { value: 'Liability', permission: 'liability' },
+    { value: 'Equity', permission: 'equity' },
+    { value: 'Revenue', permission: 'income' },
+    { value: 'Cost of Sales', permission: 'expense' },
+    { value: 'Expense', permission: 'expense' },
+  ].filter((option) => canCoaDropdown('account_type', option.permission));
 
   const { currentClient, currentClientId, saveCoaAccounts, saveCoaColumns, showToast } = useAccounting();
   const [isAdding, setIsAdding] = useState(false);
@@ -760,6 +770,7 @@ export function ChartOfAccounts() {
   }, [currentClient?.coaColumns]);
 
   const handleAddColumn = () => {
+    if (!canCoaAction('manage')) { showToast('Your profile does not have permission to manage Chart of Accounts columns.'); return; }
     if (!newColumnName.trim()) {
       alert("Please provide a name for the new column.");
       return;
@@ -775,6 +786,7 @@ export function ChartOfAccounts() {
   };
 
   const handleDeleteColumn = (id: string) => {
+    if (!canCoaAction('manage')) { showToast('Your profile does not have permission to manage Chart of Accounts columns.'); return; }
     const colToDelete = coaColumns.find(c => c.id === id);
     if (!colToDelete) return;
 
@@ -791,6 +803,7 @@ export function ChartOfAccounts() {
   };
 
   const handleSaveColumnRename = (id: string) => {
+    if (!canCoaAction('manage')) { showToast('Your profile does not have permission to manage Chart of Accounts columns.'); return; }
     if (!editingColumnName.trim()) {
       alert("Name cannot be empty.");
       return;
@@ -1075,6 +1088,7 @@ export function ChartOfAccounts() {
   };
 
   const applyPreset = (format: 'numeric' | 'alphanumeric') => {
+    if (!canCoaAction('manage')) { showToast('Your profile does not have permission to reset or reformat the Chart of Accounts.'); return; }
     if (accounts.length > 0) {
       if (!confirm(`Are you sure you want to replace all your accounts with the ${format} preset? This will delete all custom accounts.`)) {
         return;
@@ -1086,6 +1100,9 @@ export function ChartOfAccounts() {
   };
 
   const handleAddAccount = async () => {
+    if (!canCoaAction('add')) { showToast('Your profile does not have permission to add accounts.'); return; }
+    const selectedTypePermission = coaTypeOptions.find((option) => option.value === newType)?.permission;
+    if (!selectedTypePermission || !canCoaDropdown('account_type', selectedTypePermission)) { showToast('This account type is not permitted for your profile.'); return; }
     if (!newCode || !newName || !newType) {
       alert("Please fill out Account Code and Name.");
       return;
@@ -1185,6 +1202,7 @@ export function ChartOfAccounts() {
   // generates a six-character code when no usable code exists, and captures an
   // opening balance when a numeric balance appears on the same row.
   const handleUploadFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!canCoaAction('import')) { showToast('Your profile does not have permission to import a Chart of Accounts.'); e.target.value = ''; return; }
     const file = e.target.files?.[0];
     if (!file) return;
     setIsUploading(true);
@@ -1261,6 +1279,7 @@ export function ChartOfAccounts() {
   };
 
   const handleDelete = async (id: string) => {
+    if (!canCoaAction('delete')) { showToast('Your profile does not have permission to delete accounts.'); return; }
     const hasChildren = accounts.some(a => a.parentId === id);
     // Auto-close the gap: if this account sat evenly between two neighbors, shift
     // every later code in its group down by one step (safe — collisions abort).
@@ -1289,6 +1308,9 @@ export function ChartOfAccounts() {
   };
 
   const handleSaveEdit = async (oldId: string) => {
+    if (!canCoaAction('edit')) { showToast('Your profile does not have permission to edit accounts.'); return; }
+    const selectedTypePermission = coaTypeOptions.find((option) => option.value === editType)?.permission;
+    if (!selectedTypePermission || !canCoaDropdown('account_type', selectedTypePermission)) { showToast('This account type is not permitted for your profile.'); return; }
     if (!editCode || !editName) {
       alert("Please fill out Account Code and Name.");
       return;
@@ -1593,7 +1615,7 @@ export function ChartOfAccounts() {
             className="hidden"
             onChange={handleUploadFile}
           />
-          <div ref={presetsRef}>
+          {canCoaAction('manage') && <div ref={presetsRef}>
             <button
               type="button"
               onClick={() => setShowPresets(!showPresets)}
@@ -1621,8 +1643,8 @@ export function ChartOfAccounts() {
               </div>,
               document.body
             )}
-          </div>
-          <button
+          </div>}
+          {canCoaAction('manage') && <button
             type="button"
             onClick={() => setShowColumnManager(!showColumnManager)}
             aria-pressed={showColumnManager}
@@ -1634,8 +1656,8 @@ export function ChartOfAccounts() {
                 : 'border-border bg-surface text-text-secondary hover:bg-surface-subtle')}
           >
             <Columns className="w-3.5 h-3.5" /> <span className="hidden md:inline">Configure Columns</span>
-          </button>
-          <button
+          </button>}
+          {canCoaAction('import') && <button
             type="button"
             onClick={() => uploadInputRef.current?.click()}
             disabled={isUploading}
@@ -1644,15 +1666,15 @@ export function ChartOfAccounts() {
             title="Upload a Chart of Accounts. Headings are optional; CAPOT can infer account titles, types, codes and balances (Opening Balance for balance sheet accounts, Previous Year Balance for Income, Costs and Expenses)."
           >
             <Upload className="w-3.5 h-3.5" /> <span className="hidden md:inline">{isUploading ? 'Reading…' : 'Upload Chart of Accounts'}</span>
-          </button>
-          <button
+          </button>}
+          {canCoaAction('add') && <button
             id="add-account-btn"
             type="button"
             onClick={() => setIsAdding(true)}
             className="inline-flex items-center gap-1.5 h-8 px-3.5 rounded-lg bg-brand-600 hover:bg-brand-700 text-white text-xs font-semibold shadow-sm transition-colors"
           >
             <Plus className="w-3.5 h-3.5" /> <span className="whitespace-nowrap">Add Account</span>
-          </button>
+          </button>}
         </div>
       } />
       <div className="p-4 md:p-6 flex-1">
@@ -2282,7 +2304,7 @@ export function ChartOfAccounts() {
 
                               {openActionMenuId === account.id && (
                                 <div className={cn("absolute right-0 w-44 bg-surface border border-border rounded-lg shadow-pop py-1 z-30 text-left font-sans", index >= displayRows.length - 2 && displayRows.length > 3 ? "bottom-full mb-1" : "top-full mt-1")}>
-                                  <button
+                                  {canCoaAction('edit') && <button
                                     onClick={() => {
                                       setEditingId(account.id);
                                       setEditCode(account.id);
@@ -2310,7 +2332,7 @@ export function ChartOfAccounts() {
                                   >
                                     <Edit2 className="w-3.5 h-3.5" />
                                     Edit Account
-                                  </button>
+                                  </button>}
                                   <button
                                     onClick={() => {
                                       handleMoveUp(account.id);
@@ -2344,7 +2366,7 @@ export function ChartOfAccounts() {
                                     Move Down
                                   </button>
                                   <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
-                                  <button
+                                  {canCoaAction('delete') && <button
                                     onClick={() => {
                                       handleDelete(account.id);
                                       setOpenActionMenuId(null);
@@ -2355,7 +2377,7 @@ export function ChartOfAccounts() {
                                   >
                                     <Trash2 className="w-3.5 h-3.5" />
                                     Delete Account
-                                  </button>
+                                  </button>}
                                 </div>
                               )}
                             </div>

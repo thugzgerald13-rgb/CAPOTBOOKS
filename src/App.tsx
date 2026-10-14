@@ -17,7 +17,9 @@ import { logAudit } from './lib/accessControl';
 import { AIAssistant } from './components/AIAssistant';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { PageSkeleton, EmptyState, Button } from './components/ui';
-import { Wallet } from 'lucide-react';
+import { Wallet, KeyRound, ShieldCheck } from 'lucide-react';
+import { moduleIdForRoute, moduleIdsForRoute, modulePermissionKey, actionPermissionKey } from './lib/granularPermissions';
+import { supabase } from './lib/supabase';
 
 const Sales = lazy(() => import('./components/Sales').then(m => ({ default: m.Sales })));
 const Billing = lazy(() => import('./components/Billing').then(m => ({ default: m.Billing })));
@@ -71,7 +73,12 @@ function RequirePermission({ children }: { children: React.ReactNode }) {
   // accounts viewing a shared client — hasPermission() is client-scoped and
   // returns full access for the user's own clients. Owners/admins bypass via
   // hasPermission itself (returns true), so no role check is needed here.
-  const denied = adminOnly ? !isAdmin : Boolean(required && !hasPermission(required));
+  const uiModuleId = moduleIdForRoute(path);
+  const requiredUiModules = moduleIdsForRoute(path);
+  const uiModuleDenied = path !== '/' && requiredUiModules.some((moduleId) => (
+    !hasPermission(modulePermissionKey(moduleId)) || !hasPermission(actionPermissionKey(moduleId, 'view'))
+  ));
+  const denied = (adminOnly ? !isAdmin : Boolean(required && !hasPermission(required))) || uiModuleDenied;
   // Hard feature allowlist: every page EXCEPT those explicitly allowed is
   // blocked for every non-developer user (new and existing alike). The
   // developer account (isAdmin) bypasses this lock entirely.
@@ -87,7 +94,7 @@ function RequirePermission({ children }: { children: React.ReactNode }) {
         userEmail: user.email || 'unknown',
         action: 'route_access_denied',
         entity: path,
-        details: featureLocked ? 'feature not in allowlist' : adminOnly ? 'admin-only route' : `missing permission: ${required}`,
+        details: featureLocked ? 'feature not in allowlist' : adminOnly ? 'admin-only route' : uiModuleDenied ? `missing module permission: ${uiModuleId}` : `missing permission: ${required}`, 
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -160,17 +167,21 @@ function AppLayout() {
         <ErrorBoundary>
         <div className="app-content px-4 md:px-8 pt-[1.5px] pb-1 md:pb-2 max-w-[1400px] mx-auto w-full">
           {!activePage && (
-            hasClients ? (
-              <Dashboard />
+            hasPermission('module.dashboard') && hasPermission('action.dashboard.view') ? (
+              hasClients ? (
+                <Dashboard />
+              ) : (
+                <div className="mt-8 card-surface">
+                  <EmptyState
+                    icon={<Wallet className="w-7 h-7" />}
+                    title={isSubuser ? 'No client workspaces assigned yet' : 'Welcome to your workspace'}
+                    description={isSubuser ? 'Ask the account owner to grant you access to a client workspace. You will see it here once the permission is active.' : 'Set up your business profile (TIN, Taxpayer Classification, Trade Name, Address and RDO Code) to begin tracking transactions and generating reports.'}
+                    action={!isSubuser ? <Button size="lg" onClick={() => navigateToPage('business')}>Set up Business Profile</Button> : undefined}
+                  />
+                </div>
+              )
             ) : (
-              <div className="mt-8 card-surface">
-                <EmptyState
-                  icon={<Wallet className="w-7 h-7" />}
-                  title={isSubuser ? 'No client workspaces assigned yet' : 'Welcome to your workspace'}
-                  description={isSubuser ? 'Ask the account owner to grant you access to a client workspace. You will see it here once the permission is active.' : 'Set up your business profile (TIN, Taxpayer Classification, Trade Name, Address and RDO Code) to begin tracking transactions and generating reports.'}
-                  action={!isSubuser ? <Button size="lg" onClick={() => navigateToPage('business')}>Set up Business Profile</Button> : undefined}
-                />
-              </div>
+              <div className="mt-8 card-surface"><EmptyState icon={<Wallet className="w-7 h-7" />} title="Dashboard access is disabled" description="Your account owner has restricted the Dashboard. Open an enabled module from the sidebar, or ask your account owner to grant Dashboard access." /></div>
             )
           )}
         </div>
@@ -259,6 +270,69 @@ function AppLayout() {
 }
 
 
+/**
+ * Secondary users must re-verify their sign-in password before entering the
+ * granted workspace. The password is never stored; successful verification is
+ * kept only in this mounted app instance and is reset by reload/sign-out.
+ */
+function SubuserPasswordGate({ children }: { children: React.ReactNode }) {
+  const { user, isSubuser, signOut } = useAuth();
+  const [verifiedUserId, setVerifiedUserId] = useState<string | null>(null);
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    setVerifiedUserId(null);
+    setPassword('');
+    setError('');
+  }, [user?.id]);
+
+  if (!isSubuser) return <>{children}</>;
+  if (!user?.id || !user.email) {
+    return <div className="min-h-screen grid place-items-center bg-slate-50 dark:bg-slate-900 p-6"><div className="max-w-md text-center text-slate-600 dark:text-slate-300">This user profile requires password verification. Please sign in again.</div></div>;
+  }
+  if (verifiedUserId === user.id) return <>{children}</>;
+
+  const verify = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setError('');
+    if (!password) { setError('Enter your password to continue.'); return; }
+    setBusy(true);
+    try {
+      const { data, error: authError } = await supabase.auth.signInWithPassword({ email: user.email, password });
+      if (authError) throw authError;
+      if (!data.user || data.user.id !== user.id) {
+        await supabase.auth.signOut();
+        throw new Error('The password did not verify this user profile. Please sign in again.');
+      }
+      setVerifiedUserId(user.id);
+      setPassword('');
+    } catch {
+      setError('Password verification failed. Check your password and try again.');
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 px-4 py-8">
+      <form onSubmit={(event) => { void verify(event); }} className="w-full max-w-md rounded-2xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-xl p-7">
+        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-cyan-50 dark:bg-cyan-950/40 text-cyan-700 dark:text-cyan-300"><ShieldCheck className="h-7 w-7" /></div>
+        <h1 className="text-xl font-bold text-center text-slate-900 dark:text-white">Verify your user profile</h1>
+        <p className="mt-2 text-sm text-center text-slate-500 dark:text-slate-400">Enter your password again to access the modules and actions assigned to your profile.</p>
+        <label htmlFor="subuser-access-password" className="mt-6 block text-sm font-semibold text-slate-700 dark:text-slate-200">Password</label>
+        <div className="relative mt-2">
+          <KeyRound className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
+          <input id="subuser-access-password" type="password" value={password} onChange={(event) => setPassword(event.target.value)} autoComplete="current-password" className="w-full rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 py-3 pl-10 pr-3 text-sm text-slate-900 dark:text-white outline-none focus:border-cyan-500" autoFocus disabled={busy} />
+        </div>
+        {error && <p role="alert" className="mt-3 text-sm text-red-600 dark:text-red-400">{error}</p>}
+        <button type="submit" disabled={busy || !password} className="mt-5 w-full rounded-xl bg-cyan-600 px-4 py-3 text-sm font-bold text-white hover:bg-cyan-700 disabled:opacity-50">{busy ? 'Verifying…' : 'Verify and continue'}</button>
+        <button type="button" onClick={() => { void signOut(); }} className="mt-3 w-full rounded-xl border border-slate-300 dark:border-slate-700 px-4 py-3 text-sm font-semibold text-slate-600 dark:text-slate-300">Sign out</button>
+      </form>
+    </div>
+  );
+}
+
+
 function MainApp() {
   const { user, loading, accountReady, userRole, setUserRole } = useAuth();
 
@@ -299,7 +373,9 @@ function MainApp() {
 
   return (
     <AccountingProvider>
-      <AppLayout />
+      <SubuserPasswordGate>
+        <AppLayout />
+      </SubuserPasswordGate>
     </AccountingProvider>
   );
 }

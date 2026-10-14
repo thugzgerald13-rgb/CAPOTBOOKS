@@ -23,6 +23,8 @@ import {
   resetSubuserPassword,
   listSubuserClientPermissions,
   setSubuserClientPermissions,
+  listSubuserClientUiPermissions,
+  setSubuserClientUiPermissions,
   listMySubusers,
   SubusersNotEnabledError,
 } from '../lib/subusers';
@@ -32,6 +34,8 @@ import { ALL_PERMISSIONS, type Permission } from '../lib/accessControl';
 import {
   MEMBER_ROLE_PERMISSIONS,
 } from '../lib/teamPermissions';
+import { GranularPermissionEditor } from './GranularPermissionEditor';
+import { buildDefaultUiPermissions, GRANULAR_PERMISSION_KEYS, GRANULAR_PERMISSION_REQUIREMENTS } from '../lib/granularPermissions';
 
 const ROLE_OPTIONS: { value: MemberRole; label: string; desc: string }[] = [
   { value: 'accountant', label: 'Accountant', desc: 'Professional accounting access for multiple client businesses.' },
@@ -194,10 +198,25 @@ export function TeamSettings() {
     setPermissionError('');
     setPermissionLoading(true);
     try {
-      const rows = await listSubuserClientPermissions(member.userId);
+      const [rows, uiRows] = await Promise.all([
+        listSubuserClientPermissions(member.userId),
+        listSubuserClientUiPermissions(member.userId).catch(() => []),
+      ]);
       const byClient: Record<string, Record<string, boolean>> = {};
+      const uiByClient = Object.fromEntries(uiRows.map((row) => [row.clientId, row.permissions || {}]));
       rows.forEach((row) => {
-        byClient[row.clientId] = row.permissions || {};
+        const base = row.permissions || {};
+        byClient[row.clientId] = {
+          ...base,
+          ...buildDefaultUiPermissions(base),
+          ...((uiByClient[row.clientId] || {}) as Record<string, boolean>),
+        };
+      });
+      // A client may be visible to the owner but not yet have a seeded base row.
+      clientList.forEach((client) => {
+        if (byClient[client.id]) return;
+        const base = Object.fromEntries((MEMBER_ROLE_PERMISSIONS[member.memberRole] || []).map((permission) => [permission, true]));
+        byClient[client.id] = { ...base, ...buildDefaultUiPermissions(base), ...((uiByClient[client.id] || {}) as Record<string, boolean>) };
       });
       setPermissionGrants(byClient);
       setPermissionClientId((prev) => (prev && clientList.some((client) => client.id === prev)) ? prev : (clientList[0]?.id || ''));
@@ -220,13 +239,19 @@ export function TeamSettings() {
     if (!permissionMember || !permissionClientId) return;
     const roleAllows = (MEMBER_ROLE_PERMISSIONS[permissionMember.memberRole] || []).includes(permission);
     if (!roleAllows) return;
-    setPermissionGrants((prev) => ({
-      ...prev,
-      [permissionClientId]: {
-        ...(prev[permissionClientId] || {}),
-        [permission]: !Boolean(prev[permissionClientId]?.[permission]),
-      },
-    }));
+    setPermissionGrants((prev) => {
+      const current = prev[permissionClientId] || {};
+      const enabled = !Boolean(current[permission]);
+      const next = { ...current, [permission]: enabled };
+      // Turning off a base capability also clears all fine-grained controls
+      // that depend on it, so the editor never shows a misleading checked leaf.
+      if (!enabled) {
+        Object.entries(GRANULAR_PERMISSION_REQUIREMENTS).forEach(([key, required]) => {
+          if (required === permission) next[key] = false;
+        });
+      }
+      return { ...prev, [permissionClientId]: next };
+    });
   };
 
   const saveCurrentClientPermissions = async () => {
@@ -235,11 +260,19 @@ export function TeamSettings() {
     setPermissionError('');
     try {
       const current = permissionGrants[permissionClientId] || {};
-      const selected = Object.fromEntries(
-        Object.entries(current).map(([key, value]) => [key, Boolean(value)])
+      const baseKeys = new Set(ALL_PERMISSIONS.map((item) => item.key));
+      const selectedBase = Object.fromEntries(
+        Object.entries(current).filter(([key]) => baseKeys.has(key as Permission)).map(([key, value]) => [key, Boolean(value)])
       );
-      await setSubuserClientPermissions(permissionMember.userId, permissionClientId, selected);
-      setPermissionGrants((prev) => ({ ...prev, [permissionClientId]: selected }));
+      const selectedUi = Object.fromEntries(
+        GRANULAR_PERMISSION_KEYS.map((key) => [key, Boolean(current[key])])
+      );
+      // Save base capabilities first because the granular RPC will cap every
+      // leaf against the effective role/client grant on the server.
+      await setSubuserClientPermissions(permissionMember.userId, permissionClientId, selectedBase);
+      await setSubuserClientUiPermissions(permissionMember.userId, permissionClientId, selectedUi);
+      const saved = { ...selectedBase, ...selectedUi };
+      setPermissionGrants((prev) => ({ ...prev, [permissionClientId]: saved }));
     } catch (err) {
       setPermissionError(err instanceof Error ? err.message : 'Could not save client permissions.');
     } finally {
@@ -252,7 +285,7 @@ export function TeamSettings() {
     const defaults = Object.fromEntries(
       (MEMBER_ROLE_PERMISSIONS[permissionMember.memberRole] || []).map((permission) => [permission, true])
     );
-    setPermissionGrants((prev) => ({ ...prev, [permissionClientId]: defaults }));
+    setPermissionGrants((prev) => ({ ...prev, [permissionClientId]: { ...defaults, ...buildDefaultUiPermissions(defaults) } }));
   };
 
   const toggleInvitePermission = (permission: Permission) => {
@@ -705,7 +738,7 @@ export function TeamSettings() {
 
       {permissionMember && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={closeClientPermissions}>
-          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-2xl max-w-4xl w-full max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-2xl max-w-6xl w-full max-h-[90vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
             <div className="px-6 py-5 border-b border-slate-200 dark:border-slate-700 flex items-start justify-between gap-4">
               <div>
                 <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Client access &amp; permissions</h3>
@@ -768,7 +801,7 @@ export function TeamSettings() {
                         </div>
                         <div className="flex items-center gap-2">
                           <button type="button" onClick={applyRoleDefaults} className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700">Use role defaults</button>
-                          <button type="button" onClick={() => setPermissionGrants((prev) => ({ ...prev, [permissionClientId]: {} }))} className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700">Clear all</button>
+                          <button type="button" onClick={() => setPermissionGrants((prev) => ({ ...prev, [permissionClientId]: Object.fromEntries([...ALL_PERMISSIONS.map((p) => p.key), ...GRANULAR_PERMISSION_KEYS].map((key) => [key, false])) }))} className="px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700">Clear all</button>
                         </div>
                       </div>
 
@@ -794,8 +827,21 @@ export function TeamSettings() {
                         })}
                       </div>
 
+                      <div className="mt-6 pt-6 border-t border-slate-200 dark:border-slate-700">
+                        <GranularPermissionEditor
+                          value={permissionGrants[permissionClientId] || {}}
+                          memberRole={permissionMember.memberRole}
+                          basePermissions={Object.fromEntries(ALL_PERMISSIONS.map((p) => [p.key, Boolean(permissionGrants[permissionClientId]?.[p.key])]))}
+                          disabled={permissionSaving}
+                          onChange={(next) => setPermissionGrants((prev) => ({
+                            ...prev,
+                            [permissionClientId]: { ...(prev[permissionClientId] || {}), ...next },
+                          }))}
+                        />
+                      </div>
+
                       <div className="mt-6 pt-4 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between gap-4">
-                        <p className="text-xs text-slate-500 dark:text-slate-400">Unchecked permissions are disabled for this client.</p>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">Unchecked capabilities, modules, actions, and dropdown options are disabled for this client.</p>
                         <button type="button" onClick={() => { void saveCurrentClientPermissions(); }} disabled={permissionSaving} className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white text-sm font-bold disabled:opacity-50">
                           {permissionSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
                           {permissionSaving ? 'Saving…' : 'Save client permissions'}

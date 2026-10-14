@@ -5,12 +5,32 @@ import { formatTIN, MONTHS, getMonthName } from '../lib/utils';
 import { Receipt, Plus, Users, RotateCcw } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { buildCustomerList, vatSummary, formatMoney } from '../lib/customerCrm';
+import { useGranularPermissions } from '../lib/useGranularPermissions';
 
 const CASH_RECEIPT_PAYMENT_TYPES = ['Cash', 'Check', 'E-Payment', 'Bank Transfer'];
 const SALES_JOURNAL_PAYMENT_TYPES = ['Credit Card', 'On Account'];
 
 export function Sales() {
   const { currentClient, currentClientId, saveSale, showToast } = useAccounting();
+  const { canAction: canSalesAction, canDropdownOption: canSalesDropdown } = useGranularPermissions('sales');
+  const paymentTypeOptions = [
+    { value: 'Cash', label: 'Cash', permission: 'cash' },
+    { value: 'Check', label: 'Check', permission: 'check' },
+    { value: 'E-Payment', label: 'E-Payment', permission: 'bank' },
+    { value: 'Bank Transfer', label: 'Bank Transfer', permission: 'bank' },
+    { value: 'Credit Card', label: 'Credit Card', permission: 'credit' },
+    { value: 'On Account', label: 'On Account', permission: 'credit' },
+  ].filter((option) => canSalesDropdown('payment_type', option.permission));
+  const vatTypeOptions = [
+    { value: 'VATable', label: 'VATable', permission: 'vatable' },
+    { value: 'VAT Exempt', label: 'VAT Exempt', permission: 'vat_exempt' },
+    { value: 'Zero-Rated', label: 'Zero-Rated', permission: 'zero_rated' },
+  ].filter((option) => canSalesDropdown('vat_type', option.permission));
+  const incomeTypeOptions = [
+    { value: 'Service Income', label: 'Service Income', permission: 'services' },
+    { value: 'Sale of Goods', label: 'Sale of Goods', permission: 'goods' },
+  ].filter((option) => canSalesDropdown('income_type', option.permission));
+  const canChooseMultipleIncomeTypes = canSalesDropdown('income_type', 'goods') && canSalesDropdown('income_type', 'services');
   const PAGE_SIZE = 50;
   const [salesPage, setSalesPage] = useState(0);
   const [salesTotal, setSalesTotal] = useState(0);
@@ -87,6 +107,16 @@ export function Sales() {
   const fillCustomer = (c: { tin: string; name: string; address: string }) => { setBuyerTin(c.tin); setBuyerName(c.name); setBuyerAddress(c.address); };
 
   const handleAddSale = () => {
+    if (!canSalesAction('add')) { showToast('Your profile does not have permission to add income entries.'); return; }
+    const paymentPermission = paymentTypeOptions.find((option) => option.value === paymentType)?.permission;
+    const vatPermission = vatTypeOptions.find((option) => option.value === vatType)?.permission;
+    if (!paymentPermission || !canSalesDropdown('payment_type', paymentPermission) || !vatPermission || !canSalesDropdown('vat_type', vatPermission)) {
+      showToast('The selected payment or VAT option is not permitted for your profile.'); return;
+    }
+    if (incomeType && incomeType !== 'Multiple' && !canSalesDropdown('income_type', incomeType === 'Service Income' ? 'services' : 'goods')) {
+      showToast('The selected income type is not permitted for your profile.'); return;
+    }
+    if (incomeType === 'Multiple' && !canChooseMultipleIncomeTypes) { showToast('Your profile cannot use the Multiple income type.'); return; }
     if (!currentClient || !currentClientId) return;
     if (!date || !amount) {
       alert('Enter date and amount');
@@ -170,7 +200,7 @@ export function Sales() {
           ))}
         </div>
       )}
-      {customers.length > 0 && (
+      {canSalesAction('add') && customers.length > 0 && (
         <div className="mb-5">
           <div className="flex items-center gap-2 mb-2 text-xs font-bold text-slate-500 uppercase tracking-wider">
             <Users className="w-3.5 h-3.5" /> Customers — click to fill form
@@ -186,7 +216,7 @@ export function Sales() {
           </div>
         </div>
       )}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-100 dark:border-slate-700">
+      {canSalesAction('add') && <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-100 dark:border-slate-700">
         <div>
           <label className="form-label">Date</label>
           <input 
@@ -198,13 +228,8 @@ export function Sales() {
         </div>
         <div>
           <label className="form-label">Payment Type</label>
-          <select value={paymentType} onChange={e => setPaymentType(e.target.value)} className="form-input">
-            <option>Cash</option>
-            <option>Check</option>
-            <option>E-Payment</option>
-            <option>Bank Transfer</option>
-            <option>Credit Card</option>
-            <option>On Account</option>
+          <select value={paymentType} onChange={e => setPaymentType(e.target.value)} className="form-input" disabled={paymentTypeOptions.length === 0}>
+            {paymentTypeOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
         </div>
         <div>
@@ -237,10 +262,8 @@ export function Sales() {
         </div>
         <div>
           <label className="form-label">VAT / Exempt / 0-Rated</label>
-          <select value={vatType} onChange={e => setVatType(e.target.value)} className="form-input">
-            <option value="VATable">VATable</option>
-            <option value="VAT Exempt">VAT Exempt</option>
-            <option value="Zero-Rated">Zero-Rated</option>
+          <select value={vatType} onChange={e => setVatType(e.target.value)} className="form-input" disabled={vatTypeOptions.length === 0}>
+            {vatTypeOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
         </div>
         <div>
@@ -258,11 +281,10 @@ export function Sales() {
         {currentClient?.hasMultipleBusinessLines && (
           <div className="lg:col-span-2">
             <label className="form-label">Service Income / Sales</label>
-            <select value={incomeType} onChange={e => setIncomeType(e.target.value)} className="form-input">
+            <select value={incomeType} onChange={e => setIncomeType(e.target.value)} className="form-input" disabled={incomeTypeOptions.length === 0}>
               <option value="">Select type...</option>
-              <option value="Service Income">Service Income</option>
-              <option value="Sale of Goods">Sale of Goods</option>
-              <option value="Multiple">Multiple</option>
+              {incomeTypeOptions.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+              {canChooseMultipleIncomeTypes && <option value="Multiple">Multiple</option>}
             </select>
           </div>
         )}
@@ -281,7 +303,7 @@ export function Sales() {
             <Plus className="w-5 h-5" /> Add Income Entry
           </button>
         </div>
-      </div>
+      </div>}
 
       </div>
     </div>
