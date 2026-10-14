@@ -114,7 +114,12 @@ $$;
 -- =============================================
 -- LIST MY SUBUSERS
 -- =============================================
-CREATE OR REPLACE FUNCTION list_my_subusers(p_account_id UUID)
+-- PostgreSQL cannot change a function's OUT/RETURNS TABLE row type using
+-- CREATE OR REPLACE. Drop only this UUID-argument overload before recreating it.
+-- Do not use CASCADE: preserve any dependent database objects.
+DROP FUNCTION IF EXISTS public.list_my_subusers(UUID);
+
+CREATE FUNCTION public.list_my_subusers(p_account_id UUID)
 RETURNS TABLE (
   user_id UUID,
   email TEXT,
