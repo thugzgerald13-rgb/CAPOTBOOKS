@@ -26,16 +26,17 @@ Removed `expense_type` / `expenseType` from all reads/writes:
   debit_account now use accountTitle only).
 - `src/types.ts` — removed `expenseType: string` from the Purchase type.
 
-## Note: SLSP / RELIEF VAT export still has Services/Capital Goods/Others columns
+## SLSP / RELIEF VAT export — Services/Capital Goods/Others columns removed
 The Quarterly Summary List of Purchases (SLSP) export and its on-screen table
-in History split VATable purchases into Services / Capital Goods / Others
-columns based on `expenseType`. With the field gone, those three columns now
-show `0.00` (the code still references `p.expenseType`, which is now
-`undefined`). They do not break the build. If you file BIR Form 2550 with an
-SLSP attachment, you'll want to either remove those three columns from the
-SLSP export or re-derive the split from the Chart of Accounts account type.
-Everything else (VATable / Non-VAT / Zero-Rated / Input Tax totals) is
-unaffected.
+in History previously split VATable purchases into Services / Capital Goods /
+Others columns based on `expenseType`. Those three columns (BIR RELIEF columns
+10/11/12) have now been **removed entirely** from both the XLSX export and the
+on-screen table (header labels, per-row cells, grand-total row, column widths,
+and the `isServices/isCapital/isOthers` helpers). The remaining columns are
+renumbered (Input Tax = 10, Gross Taxable Purchase = 11). VATable / Non-VAT /
+Zero-Rated / Input Tax totals are unaffected.
+All `expense_type` / `expenseType` references are gone from `src/` (verified
+by grep).
 
 ## Deploy
 ```bash
