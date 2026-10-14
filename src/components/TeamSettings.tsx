@@ -46,7 +46,7 @@ import { MEMBER_ROLE_PERMISSIONS } from '../lib/teamPermissions';
 import { GranularPermissionEditor } from './GranularPermissionEditor';
 import {
   buildDefaultUiPermissions,
-  GRANULAR_PERMISSION_KEYS,
+  AVAILABLE_GRANULAR_PERMISSION_KEYS,
   GRANULAR_PERMISSION_REQUIREMENTS,
 } from '../lib/granularPermissions';
 
@@ -123,7 +123,10 @@ function roleLabel(role: string) {
 /** Base capability map + the matching sidebar/button/dropdown defaults. */
 function buildAccess(base: Permission[]): Record<string, boolean> {
   const baseMap: Record<string, boolean> = Object.fromEntries(base.map((p) => [p, true]));
-  return { ...baseMap, ...buildDefaultUiPermissions(baseMap) };
+  const defaults = buildDefaultUiPermissions(baseMap);
+  // Only pages that are available to users are ever selectable/saved.
+  const ui = Object.fromEntries(AVAILABLE_GRANULAR_PERMISSION_KEYS.map((key) => [key, Boolean(defaults[key])]));
+  return { ...baseMap, ...ui };
 }
 
 function presetAccess(id: Exclude<PresetId, 'custom'>, allowed: Permission[]): Record<string, boolean> {
@@ -142,7 +145,7 @@ function detectPreset(value: Record<string, boolean>, allowed: Permission[]): Pr
     const wanted = preset.base.filter((p) => allowed.includes(p));
     if (wanted.length !== current.length || !wanted.every((p) => current.includes(p))) continue;
     const defaults = buildDefaultUiPermissions(Object.fromEntries(wanted.map((p) => [p, true])));
-    const same = GRANULAR_PERMISSION_KEYS.every((key) => Boolean(value[key]) === Boolean(defaults[key]));
+    const same = AVAILABLE_GRANULAR_PERMISSION_KEYS.every((key) => Boolean(value[key]) === Boolean(defaults[key]));
     if (same) return preset.id;
   }
   return 'custom';
@@ -563,7 +566,7 @@ function AddMemberModal({
         const login = staffLogin.trim().toLowerCase();
         const result = await inviteSubuser(login, displayName, 'staff', { loginName: login, password: staffPassword });
         const basePermissions = Object.fromEntries(baseSelected.map((p) => [p, true]));
-        const uiPermissions = Object.fromEntries(GRANULAR_PERMISSION_KEYS.map((key) => [key, Boolean(access[key])]));
+        const uiPermissions = Object.fromEntries(AVAILABLE_GRANULAR_PERMISSION_KEYS.map((key) => [key, Boolean(access[key])]));
         await refreshTeamMembers();
         const after = await listMySubusers().catch(() => []);
         const created = after.find((m) => m.memberKind === 'managed' && m.email === login);
@@ -871,7 +874,7 @@ function ManageAccessModal({
     const baseOnly = Object.fromEntries(
       Object.entries(source).filter(([key]) => BASE_KEYS.has(key)).map(([key, value]) => [key, Boolean(value)])
     );
-    const ui = Object.fromEntries(GRANULAR_PERMISSION_KEYS.map((key) => [key, Boolean(source[key])]));
+    const ui = Object.fromEntries(AVAILABLE_GRANULAR_PERMISSION_KEYS.map((key) => [key, Boolean(source[key])]));
     for (const id of targetIds) {
       // Base capabilities first: the granular RPC caps every leaf against them.
       await setSubuserClientPermissions(member.userId, id, baseOnly);

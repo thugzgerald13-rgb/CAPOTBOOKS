@@ -3,7 +3,7 @@ import { ChevronDown, ChevronRight, CheckSquare, Square, ShieldCheck, Search } f
 import type { MemberRole } from '../types';
 import { MEMBER_ROLE_PERMISSIONS } from '../lib/teamPermissions';
 import {
-  GRANULAR_PERMISSION_MODULES,
+  AVAILABLE_PERMISSION_MODULES,
   actionPermissionKey,
   dropdownPermissionKey,
   modulePermissionKey,
@@ -27,7 +27,7 @@ export function GranularPermissionEditor({ value, onChange, memberRole, basePerm
   const [expanded, setExpanded] = useState<string>('');
   const [query, setQuery] = useState('');
   const roleAllowed = MEMBER_ROLE_PERMISSIONS[asMemberRole(memberRole)] || [];
-  const modules = GRANULAR_PERMISSION_MODULES;
+  const modules = AVAILABLE_PERMISSION_MODULES;
   const visibleModules = query.trim()
     ? modules.filter((module) => module.label.toLowerCase().includes(query.trim().toLowerCase()))
     : modules;

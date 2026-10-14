@@ -4,6 +4,7 @@
  * Base capability checks remain server-authoritative; this catalog narrows
  * navigation, actions and dropdown choices per profile.
  */
+import { featureAllows } from './pagePermissions';
 export type BasePermissionKey = 'manage_users' | 'edit_transactions' | 'delete_transactions' | 'approve_journal' | 'view_reports' | 'manage_settings' | 'export_data' | 'lock_period';
 export type UiPermissionKind = 'module' | 'action' | 'dropdown';
 export interface UiPermissionAction { id: string; label: string; requiredPermission: string | null }
@@ -4856,3 +4857,22 @@ export function moduleIdsForRoute(pathname: string): string[] {
   const moduleId = moduleIdForRoute(normalized);
   return moduleId ? [moduleId] : [];
 }
+
+/**
+ * A page can only appear in permission selections if regular users can
+ * actually open it. Availability follows the same feature allowlist that the
+ * route guard and sidebar use (pagePermissions.featureAllows), so a page that
+ * is locked for everyone never shows up as something an owner can grant.
+ */
+export function isModuleAvailableToUsers(moduleId: string): boolean {
+  if (moduleId === 'dashboard') return true;
+  const routes = Object.entries(ROUTE_MODULES).filter(([, id]) => id === moduleId).map(([route]) => route);
+  return routes.some((route) => featureAllows(route));
+}
+
+/** Permission modules that may be offered in the Team & Subusers editor. */
+export const AVAILABLE_PERMISSION_MODULES: UiPermissionModule[] = GRANULAR_PERMISSION_MODULES.filter((m) => isModuleAvailableToUsers(m.id));
+/** Fine-grained keys that belong to an available module. */
+export const AVAILABLE_GRANULAR_PERMISSION_KEYS: string[] = GRANULAR_PERMISSION_CATALOG
+  .filter((item) => isModuleAvailableToUsers(item.moduleId))
+  .map((item) => item.key);

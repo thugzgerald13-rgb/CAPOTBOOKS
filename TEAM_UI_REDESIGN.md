@@ -25,6 +25,7 @@ granted automatically — the owner picks exactly what each person gets, per cli
 ## Files
 - `src/components/TeamSettings.tsx` (rewritten)
 - `src/components/GranularPermissionEditor.tsx` (search, clearer labels, collapsed by default)
+- `src/lib/granularPermissions.ts` (adds `isModuleAvailableToUsers` + available-only lists)
 - `src/lib/teamPermissions.tsx` (staff role ceiling = all except `manage_users`)
 - `scripts/staff_remove_role_cap.sql` (**run once** in Supabase SQL Editor — server-side cap)
 
@@ -32,6 +33,12 @@ granted automatically — the owner picks exactly what each person gets, per cli
 1. Run `scripts/staff_remove_role_cap.sql` in Supabase → SQL Editor (idempotent).
 2. Deploy the frontend.
 3. Open Team & Subusers → an existing staff member → **Manage access** and tick what they should have.
+
+## Only available pages are selectable
+Permission selections now list only pages regular users can actually open
+(same allowlist as the route guard/sidebar). Locked pages (Sales, Billing, Payroll,
+reports…) never appear, and aren't saved. When a page is added to
+`FEATURE_ALLOWED_PAGE_IDS` it appears automatically.
 
 ## Not changed (intentional)
 The global feature allowlist in `src/lib/pagePermissions.ts` (`FEATURE_ALLOWED_PAGE_IDS`)
