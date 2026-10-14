@@ -222,41 +222,48 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     { label: 'Business Profile', pageId: 'business', icon: Building2, keywords: 'business profile tin rdo setup' },
     { label: 'Account Settings', pageId: 'account-settings', icon: UserCircle, keywords: 'account settings profile' },
   ];
+  // Must stay aligned with src/lib/pagePermissions.ts ROUTE_PERMISSIONS so a
+  // team member never SEES a page the URL guard would bounce them out of.
+  // Owners / standalone accounts bypass via canUse() (!isSubuser).
   const pagePermission = (pageId: string | null): Permission | null => {
+    if (!pageId) return null;
     switch (pageId) {
       case 'team': return 'manage_users';
-      case 'business': return 'manage_settings';
-      case 'clients': return isSubuser ? 'manage_settings' : null;
+      case 'business':
+      case 'clients':
       case 'tinlibrary':
-      case 'coa': return 'manage_settings';
-      case 'account-settings': return null;
+      case 'coa':
+      case 'payroll/settings': return 'manage_settings';
       case 'files':
       case 'inventory':
       case 'sales':
       case 'billing':
       case 'purchases':
       case 'journal-voucher':
-      case 'payroll': return 'edit_transactions';
-      case 'payroll/settings': return 'manage_settings';
+      case 'payroll':
+      case 'eis-center':
+      case 'cash-receipt':
+      case 'cash-disbursement':
+      case 'sales-journal':
+      case 'purchase-journal': return 'edit_transactions';
       case 'history':
       case 'trialbalance':
       case 'balancesheet':
       case 'pl':
       case 'assetlapsing':
       case 'cashflow':
-      case 'compliance-tracker':
-      case 'eis-center': return 'edit_transactions';
       case 'bir-forms':
+      case 'relief':
+      case 'reports':
+      case 'taxnotes':
+      case 'books':
+      case 'journal':
+      case 'ledger':
       case 'afs-financial-position':
       case 'afs-income-statements':
       case 'afs-equity-retained-earnings':
       case 'afs-ppe': return 'view_reports';
-      case 'journal':
-      case 'ledger':
-      case 'sales-journal':
-      case 'purchase-journal':
-      case 'cash-disbursement':
-      case 'cash-receipt': return null;
+      case 'account-settings': return null;
       default: return null;
     }
   };
@@ -391,6 +398,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               className={cn(
                 "flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl transition-all w-full text-left group",
                 (isTransactionsOpen || ['coa','billing','sales','journal-voucher','history'].includes(activePage) || activePage?.startsWith('purchases')) ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
+                !canAny('edit_transactions', 'view_reports', 'manage_settings') && 'hidden',
                 isCollapsed && "md:justify-center md:px-2"
               )}
             >
@@ -515,7 +523,8 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                 "flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl transition-all w-full text-left group",
                 (isFormsOpen || activePage === 'compliance-tracker' || activePage === 'bir-forms' || activePage === 'relief' || ['afs-financial-position','afs-income-statements','afs-equity-retained-earnings','afs-ppe','cashflow'].includes(activePage)) ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
                 isCollapsed && "md:justify-center md:px-2",
-                (!isAdmin && !featureAllows('compliance-tracker')) && 'hidden'
+                (!isAdmin && !featureAllows('compliance-tracker')) && 'hidden',
+                !canUse('view_reports') && 'hidden'
               )}
             >
               <div className="flex items-center gap-3">
@@ -759,6 +768,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               className={cn(
                 "flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl transition-all w-full text-left group",
                 (isReportsOpen || ['trialbalance','balancesheet','pl','assetlapsing'].includes(activePage)) ? "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
+                !canUse('view_reports') && 'hidden',
                 isCollapsed && "md:justify-center md:px-2"
               )}
             >
@@ -806,6 +816,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               className={cn(
                 "flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl transition-all w-full text-left group",
                 (isBooksOpen || ['journal','ledger','sales-journal','purchase-journal','cash-disbursement','cash-receipt'].includes(activePage)) ? "bg-cyan-50 text-cyan-700 dark:bg-cyan-900/20 dark:text-cyan-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
+                !canAny('view_reports', 'edit_transactions') && 'hidden',
                 isCollapsed && "md:justify-center md:px-2"
               )}
             >

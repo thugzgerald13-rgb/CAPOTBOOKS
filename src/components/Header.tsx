@@ -24,7 +24,8 @@ function useClickOutside<T extends HTMLElement>(onOutside: () => void) {
 
 export function Header({ onMenuClick }: HeaderProps) {
   const { currentClient, isDarkMode, setDarkMode, isSyncing, navigateToPage } = useAccounting();
-  const { user, isAdmin, userRole, signOut } = useAuth();
+  const { user, isAdmin, userRole, signOut, isSubuser, hasPermission } = useAuth();
+  const canUse = (permission: string) => !isSubuser || hasPermission(permission);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -127,8 +128,8 @@ export function Header({ onMenuClick }: HeaderProps) {
             <Search className="w-4 h-4" />
           </button>
 
-          {/* Quick-add (+) menu */}
-          <div className="relative" ref={quickAddRef}>
+          {/* Quick-add (+) menu — hidden entirely for team members without edit_transactions */}
+          <div className="relative" ref={quickAddRef} style={canUse('edit_transactions') ? undefined : { display: 'none' }}>
             <button
               onClick={() => { setQuickAddOpen(o => !o); setNotifOpen(false); setUserMenuOpen(false); }}
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold shadow-sm shadow-blue-600/30 transition-colors"

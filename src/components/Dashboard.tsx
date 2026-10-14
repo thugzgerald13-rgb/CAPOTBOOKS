@@ -5,6 +5,7 @@ import {
   ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, AreaChart, Area, ReferenceLine,
 } from 'recharts';
 import { useAccounting } from '../context/AccountingContext';
+import { useAuth } from '../context/AuthContext';
 import type { GeneralLedgerAccount } from '../types';
 import { glAccountCurrentBalance, glAccountBalanceBefore, getProfitAndLossForPeriod, getMonthlyPnL } from '../lib/accountingBalances';
 import { forecastCashFlow, compactMoney } from '../lib/cashFlowForecast';
@@ -131,6 +132,8 @@ const tooltipFormatter = (value: number) => money(value);
 
 export function Dashboard() {
   const { currentClient, navigateToPage, setHistoryTab, syncData } = useAccounting();
+  const { isSubuser, hasPermission } = useAuth();
+  const canUse = (permission: string) => !isSubuser || hasPermission(permission);
   const [refreshKey, setRefreshKey] = useState(0);
   const [period, setPeriod] = useState<PeriodKey>('this-year');
   const isDark = useIsDark();
@@ -282,7 +285,7 @@ export function Dashboard() {
       </div>
 
       {/* Quick actions */}
-      <section aria-label="Quick actions" className="flex flex-wrap items-center gap-2">
+      <section aria-label="Quick actions" className="flex flex-wrap items-center gap-2" style={canUse('edit_transactions') ? undefined : { display: 'none' }}>
         <span className="text-xs font-semibold uppercase tracking-wider text-text-muted mr-1">Quick actions</span>
         {quickActions.map(qa => (
           <button key={qa.page} type="button" onClick={() => navigateToPage(qa.page)}
