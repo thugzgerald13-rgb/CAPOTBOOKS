@@ -169,31 +169,35 @@ export async function setSubuserStatus(
   });
 }
 
-/** Remove a team member. Managed staff credentials are disabled via the
- *  managed-staff edge function; independent professional accounts are
- *  unlinked and pending invitations are revoked by the remove_subuser RPC,
- *  which also handles legacy managed subusers.
- *
- *  The edge function is only tried for managed members. Previously it was
- *  always invoked first, and its 400 "Team member not found" (e.g. for a
- *  pending invitation, which has no account_team_links row yet) was thrown
- *  before the RPC fallback ever ran — so pending invites could not be
- *  revoked from the UI. */
+/** Remove a team member. The `remove_subuser` RPC is the source of truth — it
+ *  deletes the account_team_links row (or revokes a pending invitation), which
+ *  is what actually takes the member out of list_my_subusers(). For managed
+ *  staff we ALSO best-effort call the managed-staff edge function to disable
+ *  the credential/login, but we never let it short-circuit the delete: older
+ *  deployed builds of that edge function only set status='disabled' (which
+ *  keeps the member visible, since list_my_subusers has no status filter) and
+ *  returned success, so removal silently looked like a no-op. */
 export async function removeSubuser(
   userId: string,
   memberKind?: 'managed' | 'independent'
 ): Promise<void> {
   if (memberKind === 'managed') {
     try {
-      const { data, error } = await supabase.functions.invoke('managed-staff', {
+      await supabase.functions.invoke('managed-staff', {
         body: { action: 'remove', userId },
       });
-      if (!error && data && !data.error) return;
     } catch {
-      /* fall through to the RPC below for legacy managed subusers */
+      /* best-effort credential disable — the RPC below deletes the link */
     }
   }
-  await callRpc<void>('remove_subuser', { p_user_id: userId });
+  try {
+    await callRpc<void>('remove_subuser', { p_user_id: userId });
+  } catch (err) {
+    // If the edge function already deleted the link, the RPC finds nothing and
+    // raises 'Team member not found' — that is still a successful removal.
+    if (err instanceof Error && /team member not found/i.test(err.message)) return;
+    throw err;
+  }
 }
 
 /** Reset only a managed staff login password. */
