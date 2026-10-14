@@ -35,10 +35,19 @@ export const MEMBER_ROLE_PERMISSIONS: Record<MemberRole, Permission[]> = {
     'view_reports',
     'export_data',
   ],
-  // Limited day-to-day transaction entry. Read-mostly.
+  // Managed staff are NOT auto-restricted to a fixed set of functions. The
+  // account owner decides, per client, exactly which functions, sidebar
+  // modules, buttons and dropdown options a staff login gets (Team & Subusers
+  // → Manage access). The only capability a staff login can never hold is
+  // `manage_users` — inviting/removing people stays with the account owner.
   staff: [
     'edit_transactions',
+    'delete_transactions',
+    'approve_journal',
     'view_reports',
+    'manage_settings',
+    'export_data',
+    'lock_period',
   ],
   // Read-only access to reports and records.
   viewer: [
@@ -70,7 +79,7 @@ export const MEMBER_ROLE_LABELS: Record<MemberRole, string> = {
 export const MEMBER_ROLE_DESCRIPTIONS: Record<MemberRole, string> = {
   accountant: 'Full access to books, reports and compliance.',
   bookkeeper: 'Data entry across sales, purchases and journals.',
-  staff: 'Limited day-to-day transaction entry.',
+  staff: 'Day-to-day staff login. Access is whatever the owner grants per client.',
   viewer: 'Read-only access to reports and records.',
 };
 

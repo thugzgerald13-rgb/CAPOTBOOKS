@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, CheckSquare, Square, ShieldCheck } from 'lucide-react';
+import { ChevronDown, ChevronRight, CheckSquare, Square, ShieldCheck, Search } from 'lucide-react';
 import type { MemberRole } from '../types';
 import { MEMBER_ROLE_PERMISSIONS } from '../lib/teamPermissions';
 import {
@@ -24,9 +24,13 @@ const asMemberRole = (role: string): MemberRole =>
   (['accountant', 'bookkeeper', 'staff', 'viewer'].includes(role) ? role : 'staff') as MemberRole;
 
 export function GranularPermissionEditor({ value, onChange, memberRole, basePermissions, disabled = false }: Props) {
-  const [expanded, setExpanded] = useState<string>('purchases');
+  const [expanded, setExpanded] = useState<string>('');
+  const [query, setQuery] = useState('');
   const roleAllowed = MEMBER_ROLE_PERMISSIONS[asMemberRole(memberRole)] || [];
   const modules = GRANULAR_PERMISSION_MODULES;
+  const visibleModules = query.trim()
+    ? modules.filter((module) => module.label.toLowerCase().includes(query.trim().toLowerCase()))
+    : modules;
 
   const keyAllowed = (requiredPermission: string | null): boolean => {
     if (!requiredPermission) return true;
@@ -127,8 +131,8 @@ export function GranularPermissionEditor({ value, onChange, memberRole, basePerm
         <div className="flex items-start gap-2.5">
           <ShieldCheck className="w-5 h-5 text-cyan-700 dark:text-cyan-300 mt-0.5" />
           <div>
-            <p className="font-bold text-slate-800 dark:text-slate-100">Sidebar, buttons &amp; dropdown permissions</p>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{overall.checked} of {overall.allowed} available selections enabled. Role and base permissions remain the maximum allowed.</p>
+            <p className="font-bold text-slate-800 dark:text-slate-100">Pages, buttons &amp; dropdown options</p>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{overall.checked} of {overall.allowed} available selections enabled. Open a page below to switch its buttons and dropdown options on or off.</p>
           </div>
         </div>
         <div className="flex items-center gap-3 text-xs font-bold">
@@ -137,9 +141,22 @@ export function GranularPermissionEditor({ value, onChange, memberRole, basePerm
         </div>
       </div>
 
+      <div className="relative">
+        <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search pages (e.g. Sales, Payroll, Journal)"
+          aria-label="Search pages"
+          className="w-full pl-9 pr-3 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm focus:outline-none focus:ring-2 focus:ring-cyan-500"
+        />
+      </div>
+
       <div className="space-y-2">
-        {modules.map((module) => {
-          const open = expanded === module.id;
+        {visibleModules.length === 0 && <p className="text-sm text-slate-400 py-4 text-center">No pages match “{query}”.</p>}
+        {visibleModules.map((module) => {
+          const open = expanded === module.id || Boolean(query.trim());
           const moduleKey = modulePermissionKey(module.id);
           const parentAllowed = moduleAllowedByParent(module, value);
           const moduleAllowed = keyAllowed(module.requiredPermission) && parentAllowed;
@@ -148,14 +165,14 @@ export function GranularPermissionEditor({ value, onChange, memberRole, basePerm
           return (
             <div key={module.id} className="rounded-xl border border-slate-200 dark:border-slate-700 overflow-hidden">
               <div className="flex items-center gap-2 p-3 bg-slate-50 dark:bg-slate-900/40">
-                <button type="button" onClick={() => setExpanded(open ? '' : module.id)} className="flex items-center gap-2 min-w-0 flex-1 text-left">
+                <button type="button" onClick={() => setExpanded(expanded === module.id ? '' : module.id)} className="flex items-center gap-2 min-w-0 flex-1 text-left">
                   {open ? <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" /> : <ChevronRight className="w-4 h-4 text-slate-400 shrink-0" />}
                   <span className="font-bold text-sm text-slate-800 dark:text-slate-100">{module.label}</span>
                   <span className="text-[10px] rounded-full px-2 py-0.5 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-300">{selectedCount}/{childCount + 1}</span>
                 </button>
                 <label className={`inline-flex items-center gap-2 text-xs font-semibold ${moduleAllowed ? 'text-slate-700 dark:text-slate-200 cursor-pointer' : 'text-slate-400 cursor-not-allowed'}`} title={moduleAllowed ? 'Show this module in the sidebar and allow direct route access' : `Role requires ${module.requiredPermission || 'no extra capability'}`}>
                   <input type="checkbox" checked={moduleAllowed && Boolean(value[moduleKey])} disabled={disabled || !moduleAllowed} onChange={(e) => updateModule(module, e.target.checked)} className="h-4 w-4 accent-cyan-600" />
-                  Sidebar access
+                  Show in sidebar
                 </label>
                 <button type="button" disabled={disabled} onClick={() => updateModule(module, true)} className="hidden sm:inline text-[11px] font-bold text-cyan-700 dark:text-cyan-300 hover:underline disabled:opacity-40">Select module</button>
                 <button type="button" disabled={disabled} onClick={() => updateModule(module, false)} className="hidden sm:inline text-[11px] font-bold text-slate-400 hover:underline disabled:opacity-40">Clear</button>
