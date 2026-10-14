@@ -37,7 +37,6 @@ const DEFAULT_EXPENSE_COLUMN_WIDTHS: Record<string, number> = {
   atcCode: 100,
   whtRate: 90,
   whtAmount: 110,
-  expenseType: 120,
   accountTitle: 180,
   transactionDetails: 200,
   attachment: 100,
@@ -46,7 +45,7 @@ const MIN_EXPENSE_COLUMN_WIDTH = 60;
 
 // Columns + row mappers shared by the period-scoped loader and the global
 // cross-period search, so both paths produce identically-shaped records.
-const PURCHASE_SELECT_COLS = 'id,client_id,date,payment_method,check_number,bank_name,invoice_no,supplier_name,supplier_address,supplier_tin,amount,vat_type,expense_type,account_title,transaction_details,input_tax,attachment_name,attachment_type,attachment_original_type,attachment_size,attachment_original_size,attachment_compression,attachment_storage_path,withholding_option,atc_code,wht_rate,wht_amount,exempt_amount,zero_rated_amount,entry_source';
+const PURCHASE_SELECT_COLS = 'id,client_id,date,payment_method,check_number,bank_name,invoice_no,supplier_name,supplier_address,supplier_tin,amount,vat_type,account_title,transaction_details,input_tax,attachment_name,attachment_type,attachment_original_type,attachment_size,attachment_original_size,attachment_compression,attachment_storage_path,withholding_option,atc_code,wht_rate,wht_amount,exempt_amount,zero_rated_amount,entry_source';
 const SALE_SELECT_COLS = 'id,client_id,date,ref,payment_type,buyer_tin,buyer_name,buyer_address,vat_type,amount,net_of_vat,output_tax,income_type,description';
 
 const mapPurchaseRow = (p: any) => ({
@@ -61,7 +60,6 @@ const mapPurchaseRow = (p: any) => ({
   supplierTin: p.supplier_tin || '',
   amount: Number(p.amount || 0),
   vatType: p.vat_type,
-  expenseType: p.expense_type,
   accountTitle: p.account_title,
   transactionDetails: p.transaction_details,
   inputTax: Number(p.input_tax || 0),
@@ -159,7 +157,6 @@ export function History() {
     { key: 'atcCode', label: 'ATC Code' },
     { key: 'whtRate', label: 'WHT Rate' },
     { key: 'whtAmount', label: 'WHT Amount' },
-    { key: 'expenseType', label: 'Expense Class' },
     { key: 'accountTitle', label: 'Account Title' },
     { key: 'transactionDetails', label: 'Transaction Details' },
     { key: 'attachment', label: 'Attachment' },
@@ -436,7 +433,6 @@ export function History() {
       case 'atcCode': return p.atcCode || '';
       case 'whtRate': return p.whtRate == null ? '' : Number(p.whtRate) * 100;
       case 'whtAmount': return Number(p.whtAmount || 0);
-      case 'expenseType': return p.expenseType || '';
       case 'accountTitle': return p.accountTitle || '';
       case 'transactionDetails': return p.transactionDetails || '';
       case 'attachment': return p.attachment ? 'Attached' : '';
@@ -511,7 +507,6 @@ export function History() {
       case 'atcCode': return p.atcCode || '—';
       case 'whtRate': return p.whtRate == null ? '—' : `${(Number(p.whtRate) * 100).toFixed(2)}%`;
       case 'whtAmount': return money(p.whtAmount);
-      case 'expenseType': return p.expenseType || '—';
       case 'accountTitle': return p.accountTitle || '—';
       case 'transactionDetails': return p.transactionDetails || '—';
       case 'attachment': return p.attachment ? 'Attached' : '—';
@@ -930,11 +925,8 @@ export function History() {
         '(7) AMOUNT OF EXEMPT PURCHASE', 
         '(8) AMOUNT OF ZERO-RATED PURCHASE', 
         '(9) AMOUNT OF TAXABLE PURCHASE', 
-        '(10) AMOUNT OF PURCHASE OF SERVICES', 
-        '(11) AMOUNT OF PURCHASE OF CAPITAL GOODS', 
-        '(12) AMOUNT OF PURCHASE OF GOODS OTHER THAN CAPITAL GOODS', 
-        '(13) AMOUNT OF INPUT TAX', 
-        '(14) AMOUNT OF GROSS TAXABLE PURCHASE'
+        '(10) AMOUNT OF INPUT TAX', 
+        '(11) AMOUNT OF GROSS TAXABLE PURCHASE'
       ]
     ];
     
@@ -942,9 +934,6 @@ export function History() {
       const isVat = p.vatType === 'vat';
       const isNonVat = p.vatType === 'non-vat';
       const isZeroRated = p.vatType === 'zero-rated';
-      const isServices = p.expenseType === 'Services';
-      const isCapital = p.expenseType === 'Capital Goods';
-      const isOthers = p.expenseType === 'Others';
       const grossTotal = p.amount + (p.inputTax || 0);
       
       const monthStr = p.date.split('/')[0] + '/' + p.date.split('/')[1] + '/' + p.date.split('/')[2];
@@ -959,9 +948,6 @@ export function History() {
         isNonVat ? p.amount : 0,
         isZeroRated ? p.amount : 0,
         isVat ? p.amount : 0,
-        (isVat && isServices) ? p.amount : 0,
-        (isVat && isCapital) ? p.amount : 0,
-        (isVat && isOthers) ? p.amount : 0,
         p.inputTax || 0,
         isVat ? grossTotal : 0
       ];
@@ -973,9 +959,6 @@ export function History() {
       purchases.filter(p => p.vatType === 'non-vat').reduce((s, p) => s + p.amount, 0),
       purchases.filter(p => p.vatType === 'zero-rated').reduce((s, p) => s + p.amount, 0),
       purchases.filter(p => p.vatType === 'vat').reduce((s, p) => s + p.amount, 0),
-      purchases.filter(p => p.vatType === 'vat' && p.expenseType === 'Services').reduce((s, p) => s + p.amount, 0),
-      purchases.filter(p => p.vatType === 'vat' && p.expenseType === 'Capital Goods').reduce((s, p) => s + p.amount, 0),
-      purchases.filter(p => p.vatType === 'vat' && p.expenseType === 'Others').reduce((s, p) => s + p.amount, 0),
       purchases.reduce((s, p) => s + (p.inputTax || 0), 0),
       purchases.filter(p => p.vatType === 'vat').reduce((s, p) => s + p.amount + (p.inputTax || 0), 0)
     ];
@@ -987,7 +970,7 @@ export function History() {
     worksheet['!cols'] = [
       { wch: 15 }, { wch: 20 }, { wch: 30 }, { wch: 40 }, { wch: 40 },
       { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 },
-      { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 }
+      { wch: 15 }
     ];
 
     XLSX.utils.book_append_sheet(workbook, worksheet, 'SLP');
@@ -1779,9 +1762,6 @@ export function History() {
                         <th className="px-2 py-3 border-r border-slate-200 dark:border-slate-700 text-right leading-tight">AMOUNT OF<br/>EXEMPT PURCHASE</th>
                         <th className="px-2 py-3 border-r border-slate-200 dark:border-slate-700 text-right leading-tight">AMOUNT OF<br/>ZERO-RATED PURCHASE</th>
                         <th className="px-2 py-3 border-r border-slate-200 dark:border-slate-700 text-right leading-tight">AMOUNT OF<br/>TAXABLE PURCHASE</th>
-                        <th className="px-2 py-3 border-r border-slate-200 dark:border-slate-700 text-right leading-tight">AMOUNT OF<br/>PURCHASE OF SERVICES</th>
-                        <th className="px-2 py-3 border-r border-slate-200 dark:border-slate-700 text-right leading-tight">AMOUNT OF<br/>PURCHASE OF CAPITAL GOODS</th>
-                        <th className="px-2 py-3 border-r border-slate-200 dark:border-slate-700 text-right leading-tight">AMOUNT OF PURCHASE OF GOODS<br/>OTHER THAN CAPITAL GOODS</th>
                         <th className="px-2 py-3 border-r border-slate-200 dark:border-slate-700 text-right leading-tight">AMOUNT OF<br/>INPUT TAX</th>
                         <th className="px-2 py-3 text-right leading-tight">AMOUNT OF<br/>GROSS TAXABLE PURCHASE</th>
                       </tr>
@@ -1791,9 +1771,6 @@ export function History() {
                         const isVat = p.vatType === 'vat';
                         const isNonVat = p.vatType === 'non-vat';
                         const isZeroRated = p.vatType === 'zero-rated';
-                        const isServices = p.expenseType === 'Services';
-                        const isCapital = p.expenseType === 'Capital Goods';
-                        const isOthers = p.expenseType === 'Others';
 
                         const monthNum = String(selectedMonth).padStart(2, '0');
                         const grossTotal = p.amount + (p.inputTax || 0);
@@ -1816,15 +1793,6 @@ export function History() {
                             </td>
                             <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-800 text-right text-slate-500">
                               {isVat ? p.amount.toLocaleString(undefined, { minimumFractionDigits: 2 }) : '0.00'}
-                            </td>
-                            <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-800 text-right text-blue-600">
-                              {(isVat && isServices) ? p.amount.toLocaleString(undefined, { minimumFractionDigits: 2 }) : '0.00'}
-                            </td>
-                            <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-800 text-right text-blue-600">
-                              {(isVat && isCapital) ? p.amount.toLocaleString(undefined, { minimumFractionDigits: 2 }) : '0.00'}
-                            </td>
-                            <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-800 text-right text-blue-600">
-                              {(isVat && isOthers) ? p.amount.toLocaleString(undefined, { minimumFractionDigits: 2 }) : '0.00'}
                             </td>
                             <td className="px-2 py-2 border-r border-slate-100 dark:border-slate-800 text-right text-indigo-600 font-bold">
                               {(p.inputTax || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
@@ -1850,15 +1818,6 @@ export function History() {
                         </td>
                         <td className="px-2 py-3 border-r border-slate-200 dark:border-slate-700 text-right font-normal">
                           {purchases.filter(p => p.vatType === 'vat').reduce((s, p) => s + p.amount, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                        </td>
-                        <td className="px-2 py-3 border-r border-slate-200 dark:border-slate-700 text-right font-normal">
-                          {purchases.filter(p => p.vatType === 'vat' && p.expenseType === 'Services').reduce((s, p) => s + p.amount, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                        </td>
-                        <td className="px-2 py-3 border-r border-slate-200 dark:border-slate-700 text-right font-normal">
-                          {purchases.filter(p => p.vatType === 'vat' && p.expenseType === 'Capital Goods').reduce((s, p) => s + p.amount, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
-                        </td>
-                        <td className="px-2 py-3 border-r border-slate-200 dark:border-slate-700 text-right font-normal">
-                          {purchases.filter(p => p.vatType === 'vat' && p.expenseType === 'Others').reduce((s, p) => s + p.amount, 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
                         </td>
                         <td className="px-2 py-3 border-r border-slate-200 dark:border-slate-700 text-right text-indigo-600">
                           {purchases.reduce((s, p) => s + (p.inputTax || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
