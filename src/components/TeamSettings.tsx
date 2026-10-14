@@ -350,8 +350,12 @@ export function TeamSettings() {
         const after = await listMySubusers().catch(() => []);
         const created = after.find((m) => m.memberKind === 'managed' && m.email === login);
         if (created && Object.keys(staffPermissions).length > 0) {
+          const selectedUiPermissions = Object.fromEntries(
+            GRANULAR_PERMISSION_KEYS.map((key) => [key, Boolean(invitePermissions[key])])
+          );
           for (const clientId of permittedClientIds) {
             await setSubuserClientPermissions(created.userId, clientId, staffPermissions);
+            await setSubuserClientUiPermissions(created.userId, clientId, selectedUiPermissions);
           }
         }
       } else {
@@ -630,8 +634,19 @@ export function TeamSettings() {
                       );
                     })}
                   </div>
+                  <div className="mt-5 border-t border-slate-200 dark:border-slate-700 pt-5">
+                    <h4 className="text-sm font-bold text-slate-800 dark:text-slate-100 mb-1">Detailed screen permissions</h4>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Choose sidebar visibility, individual main buttons/actions, and dropdown options. These grants are saved for each selected client after the staff login is created.</p>
+                    <GranularPermissionEditor
+                      value={invitePermissions}
+                      memberRole={inviteType === 'staff' ? 'staff' : 'bookkeeper'}
+                      basePermissions={Object.fromEntries(ALL_PERMISSIONS.map((p) => [p.key, Boolean(invitePermissions[p.key])]))}
+                      disabled={busy}
+                      onChange={(next) => setInvitePermissions((prev) => ({ ...prev, ...next }))}
+                    />
+                  </div>
                 </div>
-                <p className="text-xs text-cyan-600 dark:text-cyan-400 mt-3">{inviteType === 'staff' ? 'The staff login is active immediately. Share the login name and initial password securely. Permissions are applied to all your clients automatically.' : isBusinessOwner ? 'The invited professional must already have their own CAPOT account. Your business is added to their Client Profiles after acceptance.' : 'The invited member uses their existing CAPOT account. Their access is limited to the functions you grant above.'}</p>
+                <p className="text-xs text-cyan-600 dark:text-cyan-400 mt-3">{inviteType === 'staff' ? 'The staff login is active immediately. Share the login name and initial password securely. Permissions are saved only for the selected Client Profiles.' : isBusinessOwner ? 'The invited professional must already have their own CAPOT account. Your business is added to their Client Profiles after acceptance.' : 'The invited member uses their existing CAPOT account. Their access is limited to the functions you grant above.'}</p>
                 <div className="mt-4 flex items-center gap-3">
                   <button type="submit" disabled={busy}
                     className="flex items-center gap-2 px-6 py-3 bg-cyan-600 hover:bg-cyan-700 text-white rounded-xl font-bold shadow-md transition-all active:scale-95 disabled:opacity-50">

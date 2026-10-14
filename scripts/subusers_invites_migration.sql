@@ -374,6 +374,13 @@ grant execute on function public.get_my_account_membership() to authenticated;
 -- ---------------------------------------------------------------------------
 -- List members visible to the owner.
 -- ---------------------------------------------------------------------------
+-- Older migrations defined list_my_subusers() with different OUT columns.
+-- PostgreSQL cannot replace a function when its TABLE return type changes, so
+-- drop this exact zero-argument signature before creating the current version.
+-- Do not use CASCADE; if a database object depends on this function, resolve
+-- that dependency explicitly rather than removing unrelated objects.
+
+drop function if exists public.list_my_subusers();
 
 create or replace function public.list_my_subusers()
 returns table (

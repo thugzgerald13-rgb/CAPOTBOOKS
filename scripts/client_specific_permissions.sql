@@ -608,6 +608,30 @@ begin
     'check_vouchers', 'miscellaneous_payments', 'asset_lapsing_schedule',
     'billing_invoices', 'financial_report_snapshots'
   ] loop
+    -- CAPOTBOOKS schema versions do not all contain every optional module
+    -- table. DROP POLICY IF EXISTS still errors when the TABLE is missing, so
+    -- check the relation first and safely skip tables not present in this DB.
+    if to_regclass(format('public.%I', t)) is null then
+      raise notice 'Skipping RLS policies for public.%: table does not exist in this schema', t;
+      continue;
+    end if;
+
+    -- Some legacy/module tables may exist without client_id. The policies
+    -- below are client-scoped and must only be applied when that column exists.
+    if not exists (
+      select 1
+      from information_schema.columns c
+      where c.table_schema = 'public'
+        and c.table_name = t
+        and c.column_name = 'client_id'
+    ) then
+      raise notice 'Skipping RLS policies for public.%: client_id column is missing', t;
+      continue;
+    end if;
+
+    -- Ensure row-level security is enabled; policies alone do not enforce access.
+    execute format('alter table public.%I enable row level security', t);
+
     execute format('drop policy if exists %I on public.%I', t || '_select_owner', t);
     execute format(
       'create policy %I on public.%I for select to authenticated using (public.can_access_client_operation(client_id, ''read''))',
