@@ -163,7 +163,6 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
   const [withholdingOption, setWithholdingOption] = useState<'w/o' | 'with'>('w/o');
   const [atcCode, setAtcCode] = useState('');
   const [whtAmount, setWhtAmount] = useState(0);
-  const [expenseType, setExpenseType] = useState('Capital Goods');
   const [accountTitle, setAccountTitle] = useState('');
   const [transactionDetails, setTransactionDetails] = useState('');
   const [inputTax, setInputTax] = useState(0);
@@ -174,26 +173,20 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
   const coaAccounts = useMemo(() => {
     let accs = (currentClient?.accounts || []).filter(a => !a.hidden);
     if (accs.length === 0) accs = getDefaultAccountsForIndustry(currentClient?.industry, currentClient?.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric');
-    if (currentDat) {
-      return accs.filter(a => expenseType === 'Capital Goods' ? (a.type.toLowerCase() === 'asset' || a.type.toLowerCase() === 'assets') : (a.type.toLowerCase() === 'expense' || a.type.toLowerCase() === 'expenses'));
-    } else {
-      // Payment for: always limited to Assets, Costs, and Expenses accounts
-      return accs.filter(a => {
-        const at = a.type.toLowerCase();
-        return at === 'asset' || at === 'assets' || at === 'costs' || at === 'cost' || at === 'expense' || at === 'expenses';
-      });
-    }
-  }, [currentClient?.accounts, currentDat, expenseType]);
+    // Account selection is based on the chart of accounts, not an expense class.
+    return accs.filter(a => {
+      const at = a.type.toLowerCase();
+      return at === 'asset' || at === 'assets' || at === 'costs' || at === 'cost' || at === 'expense' || at === 'expenses';
+    });
+  }, [currentClient?.accounts, currentDat]);
 
-  // Clear the "Payment for" / "Account Title" selection whenever it no
-  // longer matches an account in the current category (e.g. switching
-  // Expense Class). This intentionally never auto-picks the first account -
-  // the field starts empty and shows the "Type or choose an account..."
-  // placeholder until the user actively types or selects one.
+  // Clear the account selection if it no longer exists in the available accounts.
+  // This intentionally never auto-picks the first account - the field starts
+  // empty and shows the "Type or choose an account..." placeholder until selected.
   useEffect(() => {
     setAccountTitle(prev => (coaAccounts.find(a => a.name === prev) ? prev : ''));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [expenseType, currentDat, coaAccounts]);
+  }, [currentDat, coaAccounts]);
 
   // Let users customize the "Payment for" account list right from this tab —
   // adding a new Chart of Accounts entry or removing the currently selected
@@ -311,7 +304,6 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
       setAmount(gross ? gross.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '');
       setWithholdingOption(p.withholdingOption || 'w/o');
       setAtcCode(p.atcCode || '');
-      setExpenseType(p.expenseType || 'Capital Goods');
       setAccountTitle(p.accountTitle || '');
       
       const acct = currentClient?.accounts?.find(a => a.name === p.accountTitle);
@@ -521,7 +513,6 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
       atcCode: withholdingOption === 'with' ? atcCode : null,
       whtRate: withholdingOption === 'with' ? (ATC_SCHEDULE.find(e => e.code === atcCode)?.rate ?? null) : null,
       whtAmount: withholdingOption === 'with' ? whtAmount : 0,
-      expenseType,
       accountTitle,
       transactionDetails,
       inputTax: isOtherPayments ? 0 : inputTax,
@@ -801,17 +792,6 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
           <div className="lg:col-span-1">
             <label className="form-label text-red-500">Amount (₱) *</label>
             <input type="text" value={amount} onChange={e => /^[0-9.,]*$/.test(e.target.value) && setAmount(e.target.value)} onBlur={e => { const raw = e.target.value.replace(/,/g, ''); if (raw && !isNaN(parseFloat(raw))) setAmount(parseFloat(raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })); }} placeholder="0.00" className="form-input font-bold text-amber-900 border-amber-300 dark:bg-amber-900/20 dark:text-amber-100" />
-          </div>
-        )}
-
-        {currentDat && (
-          <div className="lg:col-span-1">
-            <label className="form-label">Expense Class</label>
-            <select value={expenseType} onChange={e => setExpenseType(e.target.value)} className="form-input">
-              <option value="Capital Goods">🏭 Capital Goods</option>
-              <option value="Services">📋 Services</option>
-              <option value="Others">📦 Others</option>
-            </select>
           </div>
         )}
 

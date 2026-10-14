@@ -310,7 +310,7 @@ export function BIRForms() {
           .lte('date', endDateString),
         supabase
           .from('purchases')
-          .select('id,date,amount,vat_type,input_tax,account_title,expense_type,transaction_details,wht_amount,wht_rate,atc_code,supplier_name')
+          .select('id,date,amount,vat_type,input_tax,account_title,transaction_details,wht_amount,wht_rate,atc_code,supplier_name')
           .eq('client_id', currentClientId)
           .gte('date', startDate)
           .lte('date', endDateString)
@@ -341,7 +341,7 @@ export function BIRForms() {
         amount: Number(p.amount || 0),
         vatType: p.vat_type,
         inputTax: p.input_tax == null ? undefined : Number(p.input_tax),
-        category: p.account_title || p.expense_type || '',
+        category: p.account_title || '',
         description: p.transaction_details || p.supplier_name || '',
         whtAmount: p.wht_amount == null ? 0 : Number(p.wht_amount),
         whtRate: p.wht_rate == null ? 0 : Number(p.wht_rate),

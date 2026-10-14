@@ -21,7 +21,6 @@ export interface Purchase {
   entrySource?: 'invoiced' | 'other-payments' | 'ap';
   exemptAmount?: number;
   zeroRatedAmount?: number;
-  expenseType: string;
   accountTitle: string;
   transactionDetails?: string;
   inputTax: number;

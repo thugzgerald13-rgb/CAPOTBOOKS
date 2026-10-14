@@ -223,7 +223,7 @@ const purchasesToExpenses = (purchases: any[] = []) => purchases.map((p:any) => 
   id: Number(p.id) || p.id,
   date: rowDate(p.date),
   amount: Number(p.amount || 0),
-  category: p.accountTitle || p.expenseType || '',
+  category: p.accountTitle || '',
   description: p.transactionDetails || p.invoiceNo || p.supplierName || ''
 }));
 
@@ -232,7 +232,7 @@ const purchasesToExpenses = (purchases: any[] = []) => purchases.map((p:any) => 
 // 19 tables on every single client load, which is pure wasted PostgREST
 // egress. Each list below is exactly the set of columns actually consumed
 // further down in this function.
-const PURCHASES_COLUMNS = 'id,dat_month_year,date,payment_method,check_number,bank_name,invoice_no,supplier_name,supplier_address,supplier_tin,amount,vat_type,expense_type,account_title,transaction_details,input_tax,exempt_amount,zero_rated_amount,attachment_name,attachment_type,attachment_original_type,attachment_size,attachment_original_size,attachment_compression,attachment_storage_path,withholding_option,atc_code,wht_rate,wht_amount';
+const PURCHASES_COLUMNS = 'id,dat_month_year,date,payment_method,check_number,bank_name,invoice_no,supplier_name,supplier_address,supplier_tin,amount,vat_type,account_title,transaction_details,input_tax,exempt_amount,zero_rated_amount,attachment_name,attachment_type,attachment_original_type,attachment_size,attachment_original_size,attachment_compression,attachment_storage_path,withholding_option,atc_code,wht_rate,wht_amount';
 const SALES_COLUMNS = 'id,dat_month_year,date,ref,payment_type,buyer_tin,buyer_name,buyer_address,vat_type,amount,net_of_vat,output_tax,income_type,description';
 const COA_COLUMNS_COLUMNS = 'id,name,is_system';
 const COA_ACCOUNTS_COLUMNS = 'id,name,type,normal_side,parent_id,hidden,opening_balance,custom_values';
@@ -500,7 +500,7 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
   jvlRows.forEach((r:any) => { const a=linesByVoucher.get(r.journal_voucher_id)||[]; a.push({ id:strId(r.id), accountId:r.account_id||'', accountName:r.account_name||'', debit:Number(r.debit||0), credit:Number(r.credit||0) }); linesByVoucher.set(r.journal_voucher_id,a); });
 
   const result: Partial<Client> = {
-    purchases: pRows.map((r:any) => ({ id:Number(r.id) || r.id, datMonthYear:r.dat_month_year||'', date:rowDate(r.date), paymentMethod:r.payment_method||'', checkNumber:r.check_number, bankName:r.bank_name, invoiceNo:r.invoice_no||'', supplierName:r.supplier_name||'', supplierAddress:r.supplier_address||'', supplierTin:r.supplier_tin||'', amount:Number(r.amount||0), vatType:r.vat_type||'', expenseType:r.expense_type||'', accountTitle:r.account_title||'', transactionDetails:r.transaction_details, inputTax:Number(r.input_tax||0), exemptAmount:Number(r.exempt_amount||0), zeroRatedAmount:Number(r.zero_rated_amount||0), attachment:r.attachment_name ? { name:r.attachment_name, type:r.attachment_type||'', originalType:r.attachment_original_type||r.attachment_type||'', size:Number(r.attachment_size||0), originalSize:Number(r.attachment_original_size||r.attachment_size||0), compression:r.attachment_compression as any, content:'', storagePath:r.attachment_storage_path } : undefined, withholdingOption:r.withholding_option as any, atcCode:r.atc_code, whtRate:r.wht_rate == null ? null : Number(r.wht_rate), whtAmount:r.wht_amount == null ? undefined : Number(r.wht_amount) })),
+    purchases: pRows.map((r:any) => ({ id:Number(r.id) || r.id, datMonthYear:r.dat_month_year||'', date:rowDate(r.date), paymentMethod:r.payment_method||'', checkNumber:r.check_number, bankName:r.bank_name, invoiceNo:r.invoice_no||'', supplierName:r.supplier_name||'', supplierAddress:r.supplier_address||'', supplierTin:r.supplier_tin||'', amount:Number(r.amount||0), vatType:r.vat_type||'', accountTitle:r.account_title||'', transactionDetails:r.transaction_details, inputTax:Number(r.input_tax||0), exemptAmount:Number(r.exempt_amount||0), zeroRatedAmount:Number(r.zero_rated_amount||0), attachment:r.attachment_name ? { name:r.attachment_name, type:r.attachment_type||'', originalType:r.attachment_original_type||r.attachment_type||'', size:Number(r.attachment_size||0), originalSize:Number(r.attachment_original_size||r.attachment_size||0), compression:r.attachment_compression as any, content:'', storagePath:r.attachment_storage_path } : undefined, withholdingOption:r.withholding_option as any, atcCode:r.atc_code, whtRate:r.wht_rate == null ? null : Number(r.wht_rate), whtAmount:r.wht_amount == null ? undefined : Number(r.wht_amount) })),
     sales: sRows.map((r:any) => ({ id:Number(r.id)||r.id, datMonthYear:r.dat_month_year||'', date:rowDate(r.date), ref:r.ref||'', paymentType:r.payment_type||'', buyerTin:r.buyer_tin||'', buyerName:r.buyer_name||'', buyerAddress:r.buyer_address||'', vatType:r.vat_type||'', amount:Number(r.amount||0), netOfVat:Number(r.net_of_vat||0), outputTax:Number(r.output_tax||0), incomeType:r.income_type||'', desc:r.description||'' })),
      expenses: purchasesToExpenses(pRows),
     coaColumns: ccRows.map((r:any) => ({ id:strId(r.id), name:r.name, isSystem:!!r.is_system })),
@@ -617,7 +617,7 @@ const persistNormalizedClient = async (client: Client, userId: string, options: 
       }
     }
   };
-  await syncMany('purchases',(client.purchases||[]).map((p:any)=>({id:strId(p.id),dat_month_year:p.datMonthYear||null,date:p.date,payment_method:p.paymentMethod||'',check_number:p.checkNumber||null,bank_name:p.bankName||null,invoice_no:p.invoiceNo||null,supplier_name:p.supplierName||'',supplier_address:p.supplierAddress||null,supplier_tin:p.supplierTin||null,amount:Number(p.amount||0),vat_type:p.vatType||null,expense_type:p.expenseType||null,account_title:p.accountTitle||null,transaction_details:p.transactionDetails||null,input_tax:Number(p.inputTax||0),attachment_name:p.attachment?.name||null,attachment_type:p.attachment?.type||null,attachment_original_type:p.attachment?.originalType||null,attachment_size:p.attachment?.size||null,attachment_original_size:p.attachment?.originalSize||null,attachment_compression:p.attachment?.compression||null,attachment_storage_path:p.attachment?.storagePath||null,withholding_option:p.withholdingOption||null,atc_code:p.atcCode||null,wht_rate:p.whtRate??null,wht_amount:p.whtAmount??null})));
+  await syncMany('purchases',(client.purchases||[]).map((p:any)=>({id:strId(p.id),dat_month_year:p.datMonthYear||null,date:p.date,payment_method:p.paymentMethod||'',check_number:p.checkNumber||null,bank_name:p.bankName||null,invoice_no:p.invoiceNo||null,supplier_name:p.supplierName||'',supplier_address:p.supplierAddress||null,supplier_tin:p.supplierTin||null,amount:Number(p.amount||0),vat_type:p.vatType||null,account_title:p.accountTitle||null,transaction_details:p.transactionDetails||null,input_tax:Number(p.inputTax||0),attachment_name:p.attachment?.name||null,attachment_type:p.attachment?.type||null,attachment_original_type:p.attachment?.originalType||null,attachment_size:p.attachment?.size||null,attachment_original_size:p.attachment?.originalSize||null,attachment_compression:p.attachment?.compression||null,attachment_storage_path:p.attachment?.storagePath||null,withholding_option:p.withholdingOption||null,atc_code:p.atcCode||null,wht_rate:p.whtRate??null,wht_amount:p.whtAmount??null})));
   await syncMany('sales',(client.sales||[]).map((s:any)=>({id:strId(s.id),dat_month_year:s.datMonthYear||null,date:s.date,ref:s.ref||null,payment_type:s.paymentType||null,buyer_tin:s.buyerTin||null,buyer_name:s.buyerName||null,buyer_address:s.buyerAddress||null,vat_type:s.vatType||null,amount:Number(s.amount||0),net_of_vat:Number(s.netOfVat||0),output_tax:Number(s.outputTax||0),income_type:s.incomeType||null,description:s.desc||null})));
   await syncMany('coa_columns',(client.coaColumns||[]).map((c:any)=>({id:strId(c.id),name:c.name,is_system:!!c.isSystem})));
   await syncMany('coa_accounts',(client.accounts||[]).map((a:any)=>{const {id,name,type,normalSide,parentId,hidden,openingBalance,...custom}=a;return {id:strId(id),name:name||'',type:type||'',normal_side:normalSide||null,parent_id:parentId||null,hidden:!!hidden,opening_balance:Number(openingBalance||0),custom_values:custom};}));
@@ -1106,7 +1106,7 @@ export function AccountingProvider({
                   paymentMethod: row.payment_method || '', checkNumber: row.check_number, bankName: row.bank_name,
                   invoiceNo: row.invoice_no || '', supplierName: row.supplier_name || '', supplierAddress: row.supplier_address || '',
                   supplierTin: row.supplier_tin || '', amount: Number(row.amount || 0), vatType: row.vat_type || '',
-                  expenseType: row.expense_type || '', accountTitle: row.account_title || '', transactionDetails: row.transaction_details,
+                  accountTitle: row.account_title || '', transactionDetails: row.transaction_details,
                   inputTax: Number(row.input_tax || 0), attachment: row.attachment_name ? {
                     name: row.attachment_name, type: row.attachment_type || '', originalType: row.attachment_original_type || row.attachment_type || '',
                     size: Number(row.attachment_size || 0), originalSize: Number(row.attachment_original_size || row.attachment_size || 0),
@@ -1862,7 +1862,7 @@ export function AccountingProvider({
       bank_name: purchase.bankName || null, invoice_no: purchase.invoiceNo || null,
       supplier_name: purchase.supplierName || '', supplier_address: purchase.supplierAddress || null,
       supplier_tin: purchase.supplierTin || null, amount: Number(purchase.amount || 0),
-      vat_type: purchase.vatType || null, expense_type: purchase.expenseType || null,
+      vat_type: purchase.vatType || null,
       account_title: purchase.accountTitle || null, transaction_details: purchase.transactionDetails || null,
       input_tax: Number(purchase.inputTax || 0), exempt_amount: Number(purchase.exemptAmount || 0), zero_rated_amount: Number(purchase.zeroRatedAmount || 0), attachment_name: purchase.attachment?.name || null,
       attachment_type: purchase.attachment?.type || null, attachment_original_type: purchase.attachment?.originalType || purchase.attachment?.type || null,

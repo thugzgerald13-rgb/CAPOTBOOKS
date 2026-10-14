@@ -496,7 +496,7 @@ export function Relief() {
       };
       const amt = Number(p.amount || 0);
       const vt = String(p.vatType || '').toLowerCase();
-      const et = String(p.expenseType || p.accountTitle || '').toLowerCase();
+      const et = String(p.accountTitle || '').toLowerCase();
       if (vt.includes('exempt')) cur.exempt += amt;
       else if (vt.includes('zero')) cur.zeroRated += amt;
       else if (et.includes('service')) cur.services += amt;
