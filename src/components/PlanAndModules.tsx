@@ -48,7 +48,7 @@ export function PlanAndModules() {
   };
   useEffect(() => { refresh(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [user?.id]);
 
-  // Deep link from a locked page: #/account-settings?buy=reports
+  // Deep link from a locked page: #/plan-billing?buy=reports
   useEffect(() => {
     const q = window.location.hash.split('?')[1];
     const buy = q ? new URLSearchParams(q).get('buy') : null;

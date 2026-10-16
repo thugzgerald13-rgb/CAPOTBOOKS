@@ -51,7 +51,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   const trialOver = hasTrialEnded(ent) && Object.keys(ent.paid).length === 0;
   const planButtonLabel = trialOn
     ? `Trial · ${trialDaysLeft(ent)} day${trialDaysLeft(ent) === 1 ? '' : 's'} left`
-    : trialOver ? 'Trial ended · Upgrade' : 'Plan & Modules';
+    : trialOver ? 'Trial ended · Upgrade' : 'Plan & Billing';
   const canUse = (permission: Permission) => !isSubuser || hasPermission(permission);
   const canAny = (...permissions: Permission[]) => !isSubuser || permissions.some((permission) => hasPermission(permission));
   const [pendingApprovals, setPendingApprovals] = useState(0);
@@ -1049,7 +1049,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                )}
             </div>
             <button
-              onClick={() => { window.location.hash = '#/account-settings'; setIsOpen(false); }}
+              onClick={() => { window.location.hash = '#/plan-billing'; setIsOpen(false); }}
               title={isCollapsed ? planButtonLabel : undefined}
               className={cn(
                 "flex items-center justify-center gap-2 w-full py-2.5 rounded-xl text-sm font-bold transition-all shadow-sm mb-2",

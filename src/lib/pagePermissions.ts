@@ -28,6 +28,7 @@ import type { Permission } from './accessControl';
 const OPEN_ROUTES: ReadonlySet<string> = new Set([
   '/',                 // dashboard
   '/account-settings', // user changes their own password / display name
+  '/plan-billing',     // plan & subscription — own page; purchases gated inside
   '/functions',        // legacy alias → redirects to /account-settings
 ]);
 
@@ -138,6 +139,7 @@ const FEATURE_ALLOWED_PAGE_IDS: ReadonlySet<string> = new Set([
   'business',
   'tinlibrary',
   'account-settings',
+  'plan-billing',
   'team',
   'trialbalance',
 ]);

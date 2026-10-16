@@ -14,7 +14,7 @@ export function ModuleLocked({ moduleId }: { moduleId: ModuleId }) {
   const mod = getModule(moduleId);
   const trialEnded = hasTrialEnded(ent);
 
-  const goToBilling = () => { window.location.hash = `#/account-settings?buy=${moduleId}`; };
+  const goToBilling = () => { window.location.hash = `#/plan-billing?buy=${moduleId}`; };
   const goHome = () => { window.location.hash = '#/'; };
 
   return (

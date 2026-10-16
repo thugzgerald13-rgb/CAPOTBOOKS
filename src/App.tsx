@@ -47,6 +47,7 @@ const BIRForms = lazy(() => import('./components/BIRForms').then(m => ({ default
 const Relief = lazy(() => import('./components/Relief').then(m => ({ default: m.Relief })));
 const ComplianceTracker = lazy(() => import('./components/ComplianceTracker').then(m => ({ default: m.ComplianceTracker })));
 const AccountSettings = lazy(() => import('./components/AccountSettings').then(m => ({ default: m.AccountSettings })));
+const PlanBillingPage = lazy(() => import('./components/PlanBillingPage').then(m => ({ default: m.PlanBillingPage })));
 const TeamSettings = lazy(() => import('./components/TeamSettings').then(m => ({ default: m.TeamSettings })));
 const PaymentApproval = lazy(() => import('./components/PaymentApproval').then(m => ({ default: m.PaymentApproval })));
 const EisCenter = lazy(() => import('./components/EisCenter').then(m => ({ default: m.EisCenter })));
@@ -239,6 +240,7 @@ function AppLayout() {
                 its own route but they all mount the same component, which
                 internally shows only the section matching the current route. */}
             <Route path="/account-settings" element={<AccountSettings />} />
+            <Route path="/plan-billing" element={<PlanBillingPage />} />
             <Route path="/team" element={<TeamSettings />} />
             <Route path="/clients" element={<Extras />} />
             <Route path="/business" element={<Extras />} />
