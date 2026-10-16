@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { UserCircle, CheckCircle2, Shield, Bell, CreditCard, Download, Smartphone, Trash2, AlertTriangle, Headphones, Mail, Copy } from 'lucide-react';
+import { UserCircle, CheckCircle2, Shield, Bell, Download, Smartphone, Trash2, AlertTriangle, Headphones, Mail, Copy } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
@@ -114,7 +114,7 @@ export function AccountSettings() {
     <div className="w-full p-4 md:p-6 space-y-4">
       <div className="sticky-page-title flex items-center gap-3 mb-2">
         <div className="w-10 h-10 rounded-xl bg-cyan-100 text-cyan-600 dark:bg-cyan-900/30 dark:text-cyan-400 flex items-center justify-center"><UserCircle className="w-6 h-6" /></div>
-        <div><h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">Account Settings</h1><p className="text-sm text-slate-500 dark:text-slate-400">Manage profile, security, notifications, and data. Plan &amp; Billing now has its own page.</p></div>
+        <div><h1 className="text-xl font-bold text-slate-800 dark:text-slate-100">Account Settings</h1><p className="text-sm text-slate-500 dark:text-slate-400">Manage profile, security, notifications, and data.</p></div>
       </div>
 
       {error && <div className="p-4 rounded-xl bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-sm text-red-600 dark:text-red-400">{error}</div>}
@@ -155,17 +155,6 @@ export function AccountSettings() {
             </label>
           ))}
         </div>
-      ))}
-
-      {/* Plan & Billing now lives on its own dedicated page (#/plan-billing) */}
-      {section(<CreditCard className="w-4 h-4" />, 'Plan & Billing', 'Subscription, trial, modules and payments now live on their own page.', (
-        <button
-          type="button"
-          onClick={() => { window.location.hash = '#/plan-billing'; }}
-          className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-cyan-600 hover:bg-cyan-700 text-white transition-colors"
-        >
-          <CreditCard className="w-3.5 h-3.5" /> Open Plan &amp; Billing
-        </button>
       ))}
 
       {/* Customer Support */}

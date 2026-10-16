@@ -113,6 +113,10 @@ function AppLayout() {
   const { userRole, isAdmin, isSubuser, hasPermission } = useAuth();
 
   const hasClients = Object.keys(clients).length > 0;
+  // Plan & Billing opens as a full-screen standalone page (no sidebar/header
+  // chrome); its own Back / close button returns the user to Account Settings.
+  const location = useLocation();
+  const standaloneBilling = location.pathname === '/plan-billing';
 
   // Payroll company identity follows the same active profile used throughout
   // CAPOTBOOKS (currentClient), rather than always showing the account owner's
@@ -160,11 +164,11 @@ function AppLayout() {
   }, [userRole, businessProfile, activePage, navigateToPage]);
 
   return (
-    <div className="flex h-screen bg-slate-50 dark:bg-slate-900 justify-center overflow-hidden font-sans">
-      <Sidebar isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} />
-      
-      <main className="app-main flex-1 flex flex-col h-screen overflow-y-auto w-full relative">
-        <Header onMenuClick={() => setIsSidebarOpen(true)} />
+    <div className={`${standaloneBilling ? 'block min-h-screen' : 'flex h-screen justify-center overflow-hidden'} bg-slate-50 dark:bg-slate-900 font-sans`}>
+      {!standaloneBilling && <Sidebar isOpen={isSidebarOpen} setIsOpen={setIsSidebarOpen} />}
+
+      <main className={`${standaloneBilling ? 'block min-h-screen' : 'app-main flex-1 flex flex-col h-screen overflow-y-auto'} w-full relative`}>
+        {!standaloneBilling && <Header onMenuClick={() => setIsSidebarOpen(true)} />}
         <ErrorBoundary>
         <div className="app-content px-4 md:px-8 pt-[1.5px] pb-1 md:pb-2 max-w-[1400px] mx-auto w-full">
           {!activePage && (
