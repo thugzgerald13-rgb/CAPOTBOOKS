@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Menu, Moon, Sun, Search, Plus, Bell, ChevronDown, LogOut, UserCircle, RefreshCw, CheckCircle2, FileText, Receipt, ShoppingCart, FileSignature, FolderUp, X } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
 import { useAuth } from '../context/AuthContext';
 import { CommandPalette } from './ui/CommandPalette';
 import { Badge } from './ui/Badge';
+import { ClientSwitcher, clientDisplayName } from './ClientSwitcher';
 import { cn } from '../lib/utils';
 
 interface HeaderProps {
@@ -23,9 +25,25 @@ function useClickOutside<T extends HTMLElement>(onOutside: () => void) {
 }
 
 export function Header({ onMenuClick }: HeaderProps) {
-  const { currentClient, isDarkMode, setDarkMode, isSyncing, navigateToPage } = useAccounting();
+  const { clients, currentClient, currentClientId, setCurrentClientId, isDarkMode, setDarkMode, isSyncing, navigateToPage, showToast } = useAccounting();
   const { user, isAdmin, userRole, signOut, isSubuser, hasPermission } = useAuth();
   const canUse = (permission: string) => !isSubuser || hasPermission(permission);
+  const navigate = useNavigate();
+  // Managed staff / team members reach only the clients they were granted
+  // (AccountingContext filters the list server-side). When more than one is
+  // available, the company name becomes a clickable client switcher — the
+  // /clients management page itself is locked behind `manage_settings`, which
+  // staff never hold, so this header control is their only switch surface.
+  const canSwitchClient = Object.keys(clients).length > 1;
+  const handleSwitchClient = (id: string) => {
+    const target = clients[id];
+    setCurrentClientId(id);
+    // A client switch reloads the active permission set in AuthContext (which
+    // clears grants mid-switch to prevent leakage). Land on the open dashboard
+    // route so the route guard never bounces a mid-switch page to "/".
+    navigate('/');
+    if (target) showToast(`Switched to ${clientDisplayName(target)}`);
+  };
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
@@ -83,13 +101,18 @@ export function Header({ onMenuClick }: HeaderProps) {
             <Menu className="w-5 h-5 text-slate-700 dark:text-white" />
           </button>
           <div className="flex flex-col min-w-0">
-            <h1 className="text-lg md:text-xl font-bold flex flex-wrap items-center gap-2 text-slate-800 dark:text-white truncate">
-              {currentClient
-                ? (currentClient.taxpayerClassification === 'Individual'
-                    ? (currentClient.tradeName || currentClient.registeredName || 'CAPO Accounting Setup')
-                    : (currentClient.registeredName || currentClient.tradeName || 'CAPO Accounting Setup'))
-                : 'CAPO Accounting Setup'}
-            </h1>
+            {canSwitchClient ? (
+              <ClientSwitcher
+                clients={clients}
+                currentClientId={currentClientId}
+                onSwitch={handleSwitchClient}
+                buttonClassName="text-lg md:text-xl font-bold text-slate-800 dark:text-white"
+              />
+            ) : (
+              <h1 className="text-lg md:text-xl font-bold flex flex-wrap items-center gap-2 text-slate-800 dark:text-white truncate">
+                {currentClient ? clientDisplayName(currentClient) : 'CAPO Accounting Setup'}
+              </h1>
+            )}
             <span className={cn(
               "text-[10px] flex items-center gap-1 font-semibold uppercase tracking-widest",
               isSyncing ? "text-blue-500 dark:text-blue-300 animate-pulse" : "text-emerald-600 dark:text-emerald-400",
