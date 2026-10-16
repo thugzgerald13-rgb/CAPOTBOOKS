@@ -107,22 +107,49 @@ begin
   where (p_permissions ->> k)::boolean is true
     and public.team_role_allows_permission(v_role, k);
 
-  insert into public.team_account_invitations (
-    owner_user_id, email, display_name, member_role, selected_permissions,
-    status, expires_at, updated_at
-  )
-  values (
-    v_owner_id, v_email, v_name, v_role, v_safe_permissions,
-    'pending', now() + interval '7 days', now()
-  )
-  on conflict (owner_user_id, (lower(trim(email)))) where status = 'pending'
-  do update set
-    display_name = excluded.display_name,
-    member_role = excluded.member_role,
-    selected_permissions = excluded.selected_permissions,
+  -- Avoid an expression-based ON CONFLICT target here. Because this
+  -- function RETURNS TABLE with an output column named `email`, the bare
+  -- `email` inside lower(trim(email)) can be ambiguous in PL/pgSQL.
+  -- Update an existing pending invitation first, then insert if none exists.
+  update public.team_account_invitations as ti
+  set
+    display_name = v_name,
+    member_role = v_role,
+    selected_permissions = v_safe_permissions,
     expires_at = now() + interval '7 days',
     updated_at = now()
-  returning id into v_invite_id;
+  where ti.owner_user_id = v_owner_id
+    and lower(trim(ti.email)) = v_email
+    and ti.status = 'pending'
+  returning ti.id into v_invite_id;
+
+  if not found then
+    begin
+      insert into public.team_account_invitations (
+        owner_user_id, email, display_name, member_role, selected_permissions,
+        status, expires_at, updated_at
+      )
+      values (
+        v_owner_id, v_email, v_name, v_role, v_safe_permissions,
+        'pending', now() + interval '7 days', now()
+      )
+      returning id into v_invite_id;
+    exception
+      when unique_violation then
+        -- A concurrent request may have created the same pending invite.
+        update public.team_account_invitations as ti
+        set
+          display_name = v_name,
+          member_role = v_role,
+          selected_permissions = v_safe_permissions,
+          expires_at = now() + interval '7 days',
+          updated_at = now()
+        where ti.owner_user_id = v_owner_id
+          and lower(trim(ti.email)) = v_email
+          and ti.status = 'pending'
+        returning ti.id into v_invite_id;
+    end;
+  end if;
 
   return query
   select i.id, i.email, i.display_name, i.member_role, i.expires_at
