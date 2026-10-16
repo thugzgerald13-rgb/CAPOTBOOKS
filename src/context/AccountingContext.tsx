@@ -669,7 +669,7 @@ type AccountingProviderProps = {
 export function AccountingProvider({
     children,
 }: AccountingProviderProps) {
-  const { user, userRole, membership, setActivePermissionClientId } = useAuth();
+  const { user, accountReady, userRole, membership, setActivePermissionClientId } = useAuth();
   const dataOwnerId: string =
     membership?.isSubuser && membership?.ownerId ? membership.ownerId : user?.id ?? '';
 
@@ -948,6 +948,12 @@ export function AccountingProvider({
       setIsReady(true);
       return;
     }
+
+    // Wait until AuthContext has resolved whether this login is an owner,
+    // independent professional, or managed staff member. Otherwise a staff
+    // login can briefly load its own account before the owner's client list
+    // and client-specific grants are known.
+    if (!accountReady) return;
 
     setIsSyncing(true);
     setSyncError(null);
@@ -1304,13 +1310,19 @@ export function AccountingProvider({
     // user id (empty clients + a default, incomplete business profile), which
     // both starved the workspace of the owner's data and fed the onboarding
     // redirect loop. Re-running when the owner id resolves loads the real data.
-  }, [user?.id, dataOwnerId]);
+  }, [user?.id, dataOwnerId, accountReady]);
 
   // Sync Business Profile to the current user's owner client
   useEffect(() => {
-    if (businessProfile && user) {
+    if (businessProfile && user && accountReady) {
       const ownerId = ownerClientId(dataOwnerId);
       const existing = clients[ownerId];
+
+      // Staff may switch only among profiles explicitly granted to them. The
+      // owner's business profile must already have passed the same server-side
+      // client permission filter as every other profile; do not synthesize it
+      // into the staff list or persist it when no grant exists.
+      if (membership?.isSubuser && !existing) return;
       const needsSync =
         !existing ||
         existing.name !== businessProfile.name ||
@@ -1349,7 +1361,7 @@ export function AccountingProvider({
       // normalized client data (including purchases, COA, and journals) to be
       // removed from the tenancy root.
     }
-  }, [businessProfile, clients, currentClientId, user, isReady]);
+  }, [businessProfile, clients, currentClientId, user, accountReady, membership?.isSubuser, dataOwnerId, isReady]);
 
   const updateClientState = (clientId: string, patch: Partial<Client>) => {
     setClients(prev => ({
