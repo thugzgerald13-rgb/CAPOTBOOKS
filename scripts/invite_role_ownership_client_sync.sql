@@ -101,6 +101,7 @@ declare
   v_client_id text;
   v_existing_client_id text;
   v_tin text;
+  v_tin_normalized text;
   v_category text;
   v_accounting_type text;
   v_industry text;
@@ -150,6 +151,10 @@ begin
   limit 1;
 
   v_tin := nullif(trim(coalesce(v_profile->>'tin', '')), '');
+  -- TINs are often entered with different punctuation (for example,
+  -- 123-456-789-000 vs 123456789000). Match by digits so an existing
+  -- accountant-owned client is reused instead of creating a duplicate.
+  v_tin_normalized := nullif(regexp_replace(coalesce(v_tin, ''), '[^0-9]', '', 'g'), '');
   v_client_email := coalesce(nullif(trim(v_profile->>'email'), ''), v_owner_email);
   v_phone := nullif(trim(coalesce(v_profile->>'phone', '')), '');
   v_owner_name := coalesce(
@@ -207,12 +212,12 @@ begin
 
   -- If there is no prior relationship, reuse an existing accountant-owned
   -- client profile when its TIN or email identifies the Business Owner.
-  if v_client_id is null and v_tin is not null then
+  if v_client_id is null and v_tin_normalized is not null then
     select c.id
       into v_existing_client_id
     from public.clients c
     where c.user_id = p_accountant_user_id
-      and c.tin = v_tin
+      and nullif(regexp_replace(coalesce(c.tin, c.tax_id, ''), '[^0-9]', '', 'g'), '') = v_tin_normalized
     order by c.updated_at desc nulls last, c.created_at desc
     limit 1;
     v_client_id := v_existing_client_id;
