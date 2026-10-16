@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Menu, Moon, Sun, Search, Plus, Bell, ChevronDown, LogOut, UserCircle, RefreshCw, CheckCircle2, FileText, Receipt, ShoppingCart, FileSignature, FolderUp, X } from 'lucide-react';
+import { Menu, Moon, Sun, Search, Plus, Bell, ChevronDown, LogOut, UserCircle, RefreshCw, CheckCircle2, FileText, Receipt, ShoppingCart, FileSignature, FolderUp, X, CreditCard } from 'lucide-react';
 import { useAccounting } from '../context/AccountingContext';
 import { useAuth } from '../context/AuthContext';
 import { CommandPalette } from './ui/CommandPalette';
@@ -257,6 +257,12 @@ export function Header({ onMenuClick }: HeaderProps) {
                     className="w-full flex items-center gap-2.5 px-4 py-2 text-sm text-text-primary hover:bg-surface-subtle transition-colors text-left"
                   >
                     <UserCircle className="w-4 h-4 text-text-muted" /> Account Settings
+                  </button>
+                  <button
+                    onClick={() => { navigate('/plan-billing'); setUserMenuOpen(false); }}
+                    className="w-full flex items-center gap-2.5 px-4 py-2 text-sm text-text-primary hover:bg-surface-subtle transition-colors text-left"
+                  >
+                    <CreditCard className="w-4 h-4 text-text-muted" /> Upgrade / Plan &amp; Billing
                   </button>
                   <button
                     onClick={() => { signOut(); setUserMenuOpen(false); }}
