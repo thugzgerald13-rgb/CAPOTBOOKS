@@ -128,8 +128,8 @@ export function AccountSettings() {
         </div>
       ))}
 
-      {/* Security: password + 2FA — personal settings for every regular user; hidden from the developer super-admin. */}
-      {!isAdmin && section(<Shield className="w-4 h-4" />, 'Security', 'Password & two-factor authentication.', (
+      {/* Security: password + 2FA — developer-only; hidden from all regular users. */}
+      {isAdmin && section(<Shield className="w-4 h-4" />, 'Security', 'Password & two-factor authentication.', (
         <div className="space-y-4">
           <div className="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900">
             <div className="flex items-center gap-3"><Smartphone className="w-4 h-4 text-slate-400" /><div><div className="text-sm font-bold text-slate-700 dark:text-slate-200">Two-Factor Authentication</div><div className="text-[11px] text-slate-400">Add an extra layer of security (stub — TOTP coming soon).</div></div></div>
@@ -145,8 +145,8 @@ export function AccountSettings() {
         </div>
       ))}
 
-      {/* Notifications — personal settings for every regular user; hidden from the developer super-admin. */}
-      {!isAdmin && section(<Bell className="w-4 h-4" />, 'Notifications', 'Choose what we email you about.', (
+      {/* Notifications — developer-only; hidden from all regular users. */}
+      {isAdmin && section(<Bell className="w-4 h-4" />, 'Notifications', 'Choose what we email you about.', (
         <div className="space-y-2">
           {([['complianceReminders', 'BIR compliance reminders & deadlines'], ['weeklyDigest', 'Weekly financial digest'], ['productUpdates', 'Product updates & new features']] as Array<[keyof NotifPrefs, string]>).map(([k, label]) => (
             <label key={k} className="flex items-center justify-between p-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 cursor-pointer">
