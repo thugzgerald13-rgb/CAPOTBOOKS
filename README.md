@@ -1,74 +1,39 @@
-# CAPOTBOOKS - Android Accounting & BIR Tax Compliance
+# CAPOTBOOKS — Cloudflare Pages blank-page fix
 
-CAPOTBOOKS is a comprehensive Philippine accounting and tax compliance application rewritten for Android using Kotlin and Jetpack Compose (Material Design 3).
+## Diagnosis
+`capotbooks.pages.dev` rendered blank because the Vite build was configured
+with `base: '/capotbooks/'`. `index.html` therefore requested assets at
+`/capotbooks/assets/*.js`, but Pages deployed them at the root `/assets/*.js`.
+The SPA fallback (`/* /index.html 200`) returned **HTML with a 200 status**
+where the browser expected JavaScript, so the bundle silently failed to
+execute and `<div id="root">` stayed empty.
 
-## Key Features
+## Files changed (drop these into your repo)
+| File | Change |
+|---|---|
+| `vite.config.ts` | `base: '/capotbooks/'` → `base: '/'` (keeps your manualChunks) |
+| `public/_redirects` | Ensures SPA client-side routing works on Pages (`/* /index.html 200`) |
+| `wrangler.toml` | Optional — only if you deploy via `wrangler pages deploy` |
 
-1. **Financial Dashboard & KPI Monitoring**:
-   - Real-time gross revenue, operating expenses, net income, cash in bank.
-   - Working capital monitoring: Accounts Receivable (AR) vs. Accounts Payable (AP).
-   - Bureau of Internal Revenue (BIR) upcoming tax alerts and compliance reminders.
+## Steps
+1. Copy `vite.config.ts` over your existing one (merge in any extra plugins
+   you use, e.g. vite-plugin-pwa — keep `base: '/'`).
+2. Copy `public/_redirects` into your `public/` folder (create the folder if
+   missing). It gets copied to `dist/_redirects` at build time.
+3. In the Pages dashboard → Settings → Environment variables → Production,
+   set: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_ADMIN_EMAIL`.
+4. Trigger a new deploy (git push or `npx wrangler pages deploy dist`).
+5. After deploy, hard-refresh (Ctrl+Shift+R) — the old broken `index.html`
+   may be cached.
 
-2. **Sales Invoicing & Official Receipts**:
-   - Invoicing with Philippine tax classification: 12% VAT Registered, Non-VAT (Percentage Tax), Zero-Rated, and VAT Exempt.
-   - Automatic deduction of Expanded Withholding Tax (Creditable WHT BIR Form 2307) using standard ATC codes (WC010, WC020, WC030, WC040, WC050, WC060, WC080, WC100).
-   - Real-time customer search by buyer name, TIN, or invoice reference number.
+## Secondary cleanup (PWA assets)
+Your `index.html` also references `/capotbooks/manifest.json` and
+`/capotbooks/icons/icon-192.png`. After the `base` fix these become
+`/manifest.json` and `/icons/icon-192.png`. If those files currently live
+under `public/capotbooks/`, move them up to `public/manifest.json` and
+`public/icons/` so the PWA install prompt works. Not required for the app
+to render.
 
-3. **Purchases & Accounts Payable**:
-   - Track invoiced expenses, miscellaneous payments, and AP dues.
-   - Automatic 12% Input VAT calculation and tax credit verification.
-   - Supplier TIN tracking and expense categorization.
-
-4. **Statements of Account (SOA) & Billing**:
-   - Client billing statements with due dates, amounts, and recurring frequency.
-   - Quick "Mark as Paid" status toggle.
-
-5. **Double-Entry Journal Vouchers (JV)**:
-   - General Journal adjustments with balanced Debit and Credit validation.
-   - Automatic posting to the General Ledger.
-
-6. **Books of Accounts (BIR Compliant)**:
-   - Sales Journal (SJ)
-   - Purchases Journal (PJ)
-   - Cash Receipts Journal (CRJ)
-   - Cash Disbursements Journal (CDJ)
-   - General Ledger (GL)
-
-7. **Philippine Standard Chart of Accounts (COA)**:
-   - Assets (1000s), Liabilities (2000s), Equity (3000s), Revenue (4000s), Direct Costs (5000s), Operating Expenses (6000s).
-   - Normal side designations (Debit / Credit) and running balances.
-
-8. **Audited Financial Statements (AFS)**:
-   - Statement of Comprehensive Income (Profit & Loss)
-   - Statement of Financial Position (Balance Sheet)
-   - Statement of Cash Flows
-   - Trial Balance
-
-9. **Fixed Asset Lapsing Schedule (PPE)**:
-   - Straight-Line, Declining Balance, and Sum-of-Years depreciation methods.
-   - Cost, salvage value, useful life, accumulated depreciation, and net book value.
-
-10. **BIR Compliance & TIN Directory**:
-    - Tax calendar with statutory filing deadlines (BIR Forms 2550Q, 1701Q, 1601-C, 0619-E).
-    - Unified Customer and Supplier TIN directory with validation.
-
-11. **Business Profile (COR 2303)**:
-    - Official taxpayer registration parameters: Registered Name, Trade Name, TIN, Taxpayer Classification, RDO Code, and registered address.
-
-## Architecture
-
-- **Language:** Kotlin
-- **UI Framework:** Jetpack Compose (Material Design 3)
-- **Architecture Pattern:** MVVM (Model-View-ViewModel) with unidirectional data flow
-- **Local Persistence:** Room Database (`CapotDatabase`) with reactive Kotlin Coroutines `Flow`
-- **Build System:** Gradle (Kotlin DSL, Version Catalog `libs.versions.toml`)
-
-## Building & Running
-
-1. **Prerequisites:** Android Studio Ladybug or later, JDK 21, Android SDK 36.
-2. **Build Debug APK:**
-   ```bash
-   gradle :app:assembleDebug
-   ```
-3. Output APK location:
-   `app/build/outputs/apk/debug/app-debug.apk`
+## Console noise
+The `MetaMask extension not found` / `inpage.js` errors in DevTools come
+from a browser extension, not your app — ignore them.

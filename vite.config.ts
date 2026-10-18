@@ -1,40 +1,30 @@
-import tailwindcss from '@tailwindcss/vite';
-import react from '@vitejs/plugin-react';
-import path from 'path';
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
 
-export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, '.', '');
-  return {
-    // Serve all built assets under /capotbooks/ so the app loads correctly
-    // when reverse-proxied behind capot.vercel.app/capotbooks. The app uses
-    // HashRouter, so no router basename change is required.
-    base: '/capotbooks/',
-    plugins: [react(), tailwindcss()],
-    define: {
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-    },
-    resolve: {
-      alias: {
-        '@': path.resolve(__dirname, 'src'),
-      },
-    },
-    server: {
-      // HMR is disabled in AI Studio via DISABLE_HMR env var.
-      // Do not modify—file watching is disabled to prevent flickering during agent edits.
-      hmr: process.env.DISABLE_HMR !== 'true',
-    },
-    build: {
-      chunkSizeWarningLimit: 1500,
-      rollupOptions: {
-        output: {
-          manualChunks: {
-            'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-            'supabase-vendor': ['@supabase/supabase-js'],
-            'motion-vendor': ['motion'],
-          },
+// CAPOTBOOKS — Cloudflare Pages build config
+// THE FIX: base was '/capotbooks/' (subpath deploy, e.g. GitHub Pages project site).
+// On capotbooks.pages.dev the app lives at the domain ROOT, so base must be '/'.
+// With '/capotbooks/', index.html requested /capotbooks/assets/*.js which 404'd
+// (SPA fallback served HTML instead of JS) -> blank white page.
+export default defineConfig({
+  base: '/', // <-- changed from '/capotbooks/'
+  plugins: [react()],
+  build: {
+    outDir: 'dist',
+    sourcemap: false,
+    rollupOptions: {
+      output: {
+        // Matches the chunk names observed in your build:
+        // react-vendor-*.js, motion-vendor-*.js, supabase-vendor-*.js
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          'motion-vendor': ['framer-motion'],
+          'supabase-vendor': ['@supabase/supabase-js'],
         },
       },
     },
-  };
-});
+  },
+  server: {
+    port: 5173,
+  },
+})

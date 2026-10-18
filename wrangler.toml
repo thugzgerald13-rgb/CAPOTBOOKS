@@ -1,0 +1,19 @@
+# Cloudflare Pages direct-upload config (optional — use if you deploy via
+# `npx wrangler pages deploy dist` instead of the Git integration).
+# If you deploy via the Pages Git integration (connect GitHub/GitLab), you do
+# NOT need this file; set build command & output dir in the dashboard.
+name = "capotbooks"
+compatibility_date = "2026-10-01"
+pages_build_output_dir = "dist"
+
+# Build settings (mirror these in the Pages dashboard if using Git integration):
+#   Build command: npm run build
+#   Build output directory: dist
+#   Root directory: /
+#
+# Required Production environment variables (Pages dashboard -> Settings ->
+# Environment variables -> Production). Vite bakes these in at BUILD time,
+# so trigger a new deploy after setting/changing them:
+#   VITE_SUPABASE_URL       = https://<your-project>.supabase.co
+#   VITE_SUPABASE_ANON_KEY  = <your-anon-key>
+#   VITE_ADMIN_EMAIL        = <admin@yourdomain.com>
