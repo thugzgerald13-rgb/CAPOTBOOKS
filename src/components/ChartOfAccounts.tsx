@@ -1677,7 +1677,7 @@ export function ChartOfAccounts() {
           </button>}
         </div>
       } />
-      <div className="p-4 md:p-6 flex-1">
+      <div className="px-5 pt-1 pb-4 flex-1">
       <div>
         {/* Dynamic Column/Category Manager Section */}
         {showColumnManager && (
