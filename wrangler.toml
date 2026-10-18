@@ -5,7 +5,6 @@
 name = "capotbooks"
 compatibility_date = "2026-10-01"
 pages_build_output_dir = "dist"
-
 # Build settings (mirror these in the Pages dashboard if using Git integration):
 #   Build command: npm run build
 #   Build output directory: dist
@@ -20,12 +19,16 @@ pages_build_output_dir = "dist"
 #   VITE_R2_ENABLED         = true   (routes file storage to R2; omit/false = Supabase Storage)
 #
 # R2 object storage (replaces Supabase Storage when VITE_R2_ENABLED=true).
-# In the Pages dashboard: Settings → Functions → R2 bucket bindings → add
-# binding name "FILES" → select your bucket. Mirror here for direct-upload:
-[[r2_buckets]]
-binding = "FILES"
-bucket_name = "capotbooks-files"   # ← your R2 bucket name
+# !!! DEPLOY BLOCKER: the bucket MUST exist before this binding is uncommented.
+#     Create it first: Cloudflare dashboard -> R2 -> Create bucket -> name it
+#     exactly "capotbooks-files". Then uncomment the block below and push.
+#     In the Pages dashboard: Settings -> Functions -> R2 bucket bindings ->
+#     add binding name "FILES" -> select the bucket (mirrors this block).
 #
-# R2 gateway auth (Pages dashboard → Environment variables → Production).
+# [[r2_buckets]]
+# binding = "FILES"
+# bucket_name = "capotbooks-files"   # ← your R2 bucket name
+#
+# R2 gateway auth (Pages dashboard -> Environment variables -> Production).
 # NOT prefixed with VITE_ (server-side only, never shipped to the browser):
-#   SUPABASE_JWT_SECRET     = <Supabase → Settings → API → JWT Settings → Secret>
+#   SUPABASE_JWT_SECRET     = <Supabase -> Settings -> API -> JWT Settings -> Secret>
