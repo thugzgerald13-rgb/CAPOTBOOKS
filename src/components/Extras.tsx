@@ -7,6 +7,7 @@ import { Users, TrendingUp, Key, Lightbulb, BookOpen, BookText, LineChart, Scale
 import { Client, BusinessProfile, ClientIndustry, VatRegistrationType } from '../types';
 import { RDO_CODES } from '../lib/utils';
 import { supabase } from '../lib/supabase';
+import { storageBucket } from '../lib/r2Storage';
 import { formatAccountAmount, glAccountBalanceBefore, getAccountBalances } from '../lib/accountingBalances';
 import { findAccountByLabel, syncGeneralLedger } from '../lib/glPosting';
 import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide } from './ChartOfAccounts';
@@ -201,7 +202,7 @@ export function Extras() {
     const safeName = (file.name.trim() || 'BIR-COR-2303').replace(/[^a-zA-Z0-9._-]/g, '_');
     const storagePath = `${clientId}/registration/${id}/${safeName}`;
 
-    const { error: uploadError } = await supabase.storage.from('client-files').upload(storagePath, file, {
+    const { error: uploadError } = await storageBucket('client-files').upload(storagePath, file, {
       contentType: file.type || 'application/octet-stream',
       cacheControl: 'public, max-age=31536000, immutable',
       upsert: false,
@@ -220,7 +221,7 @@ export function Extras() {
         description: 'BIR Certificate of Registration (COR / BIR Form 2303) used to populate client profile',
       });
     } catch (error) {
-      await supabase.storage.from('client-files').remove([storagePath]);
+      await storageBucket('client-files').remove([storagePath]);
       throw error;
     }
   };

@@ -8,6 +8,7 @@ import { parsePdf } from '../lib/pdfParser';
 import { parseBankStatement, type BankTxn } from '../lib/bankImport';
 import { loadReconcileRules, saveReconcileRules, matchTransaction, DEFAULT_RECONCILE_RULES, type ReconcileRule } from '../lib/reconcileRules';
 import { supabase } from '../lib/supabase';
+import { storageBucket } from '../lib/r2Storage';
 import { downloadWithCache, evictCachedFile } from '../db/storageCache';
 import imageCompression from 'browser-image-compression';
 import { 
@@ -108,7 +109,7 @@ export function FileManager() {
     const bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
     const blob = new Blob([bytes], { type: 'image/jpeg' });
-    const { error: uploadError } = await supabase.storage.from('client-files').upload(storagePath, blob, {
+    const { error: uploadError } = await storageBucket('client-files').upload(storagePath, blob, {
       contentType: 'image/jpeg', cacheControl: 'public, max-age=31536000, immutable', upsert: false,
     });
     if (uploadError) {
@@ -275,7 +276,7 @@ export function FileManager() {
     const filesInFolder = files.filter(f => f.folderId === folder.id);
     for (const file of filesInFolder) {
       if (file.storagePath) {
-        const { error } = await supabase.storage.from('client-files').remove([file.storagePath]);
+        const { error } = await storageBucket('client-files').remove([file.storagePath]);
         evictCachedFile(file.storagePath).catch(() => {});
         if (error) console.warn('Storage file deletion failed:', error);
       }
@@ -387,7 +388,7 @@ export function FileManager() {
       const bytes = new Uint8Array(binary.length);
       for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
       const blob = new Blob([bytes], { type: sf.type || 'application/octet-stream' });
-      const { error: uploadError } = await supabase.storage.from('client-files').upload(storagePath, blob, {
+      const { error: uploadError } = await storageBucket('client-files').upload(storagePath, blob, {
         contentType: sf.type || 'application/octet-stream',
         cacheControl: 'public, max-age=31536000, immutable',
         upsert: false,
@@ -461,7 +462,7 @@ export function FileManager() {
     if (!canDelete) { showToast('You do not have permission to delete files.'); return; }
     const fileToDelete = files.find(f => f.id === fileId);
     if (fileToDelete?.storagePath) {
-      const { error } = await supabase.storage.from('client-files').remove([fileToDelete.storagePath]);
+      const { error } = await storageBucket('client-files').remove([fileToDelete.storagePath]);
       evictCachedFile(fileToDelete.storagePath).catch(() => {});
       if (error) console.warn('Storage file deletion failed:', error);
     }

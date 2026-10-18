@@ -6,9 +6,12 @@
  * Drop at src/db/storageCache.ts. Depends on ./localDb and ../lib/supabase.
  */
 import { supabase } from '../lib/supabase';
+import { storageBucket } from '../lib/r2Storage';
 import { getCachedBlob, putCachedBlob, evictBlob, recordBlobCacheHit, recordNetworkFetch } from './localDb';
 
 const FILES_BUCKET = 'client-files';
+// R2 gateway when VITE_R2_ENABLED=true, otherwise Supabase Storage (same API).
+const filesBucket = () => storageBucket(FILES_BUCKET);
 const LONG_CACHE = 'public, max-age=31536000, immutable';
 
 /**
@@ -37,8 +40,7 @@ export async function uploadVersioned(
   contentType?: string
 ): Promise<{ storagePath: string }> {
   const storagePath = buildVersionedPath(clientId, entity, entityId, fileName);
-  const { error } = await supabase.storage
-    .from(FILES_BUCKET)
+  const { error } = await filesBucket()
     .upload(storagePath, file, {
       contentType: contentType || (file as File).type || 'application/octet-stream',
       cacheControl: LONG_CACHE,
@@ -62,8 +64,7 @@ export async function downloadWithCache(
     recordBlobCacheHit(cached.size);
     return cached;
   }
-  const { data, error } = await supabase.storage
-    .from(FILES_BUCKET)
+  const { data, error } = await filesBucket()
     .createSignedUrl(storagePath, signedUrlTtlSeconds);
   if (error || !data?.signedUrl) throw error || new Error('Unable to create download URL');
 

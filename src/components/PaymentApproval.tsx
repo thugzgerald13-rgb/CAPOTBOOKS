@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { CheckCircle2, XCircle, Clock, RefreshCw, Receipt as ReceiptIcon, ShieldAlert, ExternalLink, Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
+import { storageBucket } from '../lib/r2Storage';
 import { toast } from './ui/Toast';
 import { quote, getModule, isModuleId, peso, type BillingCycle, type ModuleId } from '../lib/modules';
 
@@ -35,7 +36,7 @@ const FILTERS: Array<{ id: RequestStatus | 'all'; label: string }> = [
 function receiptPublicUrl(path: string | null): string | null {
   if (!path) return null;
   try {
-    return supabase.storage.from('receipts').getPublicUrl(path).data.publicUrl;
+    return storageBucket('receipts').getPublicUrl(path).data.publicUrl;
   } catch { return null; }
 }
 

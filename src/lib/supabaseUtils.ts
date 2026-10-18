@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { storageBucket } from './r2Storage';
 
 export enum OperationType {
   CREATE = 'create',
@@ -57,7 +58,7 @@ export async function getAttachmentViewUrl(file?: ViewableAttachment | null): Pr
   let sourceUrl = file.content || '';
 
   if (file.storagePath) {
-    const { data, error } = await supabase.storage.from('client-files').createSignedUrl(file.storagePath, 600);
+    const { data, error } = await storageBucket('client-files').createSignedUrl(file.storagePath, 600);
     if (error || !data?.signedUrl) throw error || new Error('Unable to access the stored file.');
     sourceUrl = data.signedUrl;
   }
