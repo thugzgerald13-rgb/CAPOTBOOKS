@@ -6,6 +6,8 @@ interface PageHeaderProps {
   badge?: ReactNode;
   centered?: boolean;
   actions?: ReactNode;
+  /** Extra classes merged onto the sticky bar (e.g. to override px-5 py-4 padding). */
+  className?: string;
 }
 
 /** Standard header for a full page (icon + title). Each page renders this
@@ -20,7 +22,7 @@ interface PageHeaderProps {
  * The bar is frozen (sticky) directly beneath the global app Header while the
  * page scrolls. It publishes its own height as --page-header-h so table
  * headers (index.css) can freeze beneath it too. */
-export function PageHeader({ title, icon, badge, centered = false, actions }: PageHeaderProps) {
+export function PageHeader({ title, icon, badge, centered = false, actions, className = '' }: PageHeaderProps) {
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -40,7 +42,7 @@ export function PageHeader({ title, icon, badge, centered = false, actions }: Pa
   return (
     <div
       ref={ref}
-      className={`sticky top-[var(--app-header-h,56px)] flex items-center px-5 py-4 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 z-20 shrink-0 ${centered ? 'justify-center' : 'justify-between'}`}
+      className={`sticky top-[var(--app-header-h,56px)] flex items-center px-5 py-4 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 z-20 shrink-0 ${centered ? 'justify-center' : 'justify-between'} ${className}`}
     >
       <div className="flex items-center gap-3">
         {icon && <span className="text-xl">{icon}</span>}

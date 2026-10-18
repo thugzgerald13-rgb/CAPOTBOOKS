@@ -1606,7 +1606,7 @@ export function ChartOfAccounts() {
 
   return (
     <div className="w-full flex flex-col">
-      <PageHeader title="Chart of Accounts" icon={<BookOpen />} actions={
+      <PageHeader title="Chart of Accounts" icon={<BookOpen />} className="!px-0 !py-2" actions={
         <div className="flex flex-wrap items-center justify-end gap-2">
           <input
             ref={uploadInputRef}
@@ -1677,7 +1677,7 @@ export function ChartOfAccounts() {
           </button>}
         </div>
       } />
-      <div className="px-5 pt-0 pb-4 flex-1">
+      <div className="px-0 pt-0 pb-4 flex-1">
       <div>
         {/* Dynamic Column/Category Manager Section */}
         {showColumnManager && (
