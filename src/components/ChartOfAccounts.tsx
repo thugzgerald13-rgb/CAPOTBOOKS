@@ -1677,7 +1677,7 @@ export function ChartOfAccounts() {
           </button>}
         </div>
       } />
-      <div className="px-5 pt-1 pb-4 flex-1">
+      <div className="px-5 pt-0 pb-4 flex-1">
       <div>
         {/* Dynamic Column/Category Manager Section */}
         {showColumnManager && (
@@ -2189,7 +2189,7 @@ export function ChartOfAccounts() {
           </div>
         )}
 
-        <div className="card-surface overflow-hidden">
+        <div>
           <div className="overflow-x-auto">
             <table className="w-full min-w-[860px] text-left border-collapse">
               <thead>
