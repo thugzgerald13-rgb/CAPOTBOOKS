@@ -31,6 +31,11 @@ type AccountSeed = {
   normalSide: 'debit' | 'credit';
   parentNumericId?: string;
   parentAlphaId?: string;
+  // Level 1 (section) and Level 2 (classification) headers carry no balance of
+  // their own — no opening balance, no previous-year balance. Level 3 account
+  // groups show a computed rollup total of their postable children; Level 4
+  // postable accounts carry the actual stored balances.
+  isHeader?: boolean;
 };
 // ---------------------------------------------------------------------------
 // COMMON ACCOUNT SEEDS — hierarchical, BIR AFS / latest COA format aligned.
@@ -38,10 +43,10 @@ type AccountSeed = {
 // sort and code correctly; detail accounts (Level 4) are the postable ones.
 // ---------------------------------------------------------------------------
 const COMMON_ACCOUNT_SEEDS: AccountSeed[] = [
-  // ===== 100000 ASSETS (Level 1 header) =====
-  { numericId: '100000', alphaId: 'ASSET1', name: 'ASSETS', type: 'Asset', normalSide: 'debit' },
-  // --- 110000 CURRENT ASSETS (Level 2) ---
-  { numericId: '110000', alphaId: 'ASCUR1', name: 'CURRENT ASSETS', type: 'Asset', normalSide: 'debit', parentNumericId: '100000', parentAlphaId: 'ASSET1' },
+  // ===== 100000 ASSETS (Level 1 header — no balance) =====
+  { numericId: '100000', alphaId: 'ASSET1', name: 'ASSETS', type: 'Asset', normalSide: 'debit', isHeader: true },
+  // --- 110000 CURRENT ASSETS (Level 2 — no balance) ---
+  { numericId: '110000', alphaId: 'ASCUR1', name: 'CURRENT ASSETS', type: 'Asset', normalSide: 'debit', parentNumericId: '100000', parentAlphaId: 'ASSET1', isHeader: true },
   // 111000 CASH AND CASH EQUIVALENTS (Level 3 group)
   { numericId: '111000', alphaId: 'ASCASH', name: 'CASH AND CASH EQUIVALENTS', type: 'Asset', normalSide: 'debit', parentNumericId: '110000', parentAlphaId: 'ASCUR1' },
   { numericId: '111100', alphaId: 'CASH01', name: 'Cash on Hand', type: 'Asset', normalSide: 'debit', parentNumericId: '111000', parentAlphaId: 'ASCASH' },
@@ -61,8 +66,8 @@ const COMMON_ACCOUNT_SEEDS: AccountSeed[] = [
   { numericId: '114100', alphaId: 'PREP01', name: 'Prepaid Expenses', type: 'Asset', normalSide: 'debit', parentNumericId: '114000', parentAlphaId: 'ASOTHC' },
   { numericId: '114200', alphaId: 'SECD01', name: 'Security Deposits', type: 'Asset', normalSide: 'debit', parentNumericId: '114000', parentAlphaId: 'ASOTHC' },
   { numericId: '114300', alphaId: 'ADVS01', name: 'Advances to Suppliers', type: 'Asset', normalSide: 'debit', parentNumericId: '114000', parentAlphaId: 'ASOTHC' },
-  // --- 120000 NONCURRENT ASSETS (Level 2) ---
-  { numericId: '120000', alphaId: 'ASNCU1', name: 'NONCURRENT ASSETS', type: 'Asset', normalSide: 'debit', parentNumericId: '100000', parentAlphaId: 'ASSET1' },
+  // --- 120000 NONCURRENT ASSETS (Level 2 — no balance) ---
+  { numericId: '120000', alphaId: 'ASNCU1', name: 'NONCURRENT ASSETS', type: 'Asset', normalSide: 'debit', parentNumericId: '100000', parentAlphaId: 'ASSET1', isHeader: true },
   // 121000 PROPERTY, PLANT AND EQUIPMENT (Level 3 group)
   { numericId: '121000', alphaId: 'ASPPE1', name: 'PROPERTY, PLANT AND EQUIPMENT', type: 'Asset', normalSide: 'debit', parentNumericId: '120000', parentAlphaId: 'ASNCU1' },
   { numericId: '121100', alphaId: 'LAND01', name: 'Land', type: 'Asset', normalSide: 'debit', parentNumericId: '121000', parentAlphaId: 'ASPPE1' },
@@ -76,10 +81,10 @@ const COMMON_ACCOUNT_SEEDS: AccountSeed[] = [
   { numericId: '122000', alphaId: 'ASONC1', name: 'OTHER NONCURRENT ASSETS', type: 'Asset', normalSide: 'debit', parentNumericId: '120000', parentAlphaId: 'ASNCU1' },
   { numericId: '122100', alphaId: 'SWIN01', name: 'Computer Software and Intangibles', type: 'Asset', normalSide: 'debit', parentNumericId: '122000', parentAlphaId: 'ASONC1' },
 
-  // ===== 200000 LIABILITIES (Level 1 header) =====
-  { numericId: '200000', alphaId: 'LIAB11', name: 'LIABILITIES', type: 'Liabilities', normalSide: 'credit' },
-  // --- 210000 CURRENT LIABILITIES (Level 2) ---
-  { numericId: '210000', alphaId: 'LICUR1', name: 'CURRENT LIABILITIES', type: 'Liabilities', normalSide: 'credit', parentNumericId: '200000', parentAlphaId: 'LIAB11' },
+  // ===== 200000 LIABILITIES (Level 1 header — no balance) =====
+  { numericId: '200000', alphaId: 'LIAB11', name: 'LIABILITIES', type: 'Liabilities', normalSide: 'credit', isHeader: true },
+  // --- 210000 CURRENT LIABILITIES (Level 2 — no balance) ---
+  { numericId: '210000', alphaId: 'LICUR1', name: 'CURRENT LIABILITIES', type: 'Liabilities', normalSide: 'credit', parentNumericId: '200000', parentAlphaId: 'LIAB11', isHeader: true },
   // 211000 TRADE AND OTHER PAYABLES (Level 3 group)
   { numericId: '211000', alphaId: 'LIPAY1', name: 'TRADE AND OTHER PAYABLES', type: 'Liabilities', normalSide: 'credit', parentNumericId: '210000', parentAlphaId: 'LICUR1' },
   { numericId: '211100', alphaId: 'APTR01', name: 'Accounts Payable', type: 'Liabilities', normalSide: 'credit', parentNumericId: '211000', parentAlphaId: 'LIPAY1' },
@@ -95,13 +100,13 @@ const COMMON_ACCOUNT_SEEDS: AccountSeed[] = [
   { numericId: '212000', alphaId: 'LIOTHC', name: 'OTHER CURRENT LIABILITIES', type: 'Liabilities', normalSide: 'credit', parentNumericId: '210000', parentAlphaId: 'LICUR1' },
   { numericId: '212100', alphaId: 'STLN01', name: 'Short-term Loans Payable', type: 'Liabilities', normalSide: 'credit', parentNumericId: '212000', parentAlphaId: 'LIOTHC' },
   { numericId: '212200', alphaId: 'LLCU01', name: 'Lease Liabilities - Current', type: 'Liabilities', normalSide: 'credit', parentNumericId: '212000', parentAlphaId: 'LIOTHC' },
-  // --- 220000 NONCURRENT LIABILITIES (Level 2) ---
-  { numericId: '220000', alphaId: 'LINCU1', name: 'NONCURRENT LIABILITIES', type: 'Liabilities', normalSide: 'credit', parentNumericId: '200000', parentAlphaId: 'LIAB11' },
+  // --- 220000 NONCURRENT LIABILITIES (Level 2 — no balance) ---
+  { numericId: '220000', alphaId: 'LINCU1', name: 'NONCURRENT LIABILITIES', type: 'Liabilities', normalSide: 'credit', parentNumericId: '200000', parentAlphaId: 'LIAB11', isHeader: true },
   { numericId: '221000', alphaId: 'LTLN01', name: 'Long-term Loans Payable', type: 'Liabilities', normalSide: 'credit', parentNumericId: '220000', parentAlphaId: 'LINCU1' },
   { numericId: '222000', alphaId: 'LLNC01', name: 'Lease Liabilities - Non-current', type: 'Liabilities', normalSide: 'credit', parentNumericId: '220000', parentAlphaId: 'LINCU1' },
 
-  // ===== 300000 EQUITY / CAPITAL (Level 1 header — type swapped per taxpayer) =====
-  { numericId: '300000', alphaId: 'EQUIT1', name: 'EQUITY', type: 'Equity', normalSide: 'credit' },
+  // ===== 300000 EQUITY / CAPITAL (Level 1 header — no balance; type swapped per taxpayer) =====
+  { numericId: '300000', alphaId: 'EQUIT1', name: 'EQUITY', type: 'Equity', normalSide: 'credit', isHeader: true },
   // 310000 SHARE CAPITAL (Level 3 group — for corporations; sole props see Owner's Capital)
   { numericId: '310000', alphaId: 'EQSHC1', name: 'SHARE CAPITAL', type: 'Equity', normalSide: 'credit', parentNumericId: '300000', parentAlphaId: 'EQUIT1' },
   { numericId: '311000', alphaId: 'OWNC01', name: "Owner's Capital", type: 'Capital', normalSide: 'credit', parentNumericId: '310000', parentAlphaId: 'EQSHC1' },
@@ -113,8 +118,8 @@ const COMMON_ACCOUNT_SEEDS: AccountSeed[] = [
   { numericId: '322000', alphaId: 'CYEP01', name: 'Current Year Earnings', type: 'Equity', normalSide: 'credit', parentNumericId: '320000', parentAlphaId: 'EQRET1' },
   { numericId: '323000', alphaId: 'DRAW01', name: "Owner's Drawings", type: 'Capital', normalSide: 'debit', parentNumericId: '320000', parentAlphaId: 'EQRET1' },
 
-  // ===== 400000 REVENUE (Level 1 header) =====
-  { numericId: '400000', alphaId: 'REVNU1', name: 'REVENUE', type: 'Revenue', normalSide: 'credit' },
+  // ===== 400000 REVENUE (Level 1 header — no balance) =====
+  { numericId: '400000', alphaId: 'REVNU1', name: 'REVENUE', type: 'Revenue', normalSide: 'credit', isHeader: true },
   // 410000 SALES (Level 3 group — industry detail accounts appended below)
   { numericId: '410000', alphaId: 'RESAL1', name: 'SALES', type: 'Revenue', normalSide: 'credit', parentNumericId: '400000', parentAlphaId: 'REVNU1' },
   // 420000 SERVICE INCOME (Level 3 group)
@@ -124,14 +129,14 @@ const COMMON_ACCOUNT_SEEDS: AccountSeed[] = [
   { numericId: '412000', alphaId: 'SDIS01', name: 'Sales Discounts', type: 'Revenue', normalSide: 'debit', parentNumericId: '410000', parentAlphaId: 'RESAL1' },
 
   // ===== 500000 COST OF REVENUE-SERVICES / COST OF SALES-RETAIL / COST OF GOODS
-  //       MANUFACTURED AND SOLD-MANUFACTURING (Level 1 header) =====
-  { numericId: '500000', alphaId: 'COSTR1', name: 'COST OF REVENUE / COST OF SALES', type: 'Costs', normalSide: 'debit' },
+  //       MANUFACTURED AND SOLD-MANUFACTURING (Level 1 header — no balance) =====
+  { numericId: '500000', alphaId: 'COSTR1', name: 'COST OF REVENUE / COST OF SALES', type: 'Costs', normalSide: 'debit', isHeader: true },
   // 510000 PURCHASES / DIRECT MATERIALS (Level 3 group)
   { numericId: '510000', alphaId: 'COPUR1', name: 'PURCHASES / DIRECT MATERIALS', type: 'Costs', normalSide: 'debit', parentNumericId: '500000', parentAlphaId: 'COSTR1' },
   // 520000 DIRECT LABOR (Level 3 group)
   { numericId: '520000', alphaId: 'CODLB1', name: 'DIRECT LABOR', type: 'Costs', normalSide: 'debit', parentNumericId: '500000', parentAlphaId: 'COSTR1' },
-  // 530000 OVERHEAD (Level 2 group under cost of revenue)
-  { numericId: '530000', alphaId: 'COOVH1', name: 'OVERHEAD', type: 'Costs', normalSide: 'debit', parentNumericId: '500000', parentAlphaId: 'COSTR1' },
+  // 530000 OVERHEAD (Level 2 under cost of revenue — no balance)
+  { numericId: '530000', alphaId: 'COOVH1', name: 'OVERHEAD', type: 'Costs', normalSide: 'debit', parentNumericId: '500000', parentAlphaId: 'COSTR1', isHeader: true },
   // 531000 LIGHT AND WATER (Level 3 under OVERHEAD)
   { numericId: '531000', alphaId: 'COLW11', name: 'LIGHT AND WATER', type: 'Costs', normalSide: 'debit', parentNumericId: '530000', parentAlphaId: 'COOVH1' },
   { numericId: '531100', alphaId: 'POWX01', name: 'Factory Power and Utilities', type: 'Costs', normalSide: 'debit', parentNumericId: '531000', parentAlphaId: 'COLW11' },
@@ -143,8 +148,8 @@ const COMMON_ACCOUNT_SEEDS: AccountSeed[] = [
   { numericId: '533000', alphaId: 'FREP01', name: 'Factory Repairs and Maintenance', type: 'Costs', normalSide: 'debit', parentNumericId: '530000', parentAlphaId: 'COOVH1' },
   { numericId: '534000', alphaId: 'FOHD01', name: 'Factory Overhead - Others', type: 'Costs', normalSide: 'debit', parentNumericId: '530000', parentAlphaId: 'COOVH1' },
 
-  // ===== 600000 EXPENSES (Level 1 header) =====
-  { numericId: '600000', alphaId: 'EXPN11', name: 'OPERATING EXPENSES', type: 'Expense', normalSide: 'debit' },
+  // ===== 600000 EXPENSES (Level 1 header — no balance) =====
+  { numericId: '600000', alphaId: 'EXPN11', name: 'OPERATING EXPENSES', type: 'Expense', normalSide: 'debit', isHeader: true },
   // 610000 SALARIES AND WAGES (Level 3 group)
   { numericId: '610000', alphaId: 'EXSAL1', name: 'SALARIES AND WAGES', type: 'Expense', normalSide: 'debit', parentNumericId: '600000', parentAlphaId: 'EXPN11' },
   { numericId: '611000', alphaId: 'SALA01', name: 'Salaries and Wages Expense', type: 'Expense', normalSide: 'debit', parentNumericId: '610000', parentAlphaId: 'EXSAL1' },
@@ -188,12 +193,12 @@ const COMMON_ACCOUNT_SEEDS: AccountSeed[] = [
   { numericId: '732000', alphaId: 'SOFT01', name: 'Software and Cloud Subscriptions Expense', type: 'Expense', normalSide: 'debit', parentNumericId: '730000', parentAlphaId: 'EXOTH1' },
   { numericId: '733000', alphaId: 'TRN001', name: 'Training and Certification Expense', type: 'Expense', normalSide: 'debit', parentNumericId: '730000', parentAlphaId: 'EXOTH1' },
 
-  // ===== 800000 OTHER INCOME (EXPENSES) — single Level 1 section header =====
+  // ===== 800000 OTHER INCOME (EXPENSES) — single Level 1 section header (no balance) =====
   // Per the latest COA format, Other Income and Other Expense share ONE
   // section header; they are distinguished within it by normal side (credit
   // vs debit) and the Other Income / Other Expense sub-type, never as two
   // separate top-level sections.
-  { numericId: '800000', alphaId: 'OTHIE1', name: 'OTHER INCOME (EXPENSES)', type: 'Other Income', normalSide: 'credit' },
+  { numericId: '800000', alphaId: 'OTHIE1', name: 'OTHER INCOME (EXPENSES)', type: 'Other Income', normalSide: 'credit', isHeader: true },
   { numericId: '810000', alphaId: 'OIINT1', name: 'INTEREST INCOME', type: 'Other Income', normalSide: 'credit', parentNumericId: '800000', parentAlphaId: 'OTHIE1' },
   { numericId: '811000', alphaId: 'INTIN1', name: 'Interest Income', type: 'Other Income', normalSide: 'credit', parentNumericId: '810000', parentAlphaId: 'OIINT1' },
   { numericId: '820000', alphaId: 'OEINT1', name: 'INTEREST EXPENSE', type: 'Other Expense', normalSide: 'debit', parentNumericId: '800000', parentAlphaId: 'OTHIE1' },
@@ -328,11 +333,18 @@ function toAccounts(seeds: AccountSeed[], format: 'numeric' | 'alphanumeric'): C
     if (format === 'alphanumeric') idMap.set(s.numericId, s.alphaId);
     else idMap.set(s.alphaId, s.numericId);
   });
-  const accounts = seeds.map(({ numericId, alphaId, name, type, normalSide, parentNumericId, parentAlphaId }) => {
+  const accounts = seeds.map(({ numericId, alphaId, name, type, normalSide, parentNumericId, parentAlphaId, isHeader }) => {
     const id = format === 'alphanumeric' ? alphaId : numericId;
     const parentRef = format === 'alphanumeric' ? parentAlphaId : parentNumericId;
     const parentId = parentRef ? (idMap.get(parentRef) || parentRef) : undefined;
-    return { id, name, type, normalSide, ...(parentId ? { parentId } : {}) };
+    return {
+      id, name, type, normalSide,
+      ...(parentId ? { parentId } : {}),
+      // Header accounts (Level 1 section / Level 2 classification) are flagged
+      // so the COA screen renders no balance for them; their group totals are
+      // computed as rollups of postable descendants only.
+      ...(isHeader ? { isHeader: true } : {}),
+    };
   });
   return sortAccountsChronologically(accounts);
 }

@@ -1626,6 +1626,46 @@ export function ChartOfAccounts() {
   // The same balance calculation is consumed by the financial statements and Trial Balance.
   const getAccountBalance = (account: CoaAccount) => balanceFor(currentClient, account.id)?.balance || 0;
 
+  // Parent/children map for rollup totals. Level 1/2 headers (isHeader) show
+  // no balance at all; Level 3 account groups show the computed sum of their
+  // postable (leaf) descendants; Level 4 postable accounts show their stored
+  // opening/running balance. Group amounts are never independently stored.
+  const childrenByParent = useMemo(() => {
+    const map = new Map<string, CoaAccount[]>();
+    accounts.forEach(a => {
+      if (a.parentId) {
+        const list = map.get(a.parentId) || [];
+        list.push(a);
+        map.set(a.parentId, list);
+      }
+    });
+    return map;
+  }, [accounts]);
+
+  const sumPostableDescendants = (accountId: string): number => {
+    let total = 0;
+    const walk = (id: string) => {
+      const kids = childrenByParent.get(id);
+      if (!kids || kids.length === 0) {
+        // Leaf = postable account — its stored balance rolls up into the group.
+        total += balanceFor(currentClient, id)?.balance || 0;
+      } else {
+        kids.forEach(k => walk(k.id));
+      }
+    };
+    walk(accountId);
+    return total;
+  };
+
+  // null = header account (no balance displayed). A non-header account with
+  // children is an account group and shows a rollup total; otherwise it is a
+  // postable account and shows its own stored balance.
+  const displayedBalance = (account: CoaAccount): number | null => {
+    if (account.isHeader) return null;
+    const hasChildren = (childrenByParent.get(account.id)?.length || 0) > 0;
+    return hasChildren ? sumPostableDescendants(account.id) : getAccountBalance(account);
+  };
+
   return (
     <div className="w-full flex flex-col">
       <PageHeader title="Chart of Accounts" icon={<BookOpen />} className="!px-0 !py-2" actions={
@@ -2083,6 +2123,7 @@ export function ChartOfAccounts() {
                 >
                   Details
                 </button>
+                {!accounts.find(a => a.id === editingId)?.isHeader && (
                 <button
                   onClick={() => setEditModalTab('openingBalance')}
                   className={cn(
@@ -2094,6 +2135,7 @@ export function ChartOfAccounts() {
                 >
                   {isNominalAccountType(editType) ? 'Previous Year Balance' : 'Opening Balance'}
                 </button>
+                )}
               </div>
               
               {editModalTab === 'details' ? (
@@ -2241,7 +2283,7 @@ export function ChartOfAccounts() {
                   </tr>
                 ) : (
                   displayRows.map((account, index) => {
-                    const balanceValue = getAccountBalance(account);
+                    const balanceValue = displayedBalance(account);
 
                     const parentAccount = account.parentId ? accounts.find(a => a.id === account.parentId) : null;
 
@@ -2303,9 +2345,13 @@ export function ChartOfAccounts() {
                         })}
                         <td className="px-4 py-3 text-right font-mono text-text-primary text-sm font-semibold tabular-nums">
                           <div className="flex items-center justify-end gap-2.5">
-                            <span className={cn(balanceValue < 0 && 'text-danger-600 dark:text-rose-400')}>
-                              {balanceValue < 0 ? '−' : ''}₱{Math.abs(balanceValue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                            </span>
+                            {balanceValue === null ? (
+                              <span className="text-text-muted/40">—</span>
+                            ) : (
+                              <span className={cn(balanceValue < 0 && 'text-danger-600 dark:text-rose-400')}>
+                                {balanceValue < 0 ? '−' : ''}₱{Math.abs(balanceValue).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                              </span>
+                            )}
                             
                             <div
                               className="relative ml-2 shrink-0"
