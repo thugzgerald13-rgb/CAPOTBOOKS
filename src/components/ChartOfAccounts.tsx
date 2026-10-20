@@ -760,6 +760,102 @@ const COA_TEMPLATE_GROUPS: Record<CoaTemplateBusinessType, string[]> = {
   'Construction/Fabrication/Contracting': ['COST OF CONTRACTS - CONSTRACTION/FABRICATION/CONTRACTING BUSINESS TYPE', 'DIRECT MATERIALS', 'DIRECT LABOR', 'SUBCONTRACTED WORKS', 'OVERHEAD'],
 };
 
+function resolveCoaTemplateBusinessType(industry?: import('../types').ClientIndustry): CoaTemplateBusinessType {
+  const value = String(industry || '').toLowerCase();
+  if (/manufactur|factory|production/.test(value)) return 'Manufacturing';
+  if (/retail|trading|store|wholesale/.test(value)) return 'Retail';
+  if (/construct|fabricat|contract/.test(value)) return 'Construction/Fabrication/Contracting';
+  return 'Service';
+}
+
+const FIXED_COA_GROUP_TITLES = new Set([
+  'ASSETS', 'CURRENT ASSETS', 'CASH AND CASH EQUIVALENTS', 'TRADE AND OTHER RECEIVABLES', 'FINANCIAL ASSETS', 'INVENTORIES', 'BIOLOGICAL ASSETS', 'OTHER CURRENT ASSETS',
+  'NONCURRENT ASSETS', 'FINANCIAL ASSETS LONG-TERM', 'INVESTMENT PROPERTY', 'PROPERTY, PLANT AND EQUIPMENTS', 'BIOLOGICAL ASSETS - LONG-TERM', 'INTANGIBLE ASSETS', 'OTHER NONCURRENT ASSETS',
+  'LIABILTIES', 'LIABILITIES', 'CURRENT LIABILITIES', 'TRADE AND OTHER PAYABLES', 'ACCRUED EXPENSES', 'OTHER CURRENT LIABILITIES', 'NONCURRENT LIABLITIES', 'NONCURRENT LIABILITIES', 'LONG-TERM BORROWINGS', 'OTHER NONCURRENT LIABILITIES',
+  'EQUITY', 'CAPITAL', 'REVENUE', 'COST OF REVENUE - SERVICE BUSINESS TYPE', 'COST OF SALES - RETAIL BUSINESS TYPE',
+  'COST OF GOODS MANUFACTURED AND SOLD - MANUFACTURING BUSINESS TYPE', 'COST OF CONTRACTS - CONSTRACTION/FABRICATION/CONTRACTING BUSINESS TYPE',
+  'DIRECT MATERIALS', 'DIRECT LABOR', 'SUBCONTRACTED WORKS', 'OVERHEAD', 'OPERATING EXPENSES', 'SELLING EXPENSES', 'GENERAL & ADMINISTRATIVE EXPENSES', 'OTHER INCOME/(EXPENSES)',
+]);
+const fixedTitleKey = (value: string) => normalizeHeaderToken(value).replace(/equipments/g, 'equipment').replace(/liabilties/g, 'liabilities');
+
+/** Return the fixed COA's deepest category node for an uploaded posting account. */
+function fixedHierarchyParent(account: CoaAccount, fixedAccounts: CoaAccount[], businessType: CoaTemplateBusinessType): string | undefined {
+  const title = account.name.toLowerCase();
+  const type = normalizeUploadedType(account.type).type;
+  const targetNames: string[] = [];
+  if (type === 'Asset') {
+    const longTerm = /(long.?term|non.?current|property|plant|equipment|building|land|vehicle|intangible|investment property|biological asset.*long)/i.test(title);
+    if (longTerm) {
+      if (/financial asset|investment|bond|long.?term receivable/i.test(title)) targetNames.push('FINANCIAL ASSETS LONG-TERM');
+      else if (/investment property/i.test(title)) targetNames.push('INVESTMENT PROPERTY');
+      else if (/property|plant|equipment|building|land|vehicle/i.test(title)) targetNames.push('PROPERTY, PLANT AND EQUIPMENTS');
+      else if (/biological/i.test(title)) targetNames.push('BIOLOGICAL ASSETS - LONG-TERM');
+      else if (/intangible|patent|copyright|software|trademark/i.test(title)) targetNames.push('INTANGIBLE ASSETS');
+      targetNames.push('OTHER NONCURRENT ASSETS', 'NONCURRENT ASSETS');
+    } else {
+      if (/cash|bank|petty cash/i.test(title)) targetNames.push('CASH AND CASH EQUIVALENTS');
+      else if (/receivable|accounts receivable|due from/i.test(title)) targetNames.push('TRADE AND OTHER RECEIVABLES');
+      else if (/financial asset|investment|marketable security/i.test(title)) targetNames.push('FINANCIAL ASSETS');
+      else if (/inventor|stock of goods|merchandise/i.test(title)) targetNames.push('INVENTORIES');
+      else if (/biological|livestock|crop/i.test(title)) targetNames.push('BIOLOGICAL ASSETS');
+      targetNames.push('OTHER CURRENT ASSETS', 'CURRENT ASSETS');
+    }
+    targetNames.push('ASSETS');
+  } else if (type === 'Liabilities') {
+    const longTerm = /(long.?term|non.?current|mortgage|term loan|long.?term borrowing|lease liability.*non)/i.test(title);
+    if (longTerm) {
+      if (/borrow|loan|note payable|mortgage/i.test(title)) targetNames.push('LONG-TERM BORROWINGS');
+      targetNames.push('OTHER NONCURRENT LIABILITIES', 'NONCURRENT LIABLITIES', 'NONCURRENT LIABILITIES');
+    } else {
+      if (/payable|trade creditor|accounts payable/i.test(title)) targetNames.push('TRADE AND OTHER PAYABLES');
+      else if (/accru|salary payable|wages payable|interest payable/i.test(title)) targetNames.push('ACCRUED EXPENSES');
+      targetNames.push('OTHER CURRENT LIABILITIES', 'CURRENT LIABILITIES');
+    }
+    targetNames.push('LIABILTIES', 'LIABILITIES');
+  } else if (type === 'Capital' || type === 'Equity') {
+    targetNames.push(type === 'Capital' ? 'CAPITAL' : 'EQUITY', 'CAPITAL', 'EQUITY');
+  } else if (type === 'Revenue') {
+    targetNames.push('REVENUE');
+  } else if (type === 'Costs') {
+    if (businessType === 'Manufacturing' && /material|raw material|purchase/i.test(title)) targetNames.push('DIRECT MATERIALS');
+    if (businessType === 'Manufacturing' && /labor|labour|wage|salary/i.test(title)) targetNames.push('DIRECT LABOR');
+    if (businessType === 'Manufacturing' && /overhead|factory|utilities|depreciation/i.test(title)) targetNames.push('OVERHEAD');
+    if (businessType === 'Construction/Fabrication/Contracting') {
+      if (/material|purchase/i.test(title)) targetNames.push('DIRECT MATERIALS');
+      if (/labor|labour|wage|salary/i.test(title)) targetNames.push('DIRECT LABOR');
+      if (/subcontract/i.test(title)) targetNames.push('SUBCONTRACTED WORKS');
+      if (/overhead|utilities|depreciation|insurance/i.test(title)) targetNames.push('OVERHEAD');
+    }
+    targetNames.push(COA_TEMPLATE_GROUPS[businessType][0]);
+  } else if (type === 'Expense') {
+    targetNames.push(/selling|advertis|marketing|commission|sales freight|delivery/i.test(title) ? 'SELLING EXPENSES' : 'GENERAL & ADMINISTRATIVE EXPENSES', 'OPERATING EXPENSES');
+  } else {
+    targetNames.push('OTHER INCOME/(EXPENSES)');
+  }
+
+  const byName = new Map(fixedAccounts.map(a => [fixedTitleKey(a.name), a]));
+  for (const name of targetNames) {
+    const found = byName.get(fixedTitleKey(name));
+    if (found) return found.id;
+  }
+  const matchingType = fixedAccounts.filter(a => normalizeUploadedType(a.type).type === type);
+  const fallback = matchingType.find(a => a.isHeader) || matchingType[0];
+  return fallback?.id;
+}
+
+function onlyPostableUploadedAccounts(imported: CoaAccount[], fixedAccounts: CoaAccount[]): CoaAccount[] {
+  const fixedNames = new Set([...FIXED_COA_GROUP_TITLES].map(fixedTitleKey));
+  const parentIds = new Set(imported.map(a => a.parentId).filter(Boolean));
+  return imported.filter(account => {
+    const key = fixedTitleKey(account.name);
+    // Fixed-format hierarchy headings are never imported as posting accounts.
+    if (fixedNames.has(key)) return false;
+    // When the file has no explicit Postable column, a row with children is a group, not a posting account.
+    if (parentIds.has(account.id)) return false;
+    return true;
+  });
+}
+
 function downloadFixedCoaTemplate(classification: 'Individual' | 'Non-Individual', businessType: CoaTemplateBusinessType): void {
   // This hierarchy follows COA-CATEGORY.txt. Section/category rows are non-postable;
   // taxpayers add their own detail accounts under the appropriate category.
@@ -1359,16 +1455,36 @@ export function ChartOfAccounts() {
       }
 
       const format = currentClient.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric';
-      const analysis = smartImportAccounts(rawRows, coaColumns, format, accounts);
+      // The taxpayer/business-type COA is the fixed chart. Uploaded files contribute
+      // posting accounts only; headings and parent/group rows never replace the template.
+      const fixedAccounts = defaultAccountsFor(
+        currentClient?.taxpayerClassification,
+        format,
+        currentClient?.industry
+      );
+      const analysis = smartImportAccounts(rawRows, coaColumns, format, fixedAccounts);
+      const postableAccounts = onlyPostableUploadedAccounts(analysis.accounts, fixedAccounts);
+      analysis.skipped += analysis.accounts.length - postableAccounts.length;
+      analysis.accounts = postableAccounts.map(account => {
+        const normalizedType = normalizeUploadedType(account.type).type;
+        const taxpayerType = isIndividualTaxpayer(currentClient?.taxpayerClassification)
+          ? (normalizedType === 'Equity' ? 'Capital' : normalizedType)
+          : (normalizedType === 'Capital' ? 'Equity' : normalizedType);
+        const normalizedAccount = { ...account, type: taxpayerType, normalSide: getNormalSide(taxpayerType) };
+        return {
+          ...normalizedAccount,
+          parentId: fixedHierarchyParent(normalizedAccount, fixedAccounts, resolveCoaTemplateBusinessType(currentClient?.industry)),
+        };
+      });
       if (analysis.accounts.length === 0) {
-        alert('No account titles could be detected. Upload a CSV/Excel file containing account names, one account per row. Headings are optional.');
+        alert('No postable account titles were detected. Upload a file with detail/posting accounts; the fixed COA hierarchy is supplied automatically.');
         return;
       }
 
       setPendingUploadRows(rawRows);
       setPendingUploadFileName(file.name);
       setPendingUploadAnalysis(analysis);
-      setPendingReviewAccounts(recodeImportedReviewAccounts(analysis.accounts, format));
+      setPendingReviewAccounts(recodeImportedReviewAccounts(analysis.accounts, format, fixedAccounts));
       setShowUploadChoice(true);
     } catch (err: any) {
       console.error('Failed to read Chart of Accounts upload:', err);
@@ -1389,18 +1505,48 @@ export function ChartOfAccounts() {
     if (!reviewAccounts.length) return;
 
     const format = currentClient.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric';
-    const baseAccounts = overwrite ? [] : accounts;
-    const finalAccounts = recodeImportedReviewAccounts(reviewAccounts, format, baseAccounts);
+    const fixedAccounts = defaultAccountsFor(
+      currentClient?.taxpayerClassification,
+      format,
+      currentClient?.industry
+    );
+    // Override resets to the fixed default hierarchy, not to an uploaded custom tree.
+    // Merge keeps existing accounts while preserving any missing fixed hierarchy nodes.
+    const baseAccounts = overwrite
+      ? fixedAccounts
+      : [...fixedAccounts, ...accounts.filter(existing => !fixedAccounts.some(def => String(def.id) === String(existing.id)))];
+    const recoded = recodeImportedReviewAccounts(reviewAccounts, format, baseAccounts);
+    const businessType = resolveCoaTemplateBusinessType(currentClient?.industry);
+    const finalAccounts = recoded.map(account => {
+      const normalizedType = normalizeUploadedType(account.type).type;
+      const taxpayerType = isIndividualTaxpayer(currentClient?.taxpayerClassification)
+        ? (normalizedType === 'Equity' ? 'Capital' : normalizedType)
+        : (normalizedType === 'Capital' ? 'Equity' : normalizedType);
+      const normalizedAccount = { ...account, type: taxpayerType, normalSide: getNormalSide(taxpayerType) };
+      return {
+        ...normalizedAccount,
+        parentId: fixedHierarchyParent(normalizedAccount, baseAccounts, businessType),
+      };
+    });
     const analysis = pendingUploadAnalysis;
 
     clearPendingUploadReview();
 
     if (!finalAccounts.length) {
-      showToast('No valid account titles were found in the uploaded file.');
+      showToast('No valid postable account titles were found in the uploaded file.');
       return;
     }
 
-    const saved = await handleSaveAccounts([...baseAccounts, ...finalAccounts]);
+    // De-duplicate by account title + parent category so repeated uploads do not
+    // create duplicate posting accounts in the fixed hierarchy.
+    const existingKeys = new Set(baseAccounts.map(a => `${fixedTitleKey(a.name)}::${a.parentId || ''}`));
+    const uniqueFinalAccounts = finalAccounts.filter(a => {
+      const key = `${fixedTitleKey(a.name)}::${a.parentId || ''}`;
+      if (existingKeys.has(key)) return false;
+      existingKeys.add(key);
+      return true;
+    });
+    const saved = await handleSaveAccounts([...baseAccounts, ...uniqueFinalAccounts]);
     if (!saved) return;
 
     const notes = [
@@ -1410,7 +1556,7 @@ export function ChartOfAccounts() {
       analysis?.skipped ? `${analysis.skipped} row${analysis.skipped === 1 ? '' : 's'} skipped` : '',
     ].filter(Boolean).join(' • ');
 
-    showToast(`${overwrite ? 'Chart of Accounts replaced with' : 'Uploaded'} ${finalAccounts.length} account${finalAccounts.length === 1 ? '' : 's'}${notes ? ` • ${notes}` : ''}.`);
+    showToast(`${overwrite ? 'Fixed Chart of Accounts updated with' : 'Uploaded'} ${uniqueFinalAccounts.length} postable account${uniqueFinalAccounts.length === 1 ? '' : 's'}${notes ? ` • ${notes}` : ''}.`);
   };
 
   const handleDelete = async (id: string) => {
@@ -1977,7 +2123,7 @@ export function ChartOfAccounts() {
 
         {showUploadChoice && pendingUploadAnalysis && (
           <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
-            <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl w-full max-w-4xl shadow-2xl border border-slate-200 dark:border-slate-700 max-h-[90vh] overflow-y-auto">
+            <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl w-full max-w-6xl shadow-2xl border border-slate-200 dark:border-slate-700 max-h-[90vh] overflow-y-auto">
               <div className="flex justify-between items-start gap-4 mb-4">
                 <div>
                   <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Review Uploaded Chart of Accounts</h3>
@@ -2002,7 +2148,7 @@ export function ChartOfAccounts() {
               <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 dark:border-blue-900/50 dark:bg-blue-950/20 p-3 text-xs text-blue-800 dark:text-blue-200">
                 <div className="font-bold mb-1">Smart import</div>
                 <div>{pendingUploadAnalysis.detectedColumns.join(' • ')}</div>
-                <div className="mt-1">Account code, account type, and opening-balance headings are optional. Missing information is inferred and generated automatically.</div>
+                <div className="mt-1">The default hierarchy is fixed for this taxpayer classification and business type. Only postable/detail accounts from the uploaded file are added; each is assigned to the deepest matching default category. Uploaded headings and group rows do not replace the fixed format.</div>
               </div>
 
               <div className="mb-4 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50 dark:bg-indigo-950/20 p-3">
@@ -2021,8 +2167,8 @@ export function ChartOfAccounts() {
                     <div className="text-[10px] uppercase font-bold tracking-wide text-slate-500">Edit before applying</div>
                     <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Change an account type or move it within its section. Codes are regenerated automatically and stay 6 characters.</div>
                   </div>
-                  <div className="grid grid-cols-[44px_105px_minmax(0,1fr)_150px_145px_86px] gap-2 px-3 py-2 bg-slate-50 dark:bg-slate-900/60 text-[10px] uppercase font-bold tracking-wide text-slate-500">
-                    <div>#</div><div>Code</div><div>Account Title</div><div>Type</div><div className="text-right">Opening / Prev. Year Bal.</div><div className="text-center">Move</div>
+                  <div className="grid grid-cols-[36px_85px_minmax(0,1fr)_115px_minmax(150px,0.8fr)_125px_76px] gap-2 px-3 py-2 bg-slate-50 dark:bg-slate-900/60 text-[10px] uppercase font-bold tracking-wide text-slate-500">
+                    <div>#</div><div>Code</div><div>Account Title</div><div>Type</div><div>Fixed Hierarchy Category</div><div className="text-right">Opening / Prev. Year Bal.</div><div className="text-center">Move</div>
                   </div>
                   <div className="max-h-96 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
                     {pendingReviewAccounts.map((account, index) => {
@@ -2033,17 +2179,20 @@ export function ChartOfAccounts() {
                       const canMoveUp = positionInType > 0;
                       const canMoveDown = positionInType >= 0 && positionInType < sameTypeIndexes.length - 1;
                       return (
-                        <div key={`${account.id}-${index}`} className="grid grid-cols-[44px_105px_minmax(0,1fr)_150px_145px_86px] gap-2 px-3 py-2 items-center text-xs">
+                        <div key={`${account.id}-${index}`} className="grid grid-cols-[36px_85px_minmax(0,1fr)_115px_minmax(150px,0.8fr)_125px_76px] gap-2 px-3 py-2 items-center text-xs">
                           <div className="text-[10px] text-slate-400 font-mono">{index + 1}</div>
                           <div className="font-mono font-bold text-indigo-700 dark:text-indigo-300" title="Automatically assigned">{account.id}</div>
                           <div className="font-semibold text-slate-800 dark:text-slate-100 truncate">{account.name}</div>
+                          <div className="text-[10px] leading-4 text-slate-600 dark:text-slate-300" title="Assigned to the deepest matching category in the fixed COA">
+                            {defaultAccountsFor(currentClient?.taxpayerClassification, currentClient?.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric', currentClient?.industry).find(item => item.id === fixedHierarchyParent(account, defaultAccountsFor(currentClient?.taxpayerClassification, currentClient?.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric', currentClient?.industry), resolveCoaTemplateBusinessType(currentClient?.industry)))?.name || 'Unassigned category'}
+                          </div>
                           <div>
                             <select
                               value={account.type}
                               onChange={e => updatePendingReviewType(account.id, e.target.value)}
                               className="w-full form-input text-xs py-1.5 px-2 bg-white dark:bg-slate-800"
                             >
-                              {ACCOUNT_TYPES.map(type => (
+                              {ACCOUNT_TYPES.filter(type => type !== (isIndividualTaxpayer(currentClient?.taxpayerClassification) ? 'Equity' : 'Capital')).map(type => (
                                 <option key={type} value={type}>{type}</option>
                               ))}
                             </select>
