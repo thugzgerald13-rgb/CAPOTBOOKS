@@ -264,10 +264,12 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
     setOtherPaymentEntries(prev => prev.map(e => (e.id === id ? { ...e, [field]: value } : e)));
   };
 
-  // ---- Other Payments batch entry: multiple full vouchers saved at once.
-  // Each voucher carries ALL fields (date, supplier, TIN, invoice, payment
-  // method, withholding, etc.) plus its own multi-line account+amount breakdown.
-  type OtherPaymentVoucher = {
+  // ---- Other Payments multiple-entries mode. A checkbox toggles between a
+  // single-entry form (with multi-line account+amount breakdown) and a
+  // horizontal multi-row grid where each row is a complete entry. A + button
+  // appends another row; "Add Entries" saves all rows at once.
+  const [multipleEntries, setMultipleEntries] = useState(false);
+  type MultiEntryRow = {
     id: string;
     date: string;
     supplierName: string;
@@ -281,40 +283,22 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
     atcCode: string;
     whtAmount: number;
     transactionDetails: string;
-    lineItems: Array<{ accountTitle: string; amount: number }>;
-    total: number;
+    accountTitle: string;
+    amount: string;
   };
-  const [batchEntries, setBatchEntries] = useState<OtherPaymentVoucher[]>([]);
-
-  const addCurrentToBatch = () => {
-    const validLines = otherPaymentEntries.filter(e => {
-      const v = parseFloat(String(e.amount || '').replace(/,/g, '').trim());
-      return Boolean(String(e.accountTitle || '').trim()) && Number.isFinite(v) && v > 0;
-    });
-    if (!String(supplierName || '').trim() || validLines.length === 0) {
-      alert('Each entry needs a supplier name and at least one line item with account + amount.');
-      return;
-    }
-    const total = validLines.reduce((s, e) => s + (parseFloat(String(e.amount || '').replace(/,/g, '')) || 0), 0);
-    const voucher: OtherPaymentVoucher = {
-      id: `v${Date.now()}-${batchEntries.length}`,
-      date, supplierName, supplierTin, supplierAddress, invoiceNo,
-      paymentMethod, bankName, checkNumber,
-      withholdingOption, atcCode, whtAmount,
-      transactionDetails,
-      lineItems: validLines.map(e => ({ accountTitle: e.accountTitle, amount: parseFloat(String(e.amount || '').replace(/,/g, '')) || 0 })),
-      total,
-    };
-    setBatchEntries(prev => [...prev, voucher]);
-    // Reset the per-voucher fields so the next entry starts clean. Date and
-    // payment method are retained for convenience.
-    setInvoiceNo(''); setSupplierTin(''); setSupplierName(''); setSupplierAddress('');
-    setOtherPaymentEntries([{ id: `e${Date.now()}-0`, accountTitle: '', amount: '' }]);
-    setTransactionDetails('');
-    setWithholdingOption('w/o'); setAtcCode(''); setWhtAmount(0);
-  };
-
-  const removeBatchEntry = (id: string) => setBatchEntries(prev => prev.filter(e => e.id !== id));
+  const emptyMultiRow = (): MultiEntryRow => ({
+    id: `m${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    date: new Date().toISOString().split('T')[0],
+    supplierName: '', supplierTin: '', supplierAddress: '',
+    invoiceNo: '', paymentMethod: 'Cash', bankName: '', checkNumber: '',
+    withholdingOption: 'w/o', atcCode: '', whtAmount: 0,
+    transactionDetails: '', accountTitle: '', amount: '',
+  });
+  const [multiEntries, setMultiEntries] = useState<MultiEntryRow[]>([emptyMultiRow()]);
+  const addMultiRow = () => setMultiEntries(prev => [...prev, emptyMultiRow()]);
+  const removeMultiRow = (id: string) => setMultiEntries(prev => (prev.length <= 1 ? prev : prev.filter(r => r.id !== id)));
+  const updateMultiRow = (id: string, field: keyof MultiEntryRow, value: string | number) =>
+    setMultiEntries(prev => prev.map(r => (r.id === id ? { ...r, [field]: value } : r)));
 
   const handleAddPaymentAccount = () => {
     if (!hasPermission(modulePermissionKey('coa')) || !hasPermission(actionPermissionKey('coa', 'add'))) { showToast('Your profile cannot add chart-of-accounts entries.'); return; }
@@ -600,7 +584,7 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
       : [];
     const hasOtherPaymentEntries = !isOtherPayments || validOtherPaymentEntries.length > 0;
 
-    if (!hasDate || !hasSupplierName || !hasInvoiceAndTin || !hasVatAmount || !hasOtherPaymentEntries) {
+    if (!(isOtherPayments && multipleEntries) && (!hasDate || !hasSupplierName || !hasInvoiceAndTin || !hasVatAmount || !hasOtherPaymentEntries)) {
       alert('Please fill out all required fields with valid values.');
       return;
     }
@@ -691,45 +675,54 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
     // Persist the purchase directly to the normalized `purchases` table.
     // Do not rebuild the whole Client aggregate from the currently loaded page/list;
     // that can overwrite transactions that are not present in the browser.
-    await savePurchase(String(purchaseData.id), purchaseData);
+    const savingMulti = isOtherPayments && multipleEntries;
+    if (!savingMulti) {
+      await savePurchase(String(purchaseData.id), purchaseData);
+    }
 
-    // Other Payments batch: persist every voucher added to the batch. Each
-    // voucher carries its own full field set (supplier, invoice, payment
-    // method, withholding) plus its multi-line account+amount breakdown.
-    if (isOtherPayments && batchEntries.length > 0) {
-      for (let i = 0; i < batchEntries.length; i++) {
-        const v = batchEntries[i];
-        const batchId = `batch-${v.id}`;
-        await savePurchase(batchId, {
-          id: batchId,
-          sequenceNumber: (editSequence || sequenceNumber) + i + 1,
+    // Other Payments multiple-entries mode: persist every filled row.
+    if (savingMulti) {
+      const validRows = multiEntries.filter(r => {
+        const amt = parseFloat(String(r.amount || '').replace(/,/g, ''));
+        return Boolean(String(r.supplierName || '').trim()) && Boolean(String(r.accountTitle || '').trim()) && Number.isFinite(amt) && amt > 0;
+      });
+      if (validRows.length === 0) {
+        alert('At least one row needs a supplier name, account title, and amount.');
+        return;
+      }
+      for (let i = 0; i < validRows.length; i++) {
+        const r = validRows[i];
+        const rowId = `multi-${r.id}`;
+        const amt = parseFloat(String(r.amount || '').replace(/,/g, '')) || 0;
+        await savePurchase(rowId, {
+          id: rowId,
+          sequenceNumber: (editSequence || sequenceNumber) + i,
           datMonthYear: currentDat ? currentDat.formatted : `${MONTHS[parseInt(m) - 1]} ${y}`,
-          date: v.date,
-          paymentMethod: v.paymentMethod,
-          bankName: v.paymentMethod === 'Check' ? v.bankName : null,
-          checkNumber: v.paymentMethod === 'Check' ? v.checkNumber : null,
-          invoiceNo: v.invoiceNo,
-          supplierTin: v.supplierTin,
-          supplierName: v.supplierName,
-          supplierAddress: v.supplierAddress,
+          date: r.date,
+          paymentMethod: r.paymentMethod,
+          bankName: r.paymentMethod === 'Check' ? r.bankName : null,
+          checkNumber: r.paymentMethod === 'Check' ? r.checkNumber : null,
+          invoiceNo: r.invoiceNo,
+          supplierTin: r.supplierTin,
+          supplierName: r.supplierName,
+          supplierAddress: r.supplierAddress,
           amount: 0,
           vatType: 'non-vat',
-          exemptAmount: v.total,
+          exemptAmount: amt,
           zeroRatedAmount: 0,
-          withholdingOption: v.withholdingOption,
-          atcCode: v.withholdingOption === 'with' ? v.atcCode : null,
-          whtRate: v.withholdingOption === 'with' ? (ATC_SCHEDULE.find(e => e.code === v.atcCode)?.rate ?? null) : null,
-          whtAmount: v.withholdingOption === 'with' ? v.whtAmount : 0,
-          accountTitle: v.lineItems.length === 1 ? v.lineItems[0].accountTitle : `${v.lineItems[0]?.accountTitle || 'Multiple'} +${v.lineItems.length - 1} more`,
-          transactionDetails: v.transactionDetails,
+          withholdingOption: r.withholdingOption,
+          atcCode: r.withholdingOption === 'with' ? r.atcCode : null,
+          whtRate: r.withholdingOption === 'with' ? (ATC_SCHEDULE.find(e => e.code === r.atcCode)?.rate ?? null) : null,
+          whtAmount: r.withholdingOption === 'with' ? r.whtAmount : 0,
+          accountTitle: r.accountTitle,
+          transactionDetails: r.transactionDetails,
           inputTax: 0,
-          otherPaymentEntries: v.lineItems,
+          otherPaymentEntries: [{ accountTitle: r.accountTitle, amount: amt }],
           attachment: null,
         });
       }
-      const batchCount = batchEntries.length;
-      setBatchEntries([]);
-      showToast(`${batchCount + 1} entries added`);
+      showToast(`${validRows.length} entries added`);
+      setMultiEntries([emptyMultiRow()]);
     } else {
       showToast(viewIndex !== null ? 'Entry updated' : 'Expense entry added');
     }
@@ -760,7 +753,8 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
     setWhtAmount(0);
     setAccountTitle('');
     setOtherPaymentEntries([{ id: `e${Date.now()}-0`, accountTitle: '', amount: '' }]);
-    setBatchEntries([]);
+    setMultipleEntries(false);
+    setMultiEntries([emptyMultiRow()]);
     setTransactionDetails('');
     setInputTax(0);
     setAttachment(null);
@@ -1097,35 +1091,85 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
 
         {isOtherPayments && (
           <div className="lg:col-span-3">
-            <div className="flex items-center justify-between mb-2">
-              <button
-                type="button"
-                onClick={addCurrentToBatch}
-                className="inline-flex items-center gap-1.5 text-sm font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 border border-emerald-300 dark:border-emerald-700 rounded-xl px-4 py-2 transition-colors"
-              >
-                <Plus className="w-4 h-4" /> Add Entry to Batch
-              </button>
-              {batchEntries.length > 0 && (
-                <span className="text-xs font-bold text-slate-500">
-                  {batchEntries.length} {batchEntries.length === 1 ? 'entry' : 'entries'} in batch · Total ₱{batchEntries.reduce((s, e) => s + e.total, 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-              )}
-            </div>
-            {batchEntries.length > 0 && (
-              <div className="space-y-2 mb-2 max-h-64 overflow-y-auto">
-                {batchEntries.map((v, i) => (
-                  <div key={v.id} className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 rounded-xl">
-                    <span className="text-xs font-bold text-slate-400 w-6 shrink-0">#{i + 1}</span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-bold text-slate-800 dark:text-slate-200 truncate">{v.supplierName}{v.invoiceNo ? ` · Inv ${v.invoiceNo}` : ''}</p>
-                      <p className="text-xs text-slate-500">{v.lineItems.length} line item{v.lineItems.length === 1 ? '' : 's'} · {v.date}</p>
-                    </div>
-                    <span className="text-sm font-bold text-amber-700 dark:text-amber-300 shrink-0">₱{v.total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-                    <button type="button" onClick={() => removeBatchEntry(v.id)} className="p-1.5 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors shrink-0" title="Remove from batch">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </div>
-                ))}
+            <label className="flex items-center gap-2 mb-3 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={multipleEntries}
+                onChange={e => { setMultipleEntries(e.target.checked); if (e.target.checked) setMultiEntries([emptyMultiRow()]); }}
+                className="w-4 h-4 accent-amber-500"
+              />
+              <span className="text-sm font-bold text-slate-700 dark:text-slate-300">Multiple Entries</span>
+              <span className="text-xs text-slate-400">— fill multiple rows and save all at once</span>
+            </label>
+
+            {multipleEntries && (
+              <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="bg-slate-50 dark:bg-slate-800/70 text-slate-500 uppercase tracking-wide">
+                        <th className="px-2 py-2 text-left font-bold">#</th>
+                        <th className="px-2 py-2 text-left font-bold min-w-[110px]">Date</th>
+                        <th className="px-2 py-2 text-left font-bold min-w-[160px]">Supplier *</th>
+                        <th className="px-2 py-2 text-left font-bold min-w-[120px]">TIN</th>
+                        <th className="px-2 py-2 text-left font-bold min-w-[110px]">Invoice #</th>
+                        <th className="px-2 py-2 text-left font-bold min-w-[110px]">Payment</th>
+                        <th className="px-2 py-2 text-left font-bold min-w-[180px]">Account Title *</th>
+                        <th className="px-2 py-2 text-right font-bold min-w-[110px]">Amount (₱) *</th>
+                        <th className="px-2 py-2 w-10"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {multiEntries.map((row, idx) => (
+                        <tr key={row.id} className="border-t border-slate-100 dark:border-slate-800">
+                          <td className="px-2 py-1.5 text-slate-400 font-bold">{idx + 1}</td>
+                          <td className="px-2 py-1.5">
+                            <input type="date" value={row.date} onChange={e => updateMultiRow(row.id, 'date', e.target.value)} className="form-input !py-1 !text-xs !px-2" />
+                          </td>
+                          <td className="px-2 py-1.5">
+                            <input type="text" value={row.supplierName} onChange={e => updateMultiRow(row.id, 'supplierName', e.target.value)} placeholder="Supplier name" className="form-input !py-1 !text-xs !px-2" />
+                          </td>
+                          <td className="px-2 py-1.5">
+                            <input type="text" value={row.supplierTin} onChange={e => updateMultiRow(row.id, 'supplierTin', e.target.value)} placeholder="TIN" className="form-input !py-1 !text-xs !px-2" />
+                          </td>
+                          <td className="px-2 py-1.5">
+                            <input type="text" value={row.invoiceNo} onChange={e => updateMultiRow(row.id, 'invoiceNo', e.target.value)} placeholder="Invoice #" className="form-input !py-1 !text-xs !px-2" />
+                          </td>
+                          <td className="px-2 py-1.5">
+                            <select value={row.paymentMethod} onChange={e => updateMultiRow(row.id, 'paymentMethod', e.target.value)} className="form-input !py-1 !text-xs !px-2">
+                              <option>Cash</option><option>Check</option><option>Bank Transfer</option>
+                            </select>
+                          </td>
+                          <td className="px-2 py-1.5">
+                            <Combobox
+                              value={row.accountTitle}
+                              onChange={v => updateMultiRow(row.id, 'accountTitle', v)}
+                              options={coaAccounts.map(a => ({ id: a.id, label: a.name }))}
+                              placeholder="Account"
+                              inputClassName="form-input !py-1 !text-xs !px-2 min-w-[160px]"
+                            />
+                          </td>
+                          <td className="px-2 py-1.5">
+                            <input type="text" value={row.amount} onChange={e => { if (/^[0-9.,]*$/.test(e.target.value)) updateMultiRow(row.id, 'amount', e.target.value); }} onBlur={e => { const raw = e.target.value.replace(/,/g, ''); if (raw && !isNaN(parseFloat(raw))) updateMultiRow(row.id, 'amount', parseFloat(raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })); }} placeholder="0.00" className="form-input !py-1 !text-xs !px-2 text-right font-bold text-amber-800 dark:text-amber-300" />
+                          </td>
+                          <td className="px-2 py-1.5">
+                            <button type="button" onClick={() => removeMultiRow(row.id)} disabled={multiEntries.length <= 1} className="p-1 rounded text-red-500 hover:bg-red-50 disabled:opacity-30" title="Remove row">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex items-center justify-between px-3 py-2 bg-slate-50 dark:bg-slate-800/50 border-t border-slate-200 dark:border-slate-700">
+                  <button type="button" onClick={addMultiRow} className="inline-flex items-center gap-1 text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700">
+                    <Plus className="w-4 h-4" /> Add Row
+                  </button>
+                  <span className="text-xs font-bold text-slate-600 dark:text-slate-300">
+                    {multiEntries.length} {multiEntries.length === 1 ? 'entry' : 'entries'} · Total ₱{multiEntries.reduce((s, r) => s + (parseFloat(String(r.amount || '').replace(/,/g, '')) || 0), 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
               </div>
             )}
           </div>
@@ -1152,7 +1196,7 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
                </button>
              )}
              {canPurchaseAction(viewIndex !== null ? 'edit' : 'add') && <button onClick={handleAddPurchase} className="bg-amber-500 hover:bg-amber-600 text-slate-900 font-bold px-8 py-2.5 rounded-xl transition-colors shadow-sm shadow-amber-500/20 flex items-center gap-2">
-               <Plus className="w-5 h-5" /> {viewIndex !== null ? 'Update Entry' : (isOtherPayments && batchEntries.length > 0 ? `Save All (${batchEntries.length}${otherPaymentEntries.some(e => e.accountTitle && e.amount) ? '+' : ''})` : 'Add Entry')}
+               <Plus className="w-5 h-5" /> {viewIndex !== null ? 'Update Entry' : (isOtherPayments && multipleEntries ? 'Add Entries' : 'Add Entry')}
              </button>}
            </div>
         </div>
