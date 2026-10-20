@@ -35,11 +35,23 @@ function defaultAccountsFor(
   industry?: import('../types').ClientIndustry
 ): CoaAccount[] {
   const ownershipType = ownershipAccountType(classification);
-  return getDefaultAccountsForIndustry(industry, format).map(account =>
-    account.type === 'Equity' || account.type === 'Capital'
-      ? { ...account, type: ownershipType, normalSide: getNormalSide(ownershipType) }
-      : { ...account }
-  );
+  const individual = isIndividualTaxpayer(classification);
+  // The top-level equity section header is annotated "- NO AMOUNT" only for
+  // non-individual (corporate) taxpayers as "EQUITY". For individual (sole
+  // proprietor) taxpayers it is "CAPITAL" with no NO-AMOUNT annotation, so it
+  // shows the rollup total of its descendant postable accounts.
+  const equityHeaderId = format === 'alphanumeric' ? 'EQUIT1' : '300000';
+  return getDefaultAccountsForIndustry(industry, format).map(account => {
+    if (account.type === 'Equity' || account.type === 'Capital') {
+      const mapped: CoaAccount = { ...account, type: ownershipType, normalSide: getNormalSide(ownershipType) };
+      if (account.id === equityHeaderId) {
+        mapped.name = individual ? 'CAPITAL' : 'EQUITY';
+        mapped.isHeader = individual ? false : true;
+      }
+      return mapped;
+    }
+    return { ...account };
+  });
 }
 
 // Smart Chart of Accounts import helpers.
