@@ -341,18 +341,10 @@ export function BIRForms() {
     [birSales, birPurchases, selectedYear, selectedQuarter, reliefImportationVat, reliefImportationCount],
   );
 
-  // Auto-populate the 2550Q fields from RELIEF/SLSP the first time a quarter is
-  // opened. Manual user overrides (non-empty fields) are always preserved.
-  useEffect(() => {
-    if (activeFormType !== '2550Q') return;
-    const key = `${selectedYear}-Q${selectedQuarter}`;
-    if (reliefAutoFilledRef.current === key) return;
-    if (manualVatSales !== '' || manualZeroSales !== '' || manualExemptSales !== '') return;
-    reliefAutoFilledRef.current = key;
-    setManualVatSales(String(reliefTotals.taxableSales));
-    setManualZeroSales(String(reliefTotals.zeroRatedSales));
-    setManualExemptSales(String(reliefTotals.exemptSales));
-  }, [activeFormType, selectedYear, selectedQuarter, reliefTotals, manualVatSales, manualZeroSales, manualExemptSales]);
+  // NOTE: 2550Q is populated from RELIEF by merging reliefTotals into
+  // compiledData below. No auto-fill effect (those raced the async load and
+  // wrote zeros). "Re-populate from RELIEF" explicitly copies RELIEF figures
+  // into the manual override inputs on demand.
 
   const official2550Q = useMemo(
     () => activeFormType === '2550Q'
@@ -446,7 +438,7 @@ export function BIRForms() {
   }, [currentClientId, selectedYear, selectedQuarter, selectedMonth, activeFormType]);
 
   // Compile active client statistics
-  const compiledData = useMemo(() => {
+  const compiledDataRaw = useMemo(() => {
     if (!currentClient) {
       return {
         salesTotal: 0,
@@ -557,12 +549,26 @@ export function BIRForms() {
     };
   }, [currentClient, birSales, birPurchases, selectedYear, selectedQuarter, selectedMonth, activeFormType]);
 
+  // For 2550Q the official return is populated FROM RELIEF/SLSP. Merge RELIEF
+  // aggregates into compiledData so the on-screen form sheet, the PDF and the
+  // XML all show the same RELIEF-sourced figures. Manual overrides still win
+  // via the manual* inputs (they layer on top of these values).
+  const compiledData = activeFormType === '2550Q'
+    ? {
+        ...compiledDataRaw,
+        vatableNetSales: reliefTotals.taxableSales,
+        salesTotal: reliefTotals.taxableSales + reliefTotals.zeroRatedSales + reliefTotals.exemptSales,
+        purchasesInputTax: reliefTotals.totalInputTax,
+        vatPurchasesTotal: reliefTotals.purchasesGoods + reliefTotals.purchasesServices + reliefTotals.purchasesCapital,
+      }
+    : compiledDataRaw;
+
   // Clean values combining manual overrides and compiled values.
   // Uses vatableNetSales (net-of-VAT, VATable entries only) rather than the gross
   // salesTotal, since output tax must be computed on the net taxable base, not gross.
   const activeVatSales = manualVatSales !== '' ? parseFloat(manualVatSales) || 0 : compiledData.vatableNetSales;
-  const activeZeroSales = parseFloat(manualZeroSales) || 0;
-  const activeExemptSales = parseFloat(manualExemptSales) || 0;
+  const activeZeroSales = manualZeroSales !== '' ? parseFloat(manualZeroSales) || 0 : (activeFormType === '2550Q' ? reliefTotals.zeroRatedSales : 0);
+  const activeExemptSales = manualExemptSales !== '' ? parseFloat(manualExemptSales) || 0 : (activeFormType === '2550Q' ? reliefTotals.exemptSales : 0);
   const activeTotalSalesLine = activeVatSales + activeZeroSales + activeExemptSales;
   const activeOutputTax = activeVatSales * 0.12;
 
