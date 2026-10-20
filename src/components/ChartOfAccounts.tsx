@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { BookOpen, Plus, Trash2, RefreshCcw, Edit2, ClipboardList, Check, X, Columns, ArrowUp, ArrowDown, Upload, MoreVertical, ChevronRight, ChevronDown } from 'lucide-react';
+import { BookOpen, Plus, Trash2, RefreshCcw, Edit2, ClipboardList, Check, X, Columns, ArrowUp, ArrowDown, Upload, MoreVertical } from 'lucide-react';
 import { flattenCoaHierarchy } from '../lib/coaImport';
 import { PageHeader } from './ui/PageHeader';
 import { Combobox } from './ui/Combobox';
@@ -83,6 +83,8 @@ const IMPORT_OPENING_ALIASES = [
 const IMPORT_LEVEL_ALIASES = [
   'accountlevel', 'level', 'accountclass', 'hierarchylevel', 'subaccount'
 ];
+const IMPORT_POSTABLE_ALIASES = ['postable', 'ispostable', 'postingaccount', 'posting', 'detailaccount'];
+const IMPORT_PARENT_ALIASES = ['parentcode', 'parentaccount', 'parentaccountcode', 'subaccountof', 'parent'];
 const IMPORT_DEBIT_ALIASES = ['openingdebit', 'debitbalance'];
 const IMPORT_CREDIT_ALIASES = ['openingcredit', 'creditbalance'];
 
@@ -208,7 +210,15 @@ function scoreAccountTitle(value: any): number {
 }
 
 function isSummaryAccountTitle(value: string): boolean {
-  return /^(total|subtotal|grandtotal|netincome|netloss|grossprofit|grossloss|totalassets|totalliabilities|totalequity|totalrevenue|totalexpenses)/.test(normalizeHeaderToken(value));
+  const token = normalizeHeaderToken(value);
+  const hierarchyHeaders = new Set([
+    'assets', 'currentassets', 'noncurrentassets', 'liabilities', 'currentliabilities', 'noncurrentliabilities',
+    'equity', 'capital', 'revenue', 'operatingexpenses', 'sellingexpenses', 'generaladministrativeexpenses',
+    'otherincomeexpenses', 'costofrevenueservicebusinesstype', 'costofsalesretailbusinesstype',
+    'costofgoodsmanufacturedandsoldmanufacturingbusinesstype', 'costoftcontracts',
+    'costofcontractsconstructionfabricationcontractingbusinesstype'
+  ]);
+  return hierarchyHeaders.has(token) || /^(total|subtotal|grandtotal|netincome|netloss|grossprofit|grossloss|totalassets|totalliabilities|totalequity|totalrevenue|totalexpenses)/.test(token);
 }
 
 function inferHeaderIndex(headers: any[], aliases: string[]): number {
@@ -396,6 +406,9 @@ function smartImportAccounts(
   const warnings: string[] = [];
   let skipped = 0, generatedCodes = 0, inferredTypes = 0, detectedOpeningBalances = 0;
   let currentMainId: string | undefined;
+  const hierarchyStack: Array<{ depth: number; id: string }> = [];
+  const postableIndex = headered ? headers.findIndex(h => IMPORT_POSTABLE_ALIASES.includes(normalizeHeaderToken(h))) : -1;
+  const parentIndex = headered ? headers.findIndex(h => IMPORT_PARENT_ALIASES.includes(normalizeHeaderToken(h))) : -1;
 
   const customColumnIndexes = new Map<string, number>();
   if (headered) {
@@ -449,7 +462,11 @@ function smartImportAccounts(
     }
 
     const decoratedRaw = String(title ?? '').replace(/\u00a0/g, ' ');
-    const decoratedIndented = /^\s{2,}/.test(decoratedRaw) || /^\s*(?:↳|->|=>|›|»|└|├|─|•|·)/.test(decoratedRaw);
+    const indentMatch = decoratedRaw.match(/^\s*/);
+    const indentDepth = Math.floor((indentMatch?.[0].length || 0) / 2);
+    const decoratedIndented = indentDepth > 0 || /^\s*(?:↳|->|=>|›|»|└|├|─|•|·)/.test(decoratedRaw);
+    const postableRaw = postableIndex >= 0 ? normalizeHeaderToken(cells[postableIndex]) : '';
+    if (postableIndex >= 0 && !/^(yes|true|1|postable|detail)$/.test(postableRaw)) { skipped++; return; }
     title = decoratedRaw.trim().replace(/^(?:↳|->|=>|›|»|└|├|─|•|·)+\s*/, '').replace(/^\d+(?:\.\d+)*\s*[-.)]\s*/, '').trim();
     if (!title || isSummaryAccountTitle(title)) { skipped++; return; }
 
@@ -515,8 +532,18 @@ function smartImportAccounts(
 
     const level = normalizeHeaderToken(levelRaw);
     const explicitSub = /subaccount|child|detail/.test(level);
-    if ((decoratedIndented || explicitSub) && currentMainId) account.parentId = currentMainId;
-    else currentMainId = id;
+    const explicitParent = parentIndex >= 0 ? extractCell(cells, parentIndex) : '';
+    if (explicitParent) account.parentId = explicitParent;
+    else if ((decoratedIndented || explicitSub) && currentMainId) {
+      const depth = Math.max(1, indentDepth);
+      while (hierarchyStack.length && hierarchyStack[hierarchyStack.length - 1].depth >= depth) hierarchyStack.pop();
+      account.parentId = hierarchyStack[hierarchyStack.length - 1]?.id || currentMainId;
+      hierarchyStack.push({ depth, id });
+    } else {
+      currentMainId = id;
+      hierarchyStack.length = 0;
+      hierarchyStack.push({ depth: 0, id });
+    }
 
     newAccounts.push(account);
     if (typeInfo.inferred || codeResult.generated || openingBalance !== undefined) {
@@ -526,6 +553,16 @@ function smartImportAccounts(
         openingBalance !== undefined ? `${isNominalAccountType(typeInfo.type) ? 'previous year balance' : 'opening balance'} ${openingBalance.toLocaleString('en-PH')}` : '',
       ].filter(Boolean).join(', ')}`);
     }
+  });
+
+  // Resolve explicit parent references (codes or account titles) to actual account IDs.
+  const parentLookup = new Map<string, string>();
+  [...baseAccounts, ...newAccounts].forEach(a => { parentLookup.set(normalizeHeaderToken(a.id), a.id); parentLookup.set(normalizeHeaderToken(a.name), a.id); });
+  newAccounts.forEach(a => {
+    if (!a.parentId) return;
+    const resolved = parentLookup.get(normalizeHeaderToken(a.parentId));
+    if (resolved) a.parentId = resolved;
+    else delete a.parentId;
   });
 
   const detectedColumns: string[] = [];
@@ -731,8 +768,7 @@ export function ChartOfAccounts() {
   const { currentClient, currentClientId, saveCoaAccounts, saveCoaColumns, showToast } = useAccounting();
   const [isAdding, setIsAdding] = useState(false);
   const [typeFilter, setTypeFilter] = useState('All');
-  const [hierarchyMode, setHierarchyMode] = useState(true);
-  const [collapsedAccountIds, setCollapsedAccountIds] = useState<Set<string>>(() => new Set());
+  const [hierarchyMode, setHierarchyMode] = useState(false);
   
   const [newCode, setNewCode] = useState('');
   const [newName, setNewName] = useState('');
@@ -761,6 +797,8 @@ export function ChartOfAccounts() {
   const [pendingUploadFileName, setPendingUploadFileName] = useState('');
   const [pendingUploadAnalysis, setPendingUploadAnalysis] = useState<SmartCoaImportResult | null>(null);
   const [pendingReviewAccounts, setPendingReviewAccounts] = useState<CoaAccount[]>([]);
+  const [templateClassification, setTemplateClassification] = useState<'Individual' | 'Non-Individual'>(isIndividualTaxpayer(currentClient?.taxpayerClassification) ? 'Individual' : 'Non-Individual');
+  const [templateBusinessType, setTemplateBusinessType] = useState<keyof typeof COA_TEMPLATE_GROUPS>('Service');
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editCode, setEditCode] = useState('');
@@ -975,27 +1013,7 @@ export function ChartOfAccounts() {
     ? accounts
     : accounts.filter(a => a.type.toLowerCase() === typeFilter.toLowerCase());
 
-  const displayRows = useMemo(() => {
-    if (!hierarchyMode) return filteredAccounts;
-    const ordered = flattenCoaHierarchy(accounts);
-    const childrenByParent = new Map<string, CoaAccount[]>();
-    accounts.forEach(account => {
-      if (!account.parentId) return;
-      const children = childrenByParent.get(account.parentId) || [];
-      children.push(account);
-      childrenByParent.set(account.parentId, children);
-    });
-    const isHiddenByCollapsedAncestor = (account: CoaAccount) => {
-      let parentId = account.parentId;
-      let guard = 0;
-      while (parentId && guard++ <= accounts.length) {
-        if (collapsedAccountIds.has(parentId)) return true;
-        parentId = accounts.find(item => item.id === parentId)?.parentId;
-      }
-      return false;
-    };
-    return ordered.filter(account => !isHiddenByCollapsedAncestor(account));
-  }, [hierarchyMode, filteredAccounts, accounts, collapsedAccountIds]);
+  const displayRows = hierarchyMode ? flattenCoaHierarchy(accounts) : filteredAccounts;
   const typeBadgeClass = (type: string) => {
     const t = (type || '').toLowerCase();
     if (t.startsWith('asset')) return 'bg-blue-50 text-blue-700 ring-blue-600/15 dark:bg-blue-500/10 dark:text-blue-300 dark:ring-blue-400/20';
@@ -1927,6 +1945,16 @@ export function ChartOfAccounts() {
                 <div className="mt-1">Account code, account type, and opening-balance headings are optional. Missing information is inferred and generated automatically.</div>
               </div>
 
+              <div className="mb-4 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50 dark:bg-indigo-950/20 p-3">
+                <div className="text-xs font-bold text-indigo-900 dark:text-indigo-200 mb-2">Fixed COA format templates</div>
+                <div className="grid grid-cols-1 sm:grid-cols-[1fr_1.5fr_auto] gap-2 items-end">
+                  <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Taxpayer classification<select value={templateClassification} onChange={e => setTemplateClassification(e.target.value as 'Individual' | 'Non-Individual')} className="mt-1 w-full form-input text-xs py-2"><option value="Individual">Individual</option><option value="Non-Individual">Non-Individual</option></select></label>
+                  <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">Business type<select value={templateBusinessType} onChange={e => setTemplateBusinessType(e.target.value as keyof typeof COA_TEMPLATE_GROUPS)} className="mt-1 w-full form-input text-xs py-2">{Object.keys(COA_TEMPLATE_GROUPS).map(type => <option key={type} value={type}>{type}</option>)}</select></label>
+                  <button type="button" onClick={() => downloadFixedCoaTemplate(templateClassification, templateBusinessType)} className="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 text-xs font-bold"><Upload className="w-3.5 h-3.5" /> Download format</button>
+                </div>
+                <p className="text-[10px] text-indigo-800 dark:text-indigo-300 mt-2">Use the template to map accounts to their hierarchy. Upload only posting/detail accounts; mark Postable as YES. Hierarchy rows are guidance and will not be imported when marked NO.</p>
+              </div>
+
               {pendingReviewAccounts.length > 0 && (
                 <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden mb-5">
                   <div className="px-3 py-2 bg-slate-100 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
@@ -2334,25 +2362,9 @@ export function ChartOfAccounts() {
                           if (col.id === 'name') {
                             return (
                               <td key={col.id} className="px-4 py-3 font-sans font-semibold text-text-primary text-sm leading-6">
-                                <div className="flex items-start gap-2" style={{ paddingLeft: hierarchyMode ? `${(() => { let depth = 0; let parentId = account.parentId; let guard = 0; while (parentId && guard++ <= accounts.length) { depth++; parentId = accounts.find(item => item.id === parentId)?.parentId; } return depth * 16; })()}px` : undefined }}>
-                                  {hierarchyMode && (childrenByParent.get(account.id)?.length || 0) > 0 ? (
-                                    <button
-                                      type="button"
-                                      aria-label={collapsedAccountIds.has(account.id) ? `Expand ${account.name}` : `Collapse ${account.name}`}
-                                      aria-expanded={!collapsedAccountIds.has(account.id)}
-                                      title={collapsedAccountIds.has(account.id) ? 'Expand account group' : 'Collapse account group'}
-                                      onClick={() => setCollapsedAccountIds(previous => {
-                                        const next = new Set(previous);
-                                        if (next.has(account.id)) next.delete(account.id);
-                                        else next.add(account.id);
-                                        return next;
-                                      })}
-                                      className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-surface-muted text-text-secondary"
-                                    >
-                                      {collapsedAccountIds.has(account.id) ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                                    </button>
-                                  ) : (
-                                    account.parentId && <span className="w-5 shrink-0 text-text-muted font-mono select-none">↳</span>
+                                <div className="flex items-start gap-2">
+                                  {account.parentId && (
+                                    <span className="text-text-muted font-mono text-base ml-2 select-none">↳</span>
                                   )}
                                   <div className="flex flex-col">
                                     <span>{account.name}</span>
