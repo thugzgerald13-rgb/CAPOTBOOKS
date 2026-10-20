@@ -288,53 +288,234 @@ ${linesTable('Part III — Total Tax Payable', f.partIII)}
   w.document.open(); w.document.write(html); w.document.close();
 }
 
-/**
- * Download a BIR-COMPLIANT eBIRForms XML file.
- *
- * Filename follows the BIR-mandated convention (RMC No. 21-2015):
- *   <TIN incl. Branch Code, 12 digits>_<BIR Form No. (max 6)>_<Return Period, 8 digits YYYYMMDD>.xml
- * e.g. 000123456000_2550Q_20260331.xml
- *
- * The XML structure carries the taxpayer header and every official line item
- * (Part I/II/III) by BIR item number. It is generated to be importable into the
- * official eBIRForms Offline Package; the app's built-in validator (File →
- * Validate) performs the final XSD/schema check before submission.
- */
+// eBIRForms offline-app XML export format (latest 2550Q = v2024). Matches the
+// exact structure produced by the official app on Save/Export: a flat list of
+// <div>frm2550qv2024:fieldName=value</div> entries (numbers comma-formatted to
+// 2dp, text URL-encoded, booleans true/false), no wrapper root, ending with
+// the literal "All Rights Reserved BIR 2012.0" footer.
+// Filename: <TIN12>-2550Qv2024-<MM><YYYY>Q<quarter>.xml  (e.g. 200962526000-2550Qv2024-122026Q2.xml)
+const EBIR_2550Q_XML_VERSION = 'v2024';
+const EBIR_2550Q_PREFIX = 'frm2550qv2024:';
+
+/** Download an eBIRForms-offline-app-compatible XML file (2550Q v2024 format). */
 export function downloadOfficial2550QXml(f: Official2550Q): string {
   const tp = f.taxpayer;
-  const tin12 = (tp.tin || '').replace(/\D/g, '').padEnd(12, '0').slice(0, 12);
-  const formNo = '2550Q';
-  const qEnd: Record<number, string> = { 1: '0331', 2: '0630', 3: '0930', 4: '1231' };
-  const period8 = `${f.year}${qEnd[f.quarter] || '1231'}`;
-  const allLines = [...f.partI, ...f.partII, ...f.partIII];
-  const lines: string[] = [];
-  lines.push('<?xml version="1.0" encoding="UTF-8"?>');
-  lines.push(`<BIRReturn xmlns="http://www.bir.gov.ph/2023/eBIRForms" source="CAPOT Books" formVersion="${esc(f.edition)}" ebirformsPackage="${LATEST_EBIRFORMS_PACKAGE}">`);
-  lines.push('  <TaxpayerInfo>');
-  lines.push(`    <TIN>${tin12.slice(0, 9)}</TIN>`);
-  lines.push(`    <BranchCode>${tin12.slice(9, 12)}</BranchCode>`);
-  lines.push(`    <RDOCode>${esc(tp.rdoCode)}</RDOCode>`);
-  lines.push(`    <RegisteredName>${esc(tp.registeredName)}</RegisteredName>`);
-  lines.push(`    <TradeName>${esc(tp.tradeName)}</TradeName>`);
-  lines.push(`    <Address>${esc(tp.address)}</Address>`);
-  lines.push(`    <Email>${esc(tp.email)}</Email>`);
-  lines.push('  </TaxpayerInfo>');
-  lines.push(`  <ReturnHeader formCode="${formNo}" formType="Quarterly" year="${f.year}" quarter="${f.quarter}" returnPeriod="${period8}" />`);
-  lines.push('  <ReturnData>');
-  for (const l of allLines) {
-    lines.push(`    <Item no="${esc(l.item)}" description="${esc(l.label)}">${l.amount.toFixed(2)}</Item>`);
+  const tinDigits = (tp.tin || '').replace(/\D/g, '').padEnd(12, '0').slice(0, 12);
+  const tin1 = tinDigits.slice(0, 3), tin2 = tinDigits.slice(3, 6), tin3 = tinDigits.slice(6, 9), branch = tinDigits.slice(9, 12);
+  const now = new Date();
+  const fileMonth = String(now.getMonth() + 1).padStart(2, '0');
+  const fileYear = String(now.getFullYear());
+  const dateFiled = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${String(now.getDate()).padStart(2, '0')}`;
+  const qFrom: Record<number, string> = { 1: '1/01/', 2: '4/01/', 3: '7/01/', 4: '10/01/' };
+  const qTo: Record<number, string> = { 1: '3/31/', 2: '6/30/', 3: '9/30/', 4: '12/31/' };
+  const periodFrom = `${qFrom[f.quarter] || '1/01/'}${f.year}`;
+  const periodTo = `${qTo[f.quarter] || '3/31/'}${f.year}`;
+
+  const nf = (n: number) => {
+    const v = Number.isFinite(n) ? n : 0;
+    const abs = Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return v < 0 ? '-' + abs : abs;
+  };
+  const enc = (s: any) => encodeURIComponent(String(s ?? ''));
+  const b = (v: boolean) => (v ? 'true' : 'false');
+
+  const t = f.totals;
+  const vatable = t.taxableSales;
+  const outputVat = t.outputTax;
+  const zeroRated = t.zeroRatedSales;
+  const exempt = t.exemptSales;
+  const totalSales = round2(vatable + zeroRated + exempt);
+  const domesticPurchase = round2(t.purchasesGoods + t.purchasesCapital);
+  const domesticInputTax = round2(t.inputTaxGoods + t.inputTaxCapital);
+  const servicesPurchase = t.purchasesServices;
+  const serviceInputTax = t.inputTaxServices;
+  const importInputTax = t.inputTaxImportation;
+  const totalCurPurchase = round2(domesticPurchase + servicesPurchase);
+  const totalCurInputTax = round2(domesticInputTax + serviceInputTax + importInputTax);
+  const inputTaxCarried = f.partII.find(l => l.item === '24')?.amount || 0;
+  const total43 = inputTaxCarried;
+  const totalAvailInputTax = round2(total43 + totalCurInputTax);
+  const totalAllowInputTax = totalAvailInputTax;
+  const netVatPayable = round2(outputVat - totalAllowInputTax);
+  const creditableVat = f.partIII.find(l => l.item === '30')?.amount || 0;
+  const totalTaxCredits = creditableVat;
+  const excessCredits = round2(netVatPayable - totalTaxCredits);
+  const pg2Name = (tp.registeredName || '').trim().split(/\s+/)[0] || '';
+
+  const P = EBIR_2550Q_PREFIX;
+  const pre = (name: string, value: string) => `<div>${P}${name}=${value}</div>`;
+  const raw = (name: string, value: string) => `<div>${name}=${value}</div>`;
+  const parts: string[] = [];
+  parts.push("<?xml version='1.0'?>        ");
+  // ---- Header / return period ----
+  parts.push(pre('calendarNo1', b(true)));
+  parts.push(pre('fiscalNo1', b(false)));
+  parts.push(pre('selectedMonthNo2', String(now.getMonth() + 1)));
+  parts.push(pre('txtYearNo2', String(now.getFullYear())));
+  parts.push(pre('OptQuarter1', b(f.quarter === 1)));
+  parts.push(pre('OptQuarter2', b(f.quarter === 2)));
+  parts.push(pre('OptQuarter3', b(f.quarter === 3)));
+  parts.push(pre('OptQuarter4', b(f.quarter === 4)));
+  parts.push(pre('RtnPeriodFromNo4', periodFrom));
+  parts.push(pre('RtnPeriodToNo4', periodTo));
+  parts.push(pre('amendedReturnYesNo5', b(false)));
+  parts.push(pre('amendedReturnNo5', b(true)));
+  parts.push(pre('OptShortPrd1', b(false)));
+  parts.push(pre('OptShortPrd2', b(true)));
+  // ---- Taxpayer information ----
+  parts.push(pre('txtTIN1', tin1));
+  parts.push(pre('txtTIN2', tin2));
+  parts.push(pre('txtTIN3', tin3));
+  parts.push(pre('branchCode', branch));
+  parts.push(pre('txtRDOCode', tp.rdoCode || ''));
+  parts.push(pre('taxpayerName', enc(String(tp.registeredName || '').toUpperCase())));
+  parts.push(pre('taxpayerAddress', enc(String(tp.address || '').toUpperCase())));
+  parts.push(pre('taxpayerZip', ''));
+  parts.push(pre('taxpayerContactNumber', ''));
+  parts.push(pre('taxpayerEmailAddress', enc(String(tp.email || '').toUpperCase())));
+  parts.push(pre('taxPayerClassification1', b(false)));
+  parts.push(pre('taxPayerClassification2', b(true)));
+  parts.push(pre('taxPayerClassification3', b(false)));
+  parts.push(pre('taxPayerClassification4', b(false)));
+  parts.push(pre('internationalTreatyYn', b(false)));
+  parts.push(pre('specialRateYn', b(true)));
+  parts.push(pre('specifyInternationalTreaty', ''));
+  // ---- Part III – tax credits / payable (top of page 1) ----
+  parts.push(pre('excessInputTax', nf(netVatPayable)));
+  parts.push(pre('creditableVat', nf(creditableVat)));
+  parts.push(pre('advVatPayment', nf(0)));
+  parts.push(pre('vatPaidReturn', nf(0)));
+  parts.push(pre('addSpecifyNo19', ''));
+  parts.push(pre('otherCreditsNo19', nf(0)));
+  parts.push(pre('totalTaxCredits', nf(totalTaxCredits)));
+  parts.push(pre('excessCredits', nf(excessCredits)));
+  parts.push(pre('surcharge', nf(0)));
+  parts.push(pre('interest', nf(0)));
+  parts.push(pre('compromise', nf(0)));
+  parts.push(pre('penalties', nf(0)));
+  parts.push(pre('totalPayable', nf(excessCredits)));
+  // ---- Page 2 taxpayer repeat ----
+  parts.push(pre('txtPg2TIN1', tin1));
+  parts.push(pre('txtPg2TIN2', tin2));
+  parts.push(pre('txtPg2TIN3', tin3));
+  parts.push(pre('txtPg2BranchCode', branch));
+  parts.push(pre('Pg2TaxPayer', enc(pg2Name.toUpperCase())));
+  // ---- Part I – Sales / Output Tax ----
+  parts.push(pre('vatableSales', nf(vatable)));
+  parts.push(pre('outputVatSales', nf(outputVat)));
+  parts.push(pre('zeroRatedSales', nf(zeroRated)));
+  parts.push(pre('exemptSales', nf(exempt)));
+  parts.push(pre('totalSales', nf(totalSales)));
+  parts.push(pre('outputTaxDue', nf(outputVat)));
+  parts.push(pre('lessOutputVat', nf(0)));
+  parts.push(pre('addOutputVat', nf(0)));
+  parts.push(pre('totalAdjOutput', nf(outputVat)));
+  // ---- Part II – Input Tax (beginning) ----
+  parts.push(pre('inputTaxCarried', nf(inputTaxCarried)));
+  parts.push(pre('inputTaxDeferred', nf(0)));
+  parts.push(pre('transitionalInputTax', nf(0)));
+  parts.push(pre('presumptiveInputTax', nf(0)));
+  parts.push(pre('addSpecifyNo42', ''));
+  parts.push(pre('otherSpecify42', nf(0)));
+  parts.push(pre('total43', nf(total43)));
+  // ---- Part II – current purchases ----
+  parts.push(pre('domesticPurchase', nf(domesticPurchase)));
+  parts.push(pre('domesticInputTax', nf(domesticInputTax)));
+  parts.push(pre('servicesPurchase', nf(servicesPurchase)));
+  parts.push(pre('serviceInputTax', nf(serviceInputTax)));
+  parts.push(pre('importPurchase', nf(0)));
+  parts.push(pre('importInputTax', nf(importInputTax)));
+  parts.push(pre('addSpecifyNo47', ''));
+  parts.push(pre('otherSpecify47', nf(0)));
+  parts.push(raw('otherSpecify47B', nf(0)));
+  parts.push(pre('domesticPurchaseNoTax', nf(0)));
+  parts.push(pre('vatExemptImports', nf(0)));
+  parts.push(pre('totalCurPurchase', nf(totalCurPurchase)));
+  parts.push(pre('totalCurInputTax', nf(totalCurInputTax)));
+  parts.push(pre('totalAvailInputTax', nf(totalAvailInputTax)));
+  // ---- Part II – deductions / allowable ----
+  parts.push(pre('importCapitalInputTax', nf(0)));
+  parts.push(pre('inputTaxAttr', nf(0)));
+  parts.push(pre('vatRefund', nf(0)));
+  parts.push(pre('inputVatUnpaid', nf(0)));
+  parts.push(pre('addSpecifyNo56', ''));
+  parts.push(pre('otherSpecify56', nf(0)));
+  parts.push(pre('totalDeductions', nf(0)));
+  parts.push(pre('addInputVat', nf(0)));
+  parts.push(pre('adjDeductions', nf(0)));
+  parts.push(pre('totalAllowInputTax', nf(totalAllowInputTax)));
+  parts.push(pre('netVatPayable', nf(netVatPayable)));
+  // ---- Schedule 1 (capital goods amortization) — 2 blank rows ----
+  for (const r of ['10', '11']) {
+    parts.push(raw(`txtDatePurchase${r}`, ''));
+    parts.push(raw(`txtSourceCode${r}`, ''));
+    parts.push(raw(`txtDescription${r}`, ''));
+    parts.push(raw(`txtAmountPurchase${r}`, nf(0)));
+    parts.push(raw(`txtInputTax${r}`, nf(0)));
+    parts.push(raw(`txtEstimatedLife${r}`, nf(0)));
+    parts.push(raw(`txtRecognizedLife${r}`, nf(0)));
+    parts.push(raw(`txtAllowedInputTax${r}`, nf(0)));
+    parts.push(raw(`txtBalanceInputTax${r}`, nf(0)));
   }
-  lines.push('  </ReturnData>');
-  const taxDue = f.partIII.find(l => l.item === '35');
-  lines.push(`  <TotalTaxPayable>${(taxDue?.amount || 0).toFixed(2)}</TotalTaxPayable>`);
-  lines.push('  <DataSource>RELIEF/SLSP</DataSource>');
-  lines.push('</BIRReturn>');
-  const xml = lines.join('\n');
+  parts.push(raw('sched1TotalBalPrev', nf(0)));
+  parts.push(raw('sched1TotalBalNext', nf(0)));
+  // ---- Schedule 2 (input tax on exempt sales) ----
+  parts.push(pre('sched2InputTaxDirect', nf(0)));
+  parts.push(pre('sched2VatExemptSale', nf(0)));
+  parts.push(pre('sched2AmountInputTax', nf(0)));
+  parts.push(pre('sched2TotalSales', nf(totalSales)));
+  parts.push(pre('sched2TotalRatable', nf(0)));
+  parts.push(pre('sched2TotalAttr', nf(0)));
+  // ---- Schedule 3 (creditable VAT withheld) — 2 blank rows ----
+  for (const r of ['30', '31']) {
+    const suf = r === '30' ? '0' : '1';
+    parts.push(raw(`txtDateCovered${r}`, ''));
+    parts.push(raw(`txtDateCovered3To${suf}`, ''));
+    parts.push(raw(`txtNameWithHoldingAgent${r}`, ''));
+    parts.push(raw(`txtIncomePayment${r}`, nf(0)));
+    parts.push(raw(`txtTotalTaxWithHeld${r}`, nf(0)));
+  }
+  parts.push(raw('sched3TotalIncome', nf(0)));
+  parts.push(raw('sched3TotalTax', nf(0)));
+  // ---- Schedule 4 (advance VAT payments / miller) — 2 blank rows ----
+  for (const r of ['40', '41']) {
+    const suf = r === '40' ? '0' : '1';
+    parts.push(raw(`txtDate${r}`, ''));
+    parts.push(raw(`txtDate4To${suf}`, ''));
+    parts.push(raw(`txtNameOfMiller${r}`, ''));
+    parts.push(raw(`txtNameOfTaxpayer${r}`, ''));
+    parts.push(raw(`txtOfficialReceiptNumber${r}`, nf(0)));
+    parts.push(raw(`txtAmountPaid${r}`, nf(0)));
+  }
+  parts.push(raw('sched4AmountPaid', nf(0)));
+  // ---- Meta / computed fields ----
+  parts.push(pre('txtCurrentPage', '1'));
+  parts.push(pre('txtMaxPage', '2'));
+  parts.push(raw('resultOtherCreditsNo19', nf(0)));
+  parts.push(raw('resultOtherCreditsNo42', nf(0)));
+  parts.push(raw('resultOtherCreditsNo47', nf(0)));
+  parts.push(raw('resultOtherCreditsNo56', nf(0)));
+  parts.push(raw('txtTotalAmountOfBalanceofInputTaxFromPrevious', nf(0)));
+  parts.push(raw('txtTotalAmountOfBalanceofInputTaxToBeCarried', nf(0)));
+  parts.push(raw('txtTotalAmountofIncomePayment', nf(0)));
+  parts.push(raw('txtTotalAmoungOfTaxWithHeld', nf(0))); // matches official typo
+  parts.push(raw('txtAmountPaidSched4', nf(0)));
+  parts.push(raw('txtFinalFlag', '1'));
+  parts.push(raw('txtEnroll', 'Y'));
+  parts.push(raw('ebirOnlineConfirmUsername', ''));
+  parts.push(raw('ebirOnlineUsername', ''));
+  parts.push(raw('ebirOnlineSecret', ''));
+  parts.push(raw('txtEmail', ''));
+  parts.push(raw('driveSelectTPExport', '0'));
+  parts.push(raw('dateFiled', dateFiled));
+  parts.push('        All Rights Reserved BIR 2012.0');
+
+  const xml = parts.join('\n');
   const blob = new Blob([xml], { type: 'application/xml' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${tin12}_${formNo}_${period8}.xml`;
+  a.download = `${tinDigits}-2550Q${EBIR_2550Q_XML_VERSION}-${fileMonth}${fileYear}Q${f.quarter}.xml`;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   return xml;
