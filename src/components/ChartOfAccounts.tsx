@@ -761,28 +761,38 @@ const COA_TEMPLATE_GROUPS: Record<CoaTemplateBusinessType, string[]> = {
 };
 
 function downloadFixedCoaTemplate(classification: 'Individual' | 'Non-Individual', businessType: CoaTemplateBusinessType): void {
+  // This hierarchy follows COA-CATEGORY.txt. Section/category rows are non-postable;
+  // taxpayers add their own detail accounts under the appropriate category.
   const ownerTitle = classification === 'Individual' ? 'CAPITAL' : 'EQUITY';
   const rows: Array<Array<string>> = [
     ['Account Code', 'Account Title', 'Account Type', 'Hierarchy Level', 'Parent Account Code', 'Postable', 'Opening Balance', 'Previous Year Balance'],
-    ['', 'ASSETS', 'Asset', '1', '', 'NO', '', ''],
-    ['', 'CURRENT ASSETS', 'Asset', '2', '', 'NO', '', ''],
-    ['', 'CASH AND CASH EQUIVALENTS', 'Asset', '3', '', 'NO', '', ''],
-    ['', 'Cash on Hand', 'Asset', '4', '', 'YES', '', ''],
-    ['', 'TRADE AND OTHER RECEIVABLES', 'Asset', '3', '', 'NO', '', ''],
-    ['', 'NONCURRENT ASSETS', 'Asset', '2', '', 'NO', '', ''],
-    ['', 'LIABILITIES', 'Liabilities', '1', '', 'NO', '', ''],
-    ['', 'CURRENT LIABILITIES', 'Liabilities', '2', '', 'NO', '', ''],
-    ['', ownerTitle, classification === 'Individual' ? 'Capital' : 'Equity', '1', '', 'NO', '', ''],
-    ['', 'REVENUE', 'Revenue', '1', '', 'NO', '', ''],
-    ['', COA_TEMPLATE_GROUPS[businessType][0], 'Costs', '1', '', 'NO', '', ''],
   ];
-  const costChildren = businessType === 'Manufacturing'
-    ? ['DIRECT MATERIALS', 'DIRECT LABOR', 'OVERHEAD']
-    : businessType === 'Construction/Fabrication/Contracting'
-      ? ['DIRECT MATERIALS', 'DIRECT LABOR', 'SUBCONTRACTED WORKS', 'OVERHEAD'] : [];
-  costChildren.forEach(title => rows.push(['', title, 'Costs', '2', '', 'NO', '', '']));
-  rows.push(['', 'Operating expense detail (replace with your account title)', 'Expense', '2', '', 'YES', '', '']);
-  rows.push(['', 'OTHER INCOME/(EXPENSES)', 'Other Income', '1', '', 'NO', '', '']);
+  const add = (title: string, type: string, level: number, postable = 'NO') =>
+    rows.push(['', title, type, String(level), '', postable, '', '']);
+
+  add('ASSETS', 'Asset', 1);
+  add('CURRENT ASSETS', 'Asset', 2);
+  ['CASH AND CASH EQUIVALENTS', 'TRADE AND OTHER RECEIVABLES', 'FINANCIAL ASSETS', 'INVENTORIES', 'BIOLOGICAL ASSETS', 'OTHER CURRENT ASSETS']
+    .forEach(title => add(title, 'Asset', 3));
+  add('NONCURRENT ASSETS', 'Asset', 2);
+  ['FINANCIAL ASSETS LONG-TERM', 'INVESTMENT PROPERTY', 'PROPERTY, PLANT AND EQUIPMENTS', 'BIOLOGICAL ASSETS - LONG-TERM', 'INTANGIBLE ASSETS', 'OTHER NONCURRENT ASSETS']
+    .forEach(title => add(title, 'Asset', 3));
+  add('LIABILTIES', 'Liabilities', 1);
+  add('CURRENT LIABILITIES', 'Liabilities', 2);
+  ['TRADE AND OTHER PAYABLES', 'ACCRUED EXPENSES', 'OTHER CURRENT LIABILITIES'].forEach(title => add(title, 'Liabilities', 3));
+  add('NONCURRENT LIABLITIES', 'Liabilities', 2);
+  ['LONG-TERM BORROWINGS', 'OTHER NONCURRENT LIABILITIES'].forEach(title => add(title, 'Liabilities', 3));
+  add(ownerTitle, classification === 'Individual' ? 'Capital' : 'Equity', 1);
+  add('REVENUE', 'Revenue', 1);
+  const costTitle = COA_TEMPLATE_GROUPS[businessType][0];
+  add(costTitle, 'Costs', 1);
+  if (businessType === 'Manufacturing') ['DIRECT MATERIALS', 'DIRECT LABOR', 'OVERHEAD'].forEach(title => add(title, 'Costs', 2));
+  if (businessType === 'Construction/Fabrication/Contracting') ['DIRECT MATERIALS', 'DIRECT LABOR', 'SUBCONTRACTED WORKS', 'OVERHEAD'].forEach(title => add(title, 'Costs', 2));
+  add('OPERATING EXPENSES', 'Expense', 1);
+  add('SELLING EXPENSES', 'Expense', 2);
+  add('GENERAL & ADMINISTRATIVE EXPENSES', 'Expense', 2);
+  add('OTHER INCOME/(EXPENSES)', 'Other Income', 1);
+
   const csv = rows.map(row => row.map(value => `"${String(value).replace(/"/g, '""')}"`).join(',')).join('\r\n');
   const blob = new Blob(['\ufeff', csv], { type: 'text/csv;charset=utf-8;' });
   const url = URL.createObjectURL(blob);
@@ -842,7 +852,13 @@ export function ChartOfAccounts() {
   const [pendingUploadAnalysis, setPendingUploadAnalysis] = useState<SmartCoaImportResult | null>(null);
   const [pendingReviewAccounts, setPendingReviewAccounts] = useState<CoaAccount[]>([]);
   const [templateClassification, setTemplateClassification] = useState<'Individual' | 'Non-Individual'>(isIndividualTaxpayer(currentClient?.taxpayerClassification) ? 'Individual' : 'Non-Individual');
-  const [templateBusinessType, setTemplateBusinessType] = useState<keyof typeof COA_TEMPLATE_GROUPS>('Service');
+  const [templateBusinessType, setTemplateBusinessType] = useState<keyof typeof COA_TEMPLATE_GROUPS>(() => {
+    const industry = String(currentClient?.industry || '').toLowerCase();
+    if (industry === 'retail') return 'Retail';
+    if (industry === 'manufacturing') return 'Manufacturing';
+    if (industry === 'construction') return 'Construction/Fabrication/Contracting';
+    return 'Service';
+  });
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editCode, setEditCode] = useState('');
