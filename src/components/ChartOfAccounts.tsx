@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { BookOpen, Plus, Trash2, RefreshCcw, Edit2, ClipboardList, Check, X, Columns, ArrowUp, ArrowDown, Upload, MoreVertical } from 'lucide-react';
+import { BookOpen, Plus, Trash2, RefreshCcw, Edit2, ClipboardList, Check, X, Columns, ArrowUp, ArrowDown, Upload, MoreVertical, ChevronRight, ChevronDown } from 'lucide-react';
 import { flattenCoaHierarchy } from '../lib/coaImport';
 import { PageHeader } from './ui/PageHeader';
 import { Combobox } from './ui/Combobox';
@@ -732,6 +732,7 @@ export function ChartOfAccounts() {
   const [isAdding, setIsAdding] = useState(false);
   const [typeFilter, setTypeFilter] = useState('All');
   const [hierarchyMode, setHierarchyMode] = useState(false);
+  const [collapsedAccountIds, setCollapsedAccountIds] = useState<Set<string>>(() => new Set());
   
   const [newCode, setNewCode] = useState('');
   const [newName, setNewName] = useState('');
@@ -974,7 +975,27 @@ export function ChartOfAccounts() {
     ? accounts
     : accounts.filter(a => a.type.toLowerCase() === typeFilter.toLowerCase());
 
-  const displayRows = hierarchyMode ? flattenCoaHierarchy(accounts) : filteredAccounts;
+  const displayRows = useMemo(() => {
+    if (!hierarchyMode) return filteredAccounts;
+    const ordered = flattenCoaHierarchy(accounts);
+    const childrenByParent = new Map<string, CoaAccount[]>();
+    accounts.forEach(account => {
+      if (!account.parentId) return;
+      const children = childrenByParent.get(account.parentId) || [];
+      children.push(account);
+      childrenByParent.set(account.parentId, children);
+    });
+    const isHiddenByCollapsedAncestor = (account: CoaAccount) => {
+      let parentId = account.parentId;
+      let guard = 0;
+      while (parentId && guard++ <= accounts.length) {
+        if (collapsedAccountIds.has(parentId)) return true;
+        parentId = accounts.find(item => item.id === parentId)?.parentId;
+      }
+      return false;
+    };
+    return ordered.filter(account => !isHiddenByCollapsedAncestor(account));
+  }, [hierarchyMode, filteredAccounts, accounts, collapsedAccountIds]);
   const typeBadgeClass = (type: string) => {
     const t = (type || '').toLowerCase();
     if (t.startsWith('asset')) return 'bg-blue-50 text-blue-700 ring-blue-600/15 dark:bg-blue-500/10 dark:text-blue-300 dark:ring-blue-400/20';
@@ -2313,9 +2334,25 @@ export function ChartOfAccounts() {
                           if (col.id === 'name') {
                             return (
                               <td key={col.id} className="px-4 py-3 font-sans font-semibold text-text-primary text-sm leading-6">
-                                <div className="flex items-start gap-2">
-                                  {account.parentId && (
-                                    <span className="text-text-muted font-mono text-base ml-2 select-none">↳</span>
+                                <div className="flex items-start gap-2" style={{ paddingLeft: hierarchyMode ? `${(() => { let depth = 0; let parentId = account.parentId; let guard = 0; while (parentId && guard++ <= accounts.length) { depth++; parentId = accounts.find(item => item.id === parentId)?.parentId; } return depth * 16; })()}px` : undefined }}>
+                                  {hierarchyMode && (childrenByParent.get(account.id)?.length || 0) > 0 ? (
+                                    <button
+                                      type="button"
+                                      aria-label={collapsedAccountIds.has(account.id) ? `Expand ${account.name}` : `Collapse ${account.name}`}
+                                      aria-expanded={!collapsedAccountIds.has(account.id)}
+                                      title={collapsedAccountIds.has(account.id) ? 'Expand account group' : 'Collapse account group'}
+                                      onClick={() => setCollapsedAccountIds(previous => {
+                                        const next = new Set(previous);
+                                        if (next.has(account.id)) next.delete(account.id);
+                                        else next.add(account.id);
+                                        return next;
+                                      })}
+                                      className="mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded hover:bg-surface-muted text-text-secondary"
+                                    >
+                                      {collapsedAccountIds.has(account.id) ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                    </button>
+                                  ) : (
+                                    account.parentId && <span className="w-5 shrink-0 text-text-muted font-mono select-none">↳</span>
                                   )}
                                   <div className="flex flex-col">
                                     <span>{account.name}</span>
