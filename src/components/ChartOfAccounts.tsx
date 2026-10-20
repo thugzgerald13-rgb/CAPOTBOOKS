@@ -14,7 +14,7 @@ import { balanceFor } from '../lib/accountingBalances';
 import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide, isNominalAccountType, getDefaultAccountsForIndustry, sortAccountsChronologically } from '../lib/journalDefaults';
 export { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide };
 
-const ACCOUNT_TYPES = ['Asset', 'Liabilities', 'Equity', 'Capital', 'Revenue', 'Costs', 'Expense'];
+const ACCOUNT_TYPES = ['Asset', 'Liabilities', 'Equity', 'Capital', 'Revenue', 'Costs', 'Expense', 'Other Income', 'Other Expense'];
 
 // BIR taxpayer classification drives which ownership/equity account type is
 // valid for the client's Chart of Accounts. Existing CAPOT profiles use
@@ -84,6 +84,9 @@ const ACCOUNT_TYPE_LABELS: Array<{ label: string; type: string }> = [
   { label: 'cost', type: 'Costs' }, { label: 'costs', type: 'Costs' },
   { label: 'costofsales', type: 'Costs' }, { label: 'cogs', type: 'Costs' },
   { label: 'expense', type: 'Expense' }, { label: 'expenses', type: 'Expense' },
+  { label: 'otherincome', type: 'Other Income' }, { label: 'interestincome', type: 'Other Income' },
+  { label: 'otherexpense', type: 'Other Expense' }, { label: 'otherexpenses', type: 'Other Expense' },
+  { label: 'interestexpense', type: 'Other Expense' }, { label: 'financeexpense', type: 'Other Expense' },
 ];
 
 const TYPE_BASE_CODE: Record<string, number> = {
@@ -94,10 +97,15 @@ const TYPE_BASE_CODE: Record<string, number> = {
   Revenue: 400000,
   Costs: 500000,
   Expense: 600000,
+  'Other Income': 800000,
+  // Other Expense shares the OTHER INCOME (EXPENSES) section header and code
+  // range (8xxxxx) per the latest COA format — it is never a separate section.
+  'Other Expense': 800000,
 };
 
 const TYPE_ALPHA_PREFIX: Record<string, string> = {
-  Asset: 'AS', Liabilities: 'LI', Equity: 'EQ', Capital: 'EQ', Revenue: 'RE', Costs: 'CO', Expense: 'EX'
+  Asset: 'AS', Liabilities: 'LI', Equity: 'EQ', Capital: 'EQ', Revenue: 'RE', Costs: 'CO', Expense: 'EX',
+  'Other Income': 'OI', 'Other Expense': 'OE',
 };
 
 function normalizeUploadedType(raw: string): { type: string; inferred: boolean } {
@@ -105,6 +113,11 @@ function normalizeUploadedType(raw: string): { type: string; inferred: boolean }
   if (!t) return { type: 'Expense', inferred: true };
   const exact = ACCOUNT_TYPE_LABELS.find(item => item.label === t);
   if (exact) return { type: exact.type, inferred: false };
+  // More specific non-operating lines must be checked before the generic
+  // income/expense fallbacks, otherwise "Interest Income" and "Interest
+  // Expense" would be misclassified as Revenue / Expense.
+  if (t.includes('interestincome') || (t.includes('other') && t.includes('income'))) return { type: 'Other Income', inferred: false };
+  if (t.includes('interestexpense') || t.includes('financeexpense') || (t.includes('other') && t.includes('expense'))) return { type: 'Other Expense', inferred: false };
   if (t.includes('liabil')) return { type: 'Liabilities', inferred: false };
   if (t.includes('equity')) return { type: 'Equity', inferred: false };
   if (t.includes('capital')) return { type: 'Capital', inferred: false };
@@ -157,8 +170,13 @@ function inferAccountTypeFromTitle(title: string): string {
   if (/(payable|accrued|loan|note payable|mortgage|lease liability|withholding|vat payable|tax payable|sss payable|philhealth payable|pag[- ]?ibig payable|customer deposit|contract liabil)/i.test(t)) return 'Liabilities';
   if (/(capital|owner'?s? equity|share capital|retained earnings|partner'?s? capital|drawings?|owner'?s? withdrawal|dividend)/i.test(t)) return 'Equity';
   if (/(cost of (goods|sales)|cogs|direct (materials?|labor)|factory overhead|manufacturing overhead|subcontractor|project cost|job cost|purchases)/i.test(t)) return 'Costs';
-  if (/(expense|salary|wages?|rent|utilities|electricity|water|telephone|internet|insurance|depreciation|amortization|repairs?|maintenance|advertising|marketing|professional fee|bank charge|interest expense|tax expense|office supplies)/i.test(t)) return 'Expense';
-  if (/(revenue|sales|income|service fee|service income|professional fees|consulting fee|rental income|interest income|other income|gain on)/i.test(t)) return 'Revenue';
+  // Non-operating lines are classified into the dedicated Other Income /
+  // Other Expense sections (per the latest COA format) before the generic
+  // operating Expense / Revenue patterns below would catch them.
+  if (/(interest expense|finance expense|finance cost|loss on|foreign exchange loss)/i.test(t)) return 'Other Expense';
+  if (/(interest income|gain on|other income|foreign exchange gain|miscellaneous income)/i.test(t)) return 'Other Income';
+  if (/(expense|salary|wages?|rent|utilities|electricity|water|telephone|internet|insurance|depreciation|amortization|repairs?|maintenance|advertising|marketing|professional fee|bank charge|tax expense|office supplies)/i.test(t)) return 'Expense';
+  if (/(revenue|sales|income|service fee|service income|professional fees|consulting fee|rental income)/i.test(t)) return 'Revenue';
   if (/(cash|bank|receivable|inventory|inventories|supplies|prepaid|deposit|advance|equipment|property|plant|building|land|vehicle|computer|furniture|fixture|asset|input vat|creditable withholding)/i.test(t)) return 'Asset';
   return 'Expense';
 }
@@ -228,7 +246,7 @@ function recodeImportedReviewAccounts(
   format: 'numeric' | 'alphanumeric',
   occupiedAccounts: CoaAccount[] = []
 ): CoaAccount[] {
-  const typeOrder = ['Asset', 'Liabilities', 'Equity', 'Capital', 'Revenue', 'Costs', 'Expense'];
+  const typeOrder = ['Asset', 'Liabilities', 'Equity', 'Capital', 'Revenue', 'Costs', 'Expense', 'Other Income', 'Other Expense'];
   const rank = (type: string) => {
     const index = typeOrder.indexOf(type);
     return index >= 0 ? index : typeOrder.length;
@@ -693,6 +711,8 @@ export function ChartOfAccounts() {
     { value: 'Revenue', permission: 'income' },
     { value: 'Cost of Sales', permission: 'expense' },
     { value: 'Expense', permission: 'expense' },
+    { value: 'Other Income', permission: 'income' },
+    { value: 'Other Expense', permission: 'expense' },
   ].filter((option) => canCoaDropdown('account_type', option.permission));
 
   const { currentClient, currentClientId, saveCoaAccounts, saveCoaColumns, showToast } = useAccounting();
@@ -946,6 +966,8 @@ export function ChartOfAccounts() {
     if (t.startsWith('asset')) return 'bg-blue-50 text-blue-700 ring-blue-600/15 dark:bg-blue-500/10 dark:text-blue-300 dark:ring-blue-400/20';
     if (t.startsWith('liab')) return 'bg-orange-50 text-orange-700 ring-orange-600/15 dark:bg-orange-500/10 dark:text-orange-300 dark:ring-orange-400/20';
     if (t.startsWith('equity') || t.startsWith('capital')) return 'bg-violet-50 text-violet-700 ring-violet-600/15 dark:bg-violet-500/10 dark:text-violet-300 dark:ring-violet-400/20';
+    if (t.startsWith('other income')) return 'bg-teal-50 text-teal-700 ring-teal-600/15 dark:bg-teal-500/10 dark:text-teal-300 dark:ring-teal-400/20';
+    if (t.startsWith('other expense')) return 'bg-pink-50 text-pink-700 ring-pink-600/15 dark:bg-pink-500/10 dark:text-pink-300 dark:ring-pink-400/20';
     if (t.startsWith('rev') || t.startsWith('income')) return 'bg-emerald-50 text-emerald-700 ring-emerald-600/15 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-400/20';
     if (t.startsWith('cost')) return 'bg-amber-50 text-amber-700 ring-amber-600/15 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-400/20';
     if (t.startsWith('exp')) return 'bg-rose-50 text-rose-700 ring-rose-600/15 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-400/20';

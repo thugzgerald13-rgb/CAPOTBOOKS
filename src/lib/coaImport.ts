@@ -15,9 +15,14 @@ const pick = (row: Record<string, any>, ...keys: string[]): string => {
   return '';
 };
 
-const ACCOUNT_TYPES = ['Asset', 'Liability', 'Equity', 'Revenue', 'Cost', 'Expense'];
+const ACCOUNT_TYPES = ['Asset', 'Liability', 'Equity', 'Revenue', 'Cost', 'Expense', 'Other Income', 'Other Expense'];
 const normalizeType = (t: string): string => {
   const v = t.trim().toLowerCase();
+  // Non-operating lines take priority so "Interest Income" / "Interest Expense"
+  // land in the dedicated Other Income / Other Expense sections (latest COA
+  // format) instead of being collapsed into Revenue / Expense.
+  if (v.includes('other income') || v.includes('interest income') || v.includes('gain on')) return 'Other Income';
+  if (v.includes('other expense') || v.includes('interest expense') || v.includes('finance expense') || v.includes('loss on')) return 'Other Expense';
   const found = ACCOUNT_TYPES.find(x => x.toLowerCase() === v || x.toLowerCase().startsWith(v.slice(0, 4)));
   return found || (t.trim() || 'Asset');
 };
