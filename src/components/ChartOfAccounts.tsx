@@ -731,7 +731,7 @@ export function ChartOfAccounts() {
   const { currentClient, currentClientId, saveCoaAccounts, saveCoaColumns, showToast } = useAccounting();
   const [isAdding, setIsAdding] = useState(false);
   const [typeFilter, setTypeFilter] = useState('All');
-  const [hierarchyMode, setHierarchyMode] = useState(false);
+  const [hierarchyMode, setHierarchyMode] = useState(true);
   const [collapsedAccountIds, setCollapsedAccountIds] = useState<Set<string>>(() => new Set());
   
   const [newCode, setNewCode] = useState('');
