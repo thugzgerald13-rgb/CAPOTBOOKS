@@ -494,7 +494,8 @@ export function Relief() {
         addr1: s.buyerAddress || '', addr2: '', exempt: 0, zeroRated: 0, taxable: 0, outputTax: 0, count: 0,
       };
       const amt = Number(s.amount || 0);
-      if (vt.includes('exempt')) cur.exempt += amt;
+      // Non-VAT / exempt sales -> exempt; zero-rated -> zero-rated.
+      if (vt.includes('exempt') || vt.includes('non-vat') || vt.includes('nonvat')) cur.exempt += amt;
       else if (vt.includes('zero')) cur.zeroRated += amt;
       else cur.taxable += amt;
       cur.outputTax += Number(s.outputTax || 0);
@@ -544,11 +545,24 @@ export function Relief() {
       const amt = Number(p.amount || 0);
       const vt = String(p.vatType || '').toLowerCase();
       const et = String(p.accountTitle || '').toLowerCase();
-      if (vt.includes('exempt')) cur.exempt += amt;
-      else if (vt.includes('zero')) cur.zeroRated += amt;
-      else if (et.includes('service')) cur.services += amt;
-      else if (et.includes('capital') || et.includes('asset')) cur.capital += amt;
-      else cur.goodsOther += amt; // goods other than capital goods
+      // Exempt / Zero-Rated columns are populated from the Expense History
+      // record's explicit exemptAmount / zeroRatedAmount fields. When those
+      // are not set, fall back to vat-type bucketing (non-vat / exempt ->
+      // exempt; zero-rated -> zero-rated). The remainder is taxable.
+      const explicitExempt = Number(p.exemptAmount || 0);
+      const explicitZero = Number(p.zeroRatedAmount || 0);
+      const isExemptType = vt.includes('exempt') || vt.includes('non-vat') || vt.includes('nonvat');
+      const isZeroType = vt.includes('zero');
+      const exemptAmt = explicitExempt > 0 ? explicitExempt : (isExemptType ? amt : 0);
+      const zeroAmt = explicitZero > 0 ? explicitZero : (isZeroType ? amt : 0);
+      cur.exempt += exemptAmt;
+      cur.zeroRated += zeroAmt;
+      const taxableAmt = Math.max(0, amt - exemptAmt - zeroAmt);
+      if (taxableAmt > 0) {
+        if (et.includes('service')) cur.services += taxableAmt;
+        else if (et.includes('capital') || et.includes('asset')) cur.capital += taxableAmt;
+        else cur.goodsOther += taxableAmt; // goods other than capital goods
+      }
       cur.inputTax += Number(p.inputTax || 0);
       cur.count += 1;
       map.set(key, cur);
