@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
@@ -11,6 +11,7 @@ import { adjustDeadlineForWeekend } from '../lib/complianceUtils';
 import { supabase } from '../lib/supabase';
 import { downloadBirFormPdf, validateBirForm } from '../lib/birFormPdf';
 import { EBIR_FORMS, computeEBirFormValues, downloadEBirFormXml, printEBirForm } from '../lib/eBirForms';
+import { aggregateReliefQuarter, buildOfficial2550Q, printOfficial2550Q, downloadOfficial2550QXml, LATEST_2550Q_EDITION } from '../lib/officialBir2550Q';
 
 // Standard BIR filing deadlines generator for Philippines 2026/2025
 export function generateStandardDeadlines(year: number): TaxDeadline[] {
@@ -297,6 +298,80 @@ export function BIRForms() {
   // client's entire sales/purchases/expenses/AP history into React.
   const [birSales, setBirSales] = useState<any[]>([]);
   const [birPurchases, setBirPurchases] = useState<any[]>([]);
+
+  // ---- RELIEF (SLSP) -> official BIR Form 2550Q (latest edition: Jan 2023 ENCS). ----
+  // 2550Q figures are populated FROM RELIEF: sales/purchases aggregated with the
+  // exact per-entry vatType/accountTitle bucketing used by the RELIEF module, plus
+  // VAT-on-importation loaded from relief_records (record_type='importation').
+  const [reliefImportationVat, setReliefImportationVat] = useState(0);
+  const [reliefImportationCount, setReliefImportationCount] = useState(0);
+  const reliefAutoFilledRef = useRef<string>('');
+
+  useEffect(() => {
+    let cancelled = false;
+    if (activeFormType !== '2550Q' || !currentClientId || !supabase) {
+      setReliefImportationVat(0); setReliefImportationCount(0);
+      return;
+    }
+    const qMonths = [(selectedQuarter - 1) * 3 + 1, (selectedQuarter - 1) * 3 + 2, (selectedQuarter - 1) * 3 + 3]
+      .map(m => `${selectedYear}-${String(m).padStart(2, '0')}`);
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('relief_records')
+          .select('record_id,data')
+          .eq('client_id', currentClientId)
+          .eq('record_type', 'importation');
+        if (cancelled || error || !data) return;
+        let vat = 0, count = 0;
+        for (const r of data) {
+          const row = (r as any).data?.row;
+          if (row && qMonths.includes(String((r as any).data?.monthKey || ''))) {
+            vat += Number(row.vat || 0); count++;
+          }
+        }
+        if (!cancelled) { setReliefImportationVat(vat); setReliefImportationCount(count); }
+      } catch { /* no RELIEF importation records -> input tax on importation = 0 */ }
+    })();
+    return () => { cancelled = true; };
+  }, [activeFormType, currentClientId, selectedYear, selectedQuarter]);
+
+  const reliefTotals = useMemo(
+    () => aggregateReliefQuarter(birSales, birPurchases, selectedYear, selectedQuarter, reliefImportationVat, reliefImportationCount),
+    [birSales, birPurchases, selectedYear, selectedQuarter, reliefImportationVat, reliefImportationCount],
+  );
+
+  // Auto-populate the 2550Q fields from RELIEF/SLSP the first time a quarter is
+  // opened. Manual user overrides (non-empty fields) are always preserved.
+  useEffect(() => {
+    if (activeFormType !== '2550Q') return;
+    const key = `${selectedYear}-Q${selectedQuarter}`;
+    if (reliefAutoFilledRef.current === key) return;
+    if (manualVatSales !== '' || manualZeroSales !== '' || manualExemptSales !== '') return;
+    reliefAutoFilledRef.current = key;
+    setManualVatSales(String(reliefTotals.taxableSales));
+    setManualZeroSales(String(reliefTotals.zeroRatedSales));
+    setManualExemptSales(String(reliefTotals.exemptSales));
+  }, [activeFormType, selectedYear, selectedQuarter, reliefTotals, manualVatSales, manualZeroSales, manualExemptSales]);
+
+  const official2550Q = useMemo(
+    () => activeFormType === '2550Q'
+      ? buildOfficial2550Q(reliefTotals, businessProfile as any, {
+          year: selectedYear,
+          quarter: selectedQuarter,
+          carryOverInputTax: parseFloat(manualCarryOverInput) || 0,
+          creditableVatWithheld: parseFloat(manualWithholdingCredits) || 0,
+        })
+      : null,
+    [activeFormType, reliefTotals, businessProfile, selectedYear, selectedQuarter, manualCarryOverInput, manualWithholdingCredits],
+  );
+
+  const populate2550QFromRelief = () => {
+    reliefAutoFilledRef.current = `${selectedYear}-Q${selectedQuarter}`;
+    setManualVatSales(String(reliefTotals.taxableSales));
+    setManualZeroSales(String(reliefTotals.zeroRatedSales));
+    setManualExemptSales(String(reliefTotals.exemptSales));
+  };
 
 
   useEffect(() => {
@@ -722,7 +797,23 @@ export function BIRForms() {
           </div>
         );
       })()}
-      <div className="mb-4 flex justify-end">
+      <div className="mb-4 flex flex-wrap justify-end gap-2">
+        {activeFormType === '2550Q' && official2550Q && (
+          <>
+            <span className="inline-flex items-center gap-1.5 px-3 py-2 text-[10px] font-bold uppercase tracking-wide rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-900/20 dark:text-emerald-300 dark:border-emerald-800">
+              <CheckCircle2 className="w-3.5 h-3.5" /> Populated from RELIEF (SLSP) · {official2550Q.totals.salesCount} sale(s) · {official2550Q.totals.purchaseCount} purchase(s) · {official2550Q.totals.importationCount} importation(s)
+            </span>
+            <button type="button" onClick={populate2550QFromRelief} className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm">
+              <FileText className="w-4 h-4" /> Re-populate from RELIEF
+            </button>
+            <button type="button" onClick={() => printOfficial2550Q(official2550Q)} disabled={!canPrint || !canViewActiveBirForm} title={canPrint && canViewActiveBirForm ? `Print Official BIR Form 2550Q (${LATEST_2550Q_EDITION})` : 'Print or BIR form permission not granted'} className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed">
+              <Printer className="w-4 h-4" /> Print Official 2550Q ({LATEST_2550Q_EDITION})
+            </button>
+            <button type="button" onClick={() => downloadOfficial2550QXml(official2550Q)} disabled={!canExport || !canViewActiveBirForm} title={canExport && canViewActiveBirForm ? 'Download latest eBIRForms XML' : 'Export or BIR form permission not granted'} className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-violet-600 hover:bg-violet-700 text-white shadow-sm disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed">
+              <FileDown className="w-4 h-4" /> Download eBIRForms XML (latest)
+            </button>
+          </>
+        )}
         <button type="button" onClick={handleDownloadBirPdf} disabled={!canExport || !canViewActiveBirForm} title={canExport && canViewActiveBirForm ? 'Download Form PDF' : 'Export or BIR form permission not granted'} className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-sm disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed">
           <FileDown className="w-4 h-4" /> Download Form PDF
         </button>
