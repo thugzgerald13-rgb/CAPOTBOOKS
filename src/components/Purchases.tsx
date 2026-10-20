@@ -193,6 +193,12 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
   const [atcCode, setAtcCode] = useState('');
   const [whtAmount, setWhtAmount] = useState(0);
   const [accountTitle, setAccountTitle] = useState('');
+  // Other Payments multi-entry line items. Each row carries its own account
+  // title and amount; the voucher total is the sum of all line amounts. One
+  // empty row is always present so the form is never blank.
+  const [otherPaymentEntries, setOtherPaymentEntries] = useState<
+    Array<{ id: string; accountTitle: string; amount: string }>
+  >([{ id: `e${Date.now()}-0`, accountTitle: '', amount: '' }]);
   const [transactionDetails, setTransactionDetails] = useState('');
   const [inputTax, setInputTax] = useState(0);
   const [attachment, setAttachment] = useState<PurchaseAttachment | null>(null);
@@ -241,6 +247,21 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
       return candidate;
     }
     return String(n);
+  };
+
+  // ---- Other Payments multi-entry helpers ----
+  const otherPaymentTotal = otherPaymentEntries.reduce((sum, e) => {
+    const v = parseFloat(String(e.amount || '').replace(/,/g, '').trim());
+    return sum + (Number.isFinite(v) ? v : 0);
+  }, 0);
+  const addOtherPaymentEntry = () => {
+    setOtherPaymentEntries(prev => [...prev, { id: `e${Date.now()}-${prev.length}`, accountTitle: '', amount: '' }]);
+  };
+  const removeOtherPaymentEntry = (id: string) => {
+    setOtherPaymentEntries(prev => (prev.length <= 1 ? prev : prev.filter(e => e.id !== id)));
+  };
+  const updateOtherPaymentEntry = (id: string, field: 'accountTitle' | 'amount', value: string) => {
+    setOtherPaymentEntries(prev => prev.map(e => (e.id === id ? { ...e, [field]: value } : e)));
   };
 
   const handleAddPaymentAccount = () => {
@@ -335,6 +356,21 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
       setWithholdingOption(p.withholdingOption || 'w/o');
       setAtcCode(p.atcCode || '');
       setAccountTitle(p.accountTitle || '');
+      // Restore Other Payments multi-entry line items. Legacy records without
+      // a stored breakdown fall back to one line built from accountTitle + amount.
+      if (isOtherPayments) {
+        const stored = (p as any).otherPaymentEntries;
+        if (Array.isArray(stored) && stored.length > 0) {
+          setOtherPaymentEntries(stored.map((e: any, i: number) => ({
+            id: `e${Date.now()}-${i}`,
+            accountTitle: e.accountTitle || '',
+            amount: e.amount ? Number(e.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '',
+          })));
+        } else {
+          const amt = p.exemptAmount != null ? Number(p.exemptAmount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '';
+          setOtherPaymentEntries([{ id: `e${Date.now()}-0`, accountTitle: p.accountTitle || '', amount: amt }]);
+        }
+      }
       
       const acct = currentClient?.accounts?.find(a => a.name === p.accountTitle);
 
@@ -381,6 +417,7 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
     setTransactionDetails('');
     setAttachment(null);
     setAccountTitle('');
+    setOtherPaymentEntries([{ id: `e${Date.now()}-0`, accountTitle: '', amount: '' }]);
     const count = periodPurchases.length;
     setSequenceNumber(count + 1);
   };
@@ -501,7 +538,17 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
           ? Number.isFinite(parsedZeroRatedAmount) && parsedZeroRatedAmount >= 0
           : hasAmount);
 
-    if (!hasDate || !hasSupplierName || !hasInvoiceAndTin || !hasVatAmount || (isOtherPayments && !hasAmount)) {
+    // For Other Payments, at least one line item must have both an account
+    // title and a positive amount. The voucher total is the sum of all lines.
+    const validOtherPaymentEntries = isOtherPayments
+      ? otherPaymentEntries.filter(e => {
+          const v = parseFloat(String(e.amount || '').replace(/,/g, '').trim());
+          return Boolean(String(e.accountTitle || '').trim()) && Number.isFinite(v) && v > 0;
+        })
+      : [];
+    const hasOtherPaymentEntries = !isOtherPayments || validOtherPaymentEntries.length > 0;
+
+    if (!hasDate || !hasSupplierName || !hasInvoiceAndTin || !hasVatAmount || !hasOtherPaymentEntries) {
       alert('Please fill out all required fields with valid values.');
       return;
     }
@@ -545,14 +592,28 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
       // uses only exemptAmount because that screen's Amount represents exempt.
       amount: isOtherPayments ? 0 : ((vatType === 'vat-nonvat' || vatType === 'vat') ? netAmount : 0),
       vatType: isOtherPayments ? 'non-vat' : vatType,
-      exemptAmount: isOtherPayments ? parsedAmount : (vatType === 'non-vat' || vatType === 'vat-nonvat' ? (parseFloat(String(exemptAmount).replace(/,/g, '')) || 0) : 0),
+      exemptAmount: isOtherPayments ? otherPaymentTotal : (vatType === 'non-vat' || vatType === 'vat-nonvat' ? (parseFloat(String(exemptAmount).replace(/,/g, '')) || 0) : 0),
       zeroRatedAmount: isOtherPayments ? 0 : (vatType === 'zero-rated' ? (parseFloat(String(zeroRatedAmount).replace(/,/g, '')) || 0) : 0),
       withholdingOption,
       atcCode: withholdingOption === 'with' ? atcCode : null,
       whtRate: withholdingOption === 'with' ? (ATC_SCHEDULE.find(e => e.code === atcCode)?.rate ?? null) : null,
       whtAmount: withholdingOption === 'with' ? whtAmount : 0,
-      accountTitle,
+      // Other Payments: accountTitle holds a summary of the line items so
+      // list/history views still show something meaningful; the full per-line
+      // breakdown is stored in otherPaymentEntries and restored on edit.
+      accountTitle: isOtherPayments
+        ? (validOtherPaymentEntries.length === 1
+            ? validOtherPaymentEntries[0].accountTitle
+            : `${validOtherPaymentEntries[0]?.accountTitle || 'Multiple'} +${validOtherPaymentEntries.length - 1} more`)
+        : accountTitle,
       transactionDetails,
+      // Full multi-entry breakdown for Other Payments (account + amount per line).
+      ...(isOtherPayments ? {
+        otherPaymentEntries: validOtherPaymentEntries.map(e => ({
+          accountTitle: e.accountTitle,
+          amount: parseFloat(String(e.amount || '').replace(/,/g, '').trim()) || 0,
+        })),
+      } : {}),
       inputTax: isOtherPayments ? 0 : inputTax,
       attachment: finalAttachment,
     };
@@ -607,6 +668,7 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
     setAtcCode('');
     setWhtAmount(0);
     setAccountTitle('');
+    setOtherPaymentEntries([{ id: `e${Date.now()}-0`, accountTitle: '', amount: '' }]);
     setTransactionDetails('');
     setInputTax(0);
     setAttachment(null);
@@ -819,14 +881,65 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
           </>
         )}
 
-        {isOtherPayments && (
+        {!isOtherPayments && (
           <div className="lg:col-span-1">
             <label className="form-label text-red-500">Amount (₱) *</label>
             <input type="text" value={amount} onChange={e => /^[0-9.,]*$/.test(e.target.value) && setAmount(e.target.value)} onBlur={e => { const raw = e.target.value.replace(/,/g, ''); if (raw && !isNaN(parseFloat(raw))) setAmount(parseFloat(raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })); }} placeholder="0.00" className="form-input font-bold text-amber-900 border-amber-300 dark:bg-amber-900/20 dark:text-amber-100" />
           </div>
         )}
 
-        <div className="lg:col-span-2 md:col-span-2">
+        {isOtherPayments && (
+          <div className="lg:col-span-3">
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="form-label text-red-500 mb-0">Line Items — Account &amp; Amount *</label>
+              <span className="text-xs font-bold text-amber-700 dark:text-amber-300">
+                Total: ₱{otherPaymentTotal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </div>
+            <div className="space-y-2">
+              {otherPaymentEntries.map((entry, idx) => (
+                <div key={entry.id} className="flex items-start gap-2">
+                  <div className="flex-1 min-w-0">
+                    <Combobox
+                      value={entry.accountTitle}
+                      onChange={v => updateOtherPaymentEntry(entry.id, 'accountTitle', v)}
+                      options={coaAccounts.map(a => ({ id: a.id, label: a.name }))}
+                      placeholder={`Account #${idx + 1}`}
+                      inputClassName="form-input bg-blue-50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-900/50 font-bold text-blue-800 dark:text-blue-300 !py-2 text-sm"
+                    />
+                  </div>
+                  <div className="w-36 shrink-0">
+                    <input
+                      type="text"
+                      value={entry.amount}
+                      onChange={e => { if (/^[0-9.,]*$/.test(e.target.value)) updateOtherPaymentEntry(entry.id, 'amount', e.target.value); }}
+                      onBlur={e => { const raw = e.target.value.replace(/,/g, ''); if (raw && !isNaN(parseFloat(raw))) updateOtherPaymentEntry(entry.id, 'amount', parseFloat(raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })); }}
+                      placeholder="0.00"
+                      className="form-input font-bold text-amber-900 border-amber-300 dark:bg-amber-900/20 dark:text-amber-100 !py-2 text-sm text-right"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeOtherPaymentEntry(entry.id)}
+                    disabled={otherPaymentEntries.length <= 1}
+                    className="p-2 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-30 disabled:cursor-not-allowed transition-colors shrink-0"
+                    title="Remove line item"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={addOtherPaymentEntry}
+              className="mt-2 inline-flex items-center gap-1.5 text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5" /> Add Line Item
+            </button>
+          </div>
+        )}
+        {!isOtherPayments && (<div className="lg:col-span-2 md:col-span-2">
           <div className="flex items-center justify-between">
             <label className="form-label">{currentDat ? "Account Title" : "Payment for"}</label>
             {!currentDat && (
@@ -862,7 +975,7 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
               </div>
             </div>
           )}
-        </div>
+        </div>)}
 
         <div className="lg:col-span-1 md:col-span-2">
           <label className="form-label flex items-center gap-1"><Paperclip className="w-3.5 h-3.5" /> Attachment</label>
