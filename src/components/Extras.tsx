@@ -860,7 +860,7 @@ export function Extras() {
                   <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 min-w-0 flex-1">
                       <span className="flex items-center gap-1.5 shrink-0">
-                        <span className="font-bold text-slate-800 dark:text-slate-100 truncate">{client.name}</span>
+                        <span className="font-bold text-slate-800 dark:text-slate-100 truncate">{client.tradeName || client.registeredName || client.name}</span>
                         <button 
                           onClick={() => handleEditClient(client)}
                           className="p-1 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-lg text-blue-600 dark:text-blue-400 shrink-0"
