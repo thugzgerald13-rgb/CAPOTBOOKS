@@ -288,127 +288,37 @@ ${linesTable('Part III — Total Tax Payable', f.partIII)}
   w.document.open(); w.document.write(html); w.document.close();
 }
 
-/**
- * Download a BIR-COMPLIANT eBIRForms XML file.
- *
- * Filename follows the BIR-mandated convention (RMC No. 21-2015):
- *   <TIN incl. Branch Code, 12 digits>_<BIR Form No. (max 6)>_<Return Period, 8 digits YYYYMMDD>.xml
- * e.g. 000123456000_2550Q_20260331.xml
- *
- * The XML structure carries the taxpayer header and every official line item
- * (Part I/II/III) by BIR item number. It is generated to be importable into the
- * official eBIRForms Offline Package; the app's built-in validator (File →
- * Validate) performs the final XSD/schema check before submission.
- */
+/** Download the latest-edition eBIRForms-compatible XML for official 2550Q. */
 export function downloadOfficial2550QXml(f: Official2550Q): string {
   const tp = f.taxpayer;
-  const tin12 = (tp.tin || '').replace(/\D/g, '').padEnd(12, '0').slice(0, 12);
-  const formNo = '2550Q';
-  const qEnd: Record<number, string> = { 1: '0331', 2: '0630', 3: '0930', 4: '1231' };
-  const period8 = `${f.year}${qEnd[f.quarter] || '1231'}`;
   const allLines = [...f.partI, ...f.partII, ...f.partIII];
   const lines: string[] = [];
   lines.push('<?xml version="1.0" encoding="UTF-8"?>');
-  lines.push(`<BIRReturn xmlns="http://www.bir.gov.ph/2023/eBIRForms" source="CAPOT Books" formVersion="${esc(f.edition)}" ebirformsPackage="${LATEST_EBIRFORMS_PACKAGE}">`);
-  lines.push('  <TaxpayerInfo>');
-  lines.push(`    <TIN>${tin12.slice(0, 9)}</TIN>`);
-  lines.push(`    <BranchCode>${tin12.slice(9, 12)}</BranchCode>`);
-  lines.push(`    <RDOCode>${esc(tp.rdoCode)}</RDOCode>`);
-  lines.push(`    <RegisteredName>${esc(tp.registeredName)}</RegisteredName>`);
-  lines.push(`    <TradeName>${esc(tp.tradeName)}</TradeName>`);
-  lines.push(`    <Address>${esc(tp.address)}</Address>`);
-  lines.push(`    <Email>${esc(tp.email)}</Email>`);
-  lines.push('  </TaxpayerInfo>');
-  lines.push(`  <ReturnHeader formCode="${formNo}" formType="Quarterly" year="${f.year}" quarter="${f.quarter}" returnPeriod="${period8}" />`);
-  lines.push('  <ReturnData>');
+  lines.push(`<eBIRForms version="${LATEST_EBIRFORMS_PACKAGE}" source="CAPOT Books" formEdition="${esc(f.edition)}">`);
+  lines.push(`  <Form type="2550Q" period="${esc(f.periodLabel)}" year="${f.year}" quarter="${f.quarter}">`);
+  lines.push(`    <Taxpayer tin="${esc(tp.tin)}" rdo="${esc(tp.rdoCode)}">`);
+  lines.push(`      <RegisteredName>${esc(tp.registeredName)}</RegisteredName>`);
+  lines.push(`      <TradeName>${esc(tp.tradeName)}</TradeName>`);
+  lines.push(`      <Address>${esc(tp.address)}</Address>`);
+  lines.push(`      <Email>${esc(tp.email)}</Email>`);
+  lines.push('    </Taxpayer>');
+  lines.push('    <LineItems>');
   for (const l of allLines) {
-    lines.push(`    <Item no="${esc(l.item)}" description="${esc(l.label)}">${l.amount.toFixed(2)}</Item>`);
+    lines.push(`      <Item no="${esc(l.item)}" label="${esc(l.label)}">${l.amount.toFixed(2)}</Item>`);
   }
-  lines.push('  </ReturnData>');
+  lines.push('    </LineItems>');
   const taxDue = f.partIII.find(l => l.item === '35');
-  lines.push(`  <TotalTaxPayable>${(taxDue?.amount || 0).toFixed(2)}</TotalTaxPayable>`);
-  lines.push('  <DataSource>RELIEF/SLSP</DataSource>');
-  lines.push('</BIRReturn>');
+  lines.push(`    <TotalTaxPayable>${(taxDue?.amount || 0).toFixed(2)}</TotalTaxPayable>`);
+  lines.push('    <Source>RELIEF/SLSP</Source>');
+  lines.push('  </Form>');
+  lines.push('</eBIRForms>');
   const xml = lines.join('\n');
   const blob = new Blob([xml], { type: 'application/xml' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${tin12}_${formNo}_${period8}.xml`;
+  a.download = `eBIRForm_2550Q_${f.year}_Q${f.quarter}.xml`;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   return xml;
-}
-
-// Official blank BIR form bundled in the app (public asset). Filled by overlay.
-const OFFICIAL_2550Q_PDF_URL = '/forms/BIR-Form-2550Q-Jan2023-ENCS.pdf';
-
-/**
- * Fill the OFFICIAL BIR Form 2550Q (January 2023 ENCS) PDF — the actual public
- * document from the BIR website — by overlaying the RELIEF-populated values,
- * then download it. Coordinates are tuned to the Jan 2023 (ENCS) 2-page edition
- * (612 x 936 pt, Long bond).
- */
-export async function downloadFilledOfficial2550QPdf(f: Official2550Q): Promise<void> {
-  const [{ PDFDocument, StandardFonts, rgb }, res] = await Promise.all([
-    import('pdf-lib'),
-    fetch(OFFICIAL_2550Q_PDF_URL),
-  ]);
-  if (!res.ok) throw new Error(`Official BIR 2550Q PDF not found at ${OFFICIAL_2550Q_PDF_URL}`);
-  const bytes = await res.arrayBuffer();
-  const pdfDoc = await PDFDocument.load(bytes);
-  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const page = pdfDoc.getPage(0); // page 1 carries taxpayer info + Parts I–III
-  const tp = f.taxpayer;
-  const draw = (text: any, x: number, y: number, size = 9, right = false) => {
-    const t = String(text ?? '');
-    if (!t) return;
-    const w = font.widthOfTextAtSize(t, size);
-    page.drawText(t, { x: right ? Math.max(4, x - w) : x, y, size, font, color: rgb(0, 0, 0) });
-  };
-  const AX = 586; // right-edge of the amount column (right-aligned values)
-  // ---- Background information (page 1, top) ----
-  const tinDigits = (tp.tin || '').replace(/\D/g, '').padEnd(12, '0').slice(0, 12);
-  draw(`${tinDigits.slice(0, 3)}-${tinDigits.slice(3, 6)}-${tinDigits.slice(6, 9)}-${tinDigits.slice(9, 12)}`, 178, 735, 10);
-  draw(tp.rdoCode, 552, 735, 10, true);
-  draw(tp.registeredName.toUpperCase(), 178, 721, 9);
-  draw(tp.address.toUpperCase(), 178, 691, 8);
-  draw(tp.email, 332, 642, 8);
-  // Quarter checkbox "X" (1st/2nd/3rd/4th stacked at x≈318)
-  const qY: Record<number, number> = { 1: 800, 2: 782, 3: 764, 4: 746 };
-  draw('X', 316, qY[f.quarter] ?? 800, 11);
-  // ---- Part I – Sales / Output Tax (amounts, right column) ----
-  draw(fmt(f.totals.taxableSales), AX, 792, 9, true);   // VATable (14A)
-  draw(fmt(f.totals.zeroRatedSales), AX, 778, 9, true);  // Zero-rated (14B)
-  draw(fmt(f.totals.exemptSales), AX, 735, 9, true);     // Exempt (14C)
-  draw(fmt(f.totals.outputTax), AX, 721, 9, true);       // Output Tax Due (16)
-  // ---- Part II – Input Tax ----
-  draw(fmt(f.totals.inputTaxGoods), AX, 572, 9, true);      // Domestic purchases of goods (20A)
-  draw(fmt(f.totals.inputTaxServices), AX, 504, 9, true);   // Domestic purchases of services (20B)
-  draw(fmt(f.totals.inputTaxImportation), AX, 538, 9, true);// Importation (21)
-  draw(fmt(f.totals.inputTaxCapital), AX, 486, 9, true);    // Capital goods (22)
-  const carryOver = f.partII.find(l => l.item === '24')?.amount || 0;
-  draw(fmt(carryOver), AX, 690, 9, true);                   // Carried over from prev quarter (24)
-  const totalInput = f.partII.find(l => l.item === '26')?.amount || 0;
-  draw(fmt(totalInput), AX, 440, 9, true);                  // Total available input tax (26)
-  // ---- Part III – Total Tax Payable ----
-  const netVat = f.partIII.find(l => l.item === '29')?.amount || 0;
-  draw(fmt(netVat), AX, 321, 9, true);                       // Net VAT payable (29)
-  const taxStillDue = f.partIII.find(l => l.item === '35')?.amount || 0;
-  draw(fmt(Math.abs(taxStillDue)), AX, 446, 10, true);       // Tax still payable / (overpayment) (35)
-  // Source stamp on page 2
-  const page2 = pdfDoc.getPageCount() > 1 ? pdfDoc.getPage(1) : null;
-  if (page2) {
-    page2.drawText(`Generated by CAPOT Books · Populated from RELIEF/SLSP · Official BIR Form 2550Q ${f.edition} · ${f.periodLabel}`, {
-      x: 36, y: 30, size: 7, font, color: rgb(0.3, 0.3, 0.3),
-    });
-  }
-  const pdfBytes = await pdfDoc.save();
-  const blob = new Blob([pdfBytes], { type: 'application/pdf' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `BIR-Form-2550Q_${f.year}_Q${f.quarter}_filled.pdf`;
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
