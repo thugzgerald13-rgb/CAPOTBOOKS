@@ -751,6 +751,50 @@ export function closeCodeGaps(
   return { accounts: remapped, renames };
 }
 
+
+type CoaTemplateBusinessType = 'Service' | 'Retail' | 'Manufacturing' | 'Construction/Fabrication/Contracting';
+const COA_TEMPLATE_GROUPS: Record<CoaTemplateBusinessType, string[]> = {
+  Service: ['COST OF REVENUE - SERVICE BUSINESS TYPE'],
+  Retail: ['COST OF SALES - RETAIL BUSINESS TYPE'],
+  Manufacturing: ['COST OF GOODS MANUFACTURED AND SOLD - MANUFACTURING BUSINESS TYPE', 'DIRECT MATERIALS', 'DIRECT LABOR', 'OVERHEAD'],
+  'Construction/Fabrication/Contracting': ['COST OF CONTRACTS - CONSTRACTION/FABRICATION/CONTRACTING BUSINESS TYPE', 'DIRECT MATERIALS', 'DIRECT LABOR', 'SUBCONTRACTED WORKS', 'OVERHEAD'],
+};
+
+function downloadFixedCoaTemplate(classification: 'Individual' | 'Non-Individual', businessType: CoaTemplateBusinessType): void {
+  const ownerTitle = classification === 'Individual' ? 'CAPITAL' : 'EQUITY';
+  const rows: Array<Array<string>> = [
+    ['Account Code', 'Account Title', 'Account Type', 'Hierarchy Level', 'Parent Account Code', 'Postable', 'Opening Balance', 'Previous Year Balance'],
+    ['', 'ASSETS', 'Asset', '1', '', 'NO', '', ''],
+    ['', 'CURRENT ASSETS', 'Asset', '2', '', 'NO', '', ''],
+    ['', 'CASH AND CASH EQUIVALENTS', 'Asset', '3', '', 'NO', '', ''],
+    ['', 'Cash on Hand', 'Asset', '4', '', 'YES', '', ''],
+    ['', 'TRADE AND OTHER RECEIVABLES', 'Asset', '3', '', 'NO', '', ''],
+    ['', 'NONCURRENT ASSETS', 'Asset', '2', '', 'NO', '', ''],
+    ['', 'LIABILITIES', 'Liabilities', '1', '', 'NO', '', ''],
+    ['', 'CURRENT LIABILITIES', 'Liabilities', '2', '', 'NO', '', ''],
+    ['', ownerTitle, classification === 'Individual' ? 'Capital' : 'Equity', '1', '', 'NO', '', ''],
+    ['', 'REVENUE', 'Revenue', '1', '', 'NO', '', ''],
+    ['', COA_TEMPLATE_GROUPS[businessType][0], 'Costs', '1', '', 'NO', '', ''],
+  ];
+  const costChildren = businessType === 'Manufacturing'
+    ? ['DIRECT MATERIALS', 'DIRECT LABOR', 'OVERHEAD']
+    : businessType === 'Construction/Fabrication/Contracting'
+      ? ['DIRECT MATERIALS', 'DIRECT LABOR', 'SUBCONTRACTED WORKS', 'OVERHEAD'] : [];
+  costChildren.forEach(title => rows.push(['', title, 'Costs', '2', '', 'NO', '', '']));
+  rows.push(['', 'Operating expense detail (replace with your account title)', 'Expense', '2', '', 'YES', '', '']);
+  rows.push(['', 'OTHER INCOME/(EXPENSES)', 'Other Income', '1', '', 'NO', '', '']);
+  const csv = rows.map(row => row.map(value => `"${String(value).replace(/"/g, '""')}"`).join(',')).join('\r\n');
+  const blob = new Blob(['\ufeff', csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `COA-Template-${classification}-${businessType.replace(/[^a-z0-9]+/gi, '-')}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 export function ChartOfAccounts() {
   const canDelete = usePermission('delete_transactions');
   const { canAction: canCoaAction, canDropdownOption: canCoaDropdown } = useGranularPermissions('coa');
