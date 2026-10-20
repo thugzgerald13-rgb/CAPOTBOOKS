@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { BookOpen, Plus, Trash2, RefreshCcw, Edit2, ClipboardList, Check, X, Columns, ArrowUp, ArrowDown, Upload, MoreVertical } from 'lucide-react';
 import { flattenCoaHierarchy } from '../lib/coaImport';
 import { PageHeader } from './ui/PageHeader';
+import { Combobox } from './ui/Combobox';
 import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
 import { useGranularPermissions } from '../lib/useGranularPermissions';
@@ -789,16 +790,15 @@ export function ChartOfAccounts() {
     const defaultColumns = [
       { id: 'id', name: 'Code', isSystem: true },
       { id: 'name', name: 'Account Title', isSystem: true },
-      { id: 'type', name: 'Account Type', isSystem: true },
       { id: 'normalSide', name: 'Normal Entry', isSystem: true }
     ];
-    // Guard against an empty array here, not just `undefined`/`null` — an
-    // empty array is truthy in JS, so `|| defaultColumns` alone would leave
-    // the table with zero columns (blank headers, blank cells) if every
-    // column has been deleted via "Configure Columns".
-    return (currentClient?.coaColumns && currentClient.coaColumns.length > 0)
-      ? currentClient.coaColumns
-      : defaultColumns;
+    // Account Type column is hidden per updated COA layout — the type is
+    // implied by the account's position in the hierarchy and is no longer
+    // a user-facing column. Filter it out of any saved column config too.
+    const saved = (currentClient?.coaColumns && currentClient.coaColumns.length > 0)
+      ? currentClient.coaColumns.filter(c => c.id !== 'type')
+      : null;
+    return saved || defaultColumns;
   }, [currentClient?.coaColumns]);
 
   const handleAddColumn = () => {
@@ -937,8 +937,11 @@ export function ChartOfAccounts() {
   }, [allowedAccountTypes, ownershipType]);
 
   const parentCandidates = useMemo(() => {
-    return accounts.filter(a => a.type === newType);
-  }, [accounts, newType]);
+    // Include ALL accounts — from postable (leaf) up through groups to header
+    // accounts — so any account can be selected as a parent. The account type
+    // is inherited automatically from the chosen parent.
+    return accounts;
+  }, [accounts]);
 
   const editParentCandidates = useMemo(() => {
     if (!editingId) return [];
@@ -952,10 +955,9 @@ export function ChartOfAccounts() {
     const excludedIds = [editingId, ...getDescendants(editingId)];
     
     return accounts.filter(a => 
-      a.type === editType && 
       !excludedIds.includes(a.id)
     );
-  }, [accounts, editType, editingId]);
+  }, [accounts, editingId]);
 
   // Account Type filter options — derived from the actual Account Type values
   // present in the Chart of Accounts data, so the filter always reflects what's
@@ -2024,30 +2026,34 @@ export function ChartOfAccounts() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Account Name</label>
-                  <input 
-                    type="text" 
-                    value={newName} 
-                    onChange={e => setNewName(e.target.value)} 
-                    className="w-full form-input"
-                    placeholder="e.g. Cash in Bank"
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Account Title</label>
+                  <Combobox
+                    value={newName}
+                    onChange={(v: string) => {
+                      setNewName(v);
+                      const match = accounts.find(a => a.name === v);
+                      if (match) {
+                        setNewType(match.type);
+                        if (match.normalSide) setNewNormalSide(match.normalSide);
+                      }
+                    }}
+                    options={accounts.map(a => ({ id: a.id, label: a.name }))}
+                    placeholder="Type or pick an account title..."
+                    inputClassName="w-full form-input"
                   />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Account Type</label>
-                  <select 
-                    value={newType} 
-                    onChange={e => setNewType(e.target.value)} 
-                    className="w-full form-input"
-                  >
-                    {allowedAccountTypes.map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Parent Account (Optional)</label>
                   <select
                     value={newParentId}
-                    onChange={e => setNewParentId(e.target.value)}
+                    onChange={e => {
+                      setNewParentId(e.target.value);
+                      const parent = accounts.find(a => a.id === e.target.value);
+                      if (parent) {
+                        setNewType(parent.type);
+                        if (parent.normalSide) setNewNormalSide(parent.normalSide);
+                      }
+                    }}
                     className="w-full form-input"
                   >
                     <option value="">None (Top-Level Account)</option>
@@ -2171,16 +2177,6 @@ export function ChartOfAccounts() {
                     className="w-full form-input"
                     placeholder="e.g. Cash in Bank"
                   />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Account Type</label>
-                  <select 
-                    value={editType} 
-                    onChange={e => setEditType(e.target.value)} 
-                    className="w-full form-input"
-                  >
-                    {allowedAccountTypes.map(t => <option key={t} value={t}>{t}</option>)}
-                  </select>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Parent Account (Optional)</label>
