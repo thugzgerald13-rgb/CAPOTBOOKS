@@ -95,8 +95,10 @@ export interface EBirFormOption {
   period: 'monthly' | 'quarterly' | 'adhoc';
   category: 'vat' | 'percentage' | 'withholding' | 'income' | 'payment';
 }
+// NOTE: Monthly BIR Form 2550M was DISCONTINUED under RMC No. 5-2023 — only the
+// quarterly 2550Q remains for VAT filers. Old/discontinued form versions are
+// intentionally excluded; only current (latest) BIR form editions are listed.
 export const EBIR_FORMS: EBirFormOption[] = [
-  { id: '2550M', title: 'BIR Form 2550M — Monthly Value-Added Tax Declaration', period: 'monthly', category: 'vat' },
   { id: '2550Q', title: 'BIR Form 2550Q — Quarterly Value-Added Tax Return', period: 'quarterly', category: 'vat' },
   { id: '2551Q', title: 'BIR Form 2551Q — Quarterly Percentage Tax Return', period: 'quarterly', category: 'percentage' },
   { id: '0619-E', title: 'BIR Form 0619-E — Monthly Remittance of Expanded Withholding Tax', period: 'monthly', category: 'withholding' },
@@ -198,7 +200,7 @@ export function computeEBirFormValues(
     rdoCode: String(client.rdoCode || ''),
     registeredName: client.registeredName || client.name || '',
     tradeName: client.name || '',
-    address: client.address || '',
+    address: (client as any).address || '',
     lineItems,
     totalTaxPayable,
     currency: 'PHP',
