@@ -12,7 +12,7 @@ import { supabase } from '../lib/supabase';
 import { 
   Users, Building2, BookText, BookOpen, 
   LineChart, Scale, Receipt, ShoppingCart, 
-  TrendingUp, FileText, Library, FolderClock, History,
+  TrendingUp, FileText, FileDown, Library, FolderClock, History,
   ChevronDown, ChevronLeft, ChevronRight, Settings, Key, Banknote, Wallet, CreditCard, ShieldAlert, RefreshCw, LogOut, Shield, FolderUp,
   Boxes, CheckCircle2, FileSignature, Home, Landmark, ArrowLeftRight, Wrench, UserCircle, Search, X
 } from 'lucide-react';
@@ -594,6 +594,18 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                         >
                           <FileText className="w-3.5 h-3.5" />
                           Forms
+                        </button>
+                        <button
+                          disabled={!canUse('view_reports')}
+                          onClick={() => {
+                            setBirFormTab('ebirforms');
+                            navigateToPage('bir-forms');
+                            setIsOpen(false);
+                          }}
+                          className={cn("flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'bir-forms' && birFormTab === 'ebirforms' && activeIndigo)}
+                        >
+                          <FileDown className="w-3.5 h-3.5" />
+                          eBIRForms
                         </button>
                         <button
                           disabled={!canUse('edit_transactions')}

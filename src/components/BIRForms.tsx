@@ -10,6 +10,7 @@ import { TaxDeadline, Client } from '../types';
 import { adjustDeadlineForWeekend } from '../lib/complianceUtils';
 import { supabase } from '../lib/supabase';
 import { downloadBirFormPdf, validateBirForm } from '../lib/birFormPdf';
+import { EBIR_FORMS, computeEBirFormValues, downloadEBirFormXml, printEBirForm } from '../lib/eBirForms';
 
 // Standard BIR filing deadlines generator for Philippines 2026/2025
 export function generateStandardDeadlines(year: number): TaxDeadline[] {
@@ -194,6 +195,12 @@ export function BIRForms() {
 
   // Active form choice: '2550Q' | '1701Q' | '2551Q' | '1601-C' | '0619-E' | '1601-EQ'
   const [activeFormType, setActiveFormType] = useState<'2550Q' | '1701Q' | '2551Q' | '1601-C' | '0619-E' | '1601-EQ'>('2550Q');
+  // eBIRForms generator — Offline eBIRForms Package v7.9.6.2 integration.
+  // Activated from the BIR sidebar dropdown ("eBIRForms" button).
+  const [ebirForm, setEbirForm] = useState('2550Q');
+  const [ebirYear, setEbirYear] = useState(new Date().getFullYear());
+  const [ebirMonth, setEbirMonth] = useState(new Date().getMonth() + 1);
+  const [ebirQuarter, setEbirQuarter] = useState(1);
   const birFormPermissionId: Record<string, string> = { '2550Q': '2550q', '1701Q': '1701q', '2551Q': '2551q', '1601-C': '1601c', '0619-E': '0619e', '1601-EQ': '1601eq' };
   const allowedBirFormTypes = ['2550Q', '1701Q', '2551Q', '1601-C', '0619-E', '1601-EQ'].filter(type => canBirDropdown('bir_form', birFormPermissionId[type]));
   useEffect(() => {
@@ -617,6 +624,104 @@ export function BIRForms() {
           <ul className="list-disc list-inside space-y-0.5">{birValidationErrors.map((e, i) => <li key={i}>{e}</li>)}</ul>
         </div>
       )}
+      {/* eBIRForms Generator — activated from BIR dropdown > eBIRForms */}
+      {birFormTab === 'ebirforms' && (() => {
+        const ebirFormDef = EBIR_FORMS.find(f => f.id === ebirForm) || EBIR_FORMS[0];
+        const allSales = (currentClient?.sales || []) as any[];
+        const allPurchases = (currentClient?.purchases || []) as any[];
+        const inPeriod = (r: any) => {
+          const d = r.date ? new Date(r.date) : null;
+          if (!d || d.getFullYear() !== ebirYear) return false;
+          if (ebirFormDef.period === 'monthly') return (d.getMonth() + 1) === ebirMonth;
+          if (ebirFormDef.period === 'quarterly') {
+            const qStart = (ebirQuarter - 1) * 3 + 1;
+            return (d.getMonth() + 1) >= qStart && (d.getMonth() + 1) <= qStart + 2;
+          }
+          return true;
+        };
+        const perSales = allSales.filter(inPeriod);
+        const perPurchases = allPurchases.filter(inPeriod);
+        const num = (v: any) => Number(v || 0);
+        const salesTotal = perSales.reduce((s, r) => s + num(r.amount), 0);
+        const outputTax = perSales.reduce((s, r) => s + num(r.outputTax), 0);
+        const purchasesTotal = perPurchases.reduce((s, r) => s + num(r.amount), 0);
+        const inputTax = perPurchases.reduce((s, r) => s + num(r.inputTax), 0);
+        const ewtByAtc: Array<{ atcCode: string; baseAmount: number; rate: number; taxWithheld: number }> = [];
+        const ewtMap = new Map<string, { base: number; wht: number }>();
+        for (const p of perPurchases) {
+          const atc = String(p.atcCode || '').trim();
+          const wht = num(p.whtAmount);
+          if (atc && wht > 0) {
+            const cur = ewtMap.get(atc) || { base: 0, wht: 0 };
+            cur.base += num(p.amount); cur.wht += wht;
+            ewtMap.set(atc, cur);
+          }
+        }
+        for (const [atcCode, v] of ewtMap) {
+          const rate = v.base > 0 ? Math.round((v.wht / v.base) * 1000) / 10 : 0;
+          ewtByAtc.push({ atcCode, baseAmount: v.base, rate, taxWithheld: v.wht });
+        }
+        const ledger = {
+          salesTotal, vatableSales: salesTotal, zeroRatedSales: 0, exemptSales: 0, outputTax,
+          purchasesTotal, vatablePurchases: purchasesTotal, inputTax,
+          capitalGoodsInputTax: 0, servicesInputTax: inputTax, goodsInputTax: 0,
+          ewtTotal: ewtByAtc.reduce((s, e) => s + e.taxWithheld, 0), ewtByAtc,
+          compensationWithholding: 0, expensesTotal: 0,
+        };
+        const periodArg = ebirFormDef.period === 'monthly' ? { year: ebirYear, month: ebirMonth }
+          : ebirFormDef.period === 'quarterly' ? { year: ebirYear, quarter: ebirQuarter } : { year: ebirYear };
+        const values = computeEBirFormValues(ebirForm, periodArg, currentClient || {}, ledger);
+        return (
+          <div className="mb-4 rounded-2xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50/60 dark:bg-indigo-950/20 p-5">
+            <div className="flex items-center gap-2 mb-3">
+              <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-indigo-600 text-white text-xs font-black">eB</span>
+              <div>
+                <div className="text-sm font-black text-indigo-900 dark:text-indigo-100 uppercase tracking-wide">eBIRForms Generator</div>
+                <div className="text-[10px] text-indigo-500 dark:text-indigo-400 font-semibold">Offline eBIRForms Package v7.9.6.2 — XML export + printable form, populated from ledger</div>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 block mb-1">BIR Form</label>
+                <select value={ebirForm} onChange={e => setEbirForm(e.target.value)} className="w-full text-xs font-bold border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-2 rounded-xl outline-none">
+                  {EBIR_FORMS.map(f => <option key={f.id} value={f.id}>{f.id} — {f.title.split('—')[1]?.trim() || f.title}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 block mb-1">Year</label>
+                <select value={ebirYear} onChange={e => setEbirYear(Number(e.target.value))} className="w-full text-xs font-bold border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-2 rounded-xl outline-none">
+                  {[ebirYear - 2, ebirYear - 1, ebirYear, ebirYear + 1].map(y => <option key={y} value={y}>{y}</option>)}
+                </select>
+              </div>
+              {ebirFormDef.period === 'monthly' && (
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 block mb-1">Month</label>
+                  <select value={ebirMonth} onChange={e => setEbirMonth(Number(e.target.value))} className="w-full text-xs font-bold border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-2 rounded-xl outline-none">
+                    {Array.from({ length: 12 }, (_, i) => i + 1).map(m => <option key={m} value={m}>{String(m).padStart(2, '0')}</option>)}
+                  </select>
+                </div>
+              )}
+              {ebirFormDef.period === 'quarterly' && (
+                <div>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 block mb-1">Quarter</label>
+                  <select value={ebirQuarter} onChange={e => setEbirQuarter(Number(e.target.value))} className="w-full text-xs font-bold border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-2 rounded-xl outline-none">
+                    {[1, 2, 3, 4].map(q => <option key={q} value={q}>Q{q}</option>)}
+                  </select>
+                </div>
+              )}
+              <div className="flex items-end gap-2">
+                <button type="button" onClick={() => downloadEBirFormXml(values)} className="flex-1 px-3 py-2 text-[11px] font-black uppercase rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm">Download XML</button>
+                <button type="button" onClick={() => printEBirForm(values)} className="flex-1 px-3 py-2 text-[11px] font-black uppercase rounded-xl bg-white dark:bg-slate-800 border border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100">Print Form</button>
+              </div>
+            </div>
+            <div className="text-[11px] text-slate-600 dark:text-slate-300">
+              <span className="font-bold">{values.lineItems.length} line items</span> computed from {perSales.length} sales + {perPurchases.length} purchases in period.
+              <span className="ml-2 font-bold">Total Tax Payable: ₱{values.totalTaxPayable.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+              <span className="ml-2 text-slate-400">Import the XML into the official eBIRForms offline app (File → Open) for final validation & submission.</span>
+            </div>
+          </div>
+        );
+      })()}
       <div className="mb-4 flex justify-end">
         <button type="button" onClick={handleDownloadBirPdf} disabled={!canExport || !canViewActiveBirForm} title={canExport && canViewActiveBirForm ? 'Download Form PDF' : 'Export or BIR form permission not granted'} className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-sm disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed">
           <FileDown className="w-4 h-4" /> Download Form PDF
