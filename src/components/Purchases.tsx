@@ -973,13 +973,6 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
           </>
         )}
 
-        {!isOtherPayments && (
-          <div className="lg:col-span-1">
-            <label className="form-label text-red-500">Amount (₱) *</label>
-            <input type="text" value={amount} onChange={e => /^[0-9.,]*$/.test(e.target.value) && setAmount(e.target.value)} onBlur={e => { const raw = e.target.value.replace(/,/g, ''); if (raw && !isNaN(parseFloat(raw))) setAmount(parseFloat(raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })); }} placeholder="0.00" className="form-input font-bold text-amber-900 border-amber-300 dark:bg-amber-900/20 dark:text-amber-100" />
-          </div>
-        )}
-
         {isOtherPayments && (
           <div className="lg:col-span-3">
             <div className="flex items-center justify-between mb-1.5">
