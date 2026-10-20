@@ -11,7 +11,7 @@ import { adjustDeadlineForWeekend } from '../lib/complianceUtils';
 import { supabase } from '../lib/supabase';
 import { downloadBirFormPdf, validateBirForm } from '../lib/birFormPdf';
 import { EBIR_FORMS, computeEBirFormValues, downloadEBirFormXml, printEBirForm } from '../lib/eBirForms';
-import { aggregateReliefQuarter, buildOfficial2550Q, printOfficial2550Q, downloadOfficial2550QXml, LATEST_2550Q_EDITION } from '../lib/officialBir2550Q';
+import { aggregateReliefQuarter, buildOfficial2550Q, printOfficial2550Q, downloadOfficial2550QXml, downloadFilledOfficial2550QPdf, LATEST_2550Q_EDITION } from '../lib/officialBir2550Q';
 
 // Standard BIR filing deadlines generator for Philippines 2026/2025
 export function generateStandardDeadlines(year: number): TaxDeadline[] {
@@ -806,8 +806,8 @@ export function BIRForms() {
             <button type="button" onClick={populate2550QFromRelief} className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm">
               <FileText className="w-4 h-4" /> Re-populate from RELIEF
             </button>
-            <button type="button" onClick={() => printOfficial2550Q(official2550Q)} disabled={!canPrint || !canViewActiveBirForm} title={canPrint && canViewActiveBirForm ? `Print Official BIR Form 2550Q (${LATEST_2550Q_EDITION})` : 'Print or BIR form permission not granted'} className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed">
-              <Printer className="w-4 h-4" /> Print Official 2550Q ({LATEST_2550Q_EDITION})
+            <button type="button" onClick={() => { void downloadFilledOfficial2550QPdf(official2550Q); }} disabled={!canPrint || !canViewActiveBirForm} title={canPrint && canViewActiveBirForm ? `Download filled official BIR Form 2550Q PDF (${LATEST_2550Q_EDITION})` : 'Print or BIR form permission not granted'} className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed">
+              <FileDown className="w-4 h-4" /> Official 2550Q PDF ({LATEST_2550Q_EDITION})
             </button>
             <button type="button" onClick={() => downloadOfficial2550QXml(official2550Q)} disabled={!canExport || !canViewActiveBirForm} title={canExport && canViewActiveBirForm ? 'Download latest eBIRForms XML' : 'Export or BIR form permission not granted'} className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-violet-600 hover:bg-violet-700 text-white shadow-sm disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed">
               <FileDown className="w-4 h-4" /> Download eBIRForms XML (latest)
