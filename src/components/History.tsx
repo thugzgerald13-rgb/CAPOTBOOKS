@@ -11,6 +11,7 @@ import { cn, MONTHS, generateCSV, formatTIN } from '../lib/utils';
 import { getAttachmentViewUrl } from '../lib/supabaseUtils';
 import { supabase } from '../lib/supabase';
 import { getCachedQuery, cacheQuery } from '../db/localDb';
+import { HISTORY_PURCHASE_COLS, HISTORY_SALE_COLS, mapPurchaseHistoryRow, mapSaleHistoryRow, fetchHistoryMonthRecords } from '../lib/historySource';
 import { DEFAULT_ACCOUNTS } from './ChartOfAccounts';
 import { getDefaultAccountsForIndustry } from '../lib/journalDefaults';
 import * as XLSX from 'xlsx';
@@ -46,49 +47,13 @@ const MIN_EXPENSE_COLUMN_WIDTH = 60;
 
 // Columns + row mappers shared by the period-scoped loader and the global
 // cross-period search, so both paths produce identically-shaped records.
-const PURCHASE_SELECT_COLS = 'id,client_id,date,payment_method,check_number,bank_name,invoice_no,supplier_name,supplier_address,supplier_tin,amount,vat_type,account_title,transaction_details,input_tax,attachment_name,attachment_type,attachment_original_type,attachment_size,attachment_original_size,attachment_compression,attachment_storage_path,withholding_option,atc_code,wht_rate,wht_amount,exempt_amount,zero_rated_amount,entry_source';
-const SALE_SELECT_COLS = 'id,client_id,date,ref,payment_type,buyer_tin,buyer_name,buyer_address,vat_type,amount,net_of_vat,output_tax,income_type,description';
-
-const mapPurchaseRow = (p: any) => ({
-  id: p.id,
-  date: p.date,
-  paymentMethod: p.payment_method,
-  checkNumber: p.check_number,
-  bankName: p.bank_name,
-  invoiceNo: p.invoice_no,
-  supplierName: p.supplier_name || '',
-  supplierAddress: p.supplier_address || '',
-  supplierTin: p.supplier_tin || '',
-  amount: Number(p.amount || 0),
-  vatType: p.vat_type,
-  accountTitle: p.account_title,
-  transactionDetails: p.transaction_details,
-  inputTax: Number(p.input_tax || 0),
-  attachment: p.attachment_storage_path ? { storagePath: p.attachment_storage_path, name: p.attachment_name, type: p.attachment_type, originalType: p.attachment_original_type, compression: p.attachment_compression } : undefined,
-  withholdingOption: p.withholding_option,
-  atcCode: p.atc_code,
-  whtRate: p.wht_rate == null ? undefined : Number(p.wht_rate),
-  whtAmount: Number(p.wht_amount || 0),
-  exemptAmount: Number(p.exempt_amount || 0),
-  zeroRatedAmount: Number(p.zero_rated_amount || 0),
-  entrySource: p.entry_source,
-});
-
-const mapSaleRow = (s: any) => ({
-  id: s.id,
-  date: s.date,
-  ref: s.ref,
-  paymentType: s.payment_type,
-  buyerTin: s.buyer_tin,
-  buyerName: s.buyer_name || '',
-  buyerAddress: s.buyer_address || '',
-  vatType: s.vat_type,
-  amount: Number(s.amount || 0),
-  netOfVat: Number(s.net_of_vat || 0),
-  outputTax: Number(s.output_tax || 0),
-  incomeType: s.income_type,
-  description: s.description,
-});
+// Column projections and row mappers live in ../lib/historySource.ts (shared
+// with the RELIEF page) so Income / Expense History and RELIEF always consume
+// exactly the same records. Local aliases keep this file's JSX unchanged.
+const PURCHASE_SELECT_COLS = HISTORY_PURCHASE_COLS;
+const SALE_SELECT_COLS = HISTORY_SALE_COLS;
+const mapPurchaseRow = mapPurchaseHistoryRow;
+const mapSaleRow = mapSaleHistoryRow;
 
 type HistoryTab = 'expenses' | 'income' | 'slp' | 'sls';
 
@@ -616,48 +581,13 @@ export function History() {
         return;
       }
 
-      const startDate = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}-01`;
-      const endDate = new Date(selectedYear, selectedMonth, 1);
-      const endDateString = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-01`;
-      const periodKey = `${selectedYear}-${String(selectedMonth).padStart(2, '0')}`;
-      const purCacheKey = `purchases:${currentClientId}:month:${periodKey}`;
-      const salCacheKey = `sales:${currentClientId}:month:${periodKey}`;
-      const purCached = await getCachedQuery<any[]>(purCacheKey);
-      const salCached = await getCachedQuery<any[]>(salCacheKey);
-      if (purCached && salCached) {
-        setLocalHistoryPurchases(purCached);
-        setLocalHistorySales(salCached);
-        return;
-      }
-
-      const [purchaseResult, salesResult] = await Promise.all([
-        supabase
-          .from('purchases')
-          .select(PURCHASE_SELECT_COLS)
-          .eq('client_id', currentClientId)
-          .gte('date', startDate)
-          .lt('date', endDateString)
-          .order('date', { ascending: true }),
-        supabase
-          .from('sales')
-          .select(SALE_SELECT_COLS)
-          .eq('client_id', currentClientId)
-          .gte('date', startDate)
-          .lt('date', endDateString)
-          .order('date', { ascending: true })
-      ]);
-
-      if (purchaseResult.error) console.error('History purchases query failed:', purchaseResult.error);
-      if (salesResult.error) console.error('History sales query failed:', salesResult.error);
-
+      // Shared with the RELIEF page (../lib/historySource.ts): same month
+      // filter, same column projection, same row mapping, same cache keys —
+      // so Income / Expense History and RELIEF always show identical records.
+      const { purchases, sales } = await fetchHistoryMonthRecords(currentClientId, selectedYear, selectedMonth);
       if (cancelled) return;
-
-      const mappedPurchases = (purchaseResult.data || []).map(mapPurchaseRow);
-      const mappedSales = (salesResult.data || []).map(mapSaleRow);
-      setLocalHistoryPurchases(mappedPurchases);
-      setLocalHistorySales(mappedSales);
-      if (!purchaseResult.error) cacheQuery(purCacheKey, 'purchases', currentClientId, mappedPurchases).catch(() => {});
-      if (!salesResult.error) cacheQuery(salCacheKey, 'sales', currentClientId, mappedSales).catch(() => {});
+      setLocalHistoryPurchases(purchases);
+      setLocalHistorySales(sales);
     };
 
     loadHistoryPeriod();

@@ -3,6 +3,7 @@ import { saveAs } from 'file-saver';
 import * as XLSX from 'xlsx';
 import { PageHeader, Button, Card, CardContent, Select, Field, Input, EmptyState, Badge, Modal } from './ui';
 import { buildInquiry, inquiryAoa, inquiryPrintHtml, printHtml, formatMoney, taxMonthLabel, type InquiryReport } from '../lib/reliefInquiry';
+import { fetchHistoryMonthRecords } from '../lib/historySource';
 import { ReliefReportPreviewModal } from "./ReliefReportPreviewModal";
 import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
@@ -142,6 +143,37 @@ export function Relief() {
   const [importRetryToken, setImportRetryToken] = useState(0);
   const importRevisionRef = useRef(0);
   const [loadRetryToken, setLoadRetryToken] = useState(0);
+  // RELIEF detail rows come from the Income History (sales) and Expense History
+  // (purchases) pages — fetched for the selected tax month through the shared
+  // ../lib/historySource.ts module so RELIEF and History show identical records.
+  const [historyRecords, setHistoryRecords] = useState<{ purchases: any[]; sales: any[] } | null>(null);
+  const [historyPeriod, setHistoryPeriod] = useState<string | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const historyFetchToken = useRef(0);
+  useEffect(() => {
+    const token = ++historyFetchToken.current;
+    if (!currentClientId) {
+      setHistoryRecords(null);
+      setHistoryPeriod(null);
+      return;
+    }
+    setHistoryLoading(true);
+    fetchHistoryMonthRecords(currentClientId, year, month)
+      .then(({ purchases, sales }) => {
+        if (token !== historyFetchToken.current) return;
+        setHistoryRecords({ purchases, sales });
+        setHistoryPeriod(monthKeyOf(year, month));
+      })
+      .catch((err) => {
+        if (token !== historyFetchToken.current) return;
+        console.warn('[Relief] history fetch failed, falling back to client cache:', err?.message || err);
+        setHistoryRecords(null);
+        setHistoryPeriod(null);
+      })
+      .finally(() => {
+        if (token === historyFetchToken.current) setHistoryLoading(false);
+      });
+  }, [currentClientId, year, month]);
   // These settings are RELIEF-only and are persisted per active business + tax month.
   const [nonCreditable, setNonCreditable] = useState(0);
   const [consolidateNoTinPurchases, setConsolidateNoTinPurchases] = useState(false);
@@ -444,7 +476,11 @@ export function Relief() {
 
   // ---- Sales: aggregate per buyer; amounts -> exempt / zero-rated / taxable / output tax ----
   const buildSalesRows = (year: number, month: number) => {
-    const sales = (currentClient?.sales || []) as any[];
+    // Source: Income History page records (shared fetch). Used only when the
+    // requested month matches the loaded snapshot; otherwise fall back to the
+    // AccountingContext client cache (needed for multi-month inquiry reports).
+    const useSnapshot = historyRecords && historyPeriod === monthKeyOf(year, month);
+    const sales = (useSnapshot ? historyRecords!.sales : (currentClient?.sales || [])) as any[];
     const inMonth = sales.filter(s => {
       const d = s.date ? new Date(s.date) : null;
       return d && d.getFullYear() === year && (d.getMonth() + 1) === month;
@@ -479,12 +515,16 @@ export function Relief() {
     }
     return named;
   };
-  const salesRows = useMemo(() => buildSalesRows(year, month), [currentClient, year, month]);
+  const salesRows = useMemo(() => buildSalesRows(year, month), [currentClient, year, month, historyRecords]);
 
   // ---- Purchases: TIN required; 6 amount buckets; month transfers ----
   const buildPurchases = (year: number, month: number) => {
     const monthKey = monthKeyOf(year, month);
-    const purchases = (currentClient?.purchases || []) as any[];
+    // Source: Expense History page records (shared fetch). Used only when the
+    // requested month matches the loaded snapshot; otherwise fall back to the
+    // AccountingContext client cache (needed for multi-month inquiry reports).
+    const useSnapshot = historyRecords && historyPeriod === monthKeyOf(year, month);
+    const purchases = (useSnapshot ? historyRecords!.purchases : (currentClient?.purchases || [])) as any[];
     const inMonth = purchases.filter(p => {
       const d = p.date ? new Date(p.date) : null;
       return d && d.getFullYear() === year && (d.getMonth() + 1) === month;
@@ -538,7 +578,7 @@ export function Relief() {
     return { purchaseRows: rows, noTinCount, transferredInCount };
   };
   const { purchaseRows, noTinCount, transferredInCount } = useMemo(() => buildPurchases(year, month),
-    [currentClient, year, month, monthKey, transfers, consolidateNoTinPurchases]);
+    [currentClient, year, month, monthKey, transfers, consolidateNoTinPurchases, historyRecords]);
 
   const movePurchaseRow = async (row: any, targetMonth: string) => {
     if (!canEditTransfers) { showToast('You do not have permission to edit RELIEF transfers.'); return; }
