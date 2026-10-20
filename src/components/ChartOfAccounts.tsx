@@ -213,20 +213,10 @@ function isSummaryAccountTitle(value: string): boolean {
   const token = normalizeHeaderToken(value);
   const hierarchyHeaders = new Set([
     'assets', 'currentassets', 'noncurrentassets', 'liabilities', 'currentliabilities', 'noncurrentliabilities',
-    // Typo variants taken verbatim from COA-CATEGORY.txt (LIABILTIES / NONCURRENT LIABLITIES).
-    'liabilties', 'noncurrentliablities',
     'equity', 'capital', 'revenue', 'operatingexpenses', 'sellingexpenses', 'generaladministrativeexpenses',
     'otherincomeexpenses', 'costofrevenueservicebusinesstype', 'costofsalesretailbusinesstype',
     'costofgoodsmanufacturedandsoldmanufacturingbusinesstype', 'costoftcontracts',
-    'costofcontractsconstructionfabricationcontractingbusinesstype',
-    // CONSTRACTION typo variant from COA-CATEGORY.txt.
-    'costofcontractsconstractionfabricationcontractingbusinesstype',
-    // Level 3 (last hierarchy) category names — never imported as posting accounts.
-    'cashandcashequivalents', 'tradeandotherreceivables', 'financialassets', 'inventories', 'biologicalassets',
-    'othercurrentassets', 'financialassetslongterm', 'investmentproperty', 'propertyplantandequipment',
-    'propertyplantandequipments', 'biologicalassetslongterm', 'intangibleassets', 'othernoncurrentassets',
-    'tradeandotherpayables', 'accruedexpenses', 'othercurrentliabilities', 'longtermborrowings',
-    'othernoncurrentliabilities', 'directmaterials', 'directlabor', 'subcontractedworks', 'overhead',
+    'costofcontractsconstructionfabricationcontractingbusinesstype'
   ]);
   return hierarchyHeaders.has(token) || /^(total|subtotal|grandtotal|netincome|netloss|grossprofit|grossloss|totalassets|totalliabilities|totalequity|totalrevenue|totalexpenses)/.test(token);
 }
