@@ -557,7 +557,11 @@ export function Relief() {
       const zeroAmt = explicitZero > 0 ? explicitZero : (isZeroType ? amt : 0);
       cur.exempt += exemptAmt;
       cur.zeroRated += zeroAmt;
-      const taxableAmt = Math.max(0, amt - exemptAmt - zeroAmt);
+      // `amount` on a purchase record is the VATable NET amount only — exempt
+      // and zero-rated values live in their own fields (exemptAmount /
+      // zeroRatedAmount) and are bucketed above. They must NOT be subtracted
+      // again from the net-of-VAT taxable amount (services / capital / goods).
+      const taxableAmt = Math.max(0, amt);
       if (taxableAmt > 0) {
         if (et.includes('service')) cur.services += taxableAmt;
         else if (et.includes('capital') || et.includes('asset')) cur.capital += taxableAmt;
