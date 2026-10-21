@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { BookOpen, Plus, Trash2, RefreshCcw, Edit2, ClipboardList, Check, X, Columns, ArrowUp, ArrowDown, Upload, MoreVertical } from 'lucide-react';
+import { BookOpen, Plus, Trash2, RefreshCcw, Edit2, ClipboardList, Check, X, Columns, Lock, ArrowUp, ArrowDown, Upload, MoreVertical } from 'lucide-react';
 import { flattenCoaHierarchy } from '../lib/coaImport';
 import { PageHeader } from './ui/PageHeader';
 import { Combobox } from './ui/Combobox';
@@ -1159,6 +1159,18 @@ export function ChartOfAccounts() {
 
   const displayRows = hierarchyMode ? flattenCoaHierarchy(accounts) : filteredAccounts;
 
+  // The 1st, 2nd and 3rd hierarchy levels written in COA-CATEGORY.txt (e.g. ASSETS >
+  // CURRENT ASSETS > CASH AND CASH EQUIVALENTS) are fixed: they cannot be edited,
+  // deleted or moved, so the hierarchy always stays in its fixed order.
+  const lockedHierarchyIds = new Set(
+    getCoaCategoryOptions(
+      isIndividualTaxpayer(currentClient?.taxpayerClassification) ? 'Individual' : 'Non-Individual',
+      resolveCoaTemplateBusinessType(currentClient?.industry),
+      accounts
+    ).filter(option => option.depth <= 2).map(option => option.id)
+  );
+  const FIXED_HIERARCHY_MESSAGE = 'This account is part of the fixed 1st–3rd hierarchy and cannot be edited, moved or deleted.';
+
   // Category choices for the upload review: the COA-CATEGORY.txt hierarchy for this
   // taxpayer classification and business type, resolved to the fixed COA's accounts.
   const reviewCategoryOptions = showUploadChoice
@@ -1581,6 +1593,7 @@ export function ChartOfAccounts() {
 
   const handleDelete = async (id: string) => {
     if (!canCoaAction('delete')) { showToast('Your profile does not have permission to delete accounts.'); return; }
+    if (lockedHierarchyIds.has(id)) { showToast(FIXED_HIERARCHY_MESSAGE); return; }
     const hasChildren = accounts.some(a => a.parentId === id);
     // Auto-close the gap: if this account sat evenly between two neighbors, shift
     // every later code in its group down by one step (safe — collisions abort).
@@ -1610,6 +1623,7 @@ export function ChartOfAccounts() {
 
   const handleSaveEdit = async (oldId: string) => {
     if (!canCoaAction('edit')) { showToast('Your profile does not have permission to edit accounts.'); return; }
+    if (lockedHierarchyIds.has(oldId)) { showToast(FIXED_HIERARCHY_MESSAGE); return; }
     const selectedTypePermission = coaTypeOptions.find((option) => option.value === editType)?.permission;
     if (!selectedTypePermission || !canCoaDropdown('account_type', selectedTypePermission)) { showToast('This account type is not permitted for your profile.'); return; }
     if (!editCode || !editName) {
@@ -1880,6 +1894,7 @@ export function ChartOfAccounts() {
     const idx = filteredAccounts.findIndex(a => a.id === id);
     if (idx <= 0) return; // already at the top or not found
     const neighbor = filteredAccounts[idx - 1];
+    if (lockedHierarchyIds.has(id) || lockedHierarchyIds.has(neighbor.id)) { showToast(FIXED_HIERARCHY_MESSAGE); return; }
     const result = performAccountSwap(id, neighbor.id);
     if (result) {
       showToast(`Moved "${result.nameA}" up.`);
@@ -1894,6 +1909,7 @@ export function ChartOfAccounts() {
     const idx = filteredAccounts.findIndex(a => a.id === id);
     if (idx === -1 || idx >= filteredAccounts.length - 1) return; // already at the bottom or not found
     const neighbor = filteredAccounts[idx + 1];
+    if (lockedHierarchyIds.has(id) || lockedHierarchyIds.has(neighbor.id)) { showToast(FIXED_HIERARCHY_MESSAGE); return; }
     const result = performAccountSwap(id, neighbor.id);
     if (result) {
       showToast(`Moved "${result.nameA}" down.`);
@@ -2143,7 +2159,7 @@ export function ChartOfAccounts() {
 
         {showUploadChoice && pendingUploadAnalysis && (
           <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
-            <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl w-full max-w-6xl shadow-2xl border border-slate-200 dark:border-slate-700 max-h-[90vh] overflow-y-auto">
+            <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl w-full max-w-7xl shadow-2xl border border-slate-200 dark:border-slate-700 max-h-[90vh] overflow-y-auto">
               <div className="flex justify-between items-start gap-4 mb-4">
                 <div>
                   <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100">Review Uploaded Chart of Accounts</h3>
@@ -2185,10 +2201,10 @@ export function ChartOfAccounts() {
                 <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden mb-5">
                   <div className="px-3 py-2 bg-slate-100 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
                     <div className="text-[10px] uppercase font-bold tracking-wide text-slate-500">Edit before applying</div>
-                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Change an account's type, choose which category of the COA hierarchy it belongs to, or move it within its section. Codes are regenerated automatically and stay 6 characters.</div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Change an account's type, choose its 2nd and 3rd hierarchy level, or move it within its section. Codes are regenerated automatically and stay 6 characters.</div>
                   </div>
-                  <div className="grid grid-cols-[36px_85px_minmax(0,1fr)_115px_minmax(220px,1.1fr)_125px_76px] gap-2 px-3 py-2 bg-slate-50 dark:bg-slate-900/60 text-[10px] uppercase font-bold tracking-wide text-slate-500">
-                    <div>#</div><div>Code</div><div>Account Title</div><div>Type</div><div>Category (COA Hierarchy)</div><div className="text-right">Opening / Prev. Year Bal.</div><div className="text-center">Move</div>
+                  <div className="grid grid-cols-[32px_80px_minmax(0,1fr)_110px_minmax(95px,0.55fr)_minmax(165px,0.9fr)_minmax(190px,1fr)_115px_72px] gap-2 px-3 py-2 bg-slate-50 dark:bg-slate-900/60 text-[10px] uppercase font-bold tracking-wide text-slate-500">
+                    <div>#</div><div>Code</div><div>Account Title</div><div>Type</div><div>1st Hierarchy</div><div>2nd Hierarchy</div><div>3rd Hierarchy</div><div className="text-right">Opening / Prev. Year Bal.</div><div className="text-center">Move</div>
                   </div>
                   <div className="max-h-96 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
                     {pendingReviewAccounts.map((account, index) => {
@@ -2199,7 +2215,7 @@ export function ChartOfAccounts() {
                       const canMoveUp = positionInType > 0;
                       const canMoveDown = positionInType >= 0 && positionInType < sameTypeIndexes.length - 1;
                       return (
-                        <div key={`${account.id}-${index}`} className="grid grid-cols-[36px_85px_minmax(0,1fr)_115px_minmax(220px,1.1fr)_125px_76px] gap-2 px-3 py-2 items-center text-xs">
+                        <div key={`${account.id}-${index}`} className="grid grid-cols-[32px_80px_minmax(0,1fr)_110px_minmax(95px,0.55fr)_minmax(165px,0.9fr)_minmax(190px,1fr)_115px_72px] gap-2 px-3 py-2 items-center text-xs">
                           <div className="text-[10px] text-slate-400 font-mono">{index + 1}</div>
                           <div className="font-mono font-bold text-indigo-700 dark:text-indigo-300" title="Automatically assigned">{account.id}</div>
                           <div className="font-semibold text-slate-800 dark:text-slate-100 truncate">{account.name}</div>
@@ -2214,23 +2230,54 @@ export function ChartOfAccounts() {
                               ))}
                             </select>
                           </div>
-                          <div>
-                            <select
-                              value={account.parentId || ''}
-                              onChange={e => updatePendingReviewCategory(account.id, e.target.value)}
-                              className="w-full form-input text-xs py-1.5 px-2 bg-white dark:bg-slate-800"
-                              title="Choose where this account belongs in the COA hierarchy"
-                            >
-                              {!account.parentId && <option value="">Unassigned category</option>}
-                              {reviewCategoryOptions
-                                .filter(option => categoryAcceptsType(option.type, account.type) || option.id === account.parentId)
-                                .map(option => (
-                                  <option key={option.id} value={option.id}>
-                                    {'\u00A0\u00A0\u00A0'.repeat(option.depth)}{option.title}
-                                  </option>
-                                ))}
-                            </select>
-                          </div>
+                          {(() => {
+                            // 1st = statement section (ASSETS), 2nd = classification (CURRENT ASSETS),
+                            // 3rd = account group (CASH AND CASH EQUIVALENTS), all from COA-CATEGORY.txt.
+                            const section = reviewCategoryOptions.filter(option => categoryAcceptsType(option.type, account.type));
+                            const first = section.find(option => option.depth === 0);
+                            const selectedIndex = section.findIndex(option => option.id === account.parentId);
+                            const selected = selectedIndex >= 0 ? section[selectedIndex] : undefined;
+                            const secondOptions = section.filter(option => option.depth === 1);
+                            let second = selected && selected.depth === 1 ? selected : undefined;
+                            if (selected && selected.depth >= 2) {
+                              for (let i = selectedIndex - 1; i >= 0; i--) { if (section[i].depth === 1) { second = section[i]; break; } }
+                            }
+                            const thirdOptions: typeof section = [];
+                            if (second) {
+                              for (let i = section.indexOf(second) + 1; i < section.length && section[i].depth >= 2; i++) thirdOptions.push(section[i]);
+                            }
+                            const third = selected && selected.depth >= 2 ? selected : undefined;
+                            const selectClass = 'w-full form-input text-xs py-1.5 px-2 bg-white dark:bg-slate-800 disabled:opacity-50';
+                            return (
+                              <>
+                                <div className="text-[10px] leading-4 font-semibold text-slate-600 dark:text-slate-300" title="Fixed — follows the account type">{first?.title || '—'}</div>
+                                <div>
+                                  <select
+                                    value={second?.id || ''}
+                                    disabled={secondOptions.length === 0}
+                                    onChange={e => updatePendingReviewCategory(account.id, e.target.value || first?.id || '')}
+                                    className={selectClass}
+                                    title="Choose the 2nd hierarchy level"
+                                  >
+                                    <option value="">{secondOptions.length === 0 ? '—' : '(none)'}</option>
+                                    {secondOptions.map(option => <option key={option.id} value={option.id}>{option.title}</option>)}
+                                  </select>
+                                </div>
+                                <div>
+                                  <select
+                                    value={third?.id || ''}
+                                    disabled={thirdOptions.length === 0}
+                                    onChange={e => updatePendingReviewCategory(account.id, e.target.value || second?.id || first?.id || '')}
+                                    className={selectClass}
+                                    title="Choose the 3rd hierarchy level"
+                                  >
+                                    <option value="">{thirdOptions.length === 0 ? '—' : '(none)'}</option>
+                                    {thirdOptions.map(option => <option key={option.id} value={option.id}>{option.title}</option>)}
+                                  </select>
+                                </div>
+                              </>
+                            );
+                          })()}
                           <div className="text-right font-mono text-slate-700 dark:text-slate-200">
                             {(() => {
                               const v = isNominalAccountType(account.type) ? account.previousYearBalance : account.openingBalance;
@@ -2610,7 +2657,10 @@ export function ChartOfAccounts() {
                                     <span className="text-text-muted font-mono text-base ml-2 select-none">↳</span>
                                   )}
                                   <div className="flex flex-col">
-                                    <span>{account.name}</span>
+                                    <span className="inline-flex items-center gap-1.5">
+                                      {account.name}
+                                      {lockedHierarchyIds.has(account.id) && <Lock className="w-3 h-3 text-slate-400" aria-label="Fixed hierarchy" />}
+                                    </span>
                                     {parentAccount && (
                                       <span className="text-[11px] text-indigo-600 dark:text-indigo-300 font-semibold tracking-wide mt-0.5">
                                         Parent: {parentAccount.name} ({account.parentId})
@@ -2672,80 +2722,89 @@ export function ChartOfAccounts() {
 
                               {openActionMenuId === account.id && (
                                 <div className={cn("absolute right-0 w-44 bg-surface border border-border rounded-lg shadow-pop py-1 z-30 text-left font-sans", index >= displayRows.length - 2 && displayRows.length > 3 ? "bottom-full mb-1" : "top-full mt-1")}>
-                                  {canCoaAction('edit') && <button
-                                    onClick={() => {
-                                      setEditingId(account.id);
-                                      setEditCode(account.id);
-                                      setEditName(account.name);
-                                      setEditType(account.type);
-                                      setEditNormalSide(account.normalSide || getNormalSide(account.type));
-                                      setEditParentId(account.parentId || '');
-                                      {
-                                        const v = isNominalAccountType(account.type) ? (account.previousYearBalance ?? account.openingBalance) : account.openingBalance;
-                                        setEditOpeningBalance(v !== undefined ? String(v) : '');
-                                      }
-                                      setEditModalTab('details');
-
-                                      // Collect custom fields
-                                      const editingMap: Record<string, string> = {};
-                                      coaColumns.forEach(c => {
-                                        if (!c.isSystem && c.id !== 'normalSide') {
-                                          editingMap[c.id] = account[c.id] || '';
+                                  {lockedHierarchyIds.has(account.id) ? (
+                                    <div className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-500 dark:text-slate-400 cursor-default" title={FIXED_HIERARCHY_MESSAGE}>
+                                      <Lock className="w-3.5 h-3.5" />
+                                      Fixed hierarchy
+                                    </div>
+                                  ) : (
+                                    <>
+                                    {canCoaAction('edit') && <button
+                                      onClick={() => {
+                                        setEditingId(account.id);
+                                        setEditCode(account.id);
+                                        setEditName(account.name);
+                                        setEditType(account.type);
+                                        setEditNormalSide(account.normalSide || getNormalSide(account.type));
+                                        setEditParentId(account.parentId || '');
+                                        {
+                                          const v = isNominalAccountType(account.type) ? (account.previousYearBalance ?? account.openingBalance) : account.openingBalance;
+                                          setEditOpeningBalance(v !== undefined ? String(v) : '');
                                         }
-                                      });
-                                      setEditCustomValues(editingMap);
-                                      setOpenActionMenuId(null);
-                                    }}
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
-                                  >
-                                    <Edit2 className="w-3.5 h-3.5" />
-                                    Edit Account
-                                  </button>}
-                                  <button
-                                    onClick={() => {
-                                      handleMoveUp(account.id);
-                                      setOpenActionMenuId(null);
-                                    }}
-                                    disabled={index === 0}
-                                    className={cn(
-                                      "w-full flex items-center gap-2 px-3 py-2 text-xs font-medium transition-colors",
-                                      index === 0
-                                        ? "text-slate-300 dark:text-slate-700 cursor-not-allowed"
-                                        : "text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30"
-                                    )}
-                                  >
-                                    <ArrowUp className="w-3.5 h-3.5" />
-                                    Move Up
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      handleMoveDown(account.id);
-                                      setOpenActionMenuId(null);
-                                    }}
-                                    disabled={index === displayRows.length - 1}
-                                    className={cn(
-                                      "w-full flex items-center gap-2 px-3 py-2 text-xs font-medium transition-colors",
-                                      index === displayRows.length - 1
-                                        ? "text-slate-300 dark:text-slate-700 cursor-not-allowed"
-                                        : "text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30"
-                                    )}
-                                  >
-                                    <ArrowDown className="w-3.5 h-3.5" />
-                                    Move Down
-                                  </button>
-                                  <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
-                                  {canCoaAction('delete') && <button
-                                    onClick={() => {
-                                      handleDelete(account.id);
-                                      setOpenActionMenuId(null);
-                                    }}
-                                    disabled={!canDelete}
-                                    title={canDelete ? 'Delete Account' : 'Delete Transactions permission not granted'}
-                                    className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                    Delete Account
-                                  </button>}
+                                        setEditModalTab('details');
+
+                                        // Collect custom fields
+                                        const editingMap: Record<string, string> = {};
+                                        coaColumns.forEach(c => {
+                                          if (!c.isSystem && c.id !== 'normalSide') {
+                                            editingMap[c.id] = account[c.id] || '';
+                                          }
+                                        });
+                                        setEditCustomValues(editingMap);
+                                        setOpenActionMenuId(null);
+                                      }}
+                                      className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors"
+                                    >
+                                      <Edit2 className="w-3.5 h-3.5" />
+                                      Edit Account
+                                    </button>}
+                                    <button
+                                      onClick={() => {
+                                        handleMoveUp(account.id);
+                                        setOpenActionMenuId(null);
+                                      }}
+                                      disabled={index === 0}
+                                      className={cn(
+                                        "w-full flex items-center gap-2 px-3 py-2 text-xs font-medium transition-colors",
+                                        index === 0
+                                          ? "text-slate-300 dark:text-slate-700 cursor-not-allowed"
+                                          : "text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30"
+                                      )}
+                                    >
+                                      <ArrowUp className="w-3.5 h-3.5" />
+                                      Move Up
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        handleMoveDown(account.id);
+                                        setOpenActionMenuId(null);
+                                      }}
+                                      disabled={index === displayRows.length - 1}
+                                      className={cn(
+                                        "w-full flex items-center gap-2 px-3 py-2 text-xs font-medium transition-colors",
+                                        index === displayRows.length - 1
+                                          ? "text-slate-300 dark:text-slate-700 cursor-not-allowed"
+                                          : "text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/30"
+                                      )}
+                                    >
+                                      <ArrowDown className="w-3.5 h-3.5" />
+                                      Move Down
+                                    </button>
+                                    <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
+                                    {canCoaAction('delete') && <button
+                                      onClick={() => {
+                                        handleDelete(account.id);
+                                        setOpenActionMenuId(null);
+                                      }}
+                                      disabled={!canDelete}
+                                      title={canDelete ? 'Delete Account' : 'Delete Transactions permission not granted'}
+                                      className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                      Delete Account
+                                    </button>}
+                                    </>
+                                  )}
                                 </div>
                               )}
                             </div>
