@@ -1003,6 +1003,10 @@ export function ChartOfAccounts() {
     return saved || defaultColumns;
   }, [currentClient?.coaColumns]);
 
+  // The Normal Entry column is hidden on the COA page; it is still available in the
+  // Add Account / Edit Account modals.
+  const visibleCoaColumns = coaColumns.filter(c => c.id !== 'normalSide');
+
   const handleAddColumn = () => {
     if (!canCoaAction('manage')) { showToast('Your profile does not have permission to manage Chart of Accounts columns.'); return; }
     if (!newColumnName.trim()) {
@@ -1647,9 +1651,16 @@ export function ChartOfAccounts() {
     // every later code in its group down by one step (safe — collisions abort).
     // Deleting a fixed 3rd-level group must not renumber the other hierarchy codes,
     // so the gap-closing renumber is skipped for it.
-    const { accounts: shiftedAccounts, renames } = lockedHierarchyIds.has(id)
-      ? { accounts: accounts.filter(a => a.id !== id).map(a => a.parentId === id ? { ...a, parentId: undefined } : a), renames: new Map<string, string>() }
+    const closeGap = lockedHierarchyIds.has(id)
+      ? { accounts, renames: new Map<string, string>() }
       : shiftDownAfterDeletion(accounts, id);
+    const renames = closeGap.renames;
+    // shiftDownAfterDeletion only returns a list without the deleted account when it
+    // renumbers; in every other case the account itself must still be removed here
+    // (previously it was left in place, so the delete appeared to do nothing).
+    const shiftedAccounts = renames.size > 0
+      ? closeGap.accounts
+      : accounts.filter(a => a.id !== id).map(a => a.parentId === id ? { ...a, parentId: undefined } : a);
 
     let question = "Are you sure you want to delete this account?";
     if (hasChildren) {
@@ -2657,7 +2668,7 @@ export function ChartOfAccounts() {
             <table className="w-full min-w-[860px] text-left border-collapse">
               <thead>
                 <tr className="bg-surface-muted border-b border-border text-[11px] font-bold text-text-secondary uppercase tracking-wider">
-                  {coaColumns.map(col => {
+                  {visibleCoaColumns.map(col => {
                     let widthClass = "";
                     if (col.id === 'id') widthClass = "w-[110px]";
                     if (col.id === 'type') widthClass = "w-[140px]";
@@ -2674,7 +2685,7 @@ export function ChartOfAccounts() {
               <tbody className="divide-y divide-border">
                 {displayRows.length === 0 ? (
                   <tr>
-                    <td colSpan={coaColumns.length + 1} className="px-4 py-16 text-center">
+                    <td colSpan={visibleCoaColumns.length + 1} className="px-4 py-16 text-center">
                       <ClipboardList className="w-8 h-8 mx-auto text-text-muted mb-2" />
                       <p className="text-sm font-semibold text-text-secondary">No accounts found</p>
                       <p className="text-xs text-text-muted mt-1">Add an account to get started.</p>
@@ -2693,7 +2704,7 @@ export function ChartOfAccounts() {
                           "group hover:bg-surface-muted transition-colors",
                         )}
                       >
-                        {coaColumns.map(col => {
+                        {visibleCoaColumns.map(col => {
                           if (col.id === 'id') {
                             return (
                               <td key={col.id} className="px-4 py-3 font-mono text-text-secondary text-[13px] font-medium tabular-nums">
