@@ -30,7 +30,6 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     navigateToPage,
     setHistoryTab,
     setBirFormTab,
-    birFormTab,
     setReliefTab,
     syncData,
     isSyncing,

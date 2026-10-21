@@ -95,10 +95,8 @@ export interface EBirFormOption {
   period: 'monthly' | 'quarterly' | 'adhoc';
   category: 'vat' | 'percentage' | 'withholding' | 'income' | 'payment';
 }
-// NOTE: Monthly BIR Form 2550M was DISCONTINUED under RMC No. 5-2023 — only the
-// quarterly 2550Q remains for VAT filers. Old/discontinued form versions are
-// intentionally excluded; only current (latest) BIR form editions are listed.
 export const EBIR_FORMS: EBirFormOption[] = [
+  { id: '2550M', title: 'BIR Form 2550M — Monthly Value-Added Tax Declaration', period: 'monthly', category: 'vat' },
   { id: '2550Q', title: 'BIR Form 2550Q — Quarterly Value-Added Tax Return', period: 'quarterly', category: 'vat' },
   { id: '2551Q', title: 'BIR Form 2551Q — Quarterly Percentage Tax Return', period: 'quarterly', category: 'percentage' },
   { id: '0619-E', title: 'BIR Form 0619-E — Monthly Remittance of Expanded Withholding Tax', period: 'monthly', category: 'withholding' },
@@ -200,44 +198,134 @@ export function computeEBirFormValues(
     rdoCode: String(client.rdoCode || ''),
     registeredName: client.registeredName || client.name || '',
     tradeName: client.name || '',
-    address: (client as any).address || '',
+    address: client.address || '',
     lineItems,
     totalTaxPayable,
     currency: 'PHP',
   };
 }
 
-/**
- * Generate an eBIRForms-compatible XML data file. The Offline eBIRForms Package
- * stores form data as XML keyed by form version + field item numbers; this
- * export mirrors that structure so the file can be opened/imported by the
- * offline app (File > Open / Import) and validated with its built-in rules.
- */
-export function downloadEBirFormXml(values: EBirFormValues) {
-  const period = values.quarter ? `Q${values.quarter} ${values.year}` : (values.month ? `${String(values.month).padStart(2,'0')}/${values.year}` : String(values.year));
-  const lines: string[] = [];
-  lines.push('<?xml version="1.0" encoding="UTF-8"?>');
-  lines.push('<eBIRForms version="7.9.6.2" source="CAPOT Books">');
-  lines.push(`  <Form type="${esc(values.formType)}" period="${esc(period)}">`);
-  lines.push(`    <Taxpayer tin="${esc(values.tin)}" rdo="${esc(values.rdoCode)}">`);
-  lines.push(`      <RegisteredName>${esc(values.registeredName)}</RegisteredName>`);
-  lines.push(`      <TradeName>${esc(values.tradeName)}</TradeName>`);
-  lines.push(`      <Address>${esc(values.address)}</Address>`);
-  lines.push('    </Taxpayer>');
-  lines.push('    <LineItems>');
-  for (const it of values.lineItems) {
-    lines.push(`      <Item no="${esc(it.itemNo)}" label="${esc(it.label)}">${fmt2(it.value)}</Item>`);
+/** Official VAT rate cells (from taxRate.xml) — used by 2550M/2550Q. */
+export const EBIR_VAT_RATE = Number(TAX_RATE_CELLS['frm2550qv2024:hiddenVatRate']?.value || 12) / 100; // 0.12
+
+/** Build the official cell-ID list for a form (subset of TAX_RATE_CELLS for that form). */
+export function taxRateCellsForForm(formId: string) {
+  const prefix = 'frm' + formId.toLowerCase();
+  return Object.entries(TAX_RATE_CELLS).filter(([k]) => k.toLowerCase().startsWith(prefix));
+}
+
+/** Official eBIRForms cell-ID prefix (lowercase form id). */
+export function ebirCellPrefix(formType: string): string {
+  return 'frm' + formType.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+const urlEnc = (s: any) => encodeURIComponent(String(s ?? '')).replace(/'/g, '%27');
+const numFmt = (n: number) => (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** Build the official field list (cellId -> value) for a form, in savefile order. */
+export function buildOfficialSaveFields(values: EBirFormValues, ledger: EBirLedgerData): Array<{ cellId: string; value: string }> {
+  const p = ebirCellPrefix(values.formType);
+  const tin = values.tin || '000000000';
+  const tin1 = tin.slice(0, 3), tin2 = tin.slice(3, 6), tin3 = tin.slice(6, 9);
+  const branch = '00000'.slice(0, 5) || '00000';
+  const f: Array<{ cellId: string; value: string }> = [];
+  const add = (id: string, v: any) => f.push({ cellId: `${p}:${id}`, value: String(v ?? '') });
+
+  // --- Period / amendment flags (common) ---
+  if (values.quarter) {
+    add('OptQuarter1', values.quarter === 1 ? 'true' : 'false');
+    add('OptQuarter2', values.quarter === 2 ? 'true' : 'false');
+    add('OptQuarter3', values.quarter === 3 ? 'true' : 'false');
+    add('OptQuarter4', values.quarter === 4 ? 'true' : 'false');
+  } else if (values.month) {
+    add('RtnMonth', String(values.month));
+    add('txtMonth', String(values.month));
   }
-  lines.push('    </LineItems>');
-  lines.push(`    <TotalTaxPayable>${fmt2(values.totalTaxPayable)}</TotalTaxPayable>`);
-  lines.push('  </Form>');
-  lines.push('</eBIRForms>');
+  add('txtYear', String(values.year));
+  add('txtSheets', '1');
+  add('AmendedRtn_1', 'false');
+  add('AmendedRtn_2', 'true');
+
+  // --- Taxpayer block (field names vary slightly by form; emit both variants) ---
+  add('txtTIN1', tin1); add('txtTIN2', tin2); add('txtTIN3', tin3);
+  add('txtTin1', tin1); add('txtTin2', tin2); add('txtTin3', tin3);
+  add('txtBranchCode', branch);
+  add('txtRDOCode', values.rdoCode);
+  add('txtRdoCode', values.rdoCode);
+  add('txtTaxpayerName', urlEnc(values.registeredName));
+  add('txtTaxPayerName', urlEnc(values.registeredName));
+  add('txtTaxpayerName1', urlEnc(values.registeredName));
+  add('txtAddress', urlEnc(values.address));
+  add('txtTaxPayerAdd', urlEnc(values.address));
+  add('txtZipCode', '');
+  add('txtTaxPayerZip', '');
+  add('txtTelNum', '');
+  add('txtLineBus', urlEnc('GENERAL SERVICES'));
+  add('txtDescription', urlEnc('GENERAL SERVICES'));
+
+  // --- Form-specific line items ---
+  if (values.formType.startsWith('2550')) {
+    add('txt14A', numFmt(ledger.outputTax));
+    add('txt18A', numFmt(ledger.goodsInputTax));
+    add('txt18B', numFmt(ledger.servicesInputTax));
+    add('txt18C', numFmt(ledger.capitalGoodsInputTax));
+    add('txt20', numFmt(ledger.inputTax));
+    add('txt21', numFmt(values.totalTaxPayable));
+  } else if (values.formType === '2551Q') {
+    add('txt15', numFmt(ledger.salesTotal));
+    add('txt16', '3');
+    add('txt17', numFmt(values.totalTaxPayable));
+  } else if (values.formType === '0619-E' || values.formType === '1601-EQ') {
+    add('txtAtc', ledger.ewtByAtc.map(e => e.atcCode).join(' '));
+    add('txtTaxTypeCode', 'WE');
+    for (let idx = 0; idx < Math.min(ledger.ewtByAtc.length, 10); idx++) {
+      const e = ledger.ewtByAtc[idx];
+      add(`txtAtc${idx + 1}`, e.atcCode);
+      add(`txtBase${idx + 1}`, numFmt(e.baseAmount));
+      add(`txtRate${idx + 1}`, String(e.rate));
+      add(`txtWht${idx + 1}`, numFmt(e.taxWithheld));
+    }
+    add('txtTotalTaxWithheld', numFmt(values.totalTaxPayable));
+  } else if (values.formType === '1601-C') {
+    add('txt16', numFmt(ledger.compensationWithholding));
+  } else if (values.formType === '0605') {
+    add('txtATC', 'MC350');
+    add('txtTaxTypeCode', 'MA');
+    add('txt18A', numFmt(values.totalTaxPayable));
+  } else {
+    // 1701Q / 1702Q — income tax
+    add('txt16C', numFmt(ledger.salesTotal));
+    add('txt20C', numFmt(ledger.purchasesTotal + ledger.expensesTotal));
+    add('txt26B', numFmt(Math.max(0, ledger.salesTotal - ledger.purchasesTotal - ledger.expensesTotal)));
+    add('txt30', numFmt(values.totalTaxPayable));
+  }
+  return f;
+}
+
+/**
+ * Generate an official eBIRForms save file (plain XML, savefile/ format).
+ * Format (reverse-engineered from 475 real saved forms in v7.9.6.1):
+ *   <?xml version='1.0'?>
+ *   <div>frm{FORM}:{FIELD}=VALUEfrm{FORM}:{FIELD}=</div>   (one per field, URL-encoded)
+ * The file can be dropped into the official app's savefile/ folder and opened
+ * via File → Open; the app then validates and (on submit) runs Encrypt.exe +
+ * ebfSFTP.exe SFTP upload. Filename convention: {TIN}-{FORM}v{VER}-{PERIOD}#{email}#.xml
+ */
+export function downloadEBirFormXml(values: EBirFormValues, ledger: EBirLedgerData, currentClient?: any) {
+  const fields = buildOfficialSaveFields(values, ledger);
+  const lines: string[] = ["<?xml version='1.0'?>"];
+  for (const { cellId, value } of fields) {
+    lines.push(`            <div>${cellId}=${value}${cellId}=</div>`);
+  }
+  lines.push("            All Rights Reserved BIR 2012.");
   const xml = lines.join('\n');
   const blob = new Blob([xml], { type: 'application/xml' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `eBIRForm_${values.formType}_${values.year}${values.quarter ? '_Q'+values.quarter : values.month ? '_'+String(values.month).padStart(2,'0') : ''}.xml`;
+  const periodStr = values.quarter ? `${values.year}Q${values.quarter}` : (values.month ? `${values.year}${String(values.month).padStart(2, '0')}` : String(values.year));
+  const emailTag = (currentClient && (currentClient as any).email) ? String((currentClient as any).email) : 'capotbooks';
+  a.download = `${values.tin}-${values.formType}v2018-${periodStr}#${emailTag}#.xml`;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   return xml;
@@ -278,3 +366,103 @@ export function printEBirForm(values: EBirFormValues) {
   if (w) { w.document.write(html); w.document.close(); }
   return html;
 }
+
+// Official eBIRForms tax-rate cell map — extracted from Offline eBIRForms Package
+// v7.9.6.2 xml/taxRate.xml. Each key is the official cell ID used by the form's
+// tax-rate-helper.js (frm{FORM}:{FIELD}); value is divided by 100 at runtime.
+export const TAX_RATE_CELLS: Record<string, { value: string; text: string }> = {
+  "frm1602Q:fntSched1TaxRate1": { value: "20", text: "20%" },
+  "frm1602Q:fntSched1TaxRate2": { value: "20", text: "20%" },
+  "frm1602Q:fntSched1TaxRate3": { value: "20", text: "20%" },
+  "frm1602Q:fntSched1TaxRate4": { value: "20", text: "20%" },
+  "frm1602Q:fntSched1TaxRate5": { value: "20", text: "20%" },
+  "frm1602Q:fntSched1TaxRate6": { value: "20", text: "20%" },
+  "frm1602Q:fntSched1TaxRate7": { value: "20", text: "20%" },
+  "frm1602Q:fntSched1TaxRate8": { value: "20", text: "20%" },
+  "frm1602Q:fntSched1TaxRate9": { value: "20", text: "20%" },
+  "frm1602Q:fntSched1TaxRate10": { value: "12", text: "12%" },
+  "frm1602Q:fntSched1TaxRate11": { value: "5", text: "5%" },
+  "frm1602Q:fntSched1TaxRate12": { value: "20", text: "20%" },
+  "frm1602Q:txtSched1TaxRate13": { value: "0.00", text: "0%" },
+  "frm1602Q:txtSched1TaxRate14": { value: "0.00", text: "0%" },
+  "frm1602Q:txtSched1TaxRate15": { value: "6", text: "6%" },
+  "frm1603Q:Sched1:txtDivisor1": { value: "65%", text: "65%" },
+  "frm1603Q:Sched1:txtTaxRate1": { value: "35%", text: "35%" },
+  "frm1603Q:Sched1:txtDivisor2": { value: "75%", text: "75%" },
+  "frm1603Q:Sched1:txtTaxRate2": { value: "25%", text: "25%" },
+  "frm1621:txtTaxRate": { value: "6.0%", text: "6.0%" },
+  "frm1702EX:txtPg2Pt4I40TaxRate": { value: "0", text: "0" },
+  "frm1702RT:Pg2Pt4I40IncomeTaxRate": { value: "30%", text: "0" },
+  "frm1702q:Sched1:txtTax10A": { value: "10.00", text: "0.00" },
+  "frm1707Av2021:txtI16ApplicableTaxRate": { value: "15", text: "15" },
+  "taxClassIndiv": { value: "", text: "15%" },
+  "taxClassCorpDomestic": { value: "", text: "15%" },
+  "taxClassCorpForeign": { value: "", text: "15%" },
+  "appDonorsTaxRate": { value: "0.06", text: "                          6%" },
+  "lessExemptGift": { value: "250000", text: "                   250,000.00" },
+  "frm1801v2018:txtTaxRate": { value: "0.06", text: "" },
+  "frm2200Av2020:txtSched1_1A_2020_ATR": { value: "0.20", text: "20%" },
+  "frm2200Av2020:txtSched1_1A_2020B_ATR": { value: "0.21", text: "21%" },
+  "frm2200Av2020:txtSched1_1A_2021_ATR": { value: "0.22", text: "22%" },
+  "frm2200Av2020:txtSched1_1A_2021_ATR": { value: "0.22", text: "22%" },
+  "frm2200Av2020:txtSched1_1A_2021_ATR": { value: "0.22", text: "22%" },
+  "frm2200Av2020:txtSched1_1A_2021_ATR": { value: "0.22", text: "22%" },
+  "frm2200Av2020:txtSched1_1B_2020_ATR": { value: "24.34", text: "24.34" },
+  "frm2200Av2020:txtSched1_1B_2020B_ATR": { value: "42.00", text: "42.00" },
+  "frm2200Av2020:txtSched1_1B_2021_ATR": { value: "47.00", text: "47.00" },
+  "frm2200Av2020:txtSched1_1B_2022_ATR": { value: "52.00", text: "52.00" },
+  "frm2200Av2020:txtSched1_1B_2023_ATR": { value: "59.00", text: "59.00" },
+  "frm2200Av2020:txtSched1_1B_2024_ATR": { value: "66.00", text: "66.00" },
+  "frm2200Av2020:txtSched1_2A_2020_ATR": { value: "328.98", text: "328.98" },
+  "frm2200Av2020:txtSched1_2A_2020B_ATR": { value: "50.00", text: "50.00" },
+  "frm2200Av2020:txtSched1_2A_2021_ATR": { value: "53.00", text: "53.00" },
+  "frm2200Av2020:txtSched1_2A_2022_ATR": { value: "56.18", text: "56.18" },
+  "frm2200Av2020:txtSched1_2A_2023_ATR": { value: "59.55", text: "59.55" },
+  "frm2200Av2020:txtSched1_2A_2024_ATR": { value: "63.12", text: "63.12" },
+  "frm2200Av2020:txtSched1_2A_2020A_ATR": { value: "921.15", text: "921.15" },
+  "frm2200Av2020:txtSched1_2A_2020B2_ATR": { value: "50.00", text: "50.00" },
+  "frm2200Av2020:txtSched1_2A_2021B_ATR": { value: "53.00", text: "53.00" },
+  "frm2200Av2020:txtSched1_2A_2022B_ATR": { value: "56.18", text: "56.18" },
+  "frm2200Av2020:txtSched1_2A_2023B_ATR": { value: "59.55", text: "59.55" },
+  "frm2200Av2020:txtSched1_2A_2024B_ATR": { value: "63.12", text: "63.12" },
+  "frm2200Av2020:txtSched1_2B_2020_ATR": { value: "39.48", text: "39.48" },
+  "frm2200Av2020:txtSched1_2B_2020B_ATR": { value: "50.00", text: "50.00" },
+  "frm2200Av2020:txtSched1_2B_2021_ATR": { value: "53.00", text: "53.00" },
+  "frm2200Av2020:txtSched1_2B_2022_ATR": { value: "56.18", text: "56.18" },
+  "frm2200Av2020:txtSched1_2B_2023_ATR": { value: "59.55", text: "59.55" },
+  "frm2200Av2020:txtSched1_2B_2024_ATR": { value: "63.12", text: "63.12" },
+  "frm2200Av2020:txtSched1_2C_2020_ATR": { value: "78.96", text: "78.96" },
+  "frm2200Av2020:txtSched1_2C_2020B_ATR": { value: "50.00", text: "50.00" },
+  "frm2200Av2020:txtSched1_2C_2021_ATR": { value: "53.00", text: "53.00" },
+  "frm2200Av2020:txtSched1_2C_2022_ATR": { value: "56.18", text: "56.18" },
+  "frm2200Av2020:txtSched1_2C_2023_ATR": { value: "59.55", text: "59.55" },
+  "frm2200Av2020:txtSched1_2C_2024_ATR": { value: "63.12", text: "63.12" },
+  "frm2200Av2020:txtSched1_2D_2020_ATR": { value: "0.0", text: "Taxed as distilled spirits" },
+  "frm2200Av2020:txtSched1_2D_2020B_ATR": { value: "50.00", text: "50.00" },
+  "frm2200Av2020:txtSched1_2D_2021_ATR": { value: "53.00", text: "53.00" },
+  "frm2200Av2020:txtSched1_2D_2022_ATR": { value: "56.18", text: "56.18" },
+  "frm2200Av2020:txtSched1_2D_2023_ATR": { value: "59.55", text: "59.55" },
+  "frm2200Av2020:txtSched1_2D_2024_ATR": { value: "63.12", text: "63.12" },
+  "frm2200Av2020:txtSched1_3A_2020_ATR": { value: "26.43", text: "26.43" },
+  "frm2200Av2020:txtSched1_3A_2020B_ATR": { value: "35.00", text: "35.00" },
+  "frm2200Av2020:txtSched1_3A_2021_ATR": { value: "37.00", text: "37.00" },
+  "frm2200Av2020:txtSched1_3A_2022_ATR": { value: "39.00", text: "39.00" },
+  "frm2200Av2020:txtSched1_3A_2023_ATR": { value: "41.00", text: "41.00" },
+  "frm2200Av2020:txtSched1_3A_2024_ATR": { value: "43.00", text: "43.00" },
+  "frm2200Av2020:txtSched1_3A_2020A_ATR": { value: "26.43", text: "26.43" },
+  "frm2200Av2020:txtSched1_3B_2020B2_ATR": { value: "35.00", text: "35.00" },
+  "frm2200Av2020:txtSched1_3A_2021B_ATR": { value: "37.00", text: "37.00" },
+  "frm2200Av2020:txtSched1_3A_2022B_ATR": { value: "39.00", text: "39.00" },
+  "frm2200Av2020:txtSched1_3A_2023B_ATR": { value: "41.00", text: "41.00" },
+  "frm2200Av2020:txtSched1_3A_2024B_ATR": { value: "43.00", text: "43.00" },
+  "frm2200Av2020:txtSched1_3B_2020_ATR": { value: "36.85", text: "36.85" },
+  "frm2200Av2020:txtSched1_3B_2020B_ATR": { value: "35.00", text: "35.00" },
+  "frm2200Av2020:txtSched1_3B_2021_ATR": { value: "37.00", text: "37.00" },
+  "frm2200Av2020:txtSched1_3B_2022_ATR": { value: "39.00", text: "39.00" },
+  "frm2200Av2020:txtSched1_3B_2023_ATR": { value: "41.00", text: "41.00" },
+  "frm2200Av2020:txtSched1_3B_2024_ATR": { value: "43.00", text: "43.00" },
+  "exciseTaxColumnH": { value: "0.05", text: "5%" },
+  "vatColumnI": { value: "0.12", text: "12%" },
+  "frm2550ds:vatRate": { value: "12.00%", text: "" },
+  "frm2550qv2024:hiddenVatRate": { value: "12.0", text: "" },
+};
