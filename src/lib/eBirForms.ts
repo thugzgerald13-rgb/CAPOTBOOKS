@@ -413,8 +413,9 @@ export function buildOfficialSaveFields(values: EBirFormValues, ledger: EBirLedg
  * via File → Open; the app then validates and (on submit) runs Encrypt.exe +
  * ebfSFTP.exe SFTP upload. Filename convention: {TIN}-{FORM}v{VER}-{PERIOD}#{email}#.xml
  */
-export function downloadEBirFormXml(values: EBirFormValues, ledger: EBirLedgerData, currentClient?: any) {
-  const fields = buildOfficialSaveFields(values, ledger);
+export function downloadEBirFormXml(values: EBirFormValues, ledger?: EBirLedgerData, currentClient?: any) {
+  const led: EBirLedgerData = ledger || { salesTotal:0, vatableSales:0, zeroRatedSales:0, exemptSales:0, outputTax:0, purchasesTotal:0, vatablePurchases:0, inputTax:0, capitalGoodsInputTax:0, servicesInputTax:0, goodsInputTax:0, ewtTotal:0, ewtByAtc:[], compensationWithholding:0, expensesTotal:0 };
+  const fields = buildOfficialSaveFields(values, led);
   const lines: string[] = ["<?xml version='1.0'?>"];
   for (const { cellId, value } of fields) {
     lines.push(`            <div>${cellId}=${value}${cellId}=</div>`);

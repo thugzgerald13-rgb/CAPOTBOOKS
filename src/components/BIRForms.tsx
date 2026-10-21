@@ -626,6 +626,7 @@ export function BIRForms() {
       )}
       {/* eBIRForms Generator — activated from BIR dropdown > eBIRForms */}
       {birFormTab === 'ebirforms' && (() => {
+        try {
         const ebirFormDef = EBIR_FORMS.find(f => f.id === ebirForm) || EBIR_FORMS[0];
         const allSales = (currentClient?.sales || []) as any[];
         const allPurchases = (currentClient?.purchases || []) as any[];
@@ -721,6 +722,7 @@ export function BIRForms() {
             </div>
           </div>
         );
+        } catch (e) { console.error('eBIRForms panel error:', e); return null; }
       })()}
       <div className="mb-4 flex justify-end">
         <button type="button" onClick={handleDownloadBirPdf} disabled={!canExport || !canViewActiveBirForm} title={canExport && canViewActiveBirForm ? 'Download Form PDF' : 'Export or BIR form permission not granted'} className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-sm disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed">
