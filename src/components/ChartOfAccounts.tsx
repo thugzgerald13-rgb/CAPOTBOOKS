@@ -1197,6 +1197,25 @@ export function ChartOfAccounts() {
 
   const displayRows = hierarchyMode ? flattenCoaHierarchy(accounts) : filteredAccounts;
 
+  // Derive indentation from actual parent links so hierarchy rows and postable
+  // accounts line up visually without arrows or repeated parent-name labels.
+  const accountById = new Map<string, CoaAccount>();
+  accounts.forEach(account => accountById.set(account.id, account));
+  const getAccountDepth = (account: CoaAccount): number => {
+    let depth = 0;
+    let parentId = account.parentId;
+    const visited = new Set<string>([account.id]);
+    while (parentId) {
+      if (visited.has(parentId)) break;
+      const parent = accountById.get(parentId);
+      if (!parent) break;
+      visited.add(parentId);
+      depth += 1;
+      parentId = parent.parentId;
+    }
+    return depth;
+  };
+
   // The 1st, 2nd and 3rd hierarchy levels written in COA-CATEGORY.txt (e.g. ASSETS >
   // CURRENT ASSETS > CASH AND CASH EQUIVALENTS) are fixed: they cannot be edited or
   // moved, so the hierarchy always stays in its fixed order. The 1st and 2nd levels
@@ -2724,8 +2743,8 @@ export function ChartOfAccounts() {
                 ) : (
                   displayRows.map((account, index) => {
                     const balanceValue = displayedBalance(account);
-
-                    const parentAccount = account.parentId ? accounts.find(a => a.id === account.parentId) : null;
+                    const hierarchyDepth = getAccountDepth(account);
+                    const hierarchyIndent = 16 + hierarchyDepth * 18;
 
                     return (
                       <tr 
@@ -2737,30 +2756,18 @@ export function ChartOfAccounts() {
                         {visibleCoaColumns.map(col => {
                           if (col.id === 'id') {
                             return (
-                              <td key={col.id} className="px-4 py-3 font-mono text-text-secondary text-[13px] font-medium tabular-nums">
+                              <td key={col.id} className="px-4 py-3 font-mono text-text-secondary text-[13px] font-medium tabular-nums" style={{ paddingLeft: `${hierarchyIndent}px` }}>
                                 {account.id}
                               </td>
                             );
                           }
                           if (col.id === 'name') {
                             return (
-                              <td key={col.id} className="px-4 py-3 font-sans font-semibold text-text-primary text-sm leading-6">
-                                <div className="flex items-start gap-2">
-                                  {account.parentId && (
-                                    <span className="text-text-muted font-mono text-base ml-2 select-none">↳</span>
-                                  )}
-                                  <div className="flex flex-col">
-                                    <span className="inline-flex items-center gap-1.5">
-                                      {account.name}
-                                      {lockedHierarchyIds.has(account.id) && <Lock className="w-3 h-3 text-slate-400" aria-label="Fixed hierarchy" />}
-                                    </span>
-                                    {parentAccount && (
-                                      <span className="text-[11px] text-indigo-600 dark:text-indigo-300 font-semibold tracking-wide mt-0.5">
-                                        Parent: {parentAccount.name} ({account.parentId})
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
+                              <td key={col.id} className="px-4 py-3 font-sans font-semibold text-text-primary text-sm leading-6" style={{ paddingLeft: `${hierarchyIndent}px` }}>
+                                <span className="inline-flex items-center gap-1.5">
+                                  {account.name}
+                                  {lockedHierarchyIds.has(account.id) && <Lock className="w-3 h-3 text-slate-400" aria-label="Fixed hierarchy" />}
+                                </span>
                               </td>
                             );
                           }
