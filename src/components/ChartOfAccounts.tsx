@@ -319,6 +319,25 @@ function recodeImportedReviewAccounts(
     return code;
   };
 
+  // Numeric format: a postable account's code sits under its hierarchy parent, e.g.
+  // ASSETS 100000 > CURRENT ASSETS 110000 > CASH AND CASH EQUIVALENTS 111000 >
+  // postable 111100, 111200, ... (steps of 100 below the parent; finer steps of 10
+  // then 1 only if those 9 slots are taken). Returns null when the parent has no
+  // six-digit numeric code, in which case the type-based code is used instead.
+  const takeCodeUnderParent = (parentId?: string): string | null => {
+    if (!parentId || !/^\d{6}$/.test(parentId)) return null;
+    const parentNumber = Number(parentId);
+    let unit = 1;
+    while (unit < 100000 && parentNumber % (unit * 10) === 0) unit *= 10;
+    for (let step = Math.min(unit / 10, 100); step >= 1; step /= 10) {
+      for (let i = 1; i <= 9; i++) {
+        const code = String(parentNumber + step * i).padStart(6, '0');
+        if (!usedIds.has(code)) { usedIds.add(code); return code; }
+      }
+    }
+    return null;
+  };
+
   const nextAlphaByPrefix = new Map<string, number>();
   const takeAlphaCode = (type: string): string => {
     const prefix = TYPE_ALPHA_PREFIX[type] || 'GN';
@@ -339,7 +358,7 @@ function recodeImportedReviewAccounts(
   const idMap = new Map<string, string>();
   const resultWithIds = ordered.map(account => {
     const newId = format === 'numeric'
-      ? takeNumericCode(account.type)
+      ? (takeCodeUnderParent(account.parentId) ?? takeNumericCode(account.type))
       : takeAlphaCode(account.type);
     idMap.set(String(account.id), newId);
     return { ...account, id: newId };
@@ -1429,15 +1448,20 @@ export function ChartOfAccounts() {
       const regrouped = changed
         ? [...edited.filter(account => account.id !== accountId), changed]
         : edited;
-      return recodeImportedReviewAccounts(regrouped, currentClient.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric');
+      return recodeImportedReviewAccounts(regrouped, reviewFormat, reviewFixedAccounts);
     });
   };
 
   // Lets the user choose which COA-CATEGORY.txt category an uploaded postable
-  // account belongs to. Only the parent changes; the code stays as assigned.
+  // account belongs to. The code is regenerated under the new parent.
   const updatePendingReviewCategory = (accountId: string, parentId: string) => {
-    setPendingReviewAccounts(prev => prev.map(account =>
-      account.id === accountId ? { ...account, parentId: parentId || undefined } : account
+    const reviewFormat = currentClient.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric';
+    const reviewFixedAccounts = defaultAccountsFor(currentClient?.taxpayerClassification, reviewFormat, currentClient?.industry);
+    // The code follows the hierarchy, so it is regenerated under the new parent.
+    setPendingReviewAccounts(prev => recodeImportedReviewAccounts(
+      prev.map(account => account.id === accountId ? { ...account, parentId: parentId || undefined } : account),
+      reviewFormat,
+      reviewFixedAccounts
     ));
   };
 
@@ -1451,7 +1475,11 @@ export function ChartOfAccounts() {
 
       const next = [...prev];
       [next[index], next[target]] = [next[target], next[index]];
-      return recodeImportedReviewAccounts(next, currentClient.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric');
+      return recodeImportedReviewAccounts(
+        next,
+        currentClient.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric',
+        defaultAccountsFor(currentClient?.taxpayerClassification, currentClient.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric', currentClient?.industry)
+      );
     });
   };
 
@@ -1542,24 +1570,21 @@ export function ChartOfAccounts() {
     const baseAccounts = overwrite
       ? fixedAccounts
       : [...fixedAccounts, ...accounts.filter(existing => !fixedAccounts.some(def => String(def.id) === String(existing.id)))];
-    const recoded = recodeImportedReviewAccounts(reviewAccounts, format, baseAccounts);
     const businessType = resolveCoaTemplateBusinessType(currentClient?.industry);
-    const finalAccounts = recoded.map(account => {
+    // Resolve each account's category first (the one chosen in the review step, or
+    // the automatic one) so its code is generated under that category.
+    const categorised = reviewAccounts.map(account => {
       const normalizedType = normalizeUploadedType(account.type).type;
       const taxpayerType = isIndividualTaxpayer(currentClient?.taxpayerClassification)
         ? (normalizedType === 'Equity' ? 'Capital' : normalizedType)
         : (normalizedType === 'Capital' ? 'Equity' : normalizedType);
       const normalizedAccount = { ...account, type: taxpayerType, normalSide: getNormalSide(taxpayerType) };
-      // Keep the category chosen in the review step; fall back to the automatic
-      // category only when none was chosen or it is not in the chart.
       const chosenParentId = account.parentId && baseAccounts.some(base => String(base.id) === String(account.parentId))
         ? account.parentId
         : undefined;
-      return {
-        ...normalizedAccount,
-        parentId: chosenParentId ?? fixedHierarchyParent(normalizedAccount, baseAccounts, businessType),
-      };
+      return { ...normalizedAccount, parentId: chosenParentId ?? fixedHierarchyParent(normalizedAccount, baseAccounts, businessType) };
     });
+    const finalAccounts = recodeImportedReviewAccounts(categorised, format, baseAccounts);
     const analysis = pendingUploadAnalysis;
 
     clearPendingUploadReview();
@@ -2201,7 +2226,7 @@ export function ChartOfAccounts() {
                 <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden mb-5">
                   <div className="px-3 py-2 bg-slate-100 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
                     <div className="text-[10px] uppercase font-bold tracking-wide text-slate-500">Edit before applying</div>
-                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Change an account's type, choose its 2nd and 3rd hierarchy level, or move it within its section. Codes are regenerated automatically and stay 6 characters.</div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Change an account's type, choose its 2nd and 3rd hierarchy level, or move it within its section. Codes follow the hierarchy (numeric format) and are regenerated automatically; they stay 6 characters.</div>
                   </div>
                   <div className="grid grid-cols-[32px_80px_minmax(0,1fr)_110px_minmax(95px,0.55fr)_minmax(165px,0.9fr)_minmax(190px,1fr)_115px_72px] gap-2 px-3 py-2 bg-slate-50 dark:bg-slate-900/60 text-[10px] uppercase font-bold tracking-wide text-slate-500">
                     <div>#</div><div>Code</div><div>Account Title</div><div>Type</div><div>1st Hierarchy</div><div>2nd Hierarchy</div><div>3rd Hierarchy</div><div className="text-right">Opening / Prev. Year Bal.</div><div className="text-center">Move</div>
@@ -2217,7 +2242,7 @@ export function ChartOfAccounts() {
                       return (
                         <div key={`${account.id}-${index}`} className="grid grid-cols-[32px_80px_minmax(0,1fr)_110px_minmax(95px,0.55fr)_minmax(165px,0.9fr)_minmax(190px,1fr)_115px_72px] gap-2 px-3 py-2 items-center text-xs">
                           <div className="text-[10px] text-slate-400 font-mono">{index + 1}</div>
-                          <div className="font-mono font-bold text-indigo-700 dark:text-indigo-300" title="Automatically assigned">{account.id}</div>
+                          <div className="font-mono font-bold text-indigo-700 dark:text-indigo-300" title="Automatically assigned under its hierarchy parent">{account.id}</div>
                           <div className="font-semibold text-slate-800 dark:text-slate-100 truncate">{account.name}</div>
                           <div>
                             <select
