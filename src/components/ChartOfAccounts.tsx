@@ -11,6 +11,7 @@ import { supabase } from '../lib/supabase';
 import { CoaAccount } from '../types';
 import { cn } from '../lib/utils';
 import { balanceFor } from '../lib/accountingBalances';
+import { allCoaCategoryTitles, categoryAcceptsType, findCategoryAccountId, getCoaCategoryNodes, getCoaCategoryOptions } from '../lib/coaCategory';
 
 import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide, isNominalAccountType, getDefaultAccountsForIndustry, sortAccountsChronologically } from '../lib/journalDefaults';
 export { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide };
@@ -768,7 +769,11 @@ function resolveCoaTemplateBusinessType(industry?: import('../types').ClientIndu
   return 'Service';
 }
 
+// Fixed-format headings. The list below is retained, and every title written in
+// COA-CATEGORY.txt is added so editing that file keeps its headings out of the
+// imported posting accounts.
 const FIXED_COA_GROUP_TITLES = new Set([
+  ...allCoaCategoryTitles(),
   'ASSETS', 'CURRENT ASSETS', 'CASH AND CASH EQUIVALENTS', 'TRADE AND OTHER RECEIVABLES', 'FINANCIAL ASSETS', 'INVENTORIES', 'BIOLOGICAL ASSETS', 'OTHER CURRENT ASSETS',
   'NONCURRENT ASSETS', 'FINANCIAL ASSETS LONG-TERM', 'INVESTMENT PROPERTY', 'PROPERTY, PLANT AND EQUIPMENTS', 'BIOLOGICAL ASSETS - LONG-TERM', 'INTANGIBLE ASSETS', 'OTHER NONCURRENT ASSETS',
   'LIABILTIES', 'LIABILITIES', 'CURRENT LIABILITIES', 'TRADE AND OTHER PAYABLES', 'ACCRUED EXPENSES', 'OTHER CURRENT LIABILITIES', 'NONCURRENT LIABLITIES', 'NONCURRENT LIABILITIES', 'LONG-TERM BORROWINGS', 'OTHER NONCURRENT LIABILITIES',
@@ -835,8 +840,12 @@ function fixedHierarchyParent(account: CoaAccount, fixedAccounts: CoaAccount[], 
 
   const byName = new Map(fixedAccounts.map(a => [fixedTitleKey(a.name), a]));
   for (const name of targetNames) {
+    // Exact title first; then the spelling/suffix tolerant COA-CATEGORY.txt match
+    // (e.g. the cost-section header, whose stored title differs from the txt).
     const found = byName.get(fixedTitleKey(name));
     if (found) return found.id;
+    const tolerant = findCategoryAccountId(name, fixedAccounts);
+    if (tolerant) return tolerant;
   }
   const matchingType = fixedAccounts.filter(a => normalizeUploadedType(a.type).type === type);
   const fallback = matchingType.find(a => a.isHeader) || matchingType[0];
@@ -857,37 +866,16 @@ function onlyPostableUploadedAccounts(imported: CoaAccount[], fixedAccounts: Coa
 }
 
 function downloadFixedCoaTemplate(classification: 'Individual' | 'Non-Individual', businessType: CoaTemplateBusinessType): void {
-  // This hierarchy follows COA-CATEGORY.txt. Section/category rows are non-postable;
+  // This hierarchy is read from COA-CATEGORY.txt. Section/category rows are non-postable;
   // taxpayers add their own detail accounts under the appropriate category.
-  const ownerTitle = classification === 'Individual' ? 'CAPITAL' : 'EQUITY';
   const rows: Array<Array<string>> = [
     ['Account Code', 'Account Title', 'Account Type', 'Hierarchy Level', 'Parent Account Code', 'Postable', 'Opening Balance', 'Previous Year Balance'],
   ];
-  const add = (title: string, type: string, level: number, postable = 'NO') =>
-    rows.push(['', title, type, String(level), '', postable, '', '']);
-
-  add('ASSETS', 'Asset', 1);
-  add('CURRENT ASSETS', 'Asset', 2);
-  ['CASH AND CASH EQUIVALENTS', 'TRADE AND OTHER RECEIVABLES', 'FINANCIAL ASSETS', 'INVENTORIES', 'BIOLOGICAL ASSETS', 'OTHER CURRENT ASSETS']
-    .forEach(title => add(title, 'Asset', 3));
-  add('NONCURRENT ASSETS', 'Asset', 2);
-  ['FINANCIAL ASSETS LONG-TERM', 'INVESTMENT PROPERTY', 'PROPERTY, PLANT AND EQUIPMENTS', 'BIOLOGICAL ASSETS - LONG-TERM', 'INTANGIBLE ASSETS', 'OTHER NONCURRENT ASSETS']
-    .forEach(title => add(title, 'Asset', 3));
-  add('LIABILTIES', 'Liabilities', 1);
-  add('CURRENT LIABILITIES', 'Liabilities', 2);
-  ['TRADE AND OTHER PAYABLES', 'ACCRUED EXPENSES', 'OTHER CURRENT LIABILITIES'].forEach(title => add(title, 'Liabilities', 3));
-  add('NONCURRENT LIABLITIES', 'Liabilities', 2);
-  ['LONG-TERM BORROWINGS', 'OTHER NONCURRENT LIABILITIES'].forEach(title => add(title, 'Liabilities', 3));
-  add(ownerTitle, classification === 'Individual' ? 'Capital' : 'Equity', 1);
-  add('REVENUE', 'Revenue', 1);
-  const costTitle = COA_TEMPLATE_GROUPS[businessType][0];
-  add(costTitle, 'Costs', 1);
-  if (businessType === 'Manufacturing') ['DIRECT MATERIALS', 'DIRECT LABOR', 'OVERHEAD'].forEach(title => add(title, 'Costs', 2));
-  if (businessType === 'Construction/Fabrication/Contracting') ['DIRECT MATERIALS', 'DIRECT LABOR', 'SUBCONTRACTED WORKS', 'OVERHEAD'].forEach(title => add(title, 'Costs', 2));
-  add('OPERATING EXPENSES', 'Expense', 1);
-  add('SELLING EXPENSES', 'Expense', 2);
-  add('GENERAL & ADMINISTRATIVE EXPENSES', 'Expense', 2);
-  add('OTHER INCOME/(EXPENSES)', 'Other Income', 1);
+  // Rows come straight from COA-CATEGORY.txt (spelling retained). Every hierarchy
+  // row is non-postable; Hierarchy Level is the txt indentation depth + 1.
+  getCoaCategoryNodes(classification, businessType).forEach(node =>
+    rows.push(['', node.title, node.type, String(node.depth + 1), '', 'NO', '', ''])
+  );
 
   const csv = rows.map(row => row.map(value => `"${String(value).replace(/"/g, '""')}"`).join(',')).join('\r\n');
   const blob = new Blob(['\ufeff', csv], { type: 'text/csv;charset=utf-8;' });
@@ -1170,6 +1158,20 @@ export function ChartOfAccounts() {
     : accounts.filter(a => a.type.toLowerCase() === typeFilter.toLowerCase());
 
   const displayRows = hierarchyMode ? flattenCoaHierarchy(accounts) : filteredAccounts;
+
+  // Category choices for the upload review: the COA-CATEGORY.txt hierarchy for this
+  // taxpayer classification and business type, resolved to the fixed COA's accounts.
+  const reviewCategoryOptions = showUploadChoice
+    ? getCoaCategoryOptions(
+        isIndividualTaxpayer(currentClient?.taxpayerClassification) ? 'Individual' : 'Non-Individual',
+        resolveCoaTemplateBusinessType(currentClient?.industry),
+        defaultAccountsFor(
+          currentClient?.taxpayerClassification,
+          currentClient?.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric',
+          currentClient?.industry
+        )
+      )
+    : [];
   const typeBadgeClass = (type: string) => {
     const t = (type || '').toLowerCase();
     if (t.startsWith('asset')) return 'bg-blue-50 text-blue-700 ring-blue-600/15 dark:bg-blue-500/10 dark:text-blue-300 dark:ring-blue-400/20';
@@ -1395,12 +1397,17 @@ export function ChartOfAccounts() {
   };
 
   const updatePendingReviewType = (accountId: string, type: string) => {
+    const reviewFormat = currentClient.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric';
+    const reviewFixedAccounts = defaultAccountsFor(currentClient?.taxpayerClassification, reviewFormat, currentClient?.industry);
+    const reviewBusinessType = resolveCoaTemplateBusinessType(currentClient?.industry);
     setPendingReviewAccounts(prev => {
-      const edited = prev.map(account =>
-        account.id === accountId
-          ? moveBalanceForType({ ...account, type, normalSide: getNormalSide(type) })
-          : account
-      );
+      const edited = prev.map(account => {
+        if (account.id !== accountId) return account;
+        const retyped = moveBalanceForType({ ...account, type, normalSide: getNormalSide(type) });
+        // The previous category belongs to the old type's section, so the account
+        // is re-categorised automatically; the user can then pick another category.
+        return { ...retyped, parentId: fixedHierarchyParent(retyped, reviewFixedAccounts, reviewBusinessType) };
+      });
 
       // Re-group the edited account under its new type and automatically issue
       // new six-character codes for the entire imported set. Moving the changed
@@ -1412,6 +1419,14 @@ export function ChartOfAccounts() {
         : edited;
       return recodeImportedReviewAccounts(regrouped, currentClient.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric');
     });
+  };
+
+  // Lets the user choose which COA-CATEGORY.txt category an uploaded postable
+  // account belongs to. Only the parent changes; the code stays as assigned.
+  const updatePendingReviewCategory = (accountId: string, parentId: string) => {
+    setPendingReviewAccounts(prev => prev.map(account =>
+      account.id === accountId ? { ...account, parentId: parentId || undefined } : account
+    ));
   };
 
   const movePendingReviewAccount = (accountId: string, direction: -1 | 1) => {
@@ -1523,9 +1538,14 @@ export function ChartOfAccounts() {
         ? (normalizedType === 'Equity' ? 'Capital' : normalizedType)
         : (normalizedType === 'Capital' ? 'Equity' : normalizedType);
       const normalizedAccount = { ...account, type: taxpayerType, normalSide: getNormalSide(taxpayerType) };
+      // Keep the category chosen in the review step; fall back to the automatic
+      // category only when none was chosen or it is not in the chart.
+      const chosenParentId = account.parentId && baseAccounts.some(base => String(base.id) === String(account.parentId))
+        ? account.parentId
+        : undefined;
       return {
         ...normalizedAccount,
-        parentId: fixedHierarchyParent(normalizedAccount, baseAccounts, businessType),
+        parentId: chosenParentId ?? fixedHierarchyParent(normalizedAccount, baseAccounts, businessType),
       };
     });
     const analysis = pendingUploadAnalysis;
@@ -2148,7 +2168,7 @@ export function ChartOfAccounts() {
               <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 dark:border-blue-900/50 dark:bg-blue-950/20 p-3 text-xs text-blue-800 dark:text-blue-200">
                 <div className="font-bold mb-1">Smart import</div>
                 <div>{pendingUploadAnalysis.detectedColumns.join(' • ')}</div>
-                <div className="mt-1">The default hierarchy is fixed for this taxpayer classification and business type. Only postable/detail accounts from the uploaded file are added; each is assigned to the deepest matching default category. Uploaded headings and group rows do not replace the fixed format.</div>
+                <div className="mt-1">The default hierarchy is fixed for this taxpayer classification and business type. Only postable/detail accounts from the uploaded file are added; each is assigned to the deepest matching default category, which you can change below. Uploaded headings and group rows do not replace the fixed format.</div>
               </div>
 
               <div className="mb-4 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50 dark:bg-indigo-950/20 p-3">
@@ -2165,10 +2185,10 @@ export function ChartOfAccounts() {
                 <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden mb-5">
                   <div className="px-3 py-2 bg-slate-100 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
                     <div className="text-[10px] uppercase font-bold tracking-wide text-slate-500">Edit before applying</div>
-                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Change an account type or move it within its section. Codes are regenerated automatically and stay 6 characters.</div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Change an account's type, choose which category of the COA hierarchy it belongs to, or move it within its section. Codes are regenerated automatically and stay 6 characters.</div>
                   </div>
-                  <div className="grid grid-cols-[36px_85px_minmax(0,1fr)_115px_minmax(150px,0.8fr)_125px_76px] gap-2 px-3 py-2 bg-slate-50 dark:bg-slate-900/60 text-[10px] uppercase font-bold tracking-wide text-slate-500">
-                    <div>#</div><div>Code</div><div>Account Title</div><div>Type</div><div>Fixed Hierarchy Category</div><div className="text-right">Opening / Prev. Year Bal.</div><div className="text-center">Move</div>
+                  <div className="grid grid-cols-[36px_85px_minmax(0,1fr)_115px_minmax(220px,1.1fr)_125px_76px] gap-2 px-3 py-2 bg-slate-50 dark:bg-slate-900/60 text-[10px] uppercase font-bold tracking-wide text-slate-500">
+                    <div>#</div><div>Code</div><div>Account Title</div><div>Type</div><div>Category (COA Hierarchy)</div><div className="text-right">Opening / Prev. Year Bal.</div><div className="text-center">Move</div>
                   </div>
                   <div className="max-h-96 overflow-y-auto divide-y divide-slate-100 dark:divide-slate-800">
                     {pendingReviewAccounts.map((account, index) => {
@@ -2179,13 +2199,10 @@ export function ChartOfAccounts() {
                       const canMoveUp = positionInType > 0;
                       const canMoveDown = positionInType >= 0 && positionInType < sameTypeIndexes.length - 1;
                       return (
-                        <div key={`${account.id}-${index}`} className="grid grid-cols-[36px_85px_minmax(0,1fr)_115px_minmax(150px,0.8fr)_125px_76px] gap-2 px-3 py-2 items-center text-xs">
+                        <div key={`${account.id}-${index}`} className="grid grid-cols-[36px_85px_minmax(0,1fr)_115px_minmax(220px,1.1fr)_125px_76px] gap-2 px-3 py-2 items-center text-xs">
                           <div className="text-[10px] text-slate-400 font-mono">{index + 1}</div>
                           <div className="font-mono font-bold text-indigo-700 dark:text-indigo-300" title="Automatically assigned">{account.id}</div>
                           <div className="font-semibold text-slate-800 dark:text-slate-100 truncate">{account.name}</div>
-                          <div className="text-[10px] leading-4 text-slate-600 dark:text-slate-300" title="Assigned to the deepest matching category in the fixed COA">
-                            {defaultAccountsFor(currentClient?.taxpayerClassification, currentClient?.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric', currentClient?.industry).find(item => item.id === fixedHierarchyParent(account, defaultAccountsFor(currentClient?.taxpayerClassification, currentClient?.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric', currentClient?.industry), resolveCoaTemplateBusinessType(currentClient?.industry)))?.name || 'Unassigned category'}
-                          </div>
                           <div>
                             <select
                               value={account.type}
@@ -2195,6 +2212,23 @@ export function ChartOfAccounts() {
                               {ACCOUNT_TYPES.filter(type => type !== (isIndividualTaxpayer(currentClient?.taxpayerClassification) ? 'Equity' : 'Capital')).map(type => (
                                 <option key={type} value={type}>{type}</option>
                               ))}
+                            </select>
+                          </div>
+                          <div>
+                            <select
+                              value={account.parentId || ''}
+                              onChange={e => updatePendingReviewCategory(account.id, e.target.value)}
+                              className="w-full form-input text-xs py-1.5 px-2 bg-white dark:bg-slate-800"
+                              title="Choose where this account belongs in the COA hierarchy"
+                            >
+                              {!account.parentId && <option value="">Unassigned category</option>}
+                              {reviewCategoryOptions
+                                .filter(option => categoryAcceptsType(option.type, account.type) || option.id === account.parentId)
+                                .map(option => (
+                                  <option key={option.id} value={option.id}>
+                                    {'\u00A0\u00A0\u00A0'.repeat(option.depth)}{option.title}
+                                  </option>
+                                ))}
                             </select>
                           </div>
                           <div className="text-right font-mono text-slate-700 dark:text-slate-200">
