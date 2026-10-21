@@ -11,7 +11,7 @@ import { supabase } from '../lib/supabase';
 import { CoaAccount } from '../types';
 import { cn } from '../lib/utils';
 import { balanceFor } from '../lib/accountingBalances';
-import { allCoaCategoryTitles, categoryAcceptsType, findCategoryAccountId, getCoaCategoryNodes, getCoaCategoryOptions } from '../lib/coaCategory';
+import { allCoaCategoryTitles, categoryAcceptsType, categoryTitleKey, findCategoryAccountId, getCoaCategoryNodes, getCoaCategoryOptions } from '../lib/coaCategory';
 
 import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide, isNominalAccountType, getDefaultAccountsForIndustry, sortAccountsChronologically } from '../lib/journalDefaults';
 export { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide };
@@ -802,6 +802,21 @@ const FIXED_COA_GROUP_TITLES = new Set([
 ]);
 const fixedTitleKey = (value: string) => normalizeHeaderToken(value).replace(/equipments/g, 'equipment').replace(/liabilties/g, 'liabilities');
 
+// The four cost-section labels in COA-CATEGORY.txt are business-type-specific.
+// categoryTitleKey intentionally tolerates older stored labels whose suffix differs.
+const FIXED_COST_SECTION_KEYS = new Set(
+  allCoaCategoryTitles()
+    .filter(title => /^COST OF /i.test(title.trim()))
+    .map(categoryTitleKey)
+);
+function isFixedCostSectionTitle(title: string): boolean {
+  return FIXED_COST_SECTION_KEYS.has(categoryTitleKey(title));
+}
+function isCostHierarchyHeading(title: string): boolean {
+  return isFixedCostSectionTitle(title)
+    || fixedTitleKey(title) === fixedTitleKey('COST OF REVENUE / COST OF SALES');
+}
+
 /** Return the fixed COA's deepest category node for an uploaded posting account. */
 function fixedHierarchyParent(account: CoaAccount, fixedAccounts: CoaAccount[], businessType: CoaTemplateBusinessType): string | undefined {
   const title = account.name.toLowerCase();
@@ -877,7 +892,7 @@ function onlyPostableUploadedAccounts(imported: CoaAccount[], fixedAccounts: Coa
   return imported.filter(account => {
     const key = fixedTitleKey(account.name);
     // Fixed-format hierarchy headings are never imported as posting accounts.
-    if (fixedNames.has(key)) return false;
+    if (fixedNames.has(key) || isCostHierarchyHeading(account.name)) return false;
     // When the file has no explicit Postable column, a row with children is a group, not a posting account.
     if (parentIds.has(account.id)) return false;
     return true;
@@ -1594,10 +1609,10 @@ export function ChartOfAccounts() {
       }
       return false;
     };
+    const businessType = resolveCoaTemplateBusinessType(currentClient?.industry);
     const baseAccounts = overwrite
       ? fixedAccounts
       : [...fixedAccounts.filter(def => !underDroppedGroup(def)), ...accounts.filter(existing => !fixedAccounts.some(def => String(def.id) === String(existing.id)))];
-    const businessType = resolveCoaTemplateBusinessType(currentClient?.industry);
     // Resolve each account's category first (the one chosen in the review step, or
     // the automatic one) so its code is generated under that category.
     const categorised = reviewAccounts.map(account => {

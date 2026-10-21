@@ -156,12 +156,6 @@ const COMMON_ACCOUNT_SEEDS: AccountSeed[] = [
   // 420000 SERVICE INCOME (shows rollup — industry detail accounts appended below)
   { numericId: '420000', alphaId: 'RESVC1', name: 'SERVICE INCOME', type: 'Revenue', normalSide: 'credit', parentNumericId: '400000', parentAlphaId: 'REVNU1' },
 
-  // ===== 500000 COST section top header (shows rollup — NOT NO AMOUNT).
-  //       The specific sub-header (COST OF REVENUE - SERVICE / COST OF SALES -
-  //       RETAIL / COST OF GOODS MANUFACTURED AND SOLD / COST OF CONTRACTS) is
-  //       supplied by the industry preset below at code 510000. =====
-  { numericId: '500000', alphaId: 'COSTR1', name: 'COST OF REVENUE / COST OF SALES', type: 'Costs', normalSide: 'debit' },
-
   // ===== 600000 OPERATING EXPENSES (shows rollup — NOT NO AMOUNT) =====
   { numericId: '600000', alphaId: 'EXPN11', name: 'OPERATING EXPENSES', type: 'Expense', normalSide: 'debit' },
   // 610000 SELLING EXPENSES (shows rollup — industry detail accounts appended below)
@@ -212,10 +206,10 @@ const COMMON_ACCOUNT_SEEDS: AccountSeed[] = [
   { numericId: '821000', alphaId: 'FINX01', name: 'Interest and Finance Expense', type: 'Other Expense', normalSide: 'debit', parentNumericId: '820000', parentAlphaId: 'OEINT1' },
 ];
 // ---------------------------------------------------------------------------
-// INDUSTRY-SPECIFIC SEEDS — appended under the matching COA group via parentId.
-// Each industry supplies its own cost-section sub-header at 510000 (parent
-// 500000) plus its selling-expense detail under 610000 and inventory/sales
-// detail under the appropriate common groups.
+// INDUSTRY-SPECIFIC SEEDS — only the selected industry's cost section is included.
+// Each industry supplies exactly one top-level cost section at 510000, with
+// the title identifying which business type it applies to. The selected
+// industry's seeds are the only cost-section seeds returned for a client.
 // ---------------------------------------------------------------------------
 const INDUSTRY_ACCOUNT_SEEDS: Record<ClientIndustry, AccountSeed[]> = {
   retail: [
@@ -225,8 +219,8 @@ const INDUSTRY_ACCOUNT_SEEDS: Record<ClientIndustry, AccountSeed[]> = {
     // Sales (under 410000 SALES)
     { numericId: '413000', alphaId: 'RETL01', name: 'Retail Sales Revenue', type: 'Revenue', normalSide: 'credit', parentNumericId: '410000', parentAlphaId: 'RESAL1' },
     { numericId: '414000', alphaId: 'ONLS01', name: 'Online Sales Revenue', type: 'Revenue', normalSide: 'credit', parentNumericId: '410000', parentAlphaId: 'RESAL1' },
-    // Cost section: COST OF SALES - RETAIL BUSINESS TYPE (under 500000)
-    { numericId: '510000', alphaId: 'CORET1', name: 'COST OF SALES - RETAIL BUSINESS TYPE', type: 'Costs', normalSide: 'debit', parentNumericId: '500000', parentAlphaId: 'COSTR1' },
+    // Cost section: COST OF SALES - RETAIL BUSINESS TYPE
+    { numericId: '510000', alphaId: 'CORET1', name: 'COST OF SALES - RETAIL BUSINESS TYPE', type: 'Costs', normalSide: 'debit' },
     { numericId: '511000', alphaId: 'COPUR1', name: 'PURCHASES', type: 'Costs', normalSide: 'debit', parentNumericId: '510000', parentAlphaId: 'CORET1' },
     { numericId: '511100', alphaId: 'COGS01', name: 'Cost of Goods Sold - Merchandise', type: 'Costs', normalSide: 'debit', parentNumericId: '511000', parentAlphaId: 'COPUR1' },
     { numericId: '512000', alphaId: 'COFRI1', name: 'FREIGHT-IN', type: 'Costs', normalSide: 'debit', parentNumericId: '510000', parentAlphaId: 'CORET1' },
@@ -244,8 +238,8 @@ const INDUSTRY_ACCOUNT_SEEDS: Record<ClientIndustry, AccountSeed[]> = {
     { numericId: '421000', alphaId: 'SRVC01', name: 'Professional and Service Revenue', type: 'Revenue', normalSide: 'credit', parentNumericId: '420000', parentAlphaId: 'RESVC1' },
     { numericId: '422000', alphaId: 'CONS01', name: 'Consulting Revenue', type: 'Revenue', normalSide: 'credit', parentNumericId: '420000', parentAlphaId: 'RESVC1' },
     { numericId: '423000', alphaId: 'PROJ01', name: 'Project-Based Service Revenue', type: 'Revenue', normalSide: 'credit', parentNumericId: '420000', parentAlphaId: 'RESVC1' },
-    // Cost section: COST OF REVENUE - SERVICE BUSINESS TYPE (under 500000)
-    { numericId: '510000', alphaId: 'COSVC1', name: 'COST OF REVENUE - SERVICE BUSINESS TYPE', type: 'Costs', normalSide: 'debit', parentNumericId: '500000', parentAlphaId: 'COSTR1' },
+    // Cost section: COST OF REVENUE - SERVICE BUSINESS TYPE
+    { numericId: '510000', alphaId: 'COSVC1', name: 'COST OF REVENUE - SERVICE BUSINESS TYPE', type: 'Costs', normalSide: 'debit' },
     { numericId: '511000', alphaId: 'COPF11', name: 'PROFESSIONAL FEES', type: 'Costs', normalSide: 'debit', parentNumericId: '510000', parentAlphaId: 'COSVC1' },
     { numericId: '511100', alphaId: 'SUBC01', name: 'Subcontractor and Outsourced Service Costs', type: 'Costs', normalSide: 'debit', parentNumericId: '511000', parentAlphaId: 'COPF11' },
     { numericId: '512000', alphaId: 'COSU11', name: 'SUPPLIES USED', type: 'Costs', normalSide: 'debit', parentNumericId: '510000', parentAlphaId: 'COSVC1' },
@@ -266,8 +260,8 @@ const INDUSTRY_ACCOUNT_SEEDS: Record<ClientIndustry, AccountSeed[]> = {
     // Sales (under 410000 SALES)
     { numericId: '413000', alphaId: 'MFGS01', name: 'Manufacturing Sales Revenue', type: 'Revenue', normalSide: 'credit', parentNumericId: '410000', parentAlphaId: 'RESAL1' },
     { numericId: '415000', alphaId: 'SCRP01', name: 'Scrap and By-product Sales', type: 'Revenue', normalSide: 'credit', parentNumericId: '410000', parentAlphaId: 'RESAL1' },
-    // Cost section: COST OF GOODS MANUFACTURED AND SOLD - MANUFACTURING (under 500000)
-    { numericId: '510000', alphaId: 'COMFG1', name: 'COST OF GOODS MANUFACTURED AND SOLD - MANUFACTURING', type: 'Costs', normalSide: 'debit', parentNumericId: '500000', parentAlphaId: 'COSTR1' },
+    // Cost section: COST OF GOODS MANUFACTURED AND SOLD - MANUFACTURING BUSINESS TYPE
+    { numericId: '510000', alphaId: 'COMFG1', name: 'COST OF GOODS MANUFACTURED AND SOLD - MANUFACTURING BUSINESS TYPE', type: 'Costs', normalSide: 'debit' },
     { numericId: '511000', alphaId: 'CODM11', name: 'DIRECT MATERIALS', type: 'Costs', normalSide: 'debit', parentNumericId: '510000', parentAlphaId: 'COMFG1' },
     { numericId: '511100', alphaId: 'COPUR1', name: 'PURCHASES', type: 'Costs', normalSide: 'debit', parentNumericId: '511000', parentAlphaId: 'CODM11' },
     { numericId: '511200', alphaId: 'DMAT01', name: 'Direct Materials Used', type: 'Costs', normalSide: 'debit', parentNumericId: '511100', parentAlphaId: 'COPUR1' },
@@ -301,8 +295,8 @@ const INDUSTRY_ACCOUNT_SEEDS: Record<ClientIndustry, AccountSeed[]> = {
     { numericId: '424000', alphaId: 'CNRV01', name: 'Construction Contract Revenue', type: 'Revenue', normalSide: 'credit', parentNumericId: '420000', parentAlphaId: 'RESVC1' },
     { numericId: '425000', alphaId: 'VARO01', name: 'Variation Order Revenue', type: 'Revenue', normalSide: 'credit', parentNumericId: '420000', parentAlphaId: 'RESVC1' },
     { numericId: '426000', alphaId: 'CLAM01', name: 'Claims and Recoveries Revenue', type: 'Revenue', normalSide: 'credit', parentNumericId: '420000', parentAlphaId: 'RESVC1' },
-    // Cost section: COST OF CONTRACTS - CONSTRUCTION (under 500000)
-    { numericId: '510000', alphaId: 'COCON1', name: 'COST OF CONTRACTS - CONSTRUCTION / CONTRACTING', type: 'Costs', normalSide: 'debit', parentNumericId: '500000', parentAlphaId: 'COSTR1' },
+    // Cost section: COST OF CONTRACTS - CONSTRACTION/FABRICATION/CONTRACTING BUSINESS TYPE
+    { numericId: '510000', alphaId: 'COCON1', name: 'COST OF CONTRACTS - CONSTRACTION/FABRICATION/CONTRACTING BUSINESS TYPE', type: 'Costs', normalSide: 'debit' },
     { numericId: '511000', alphaId: 'CODM11', name: 'DIRECT MATERIALS', type: 'Costs', normalSide: 'debit', parentNumericId: '510000', parentAlphaId: 'COCON1' },
     { numericId: '511100', alphaId: 'COPUR1', name: 'PURCHASES', type: 'Costs', normalSide: 'debit', parentNumericId: '511000', parentAlphaId: 'CODM11' },
     { numericId: '511200', alphaId: 'CMUS01', name: 'Construction Materials Used', type: 'Costs', normalSide: 'debit', parentNumericId: '511100', parentAlphaId: 'COPUR1' },
