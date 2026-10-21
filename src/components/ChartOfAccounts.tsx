@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { BookOpen, Plus, Trash2, RefreshCcw, Edit2, ClipboardList, Check, X, Columns, Lock, ArrowUp, ArrowDown, Upload, MoreVertical } from 'lucide-react';
+import { BookOpen, Plus, Minus, Trash2, RefreshCcw, Edit2, ClipboardList, Check, X, Columns, Lock, ArrowUp, ArrowDown, Upload, MoreVertical } from 'lucide-react';
 import { flattenCoaHierarchy } from '../lib/coaImport';
 import { PageHeader } from './ui/PageHeader';
 import { Combobox } from './ui/Combobox';
@@ -899,6 +899,14 @@ function onlyPostableUploadedAccounts(imported: CoaAccount[], fixedAccounts: Coa
   });
 }
 
+/** Remove business-type annotations from the four cost-section account titles.
+ * The suffix remains in COA-CATEGORY.txt for selecting the correct business type.
+ */
+function displayCoaAccountName(title: string): string {
+  const match = title.trim().match(/^(COST OF REVENUE|COST OF SALES|COST OF GOODS MANUFACTURED AND SOLD|COST OF CONTRACTS)\s*-\s*(?:SERVICE BUSINESS TYPE|RETAIL BUSINESS TYPE|MANUFACTURING(?: BUSINESS TYPE)?|CONSTRACTION\s*\/\s*FABRICATION\s*\/\s*CONTRACTING BUSINESS TYPE|CONSTRUCTION\s*\/\s*CONTRACTING(?: BUSINESS TYPE)?)$/i);
+  return match ? match[1] : title;
+}
+
 function downloadFixedCoaTemplate(classification: 'Individual' | 'Non-Individual', businessType: CoaTemplateBusinessType): void {
   // This hierarchy is read from COA-CATEGORY.txt. Section/category rows are non-postable;
   // taxpayers add their own detail accounts under the appropriate category.
@@ -908,7 +916,7 @@ function downloadFixedCoaTemplate(classification: 'Individual' | 'Non-Individual
   // Rows come straight from COA-CATEGORY.txt (spelling retained). Every hierarchy
   // row is non-postable; Hierarchy Level is the txt indentation depth + 1.
   getCoaCategoryNodes(classification, businessType).forEach(node =>
-    rows.push(['', node.title, node.type, String(node.depth + 1), '', 'NO', '', ''])
+    rows.push(['', displayCoaAccountName(node.title), node.type, String(node.depth + 1), '', 'NO', '', ''])
   );
 
   const csv = rows.map(row => row.map(value => `"${String(value).replace(/"/g, '""')}"`).join(',')).join('\r\n');
@@ -941,6 +949,7 @@ export function ChartOfAccounts() {
   const [isAdding, setIsAdding] = useState(false);
   const [typeFilter, setTypeFilter] = useState('All');
   const [hierarchyMode, setHierarchyMode] = useState(false);
+  const [collapsedAccountIds, setCollapsedAccountIds] = useState<Set<string>>(() => new Set());
   
   const [newCode, setNewCode] = useState('');
   const [newName, setNewName] = useState('');
@@ -1117,6 +1126,19 @@ export function ChartOfAccounts() {
     accounts = sortAccountsChronologically(accounts);
   }
 
+  // Parent/children map for rollup totals and hierarchy collapse controls.
+  const childrenByParent = useMemo(() => {
+    const map = new Map<string, CoaAccount[]>();
+    accounts.forEach(a => {
+      if (a.parentId) {
+        const list = map.get(a.parentId) || [];
+        list.push(a);
+        map.set(a.parentId, list);
+      }
+    });
+    return map;
+  }, [accounts]);
+
   // When taxpayer classification changes in Business Profile / Client Profile,
   // automatically convert existing Equity <-> Capital account types so the COA
   // follows the profile instead of relying on the user to repair it manually.
@@ -1195,12 +1217,31 @@ export function ChartOfAccounts() {
     ? accounts
     : accounts.filter(a => a.type.toLowerCase() === typeFilter.toLowerCase());
 
-  const displayRows = hierarchyMode ? flattenCoaHierarchy(accounts) : filteredAccounts;
-
-  // Derive indentation from actual parent links so hierarchy rows and postable
-  // accounts line up visually without arrows or repeated parent-name labels.
+  // Derive indentation and ancestor visibility from actual parent links.
   const accountById = new Map<string, CoaAccount>();
   accounts.forEach(account => accountById.set(account.id, account));
+  const allDisplayRows = hierarchyMode ? flattenCoaHierarchy(filteredAccounts) : filteredAccounts;
+  const isHiddenByCollapsedAncestor = (account: CoaAccount): boolean => {
+    let parentId = account.parentId;
+    const visited = new Set<string>([account.id]);
+    while (parentId) {
+      if (visited.has(parentId)) break;
+      if (collapsedAccountIds.has(parentId)) return true;
+      visited.add(parentId);
+      parentId = accountById.get(parentId)?.parentId;
+    }
+    return false;
+  };
+  const displayRows = allDisplayRows.filter(account => !isHiddenByCollapsedAncestor(account));
+  const toggleAccountCollapse = (accountId: string) => {
+    setCollapsedAccountIds(previous => {
+      const next = new Set(previous);
+      if (next.has(accountId)) next.delete(accountId);
+      else next.add(accountId);
+      return next;
+    });
+  };
+
   const getAccountDepth = (account: CoaAccount): number => {
     let depth = 0;
     let parentId = account.parentId;
@@ -2033,21 +2074,7 @@ export function ChartOfAccounts() {
   // The same balance calculation is consumed by the financial statements and Trial Balance.
   const getAccountBalance = (account: CoaAccount) => balanceFor(currentClient, account.id)?.balance || 0;
 
-  // Parent/children map for rollup totals. Level 1/2 headers (isHeader) show
-  // no balance at all; Level 3 account groups show the computed sum of their
-  // postable (leaf) descendants; Level 4 postable accounts show their stored
-  // opening/running balance. Group amounts are never independently stored.
-  const childrenByParent = useMemo(() => {
-    const map = new Map<string, CoaAccount[]>();
-    accounts.forEach(a => {
-      if (a.parentId) {
-        const list = map.get(a.parentId) || [];
-        list.push(a);
-        map.set(a.parentId, list);
-      }
-    });
-    return map;
-  }, [accounts]);
+  // The children map above powers both rollup totals and collapsible rows.
 
   const sumPostableDescendants = (accountId: string): number => {
     let total = 0;
@@ -2330,7 +2357,7 @@ export function ChartOfAccounts() {
                         <div key={`${account.id}-${index}`} className="grid grid-cols-[32px_80px_minmax(0,1fr)_110px_minmax(95px,0.55fr)_minmax(165px,0.9fr)_minmax(190px,1fr)_115px_72px] gap-2 px-3 py-2 items-center text-xs">
                           <div className="text-[10px] text-slate-400 font-mono">{index + 1}</div>
                           <div className="font-mono font-bold text-indigo-700 dark:text-indigo-300" title="Automatically assigned under its hierarchy parent">{account.id}</div>
-                          <div className="font-semibold text-slate-800 dark:text-slate-100 truncate">{account.name}</div>
+                          <div className="font-semibold text-slate-800 dark:text-slate-100 truncate">{displayCoaAccountName(account.name)}</div>
                           <div>
                             <select
                               value={account.type}
@@ -2362,7 +2389,7 @@ export function ChartOfAccounts() {
                             const selectClass = 'w-full form-input text-xs py-1.5 px-2 bg-white dark:bg-slate-800 disabled:opacity-50';
                             return (
                               <>
-                                <div className="text-[10px] leading-4 font-semibold text-slate-600 dark:text-slate-300" title="Fixed — follows the account type">{first?.title || '—'}</div>
+                                <div className="text-[10px] leading-4 font-semibold text-slate-600 dark:text-slate-300" title="Fixed — follows the account type">{first ? displayCoaAccountName(first.title) : '—'}</div>
                                 <div>
                                   <select
                                     value={second?.id || ''}
@@ -2372,7 +2399,7 @@ export function ChartOfAccounts() {
                                     title="Choose the 2nd hierarchy level"
                                   >
                                     <option value="">{secondOptions.length === 0 ? '—' : '(none)'}</option>
-                                    {secondOptions.map(option => <option key={option.id} value={option.id}>{option.title}</option>)}
+                                    {secondOptions.map(option => <option key={option.id} value={option.id}>{displayCoaAccountName(option.title)}</option>)}
                                   </select>
                                 </div>
                                 <div>
@@ -2384,7 +2411,7 @@ export function ChartOfAccounts() {
                                     title="Choose the 3rd hierarchy level"
                                   >
                                     <option value="">{thirdOptions.length === 0 ? '—' : '(none)'}</option>
-                                    {thirdOptions.map(option => <option key={option.id} value={option.id}>{option.title}</option>)}
+                                    {thirdOptions.map(option => <option key={option.id} value={option.id}>{displayCoaAccountName(option.title)}</option>)}
                                   </select>
                                 </div>
                               </>
@@ -2488,7 +2515,7 @@ export function ChartOfAccounts() {
                         if (match.normalSide) setNewNormalSide(match.normalSide);
                       }
                     }}
-                    options={accounts.map(a => ({ id: a.id, label: a.name }))}
+                    options={accounts.map(a => ({ id: a.id, label: displayCoaAccountName(a.name) }))}
                     placeholder="Type or pick an account title..."
                     inputClassName="w-full form-input"
                   />
@@ -2509,7 +2536,7 @@ export function ChartOfAccounts() {
                   >
                     <option value="">None (Top-Level Account)</option>
                     {parentCandidates.map(p => (
-                      <option key={p.id} value={p.id}>{p.name} ({p.id})</option>
+                      <option key={p.id} value={p.id}>{displayCoaAccountName(p.name)} ({p.id})</option>
                     ))}
                   </select>
                 </div>
@@ -2638,7 +2665,7 @@ export function ChartOfAccounts() {
                   >
                     <option value="">None (Top-Level Account)</option>
                     {editParentCandidates.map(p => (
-                      <option key={p.id} value={p.id}>{p.name} ({p.id})</option>
+                      <option key={p.id} value={p.id}>{displayCoaAccountName(p.name)} ({p.id})</option>
                     ))}
                   </select>
                 </div>
@@ -2756,7 +2783,7 @@ export function ChartOfAccounts() {
                         {visibleCoaColumns.map(col => {
                           if (col.id === 'id') {
                             return (
-                              <td key={col.id} className="px-4 py-3 font-mono text-text-secondary text-[13px] font-medium tabular-nums" style={{ paddingLeft: `${hierarchyIndent}px` }}>
+                              <td key={col.id} className="px-4 py-3 font-mono text-text-secondary text-[13px] font-medium tabular-nums" style={{ paddingLeft: `${hierarchyIndent + 22}px` }}>
                                 {account.id}
                               </td>
                             );
@@ -2765,7 +2792,21 @@ export function ChartOfAccounts() {
                             return (
                               <td key={col.id} className="px-4 py-3 font-sans font-semibold text-text-primary text-sm leading-6" style={{ paddingLeft: `${hierarchyIndent}px` }}>
                                 <span className="inline-flex items-center gap-1.5">
-                                  {account.name}
+                                  <span className="inline-flex h-4 w-4 shrink-0 items-center justify-center">
+                                    {(childrenByParent.get(account.id)?.length || 0) > 0 ? (
+                                      <button
+                                        type="button"
+                                        onClick={() => toggleAccountCollapse(account.id)}
+                                        aria-expanded={!collapsedAccountIds.has(account.id)}
+                                        aria-label={`${collapsedAccountIds.has(account.id) ? 'Expand' : 'Collapse'} ${displayCoaAccountName(account.name)}`}
+                                        title={`${collapsedAccountIds.has(account.id) ? 'Expand' : 'Collapse'} this hierarchy`}
+                                        className="inline-flex h-4 w-4 items-center justify-center rounded text-text-muted hover:bg-surface-subtle hover:text-text-primary focus:outline-none focus:ring-1 focus:ring-brand-500"
+                                      >
+                                        {collapsedAccountIds.has(account.id) ? <Plus className="h-3 w-3" /> : <Minus className="h-3 w-3" />}
+                                      </button>
+                                    ) : null}
+                                  </span>
+                                  <span>{displayCoaAccountName(account.name)}</span>
                                   {lockedHierarchyIds.has(account.id) && <Lock className="w-3 h-3 text-slate-400" aria-label="Fixed hierarchy" />}
                                 </span>
                               </td>
@@ -2852,7 +2893,7 @@ export function ChartOfAccounts() {
                                       onClick={() => {
                                         setEditingId(account.id);
                                         setEditCode(account.id);
-                                        setEditName(account.name);
+                                        setEditName(displayCoaAccountName(account.name));
                                         setEditType(account.type);
                                         setEditNormalSide(account.normalSide || getNormalSide(account.type));
                                         setEditParentId(account.parentId || '');
