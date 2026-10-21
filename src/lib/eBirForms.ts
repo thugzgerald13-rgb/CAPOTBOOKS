@@ -316,16 +316,22 @@ export function taxRateCellsForForm(formId: string) {
   return Object.entries(TAX_RATE_CELLS).filter(([k]) => k.toLowerCase().startsWith(prefix));
 }
 
-/** Official eBIRForms cell-ID prefix (lowercase form id). */
+/** Official form versions (from generated sample: 2550Qv2024). */
+export const EBIR_FORM_VERSIONS: Record<string, string> = {
+  '2550Q': 'v2024', '2550M': 'v2024', '2551Q': 'v2018', '0619-E': 'v2018',
+  '1601-EQ': 'v2018', '1601-C': 'v2018', '1701Q': 'v2018', '1702Q': 'v2018C', '0605': '',
+};
+/** Official eBIRForms cell-ID prefix: frm{formLower}{version}, e.g. frm2550qv2024. */
 export function ebirCellPrefix(formType: string): string {
-  return 'frm' + formType.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const v = EBIR_FORM_VERSIONS[formType] || 'v2018';
+  return 'frm' + formType.toLowerCase().replace(/[^a-z0-9]/g, '') + v;
 }
 
 const urlEnc = (s: any) => encodeURIComponent(String(s ?? '')).replace(/'/g, '%27');
 const numFmt = (n: number) => (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /** Build the official field list (cellId -> value) for a form, in savefile order. */
-export function buildOfficialSaveFields(values: EBirFormValues, ledger: EBirLedgerData): Array<{ cellId: string; value: string }> {
+export function buildOfficialSaveFields(values: EBirFormValues, ledger: EBirLedgerData, currentClient?: any): Array<{ cellId: string; value: string }> {
   const p = ebirCellPrefix(values.formType);
   const tin = values.tin || '000000000';
   const tin1 = tin.slice(0, 3), tin2 = tin.slice(3, 6), tin3 = tin.slice(6, 9);
@@ -367,12 +373,57 @@ export function buildOfficialSaveFields(values: EBirFormValues, ledger: EBirLedg
 
   // --- Form-specific line items ---
   if (values.formType.startsWith('2550')) {
-    add('txt14A', numFmt(ledger.outputTax));
-    add('txt18A', numFmt(ledger.goodsInputTax));
-    add('txt18B', numFmt(ledger.servicesInputTax));
-    add('txt18C', numFmt(ledger.capitalGoodsInputTax));
-    add('txt20', numFmt(ledger.inputTax));
-    add('txt21', numFmt(values.totalTaxPayable));
+    const outputTax = ledger.outputTax;
+    const inputTax = ledger.inputTax;
+    const netVat = Math.max(0, outputTax - inputTax);
+    add('calendarNo1', 'true'); add('fiscalNo1', 'false');
+    if (values.month) add('selectedMonthNo2', String(values.month));
+    add('txtYearNo2', String(values.year));
+    if (values.quarter) {
+      add('OptQuarter1', values.quarter === 1 ? 'true' : 'false');
+      add('OptQuarter2', values.quarter === 2 ? 'true' : 'false');
+      add('OptQuarter3', values.quarter === 3 ? 'true' : 'false');
+      add('OptQuarter4', values.quarter === 4 ? 'true' : 'false');
+      const qm = values.quarter * 3; const fromM = qm - 2;
+      const lastDay = qm === 2 ? 28 : (qm === 4 || qm === 6 || qm === 9 || qm === 11 ? 30 : 31);
+      add('RtnPeriodFromNo4', `${fromM}/01/${values.year}`);
+      add('RtnPeriodToNo4', `${qm}/${lastDay}/${values.year}`);
+    }
+    add('amendedReturnYesNo5', 'false'); add('amendedReturnNo5', 'true');
+    add('OptShortPrd1', 'false'); add('OptShortPrd2', 'true');
+    add('taxPayerClassification1', 'false'); add('taxPayerClassification2', 'true');
+    add('taxPayerClassification3', 'false'); add('taxPayerClassification4', 'false');
+    add('internationalTreatyYn', 'false'); add('specialRateYn', 'false');
+    add('taxpayerName', urlEnc(values.registeredName));
+    add('taxpayerAddress', urlEnc(values.address));
+    add('taxpayerZip', ''); add('taxpayerContactNumber', '');
+    add('taxpayerEmailAddress', urlEnc((currentClient && (currentClient as any).email) || ''));
+    add('vatableSales', numFmt(ledger.vatableSales || ledger.salesTotal));
+    add('outputVatSales', numFmt(outputTax));
+    add('zeroRatedSales', numFmt(ledger.zeroRatedSales));
+    add('exemptSales', numFmt(ledger.exemptSales));
+    add('totalSales', numFmt(ledger.salesTotal));
+    add('outputTaxDue', numFmt(outputTax));
+    add('lessOutputVat', '0.00'); add('addOutputVat', '0.00');
+    add('totalAdjOutput', numFmt(outputTax));
+    add('domesticPurchase', numFmt(ledger.goodsInputTax > 0 ? ledger.goodsInputTax / 0.12 : (ledger.vatablePurchases || ledger.purchasesTotal)));
+    add('domesticInputTax', numFmt(ledger.goodsInputTax || inputTax));
+    add('servicesPurchase', numFmt(ledger.servicesInputTax > 0 ? ledger.servicesInputTax / 0.12 : 0));
+    add('serviceInputTax', numFmt(ledger.servicesInputTax));
+    add('importPurchase', '0.00'); add('importInputTax', '0.00');
+    add('totalCurPurchase', numFmt(ledger.purchasesTotal));
+    add('totalCurInputTax', numFmt(inputTax));
+    add('totalAvailInputTax', numFmt(inputTax));
+    add('totalDeductions', '0.00'); add('addInputVat', '0.00'); add('adjDeductions', '0.00');
+    add('totalAllowInputTax', numFmt(inputTax));
+    add('netVatPayable', numFmt(netVat));
+    add('excessInputTax', '0.00'); add('creditableVat', '0.00'); add('advVatPayment', '0.00'); add('vatPaidReturn', '0.00');
+    add('otherCreditsNo19', '0.00'); add('totalTaxCredits', '0.00'); add('excessCredits', '0.00');
+    add('surcharge', '0.00'); add('interest', '0.00'); add('compromise', '0.00'); add('penalties', '0.00');
+    add('totalPayable', numFmt(netVat));
+    add('txtCurrentPage', '1'); add('txtMaxPage', '2');
+    f.push({ cellId: 'txtFinalFlag', value: '1' });
+    f.push({ cellId: 'txtEnroll', value: 'Y' });
   } else if (values.formType === '2551Q') {
     add('txt15', numFmt(ledger.salesTotal));
     add('txt16', '3');
@@ -415,20 +466,21 @@ export function buildOfficialSaveFields(values: EBirFormValues, ledger: EBirLedg
  */
 export function downloadEBirFormXml(values: EBirFormValues, ledger?: EBirLedgerData, currentClient?: any) {
   const led: EBirLedgerData = ledger || { salesTotal:0, vatableSales:0, zeroRatedSales:0, exemptSales:0, outputTax:0, purchasesTotal:0, vatablePurchases:0, inputTax:0, capitalGoodsInputTax:0, servicesInputTax:0, goodsInputTax:0, ewtTotal:0, ewtByAtc:[], compensationWithholding:0, expensesTotal:0 };
-  const fields = buildOfficialSaveFields(values, led);
+  const fields = buildOfficialSaveFields(values, led, currentClient);
   const lines: string[] = ["<?xml version='1.0'?>"];
   for (const { cellId, value } of fields) {
     lines.push(`            <div>${cellId}=${value}${cellId}=</div>`);
   }
-  lines.push("            All Rights Reserved BIR 2012.");
+  lines.push("        All Rights Reserved BIR 2012.0");
   const xml = lines.join('\n');
   const blob = new Blob([xml], { type: 'application/xml' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  const periodStr = values.quarter ? `${values.year}Q${values.quarter}` : (values.month ? `${values.year}${String(values.month).padStart(2, '0')}` : String(values.year));
-  const emailTag = (currentClient && (currentClient as any).email) ? String((currentClient as any).email) : 'capotbooks';
-  a.download = `${values.tin}-${values.formType}v2018-${periodStr}#${emailTag}#.xml`;
+  const ver = EBIR_FORM_VERSIONS[values.formType] || 'v2018';
+  const endMonth = values.quarter ? String(values.quarter * 3).padStart(2, '0') : String(values.month || 12).padStart(2, '0');
+  const periodStr = values.quarter ? `${endMonth}${values.year}Q${values.quarter}` : (values.month ? `${String(values.month).padStart(2, '0')}${values.year}` : String(values.year));
+  a.download = `${values.tin}-${values.formType}${ver}-${periodStr}.xml`;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   return xml;
