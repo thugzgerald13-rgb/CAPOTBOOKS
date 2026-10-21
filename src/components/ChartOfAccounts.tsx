@@ -1179,16 +1179,19 @@ export function ChartOfAccounts() {
   const displayRows = hierarchyMode ? flattenCoaHierarchy(accounts) : filteredAccounts;
 
   // The 1st, 2nd and 3rd hierarchy levels written in COA-CATEGORY.txt (e.g. ASSETS >
-  // CURRENT ASSETS > CASH AND CASH EQUIVALENTS) are fixed: they cannot be edited,
-  // deleted or moved, so the hierarchy always stays in its fixed order.
-  const lockedHierarchyIds = new Set(
-    getCoaCategoryOptions(
-      isIndividualTaxpayer(currentClient?.taxpayerClassification) ? 'Individual' : 'Non-Individual',
-      resolveCoaTemplateBusinessType(currentClient?.industry),
-      accounts
-    ).filter(option => option.depth <= 2).map(option => option.id)
+  // CURRENT ASSETS > CASH AND CASH EQUIVALENTS) are fixed: they cannot be edited or
+  // moved, so the hierarchy always stays in its fixed order. The 1st and 2nd levels
+  // also cannot be deleted; a 3rd-level group can be deleted because some groups do
+  // not apply to every business type.
+  const hierarchyCategoryOptions = getCoaCategoryOptions(
+    isIndividualTaxpayer(currentClient?.taxpayerClassification) ? 'Individual' : 'Non-Individual',
+    resolveCoaTemplateBusinessType(currentClient?.industry),
+    accounts
   );
-  const FIXED_HIERARCHY_MESSAGE = 'This account is part of the fixed 1st–3rd hierarchy and cannot be edited, moved or deleted.';
+  const lockedHierarchyIds = new Set(hierarchyCategoryOptions.filter(option => option.depth <= 2).map(option => option.id));
+  const undeletableHierarchyIds = new Set(hierarchyCategoryOptions.filter(option => option.depth <= 1).map(option => option.id));
+  const FIXED_HIERARCHY_MESSAGE = 'This account is part of the fixed 1st–3rd hierarchy and cannot be edited or moved (3rd-level groups can be deleted).';
+  const FIXED_HIERARCHY_NO_DELETE_MESSAGE = 'The 1st and 2nd hierarchy levels are fixed and cannot be deleted.';
 
   // Category choices for the upload review: the COA-CATEGORY.txt hierarchy for this
   // taxpayer classification and business type, resolved to the fixed COA's accounts.
@@ -1567,9 +1570,29 @@ export function ChartOfAccounts() {
     );
     // Override resets to the fixed default hierarchy, not to an uploaded custom tree.
     // Merge keeps existing accounts while preserving any missing fixed hierarchy nodes.
+    // A 3rd-level group the user deleted (not applicable to their business type) is not
+    // brought back by Merge, nor are the default accounts that sat under it.
+    const droppedGroupIds = new Set<string>();
+    if (!overwrite && currentClient?.accounts?.length) {
+      getCoaCategoryOptions(
+        isIndividualTaxpayer(currentClient?.taxpayerClassification) ? 'Individual' : 'Non-Individual',
+        resolveCoaTemplateBusinessType(currentClient?.industry),
+        fixedAccounts
+      ).filter(option => option.depth === 2 && !accounts.some(existing => String(existing.id) === String(option.id)))
+        .forEach(option => droppedGroupIds.add(String(option.id)));
+    }
+    const underDroppedGroup = (account: CoaAccount): boolean => {
+      let current: CoaAccount | undefined = account;
+      for (let guard = 0; current && guard < 20; guard++) {
+        if (droppedGroupIds.has(String(current.id))) return true;
+        const parentId: string | undefined = current.parentId;
+        current = parentId ? fixedAccounts.find(a => String(a.id) === String(parentId)) : undefined;
+      }
+      return false;
+    };
     const baseAccounts = overwrite
       ? fixedAccounts
-      : [...fixedAccounts, ...accounts.filter(existing => !fixedAccounts.some(def => String(def.id) === String(existing.id)))];
+      : [...fixedAccounts.filter(def => !underDroppedGroup(def)), ...accounts.filter(existing => !fixedAccounts.some(def => String(def.id) === String(existing.id)))];
     const businessType = resolveCoaTemplateBusinessType(currentClient?.industry);
     // Resolve each account's category first (the one chosen in the review step, or
     // the automatic one) so its code is generated under that category.
@@ -1618,11 +1641,15 @@ export function ChartOfAccounts() {
 
   const handleDelete = async (id: string) => {
     if (!canCoaAction('delete')) { showToast('Your profile does not have permission to delete accounts.'); return; }
-    if (lockedHierarchyIds.has(id)) { showToast(FIXED_HIERARCHY_MESSAGE); return; }
+    if (undeletableHierarchyIds.has(id)) { showToast(FIXED_HIERARCHY_NO_DELETE_MESSAGE); return; }
     const hasChildren = accounts.some(a => a.parentId === id);
     // Auto-close the gap: if this account sat evenly between two neighbors, shift
     // every later code in its group down by one step (safe — collisions abort).
-    const { accounts: shiftedAccounts, renames } = shiftDownAfterDeletion(accounts, id);
+    // Deleting a fixed 3rd-level group must not renumber the other hierarchy codes,
+    // so the gap-closing renumber is skipped for it.
+    const { accounts: shiftedAccounts, renames } = lockedHierarchyIds.has(id)
+      ? { accounts: accounts.filter(a => a.id !== id).map(a => a.parentId === id ? { ...a, parentId: undefined } : a), renames: new Map<string, string>() }
+      : shiftDownAfterDeletion(accounts, id);
 
     let question = "Are you sure you want to delete this account?";
     if (hasChildren) {
@@ -2748,10 +2775,29 @@ export function ChartOfAccounts() {
                               {openActionMenuId === account.id && (
                                 <div className={cn("absolute right-0 w-44 bg-surface border border-border rounded-lg shadow-pop py-1 z-30 text-left font-sans", index >= displayRows.length - 2 && displayRows.length > 3 ? "bottom-full mb-1" : "top-full mt-1")}>
                                   {lockedHierarchyIds.has(account.id) ? (
+                                    <>
                                     <div className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-slate-500 dark:text-slate-400 cursor-default" title={FIXED_HIERARCHY_MESSAGE}>
                                       <Lock className="w-3.5 h-3.5" />
                                       Fixed hierarchy
                                     </div>
+                                    {!undeletableHierarchyIds.has(account.id) && canCoaAction('delete') && (
+                                      <>
+                                        <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
+                                        <button
+                                          onClick={() => {
+                                            handleDelete(account.id);
+                                            setOpenActionMenuId(null);
+                                          }}
+                                          disabled={!canDelete}
+                                          title={canDelete ? 'Delete Account' : 'Delete Transactions permission not granted'}
+                                          className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/30 transition-colors disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                          Delete Account
+                                        </button>
+                                      </>
+                                    )}
+                                    </>
                                   ) : (
                                     <>
                                     {canCoaAction('edit') && <button
