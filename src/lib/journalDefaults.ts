@@ -397,6 +397,19 @@ export function getDefaultAccountsForIndustry(
   const selectedIndustry = industry && INDUSTRY_ACCOUNT_SEEDS[industry] ? industry : DEFAULT_INDUSTRY;
   return toAccounts([...COMMON_ACCOUNT_SEEDS, ...INDUSTRY_ACCOUNT_SEEDS[selectedIndustry]], format);
 }
+
+/**
+ * Accounts eligible for posting and account-selection fields. In the COA,
+ * hierarchy rows are non-postable when they are explicitly marked as headers
+ * or have child accounts; only visible leaf accounts can be selected.
+ */
+export function getPostableCoaAccounts(accounts: CoaAccount[] | null | undefined): CoaAccount[] {
+  if (!accounts?.length) return [];
+  const parentIds = new Set(accounts.map(account => account.parentId).filter((id): id is string => Boolean(id)).map(String));
+  return accounts.filter(account =>
+    !account.hidden && account.isHeader !== true && !parentIds.has(String(account.id))
+  );
+}
 // Backward-compatible exports. These intentionally point to the General
 // Services preset, while new/existing clients with an industry use the
 // industry-aware function above.

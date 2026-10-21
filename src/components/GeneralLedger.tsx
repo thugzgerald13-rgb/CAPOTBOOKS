@@ -6,7 +6,7 @@ import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
 import { GeneralLedgerAccount, GeneralLedgerEntry } from '../types';
 import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide } from './ChartOfAccounts';
-import { getDefaultAccountsForIndustry, glOpeningBalance } from '../lib/journalDefaults';
+import { getDefaultAccountsForIndustry, getPostableCoaAccounts, glOpeningBalance } from '../lib/journalDefaults';
 import { supabase } from '../lib/supabase';
 import { generateCSV } from '../lib/utils';
 import { glAccountBalanceBefore } from '../lib/accountingBalances';
@@ -54,7 +54,7 @@ export function GeneralLedger() {
     const list = currentClient.accounts && currentClient.accounts.length > 0
       ? currentClient.accounts
       : getDefaultAccountsForIndustry(currentClient.industry, currentClient.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric');
-    return list.filter(a => !a.hidden);
+    return getPostableCoaAccounts(list);
   }, [currentClient]);
 
   const years = useMemo(() => {

@@ -7,7 +7,7 @@ import { useAccounting } from '../context/AccountingContext';
 import { formatTIN, generateCSV, MONTHS, getMonthName } from '../lib/utils';
 import { ShoppingCart, Plus, Trash2, X, Paperclip, Upload, FileText, Image as ImageIcon } from 'lucide-react';
 import { DEFAULT_ACCOUNTS, getNormalSide, resequenceAccounts } from './ChartOfAccounts';
-import { getDefaultAccountsForIndustry } from '../lib/journalDefaults';
+import { getDefaultAccountsForIndustry, getPostableCoaAccounts } from '../lib/journalDefaults';
 import { ATC_SCHEDULE } from '../lib/atcSchedule';
 import { useGranularPermissions } from '../lib/useGranularPermissions';
 import { useAuth } from '../context/AuthContext';
@@ -206,14 +206,15 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
 
   // Derive available accounts from Chart of Accounts
   const coaAccounts = useMemo(() => {
-    let accs = (currentClient?.accounts || []).filter(a => !a.hidden);
+    let accs = currentClient?.accounts || [];
     if (accs.length === 0) accs = getDefaultAccountsForIndustry(currentClient?.industry, currentClient?.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric');
-    // Account selection is based on the chart of accounts, not an expense class.
-    return accs.filter(a => {
+    // Selection fields show only postable leaf accounts, never hierarchy groups.
+    // Keep the existing account-type scope for Purchases (assets, costs, expenses).
+    return getPostableCoaAccounts(accs).filter(a => {
       const at = a.type.toLowerCase();
       return at === 'asset' || at === 'assets' || at === 'costs' || at === 'cost' || at === 'expense' || at === 'expenses';
     });
-  }, [currentClient?.accounts, currentDat]);
+  }, [currentClient?.accounts, currentClient?.industry, currentClient?.coaFormat, currentDat]);
 
   // Clear the account selection if it no longer exists in the available accounts.
   // This intentionally never auto-picks the first account - the field starts
