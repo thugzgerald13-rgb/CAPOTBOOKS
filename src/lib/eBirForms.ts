@@ -478,8 +478,10 @@ export function downloadEBirFormXml(values: EBirFormValues, ledger?: EBirLedgerD
   const a = document.createElement('a');
   a.href = url;
   const ver = EBIR_FORM_VERSIONS[values.formType] || 'v2018';
-  const endMonth = values.quarter ? String(values.quarter * 3).padStart(2, '0') : String(values.month || 12).padStart(2, '0');
-  const periodStr = values.quarter ? `${endMonth}${values.year}Q${values.quarter}` : (values.month ? `${String(values.month).padStart(2, '0')}${values.year}` : String(values.year));
+  // Official filename period segment uses the FISCAL/CALENDAR year-end month
+  // (selectedMonthNo2, default 12 for calendar-year taxpayers) + year + quarter.
+  const yearEndMonth = String((values as any).yearEndMonth || 12).padStart(2, '0');
+  const periodStr = values.quarter ? `${yearEndMonth}${values.year}Q${values.quarter}` : (values.month ? `${String(values.month).padStart(2, '0')}${values.year}` : String(values.year));
   a.download = `${values.tin}-${values.formType}${ver}-${periodStr}.xml`;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
