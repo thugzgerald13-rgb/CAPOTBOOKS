@@ -1572,7 +1572,7 @@ export function ChartOfAccounts() {
       format,
       currentClient?.industry
     );
-    // Override resets to the fixed default hierarchy, not to an uploaded custom tree.
+    // Override starts from the fixed default hierarchy (trimmed to what the upload uses, below).
     // Merge keeps existing accounts while preserving any missing fixed hierarchy nodes.
     // A 3rd-level group the user deleted (not applicable to their business type) is not
     // brought back by Merge, nor are the default accounts that sat under it.
@@ -1611,7 +1611,22 @@ export function ChartOfAccounts() {
         : undefined;
       return { ...normalizedAccount, parentId: chosenParentId ?? fixedHierarchyParent(normalizedAccount, baseAccounts, businessType) };
     });
-    const finalAccounts = recodeImportedReviewAccounts(categorised, format, baseAccounts);
+    // Override saves only what is in the edited upload: the uploaded postable accounts
+    // plus the hierarchy levels (1st / 2nd / 3rd) they sit under. Every other default
+    // account, including unused hierarchy levels, is removed. Merge keeps the full base.
+    let keptBase = baseAccounts;
+    if (overwrite) {
+      const neededIds = new Set<string>();
+      categorised.forEach(account => {
+        let parentId: string | undefined = account.parentId;
+        for (let guard = 0; parentId && guard < 20 && !neededIds.has(String(parentId)); guard++) {
+          neededIds.add(String(parentId));
+          parentId = baseAccounts.find(base => String(base.id) === String(parentId))?.parentId;
+        }
+      });
+      keptBase = baseAccounts.filter(base => neededIds.has(String(base.id)));
+    }
+    const finalAccounts = recodeImportedReviewAccounts(categorised, format, keptBase);
     const analysis = pendingUploadAnalysis;
 
     clearPendingUploadReview();
@@ -1623,14 +1638,14 @@ export function ChartOfAccounts() {
 
     // De-duplicate by account title + parent category so repeated uploads do not
     // create duplicate posting accounts in the fixed hierarchy.
-    const existingKeys = new Set(baseAccounts.map(a => `${fixedTitleKey(a.name)}::${a.parentId || ''}`));
+    const existingKeys = new Set(keptBase.map(a => `${fixedTitleKey(a.name)}::${a.parentId || ''}`));
     const uniqueFinalAccounts = finalAccounts.filter(a => {
       const key = `${fixedTitleKey(a.name)}::${a.parentId || ''}`;
       if (existingKeys.has(key)) return false;
       existingKeys.add(key);
       return true;
     });
-    const saved = await handleSaveAccounts([...baseAccounts, ...uniqueFinalAccounts]);
+    const saved = await handleSaveAccounts([...keptBase, ...uniqueFinalAccounts]);
     if (!saved) return;
 
     const notes = [
@@ -1640,7 +1655,7 @@ export function ChartOfAccounts() {
       analysis?.skipped ? `${analysis.skipped} row${analysis.skipped === 1 ? '' : 's'} skipped` : '',
     ].filter(Boolean).join(' • ');
 
-    showToast(`${overwrite ? 'Fixed Chart of Accounts updated with' : 'Uploaded'} ${uniqueFinalAccounts.length} postable account${uniqueFinalAccounts.length === 1 ? '' : 's'}${notes ? ` • ${notes}` : ''}.`);
+    showToast(`${overwrite ? 'Chart of Accounts replaced with' : 'Uploaded'} ${uniqueFinalAccounts.length} postable account${uniqueFinalAccounts.length === 1 ? '' : 's'}${notes ? ` • ${notes}` : ''}.`);
   };
 
   const handleDelete = async (id: string) => {
