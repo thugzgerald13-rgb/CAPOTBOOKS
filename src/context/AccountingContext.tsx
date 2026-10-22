@@ -1416,6 +1416,24 @@ export function AccountingProvider({
     });
     invalidateQueries('sales', currentClientId).catch(() => {});
     await recordNormalizedMutation('sales', currentClientId, 'put', row);
+
+    // ======================================================================
+    // AUTO-ADD CUSTOMER TO TIN LIBRARY (mirrors supplier auto-add in savePurchase)
+    // ======================================================================
+    if (sale.buyerTin && sale.buyerName) {
+      const tin = String(sale.buyerTin).trim();
+      const name = String(sale.buyerName).trim();
+      const customers = clients[currentClientId]?.tinLibrary?.customers || [];
+      const existing = customers.find((c: any) => String(c.tin).trim() === tin);
+      if (!existing) {
+        const normalizedTin = tin.replace(/\D/g, '');
+        const customerId = `tin_customer_${normalizedTin}`;
+        const customerEntry = { id: customerId, tin, name, address: sale.buyerAddress || '' };
+        await saveTinEntry(customerEntry, 'customer');
+      }
+    }
+    // ======================================================================
+
     const next = [...(clients[currentClientId]?.sales || []).filter((x: any) => String(x.id) !== String(id)), sale];
     updateClientState(currentClientId, { sales: next });
   };
