@@ -7,6 +7,7 @@ import { supabase } from '../lib/supabase';
 
 import { useGranularPermissions } from '../lib/useGranularPermissions';
 import { ATC_SCHEDULE } from '../lib/atcSchedule';
+import { AtcSelect } from './AtcSelect';
 
 const CASH_RECEIPT_PAYMENT_TYPES = ['Cash', 'Check', 'E-Payment', 'Bank Transfer'];
 const SALES_JOURNAL_PAYMENT_TYPES = ['Credit Card', 'On Account'];
@@ -375,17 +376,13 @@ export function Sales({ embedded = false, editSale = null, onSaved, onClose }: S
         {withholdingOption === 'with' && (
           <div className="lg:col-span-2">
             <label className="form-label">ATC / Nature of Income</label>
-            <select value={atcCode} onChange={e => setAtcCode(e.target.value)} className="form-input">
-              {ATC_SCHEDULE.map(entry => (
-                <option key={entry.code} value={entry.code}>{entry.code} — {entry.nature}{entry.qualifier ? ` (${entry.qualifier})` : ''} — {entry.rateLabel}</option>
-              ))}
-            </select>
+            <AtcSelect value={atcCode} onChange={setAtcCode} />
             <p className="text-[11px] text-slate-400 mt-1">Rates per the BIR Schedule of Alphanumeric Tax Codes (ATC).</p>
           </div>
         )}
         {withholdingOption === 'with' && (
           <div>
-            <label className="form-label text-slate-500">Withholding Tax (₱)</label>
+            <label className="form-label text-slate-500">Withholding Tax (₱){atcCode && ATC_SCHEDULE.find(e => e.code === atcCode) ? ` @ ${ATC_SCHEDULE.find(e => e.code === atcCode)?.rateLabel}` : ''}</label>
             <input type="text" readOnly value={whtAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="form-input bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold cursor-not-allowed" />
           </div>
         )}

@@ -9,6 +9,7 @@ import { ShoppingCart, Plus, Trash2, X, Paperclip, Upload, FileText, Image as Im
 import { DEFAULT_ACCOUNTS, getNormalSide, resequenceAccounts } from './ChartOfAccounts';
 import { getDefaultAccountsForIndustry, getPostableCoaAccounts } from '../lib/journalDefaults';
 import { ATC_SCHEDULE } from '../lib/atcSchedule';
+import { AtcSelect } from './AtcSelect';
 import { useGranularPermissions } from '../lib/useGranularPermissions';
 import { useAuth } from '../context/AuthContext';
 import { modulePermissionKey, actionPermissionKey } from '../lib/granularPermissions';
@@ -917,20 +918,14 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
         {!isOtherPayments && withholdingOption === 'with' && (
           <div className="lg:col-span-2">
             <label className="form-label text-red-500">ATC / Nature of Income Payment *</label>
-            <select value={atcCode} onChange={e => setAtcCode(e.target.value)} className="form-input bg-slate-100 dark:bg-slate-900 border-slate-300">
-              {ATC_SCHEDULE.map(entry => (
-                <option key={entry.code} value={entry.code}>
-                  {entry.code} — {entry.nature}{entry.qualifier ? ` (${entry.qualifier})` : ''} — {entry.rateLabel} [{entry.party}]
-                </option>
-              ))}
-            </select>
+            <AtcSelect value={atcCode} onChange={setAtcCode} />
             <p className="text-[11px] text-slate-400 mt-1">Rates per the BIR Schedule of Alphanumeric Tax Codes (ATC).</p>
           </div>
         )}
 
         {!isOtherPayments && withholdingOption === 'with' && (
           <div>
-            <label className="form-label text-slate-500">Withholding Tax (₱)</label>
+            <label className="form-label text-slate-500">Withholding Tax (₱){atcCode && ATC_SCHEDULE.find(e => e.code === atcCode) ? ` @ ${ATC_SCHEDULE.find(e => e.code === atcCode)?.rateLabel}` : ''}</label>
             <input type="text" readOnly value={whtAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="form-input bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold cursor-not-allowed" />
           </div>
         )}
