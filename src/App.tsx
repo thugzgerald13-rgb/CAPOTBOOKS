@@ -45,6 +45,7 @@ const FileManager = lazy(() => import('./components/FileManager').then(m => ({ d
 const Inventory = lazy(() => import('./components/Inventory').then(m => ({ default: m.Inventory })));
 const BIRForms = lazy(() => import('./components/BIRForms').then(m => ({ default: m.BIRForms })));
 const Relief = lazy(() => import('./components/Relief').then(m => ({ default: m.Relief })));
+const Alphalist = lazy(() => import('./components/Alphalist').then(m => ({ default: m.Alphalist })));
 const ComplianceTracker = lazy(() => import('./components/ComplianceTracker').then(m => ({ default: m.ComplianceTracker })));
 const AccountSettings = lazy(() => import('./components/AccountSettings').then(m => ({ default: m.AccountSettings })));
 const PlanBillingPage = lazy(() => import('./components/PlanBillingPage').then(m => ({ default: m.PlanBillingPage })));
@@ -260,6 +261,7 @@ function AppLayout() {
             <Route path="/inventory" element={<Inventory />} />
             <Route path="/bir-forms" element={<BIRForms />} />
             <Route path="/relief" element={<Relief />} />
+            <Route path="/alphalist" element={<Alphalist />} />
             <Route path="/compliance-tracker" element={<ComplianceTracker />} />
             <Route path="/eis-center" element={<EisCenter />} />
             <Route path="/payroll" element={<PayrollHub company={payrollCompany} initialPage="dashboard" />} />

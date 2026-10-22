@@ -11,6 +11,7 @@ import { adjustDeadlineForWeekend } from '../lib/complianceUtils';
 import { supabase } from '../lib/supabase';
 import { downloadBirFormPdf, validateBirForm } from '../lib/birFormPdf';
 import { EBIR_FORMS, computeEBirFormValues, downloadEBirFormXml, printEBirForm } from '../lib/eBirForms';
+import { useNavigate } from 'react-router-dom';
 
 // Standard BIR filing deadlines generator for Philippines 2026/2025
 export function generateStandardDeadlines(year: number): TaxDeadline[] {
@@ -188,6 +189,7 @@ export function generateStandardDeadlines(year: number): TaxDeadline[] {
 export function BIRForms() {
   const canEdit = usePermission('edit_transactions');
   const { canAction: canBirAction, canDropdownOption: canBirDropdown } = useGranularPermissions('bir_forms');
+  const navigate = useNavigate();
   const canExport = usePermission('export_data') && canBirAction('export');
   const canPrint = usePermission('view_reports') && canBirAction('print');
 
@@ -795,6 +797,13 @@ export function BIRForms() {
                   }`}>{f.desc}</span>
                 </button>
               ))}
+              <button
+                onClick={() => navigate('/alphalist')}
+                className="w-full p-3 text-left border rounded-xl transition-all bg-indigo-50 dark:bg-indigo-900/20 border-indigo-200 dark:border-indigo-800 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/40"
+              >
+                <span className="font-bold text-xs block leading-tight">Alphalist (1604-E / 1604-CF)</span>
+                <span className="text-[10px] block font-medium mt-0.5 leading-tight text-indigo-500 dark:text-indigo-400">Data Entry & Validation Module</span>
+              </button>
             </div>
           </div>
 
