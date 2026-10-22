@@ -1500,7 +1500,7 @@ export function History() {
                         </div>
 
                         <div className="flex justify-end pt-2 border-t border-slate-200/60 dark:border-slate-800 mt-1 gap-2">
-                          {canSalesAction('add') && <button
+                          {canSalesAction('edit') && <button
                             onClick={() => handleEditSale(s)}
                             className="p-1 px-3 bg-indigo-50 dark:bg-indigo-950/20 text-indigo-500 hover:text-indigo-700 rounded-lg text-xs font-semibold transition-all flex items-center gap-1"
                           >
@@ -1678,7 +1678,7 @@ export function History() {
                             <td className="px-3 py-3 text-sm font-bold text-emerald-700 dark:text-emerald-400 text-right align-top whitespace-nowrap bg-emerald-50/30 dark:bg-emerald-900/10">₱{s.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                             <td className="px-3 py-3 text-sm text-slate-900 dark:text-white text-right align-top whitespace-nowrap">₱{getSaleVatBreakdown(s).netOfVat.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                             <td className="px-3 py-3 text-sm text-blue-600 dark:text-blue-400 text-right align-top whitespace-nowrap">₱{getSaleVatBreakdown(s).outputTax.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                            <td className="px-3 py-3 text-center align-top sticky right-0 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/50 z-10 border-l border-slate-100 dark:border-slate-800">{canSalesAction('add') && <button onClick={() => handleEditSale(s)} className="p-1.5 text-slate-300 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-all mr-1" title="Edit Entry"><Pencil className="w-4 h-4" /></button>}{canSalesAction('delete') && <button onClick={() => handleDeleteIncome(s.id)} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all" title="Delete Entry"><Trash2 className="w-4 h-4" /></button>}</td>
+                            <td className="px-3 py-3 text-center align-top sticky right-0 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/50 z-10 border-l border-slate-100 dark:border-slate-800">{canSalesAction('edit') && <button onClick={() => handleEditSale(s)} className="p-1.5 text-slate-300 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-all mr-1" title="Edit Entry"><Pencil className="w-4 h-4" /></button>}{canSalesAction('delete') && <button onClick={() => handleDeleteIncome(s.id)} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all" title="Delete Entry"><Trash2 className="w-4 h-4" /></button>}</td>
                           </tr>
                         ))
                       )}

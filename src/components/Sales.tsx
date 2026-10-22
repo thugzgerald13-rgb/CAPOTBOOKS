@@ -124,7 +124,11 @@ export function Sales({ embedded = false, editSale = null, onSaved, onClose }: S
   const outputTax = isVatable ? grossAmount - netOfVat : 0;
 
   const handleAddSale = () => {
-    if (!canSalesAction('add')) { showToast('Your profile does not have permission to add income entries.'); return; }
+    const isEditing = embedded && !!editSale;
+    if (isEditing ? !canSalesAction('edit') : !canSalesAction('add')) {
+      showToast(isEditing ? 'Your profile does not have permission to edit income entries.' : 'Your profile does not have permission to add income entries.');
+      return;
+    }
     const paymentPermission = paymentTypeOptions.find((option) => option.value === paymentType)?.permission;
     const vatPermission = vatTypeOptions.find((option) => option.value === vatType)?.permission;
     if (!paymentPermission || !canSalesDropdown('payment_type', paymentPermission) || !vatPermission || !canSalesDropdown('vat_type', vatPermission)) {
@@ -168,19 +172,27 @@ export function Sales({ embedded = false, editSale = null, onSaved, onClose }: S
     const persistSale = async () => {
       try {
         // Duplicate guard: same Invoice # + Customer TIN already saved.
+        // When editing an existing entry, exclude the record being edited so
+        // the guard never blocks a legitimate update (mirrors Purchases.tsx).
+        const editingId = embedded && editSale ? String(editSale.id) : null;
         const tinDigits = buyerTin.replace(/\D/g, '');
         const refKey = ref.trim();
-        const dupInMemory = salesRows.some(r => (r.ref || '').trim() === refKey && (r.buyerTin || '').replace(/\D/g, '') === tinDigits);
+        const dupInMemory = salesRows.some(r =>
+          String(r.id) !== editingId &&
+          (r.ref || '').trim() === refKey &&
+          (r.buyerTin || '').replace(/\D/g, '') === tinDigits
+        );
         if (dupInMemory) {
           showToast('Duplicate entry: this Invoice # is already saved for this Customer TIN.');
           return;
         }
-        const { data: dupRows } = await supabase
+        let dupQuery = supabase
           .from('sales')
           .select('id,buyer_tin')
           .eq('client_id', currentClientId)
-          .eq('ref', refKey)
-          .limit(50);
+          .eq('ref', refKey);
+        if (editingId) dupQuery = dupQuery.neq('id', editingId);
+        const { data: dupRows } = await dupQuery.limit(50);
         const dupRemote = (dupRows || []).some(r => (r.buyer_tin || '').replace(/\D/g, '') === tinDigits);
         if (dupRemote) {
           showToast('Duplicate entry: this Invoice # is already saved for this Customer TIN.');
@@ -190,7 +202,8 @@ export function Sales({ embedded = false, editSale = null, onSaved, onClose }: S
         await saveSale(String(newSale.id), newSale);
 
         // Auto-save / update this customer in the TIN library (TIN + name + address).
-        const tinDigits = buyerTin.replace(/\D/g, '');
+        // `tinDigits` is already declared above — reuse it (a second `const`
+        // declaration in this block would be a SyntaxError and break the save).
         if (tinDigits && buyerName.trim() && saveTinEntry) {
           try {
             await saveTinEntry({

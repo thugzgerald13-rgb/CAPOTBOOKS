@@ -271,12 +271,10 @@ export function TinLibrary() {
            <label className="form-label">{activeTab === 'customers' ? 'Customer' : 'Supplier'} Name</label>
            <input type="text" value={name} onChange={e => setName(e.target.value)} placeholder="Company or Full Name" className="form-input" />
         </div>
-        {activeTab === 'suppliers' && (
-          <div className="flex-1">
-             <label className="form-label">Address</label>
-             <input type="text" value={address} onChange={e => setAddress(e.target.value)} placeholder="Business Address" className="form-input" />
-          </div>
-        )}
+        <div className="flex-1">
+           <label className="form-label">Address</label>
+           <input type="text" value={address} onChange={e => setAddress(e.target.value)} placeholder="Business Address" className="form-input" />
+        </div>
         {canAdd && <button onClick={handleAdd} className="bg-purple-600 hover:bg-purple-700 text-white font-bold px-6 py-2.5 rounded-xl transition-colors shadow-sm flex items-center gap-2 h-[42px]">
           <Plus className="w-5 h-5" /> Add
         </button>}
@@ -322,7 +320,7 @@ export function TinLibrary() {
               <tr>
                 <th>TIN</th>
                 <th>Entity Name</th>
-                {activeTab === 'suppliers' && <th>Address</th>}
+                <th>Address</th>
                 <th className="w-16"></th>
               </tr>
             </thead>
@@ -331,7 +329,7 @@ export function TinLibrary() {
                 <tr key={record.id} className="hover:bg-slate-50 dark:hover:bg-slate-800/80 transition-colors">
                   <td className="font-mono text-sm font-semibold">{record.tin}</td>
                   <td className="font-medium">{record.name}</td>
-                  {activeTab === 'suppliers' && <td className="text-xs text-slate-500">{record.address || '—'}</td>}
+                  <td className="text-xs text-slate-500">{record.address || '—'}</td>
                   <td className="text-center">
                     <button 
                       onClick={() => handleDelete(record.id)}
@@ -346,7 +344,7 @@ export function TinLibrary() {
               ))}
               {filtered.length === 0 && (
                 <tr>
-                  <td colSpan={activeTab === 'suppliers' ? 4 : 3} className="text-center py-8 text-slate-500 dark:text-slate-400">
+                  <td colSpan={4} className="text-center py-8 text-slate-500 dark:text-slate-400">
                     No registry entries found.
                   </td>
                 </tr>
