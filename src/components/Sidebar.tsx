@@ -83,6 +83,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   const [isBirOpen, setIsBirOpen] = useState(false);
   const [isReliefOpen, setIsReliefOpen] = useState(false);
   const [isSecOpen, setIsSecOpen] = useState(false);
+  const [isFilesOpen, setIsFilesOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isBooksOpen, setIsBooksOpen] = useState(false);
   const [isDevOpen, setIsDevOpen] = useState(false);
@@ -758,7 +759,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
             </AnimatePresence>
           </div>
 
-          {navItems.filter((i) => (!ADMIN_ONLY_PAGES.has(i.id) || isAdmin) && (isAdmin || featureAllows(i.id))).map((item) => {
+          {navItems.filter((i) => i.id !== 'files' && (!ADMIN_ONLY_PAGES.has(i.id) || isAdmin) && (isAdmin || featureAllows(i.id))).map((item) => {
             const Icon = item.icon;
             return (
               <button
@@ -779,6 +780,39 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
             );
           })}
 
+          {/* Upload Files Collapsible Dropdown — Income / Expense / Other files */}
+          <div className="flex flex-col">
+            <button
+              disabled={!canUse('edit_transactions')}
+              onClick={() => setIsFilesOpen(!isFilesOpen)}
+              title={isCollapsed ? "Upload Files" : undefined}
+              className={cn(
+                "flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl transition-all w-full text-left group",
+                (isFilesOpen || activePage === 'files') ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
+                (!canUse('edit_transactions') || !featureAllows('files')) && 'hidden',
+                isCollapsed && "md:justify-center md:px-2"
+              )}
+            >
+              <div className="flex items-center gap-3">
+                <FolderUp className="w-5 h-5 opacity-70 group-hover:opacity-100 transition-opacity shrink-0" />
+                <span className={cn(isCollapsed && "md:hidden")}>Upload Files</span>
+              </div>
+              <ChevronDown className={cn("w-4 h-4 transition-transform duration-300", isFilesOpen ? "rotate-180" : "", isCollapsed && "md:hidden")} />
+            </button>
+            <AnimatePresence>
+              {isFilesOpen && (
+                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden flex flex-col gap-1 mt-1 pl-4">
+                  {([['income','Income Files'],['expense','Expense Files'],['other','Other Files']] as const).map(([key,label]) => (
+                    <button key={key} disabled={!canUse('edit_transactions')}
+                      onClick={() => { sessionStorage.setItem('filesCategory', key); navigateToPage('files'); setIsOpen(false); setIsFilesOpen(false); }}
+                      className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-slate-800 dark:hover:text-blue-400 transition-all w-full text-left">
+                      <FolderUp className="w-3.5 h-3.5" /> {label}
+                    </button>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
           {/* Reports Collapsible Dropdown */}
           <div className="flex flex-col">
             <button

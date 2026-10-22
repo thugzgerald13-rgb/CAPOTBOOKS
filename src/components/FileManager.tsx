@@ -214,7 +214,8 @@ export function FileManager() {
   // Gracefully handle undefined folders/files
   const folders = currentClient.folders || [
     { id: 'folder_revenue', name: 'Revenue', isDefault: true, type: 'revenue' },
-    { id: 'folder_expense', name: 'Expense', isDefault: true, type: 'expense' }
+    { id: 'folder_expense', name: 'Expense', isDefault: true, type: 'expense' },
+    { id: 'folder_other', name: 'Other', isDefault: true, type: 'other' }
   ];
   const files = currentClient.files || [];
 
@@ -483,6 +484,18 @@ export function FileManager() {
   // ---- T019: bank statement import + auto-match reconciliation ----
   const [bankTxns, setBankTxns] = useState<BankTxn[]>([]);
   const bankFileRef = useRef<HTMLInputElement>(null);
+  const headerFileRef = useRef<HTMLInputElement>(null);
+  const CATEGORY_FOLDER: Record<string, string> = { income: 'folder_revenue', expense: 'folder_expense', other: 'folder_other' };
+  const [filesCategory, setFilesCategory] = useState<'income' | 'expense' | 'other'>('income');
+  useEffect(() => {
+    const cat = sessionStorage.getItem('filesCategory');
+    if (cat === 'income' || cat === 'expense' || cat === 'other') {
+      setFilesCategory(cat);
+      setSelectedFolderId(CATEGORY_FOLDER[cat]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  useEffect(() => { setSelectedFolderId(CATEGORY_FOLDER[filesCategory]); }, [filesCategory]);
   const reconcileRules: ReconcileRule[] = DEFAULT_RECONCILE_RULES;
   const handleBankFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -504,21 +517,42 @@ export function FileManager() {
         title="Document & Receipt Vault"
         icon={<FolderOpen className="text-blue-500" />}
         actions={
-          <button
-            type="button"
-            onClick={openCamera}
-            disabled={cameraBusy || !canAddFiles}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-60 disabled:cursor-wait text-white rounded-xl text-xs font-bold shadow-sm shadow-emerald-500/20 transition-all"
-            title="Open camera to capture a receipt/document and upload automatically"
-          >
-            <Camera className={`w-4 h-4 ${cameraBusy ? 'animate-pulse' : ''}`} />
-            <span className="hidden sm:inline">{cameraBusy ? 'Opening camera…' : 'Take Photo'}</span>
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => headerFileRef.current?.click()}
+              disabled={!canAddFiles}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-xl text-xs font-bold shadow-sm transition-all"
+              title="Browse and upload files"
+            >
+              <Upload className="w-4 h-4" />
+              <span className="hidden sm:inline">Upload</span>
+            </button>
+            <button
+              type="button"
+              onClick={openCamera}
+              disabled={cameraBusy || !canAddFiles}
+              className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 disabled:opacity-60 disabled:cursor-wait text-white rounded-xl text-xs font-bold shadow-sm shadow-emerald-500/20 transition-all"
+              title="Open camera to capture a receipt/document and upload automatically"
+            >
+              <Camera className={`w-4 h-4 ${cameraBusy ? 'animate-pulse' : ''}`} />
+              <span className="hidden sm:inline">{cameraBusy ? 'Opening camera…' : 'Take Photo'}</span>
+            </button>
+          </div>
         }
       />
+      <input ref={headerFileRef} type="file" multiple onChange={handleFileChange} className="hidden" />
+      <div className="px-4 md:px-6 pt-4 flex flex-wrap gap-2">
+        {([['income','Income Files'],['expense','Expense Files'],['other','Other Files']] as const).map(([key,label]) => (
+          <button key={key} onClick={() => setFilesCategory(key)}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all border ${filesCategory === key ? 'bg-blue-600 text-white border-blue-600' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-blue-300'}`}>
+            {label}
+          </button>
+        ))}
+      </div>
       <div className="p-4 md:p-6 flex-1">
       {/* T019: Bank import + auto-match inbox */}
-      <div className="mb-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 p-4">
+      <div className="mb-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 p-4 hidden">
         <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
           <div>
             <div className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">Bank Statement Import</div>
