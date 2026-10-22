@@ -258,6 +258,9 @@ function AppLayout() {
             <Route path="/assetlapsing" element={<AssetLapsing />} />
             <Route path="/sales-journal" element={<SalesJournal />} />
             <Route path="/files" element={<FileManager />} />
+            <Route path="/files/income" element={<FileManager />} />
+            <Route path="/files/expense" element={<FileManager />} />
+            <Route path="/files/other" element={<FileManager />} />
             <Route path="/inventory" element={<Inventory />} />
             <Route path="/bir-forms" element={<BIRForms />} />
             <Route path="/relief" element={<Relief />} />
