@@ -142,6 +142,7 @@ const FEATURE_ALLOWED_PAGE_IDS: ReadonlySet<string> = new Set([
   'plan-billing',
   'team',
   'trialbalance',
+  'alphalist',
 ]);
 
 /**

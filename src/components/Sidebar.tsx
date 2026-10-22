@@ -619,6 +619,17 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                           <FileSignature className="w-3.5 h-3.5" />
                           E-Invoicing (EIS)
                         </button>
+                        <button
+                          disabled={!canUse('view_reports')}
+                          onClick={() => {
+                            navigateToPage('alphalist');
+                            setIsOpen(false);
+                          }}
+                          className={cn("flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'alphalist' && activeIndigo)}
+                        >
+                          <Users className="w-3.5 h-3.5" />
+                          Alphalist (1604-E/CF)
+                        </button>
                         {/* RELIEF — nested collapsible; Summary List of Sales/Purchases/Importations (SLSP).
                             Hidden & locked for Non-VAT / VAT-Exempt taxpayers (no RELIEF filing obligation). */}
                         {!reliefLocked && (
