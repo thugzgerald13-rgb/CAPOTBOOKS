@@ -1409,6 +1409,9 @@ export function AccountingProvider({
       amount: Number(sale.amount || 0), net_of_vat: Number(sale.netOfVat || 0),
       output_tax: Number(sale.outputTax || 0), income_type: sale.incomeType || null,
       description: sale.desc || null,
+      exempt_amount: Number(sale.exemptAmount || 0), zero_rated_amount: Number(sale.zeroRatedAmount || 0),
+      withholding_option: sale.withholdingOption || null, atc_code: sale.atcCode || null,
+      wht_rate: sale.whtRate ?? null, wht_amount: Number(sale.whtAmount || 0),
     };
     await withOfflineQueue('sales', currentClientId, 'put', row, async () => {
       const { error } = await supabase.from('sales').upsert(row, { onConflict: 'id' });

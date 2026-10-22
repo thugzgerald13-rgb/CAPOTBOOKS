@@ -1493,6 +1493,24 @@ export function History() {
                             <span className="text-slate-500">Output Tax:</span>
                             <span className="font-mono text-blue-600 dark:text-blue-400">₱{getSaleVatBreakdown(s).outputTax.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
                           </div>
+                          {Number(s.exemptAmount || 0) > 0 && (
+                            <div className="flex justify-between items-center text-xs">
+                              <span className="text-slate-500">Exempt:</span>
+                              <span className="font-mono text-slate-600 dark:text-slate-300">₱{Number(s.exemptAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                            </div>
+                          )}
+                          {Number(s.zeroRatedAmount || 0) > 0 && (
+                            <div className="flex justify-between items-center text-xs">
+                              <span className="text-slate-500">0-Rated:</span>
+                              <span className="font-mono text-slate-600 dark:text-slate-300">₱{Number(s.zeroRatedAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                            </div>
+                          )}
+                          {Number(s.whtAmount || 0) > 0 && (
+                            <div className="flex justify-between items-center text-xs">
+                              <span className="text-slate-500">Creditable WHT{s.atcCode ? ` (${s.atcCode})` : ''}:</span>
+                              <span className="font-mono text-orange-600 dark:text-orange-400">₱{Number(s.whtAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                            </div>
+                          )}
                           <div className="flex justify-between items-center text-xs pt-1.5 border-t border-dashed border-emerald-500/30">
                             <span className="font-bold text-slate-700 dark:text-slate-300">Gross Amount:</span>
                             <span className="font-extrabold text-emerald-600 dark:text-emerald-400">₱{s.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
@@ -1590,6 +1608,9 @@ export function History() {
                             <th className="px-3 py-3 border-b border-slate-100 dark:border-slate-800 text-right whitespace-nowrap">Gross Amount</th>
                             <th className="px-3 py-3 border-b border-slate-100 dark:border-slate-800 text-right whitespace-nowrap">Net of VAT</th>
                             <th className="px-3 py-3 border-b border-slate-100 dark:border-slate-800 text-right whitespace-nowrap">Output Tax</th>
+                            <th className="px-3 py-3 border-b border-slate-100 dark:border-slate-800 text-right whitespace-nowrap">Exempt</th>
+                            <th className="px-3 py-3 border-b border-slate-100 dark:border-slate-800 text-right whitespace-nowrap">0-Rated</th>
+                            <th className="px-3 py-3 border-b border-slate-100 dark:border-slate-800 text-right whitespace-nowrap">CWT</th>
                             <th className="px-3 py-3 border-b border-slate-100 dark:border-slate-800 w-12 sticky right-0 bg-white dark:bg-slate-900 z-30"></th>
                           </>
                         )}
@@ -1678,12 +1699,15 @@ export function History() {
                             <td className="px-3 py-3 text-sm font-bold text-emerald-700 dark:text-emerald-400 text-right align-top whitespace-nowrap bg-emerald-50/30 dark:bg-emerald-900/10">₱{s.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                             <td className="px-3 py-3 text-sm text-slate-900 dark:text-white text-right align-top whitespace-nowrap">₱{getSaleVatBreakdown(s).netOfVat.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                             <td className="px-3 py-3 text-sm text-blue-600 dark:text-blue-400 text-right align-top whitespace-nowrap">₱{getSaleVatBreakdown(s).outputTax.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
+                            <td className="px-3 py-3 text-sm text-slate-500 dark:text-slate-400 text-right align-top whitespace-nowrap">{Number(s.exemptAmount || 0) ? `₱${Number(s.exemptAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '—'}</td>
+                            <td className="px-3 py-3 text-sm text-slate-500 dark:text-slate-400 text-right align-top whitespace-nowrap">{Number(s.zeroRatedAmount || 0) ? `₱${Number(s.zeroRatedAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '—'}</td>
+                            <td className="px-3 py-3 text-sm text-orange-600 dark:text-orange-400 text-right align-top whitespace-nowrap" title={s.atcCode ? `ATC: ${s.atcCode}` : undefined}>{Number(s.whtAmount || 0) ? `₱${Number(s.whtAmount).toLocaleString(undefined, { minimumFractionDigits: 2 })}` : '—'}</td>
                             <td className="px-3 py-3 text-center align-top sticky right-0 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/50 z-10 border-l border-slate-100 dark:border-slate-800">{canSalesAction('edit') && <button onClick={() => handleEditSale(s)} className="p-1.5 text-slate-300 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-all mr-1" title="Edit Entry"><Pencil className="w-4 h-4" /></button>}{canSalesAction('delete') && <button onClick={() => handleDeleteIncome(s.id)} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all" title="Delete Entry"><Trash2 className="w-4 h-4" /></button>}</td>
                           </tr>
                         ))
                       )}
                       {((activeTab === 'expenses' && filteredPurchases.length === 0) || (activeTab === 'income' && filteredSales.length === 0)) && (
-                        <tr><td colSpan={(activeTab === 'expenses' ? visibleExpenseColumns.length + 2 : 9)} className="px-4 py-12 text-center text-slate-500 dark:text-slate-400"><HistoryIcon className="w-8 h-8 mx-auto mb-3 opacity-20" /><p className="font-medium">No {activeTab} found for this period.</p><p className="text-xs">Adjust your search or change the month/year filter.</p></td></tr>
+                        <tr><td colSpan={(activeTab === 'expenses' ? visibleExpenseColumns.length + 2 : 12)} className="px-4 py-12 text-center text-slate-500 dark:text-slate-400"><HistoryIcon className="w-8 h-8 mx-auto mb-3 opacity-20" /><p className="font-medium">No {activeTab} found for this period.</p><p className="text-xs">Adjust your search or change the month/year filter.</p></td></tr>
                       )}
                     </tbody>
                   </table>

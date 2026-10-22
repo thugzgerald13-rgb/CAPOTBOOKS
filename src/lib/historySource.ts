@@ -23,7 +23,7 @@ export const HISTORY_PURCHASE_COLS =
   'id,client_id,date,payment_method,check_number,bank_name,invoice_no,supplier_name,supplier_address,supplier_tin,amount,vat_type,account_title,transaction_details,input_tax,attachment_name,attachment_type,attachment_original_type,attachment_size,attachment_original_size,attachment_compression,attachment_storage_path,withholding_option,atc_code,wht_rate,wht_amount,exempt_amount,zero_rated_amount,entry_source';
 
 export const HISTORY_SALE_COLS =
-  'id,client_id,date,ref,payment_type,buyer_tin,buyer_name,buyer_address,vat_type,amount,net_of_vat,output_tax,income_type,description';
+  'id,client_id,date,ref,payment_type,buyer_tin,buyer_name,buyer_address,vat_type,amount,net_of_vat,output_tax,income_type,description,exempt_amount,zero_rated_amount,withholding_option,atc_code,wht_rate,wht_amount';
 
 /** Map a raw purchases row to the Expense History record shape. */
 export function mapPurchaseHistoryRow(p: any) {
@@ -77,6 +77,12 @@ export function mapSaleHistoryRow(s: any) {
     outputTax: Number(s.output_tax || 0),
     incomeType: s.income_type,
     description: s.description,
+    exemptAmount: Number(s.exempt_amount || 0),
+    zeroRatedAmount: Number(s.zero_rated_amount || 0),
+    withholdingOption: s.withholding_option,
+    atcCode: s.atc_code,
+    whtRate: s.wht_rate == null ? undefined : Number(s.wht_rate),
+    whtAmount: Number(s.wht_amount || 0),
   };
 }
 

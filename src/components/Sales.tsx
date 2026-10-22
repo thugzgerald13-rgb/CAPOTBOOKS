@@ -6,6 +6,7 @@ import { Receipt, Plus, RotateCcw } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 import { useGranularPermissions } from '../lib/useGranularPermissions';
+import { ATC_SCHEDULE } from '../lib/atcSchedule';
 
 const CASH_RECEIPT_PAYMENT_TYPES = ['Cash', 'Check', 'E-Payment', 'Bank Transfer'];
 const SALES_JOURNAL_PAYMENT_TYPES = ['Credit Card', 'On Account'];
@@ -52,14 +53,14 @@ export function Sales({ embedded = false, editSale = null, onSaved, onClose }: S
       const to = from + PAGE_SIZE - 1;
       const { data, count, error } = await supabase
         .from('sales')
-        .select('id,dat_month_year,date,ref,payment_type,buyer_tin,buyer_name,buyer_address,vat_type,amount,net_of_vat,output_tax,income_type,description', { count: 'planned' })
+        .select('id,dat_month_year,date,ref,payment_type,buyer_tin,buyer_name,buyer_address,vat_type,amount,net_of_vat,output_tax,income_type,description,exempt_amount,zero_rated_amount,withholding_option,atc_code,wht_rate,wht_amount', { count: 'planned' })
         .eq('client_id', currentClientId)
         .order('date', { ascending: false })
         .order('created_at', { ascending: false })
         .range(from, to);
       if (cancelled) return;
       if (error) { setSalesError(error.message); setSalesRows([]); }
-      else { setSalesRows((data || []).map((r:any) => ({ id:Number(r.id)||r.id, datMonthYear:r.dat_month_year||'', date:r.date ? String(r.date).slice(0,10) : '', ref:r.ref||'', paymentType:r.payment_type||'', buyerTin:r.buyer_tin||'', buyerName:r.buyer_name||'', buyerAddress:r.buyer_address||'', vatType:r.vat_type||'', amount:Number(r.amount||0), netOfVat:Number(r.net_of_vat||0), outputTax:Number(r.output_tax||0), incomeType:r.income_type||'', desc:r.description||'' }))); setSalesTotal(count || 0); }
+      else { setSalesRows((data || []).map((r:any) => ({ id:Number(r.id)||r.id, datMonthYear:r.dat_month_year||'', date:r.date ? String(r.date).slice(0,10) : '', ref:r.ref||'', paymentType:r.payment_type||'', buyerTin:r.buyer_tin||'', buyerName:r.buyer_name||'', buyerAddress:r.buyer_address||'', vatType:r.vat_type||'', amount:Number(r.amount||0), netOfVat:Number(r.net_of_vat||0), outputTax:Number(r.output_tax||0), incomeType:r.income_type||'', desc:r.description||'', exemptAmount:Number(r.exempt_amount||0), zeroRatedAmount:Number(r.zero_rated_amount||0), withholdingOption:r.withholding_option||'', atcCode:r.atc_code||'', whtRate:r.wht_rate==null?null:Number(r.wht_rate), whtAmount:Number(r.wht_amount||0) }))); setSalesTotal(count || 0); }
       setSalesLoading(false);
     };
     loadSales();
@@ -81,6 +82,14 @@ export function Sales({ embedded = false, editSale = null, onSaved, onClose }: S
   const [desc, setDesc] = useState('');
   const [autoLoadMsg, setAutoLoadMsg] = useState('');
   const [creditNote, setCreditNote] = useState(false);
+  // Income-side VAT breakdown + creditable withholding tax (mirrors the
+  // invoiced Purchases form). Exempt / 0-Rated amounts are captured when the
+  // corresponding VAT type is selected; withholding uses the BIR ATC schedule.
+  const [exemptAmount, setExemptAmount] = useState('');
+  const [zeroRatedAmount, setZeroRatedAmount] = useState('');
+  const [withholdingOption, setWithholdingOption] = useState<'w/o' | 'with'>('w/o');
+  const [atcCode, setAtcCode] = useState('');
+  const [whtAmount, setWhtAmount] = useState(0);
   // Embedded edit mode: pre-fill the form from the income row being edited.
   useEffect(() => {
     if (embedded && editSale) {
@@ -96,6 +105,13 @@ export function Sales({ embedded = false, editSale = null, onSaved, onClose }: S
       setIncomeType(s.incomeType || '');
       setDesc(s.desc || '');
       setCreditNote(Number(s.amount || 0) < 0);
+      const ex = Number(s.exemptAmount || 0);
+      const zr = Number(s.zeroRatedAmount || 0);
+      setExemptAmount(ex ? ex.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '');
+      setZeroRatedAmount(zr ? zr.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '');
+      setWithholdingOption(s.withholdingOption || 'w/o');
+      setAtcCode(s.atcCode || '');
+      setWhtAmount(Number(s.whtAmount || 0));
     }
   }, [embedded, editSale]);
 
@@ -122,6 +138,34 @@ export function Sales({ embedded = false, editSale = null, onSaved, onClose }: S
   const isVatable = vatType === 'VATable';
   const netOfVat = isVatable ? grossAmount / 1.12 : grossAmount;
   const outputTax = isVatable ? grossAmount - netOfVat : 0;
+
+  // Default to the first ATC in the schedule whenever "With Withholdings" is
+  // selected and no ATC has been chosen yet; clear it when withholding is off.
+  useEffect(() => {
+    if (withholdingOption === 'with' && !atcCode && ATC_SCHEDULE.length > 0) {
+      setAtcCode(ATC_SCHEDULE[0].code);
+      return;
+    }
+    if (withholdingOption === 'w/o' && atcCode) {
+      setAtcCode('');
+    }
+  }, [withholdingOption, atcCode]);
+
+  // Re-compute creditable withholding tax amount (per the BIR ATC schedule)
+  // whenever the income base, withholding option, or selected ATC changes.
+  // Withholding base = net of VAT + exempt + zero-rated (mirrors purchases).
+  useEffect(() => {
+    if (withholdingOption === 'with' && atcCode) {
+      const entry = ATC_SCHEDULE.find(e => e.code === atcCode);
+      const exempt = parseFloat(String(exemptAmount).replace(/,/g, '')) || 0;
+      const zeroRated = parseFloat(String(zeroRatedAmount).replace(/,/g, '')) || 0;
+      const ewtBase = Math.abs(netOfVat) + exempt + zeroRated;
+      const rate = entry?.rate ?? 0;
+      setWhtAmount(Math.round(ewtBase * rate * 100) / 100);
+    } else {
+      setWhtAmount(0);
+    }
+  }, [withholdingOption, atcCode, netOfVat, exemptAmount, zeroRatedAmount]);
 
   const handleAddSale = () => {
     const isEditing = embedded && !!editSale;
@@ -166,7 +210,13 @@ export function Sales({ embedded = false, editSale = null, onSaved, onClose }: S
       netOfVat: creditNote ? -netOfVat : netOfVat,
       outputTax: creditNote ? -outputTax : outputTax,
       incomeType,
-      desc: creditNote ? `Credit Note: ${desc || ref}` : desc
+      desc: creditNote ? `Credit Note: ${desc || ref}` : desc,
+      exemptAmount: parseFloat(String(exemptAmount).replace(/,/g, '')) || 0,
+      zeroRatedAmount: parseFloat(String(zeroRatedAmount).replace(/,/g, '')) || 0,
+      withholdingOption,
+      atcCode: withholdingOption === 'with' ? atcCode : null,
+      whtRate: withholdingOption === 'with' ? (ATC_SCHEDULE.find(e => e.code === atcCode)?.rate ?? null) : null,
+      whtAmount: withholdingOption === 'with' ? whtAmount : 0,
     };
 
     const persistSale = async () => {
@@ -235,6 +285,10 @@ export function Sales({ embedded = false, editSale = null, onSaved, onClose }: S
         setAmount('');
         setDesc('');
         setCreditNote(false);
+        setExemptAmount('');
+        setZeroRatedAmount('');
+        setWithholdingOption('w/o');
+        setAtcCode('');
         if (embedded) onSaved?.();
       } catch (error) {
         console.error('Saving sale failed:', error);
@@ -311,6 +365,42 @@ export function Sales({ embedded = false, editSale = null, onSaved, onClose }: S
           <label className="form-label">VAT</label>
           <input type="text" readOnly value={outputTax.toLocaleString(undefined, { minimumFractionDigits: 2 })} className="form-input bg-slate-100 dark:bg-slate-900/60 text-slate-500 cursor-not-allowed" />
         </div>
+        <div>
+          <label className="form-label">Creditable Withholding Tax</label>
+          <select value={withholdingOption} onChange={e => setWithholdingOption(e.target.value as 'w/o' | 'with')} className="form-input">
+            <option value="w/o">W/O Withholdings</option>
+            <option value="with">With Withholdings</option>
+          </select>
+        </div>
+        {withholdingOption === 'with' && (
+          <div className="lg:col-span-2">
+            <label className="form-label">ATC / Nature of Income</label>
+            <select value={atcCode} onChange={e => setAtcCode(e.target.value)} className="form-input">
+              {ATC_SCHEDULE.map(entry => (
+                <option key={entry.code} value={entry.code}>{entry.code} — {entry.nature}{entry.qualifier ? ` (${entry.qualifier})` : ''} — {entry.rateLabel}</option>
+              ))}
+            </select>
+            <p className="text-[11px] text-slate-400 mt-1">Rates per the BIR Schedule of Alphanumeric Tax Codes (ATC).</p>
+          </div>
+        )}
+        {withholdingOption === 'with' && (
+          <div>
+            <label className="form-label text-slate-500">Withholding Tax (₱)</label>
+            <input type="text" readOnly value={whtAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="form-input bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold cursor-not-allowed" />
+          </div>
+        )}
+        {vatType === 'VAT Exempt' && (
+          <div>
+            <label className="form-label text-rose-500">Exempt (₱) *</label>
+            <input type="text" value={exemptAmount} onChange={e => /^[0-9.,]*$/.test(e.target.value) && setExemptAmount(e.target.value)} onBlur={e => { const raw = e.target.value.replace(/,/g, ''); if (raw && !isNaN(parseFloat(raw))) setExemptAmount(parseFloat(raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })); }} placeholder="0.00" className="form-input font-bold text-amber-900 border-amber-300 dark:bg-amber-900/20 dark:text-amber-100" />
+          </div>
+        )}
+        {vatType === 'Zero-Rated' && (
+          <div>
+            <label className="form-label text-rose-500">0-Rated (₱) *</label>
+            <input type="text" value={zeroRatedAmount} onChange={e => /^[0-9.,]*$/.test(e.target.value) && setZeroRatedAmount(e.target.value)} onBlur={e => { const raw = e.target.value.replace(/,/g, ''); if (raw && !isNaN(parseFloat(raw))) setZeroRatedAmount(parseFloat(raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })); }} placeholder="0.00" className="form-input font-bold text-amber-900 border-amber-300 dark:bg-amber-900/20 dark:text-amber-100" />
+          </div>
+        )}
         {currentClient?.hasMultipleBusinessLines && (
           <div className="lg:col-span-2">
             <label className="form-label">Service Income / Sales</label>
