@@ -10,7 +10,8 @@ import { useGranularPermissions } from '../lib/useGranularPermissions';
 const CASH_RECEIPT_PAYMENT_TYPES = ['Cash', 'Check', 'E-Payment', 'Bank Transfer'];
 const SALES_JOURNAL_PAYMENT_TYPES = ['Credit Card', 'On Account'];
 
-export function Sales() {
+interface SalesEmbeddedProps { embedded?: boolean; editSale?: any | null; onSaved?: () => void; onClose?: () => void; }
+export function Sales({ embedded = false, editSale = null, onSaved, onClose }: SalesEmbeddedProps = {}) {
   const { currentClient, currentClientId, saveSale, saveTinEntry, showToast } = useAccounting();
   const { canAction: canSalesAction, canDropdownOption: canSalesDropdown } = useGranularPermissions('sales');
   const paymentTypeOptions = [
@@ -80,6 +81,23 @@ export function Sales() {
   const [desc, setDesc] = useState('');
   const [autoLoadMsg, setAutoLoadMsg] = useState('');
   const [creditNote, setCreditNote] = useState(false);
+  // Embedded edit mode: pre-fill the form from the income row being edited.
+  useEffect(() => {
+    if (embedded && editSale) {
+      const s = editSale;
+      setDate(s.date ? String(s.date).slice(0, 10) : new Date().toISOString().split('T')[0]);
+      setPaymentType(s.paymentType || 'Cash');
+      setRef(s.ref || '');
+      setBuyerTin(s.buyerTin || '');
+      setBuyerName(s.buyerName || '');
+      setBuyerAddress(s.buyerAddress || '');
+      setVatType(s.vatType || 'VATable');
+      setAmount(s.amount != null ? String(Math.abs(Number(s.amount) || 0)) : '');
+      setIncomeType(s.incomeType || '');
+      setDesc(s.desc || '');
+      setCreditNote(Number(s.amount || 0) < 0);
+    }
+  }, [embedded, editSale]);
 
 
 
@@ -131,7 +149,7 @@ export function Sales() {
     const m = selectedDate.getMonth() + 1;
 
     const newSale = {
-      id: Date.now(),
+      id: embedded && editSale ? editSale.id : Date.now(),
       datMonthYear: `${getMonthName(m)} ${y}`,
       date,
       ref,
@@ -204,6 +222,7 @@ export function Sales() {
         setAmount('');
         setDesc('');
         setCreditNote(false);
+        if (embedded) onSaved?.();
       } catch (error) {
         console.error('Saving sale failed:', error);
         showToast('Unable to save income entry');
@@ -214,8 +233,8 @@ export function Sales() {
 
   return (
     <div className="w-full flex flex-col">
-      <PageHeader title="Income" icon={<Receipt className="w-5 h-5 text-emerald-500" />} />
-      <div className="p-4 md:p-6 flex-1">
+      {!embedded && <PageHeader title="Income" icon={<Receipt className="w-5 h-5 text-emerald-500" />} />}
+      <div className={embedded ? '' : "p-4 md:p-6 flex-1"}>
 
       {canSalesAction('add') && <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-100 dark:border-slate-700">
         <div>
@@ -299,10 +318,15 @@ export function Sales() {
             <span className="text-xs font-bold text-rose-600 dark:text-rose-400 inline-flex items-center gap-1.5"><RotateCcw className="w-3.5 h-3.5" /> Credit note (records as negative income / reverses VAT)</span>
           </label>
         </div>
-        <div className="lg:col-span-4 mt-2">
-          <button onClick={handleAddSale} className="w-full bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 rounded-xl transition-colors shadow-sm shadow-emerald-500/20 flex justify-center items-center gap-2">
-            <Plus className="w-5 h-5" /> Add Income Entry
+        <div className="lg:col-span-4 mt-2 flex gap-3">
+          <button onClick={handleAddSale} className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 rounded-xl transition-colors shadow-sm shadow-emerald-500/20 flex justify-center items-center gap-2">
+            {embedded ? 'Update Entry' : (<><Plus className="w-5 h-5" /> Add Income Entry</>)}
           </button>
+          {embedded && (
+            <button type="button" onClick={() => onClose?.()} className="px-6 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-600 dark:text-slate-200 font-bold py-3 rounded-xl transition-colors">
+              Cancel
+            </button>
+          )}
         </div>
       </div>}
 

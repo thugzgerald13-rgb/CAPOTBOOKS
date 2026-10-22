@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { PageHeader } from './ui/PageHeader';
 import { Modal } from './ui/Modal';
 import { Purchases } from './Purchases';
+import { Sales } from './Sales';
 import { AttachmentViewer } from './AttachmentViewer';
 import { useAccounting } from '../context/AccountingContext';
 import { useGranularPermissions } from '../lib/useGranularPermissions';
@@ -80,6 +81,7 @@ export function History() {
   const autoJumpTermRef = useRef<string>('');
   // Expense edit modal (embedded Purchases form) state.
   const [editingPurchase, setEditingPurchase] = useState<any | null>(null);
+  const [editingSale, setEditingSale] = useState<any | null>(null);
   const [editPurchaseMode, setEditPurchaseMode] = useState<'invoiced' | 'other-payments'>('invoiced');
   const [searchRefreshKey, setSearchRefreshKey] = useState(0);
 
@@ -735,6 +737,13 @@ export function History() {
     setSearchRefreshKey(k => k + 1);
   };
 
+  const handleSaleUpdated = () => {
+    setEditingSale(null);
+    setRefreshKey(k => k + 1);
+    setSearchRefreshKey(k => k + 1);
+  };
+  const handleEditSale = (s: any) => setEditingSale(s);
+
   // Persist an inline Account Title edit straight to the normalized purchases
   // table and mirror it in local state so the table updates immediately.
   const handleSaveAccountTitle = async (id: string | number, rawValue: string) => {
@@ -1256,6 +1265,25 @@ export function History() {
                 )}
               </Modal>
 
+              {/* Edit Income modal: embedded Sales form. On Update Entry, Sales
+                  calls onSaved → modal closes and history refreshes. */}
+              <Modal
+                open={!!editingSale}
+                onClose={() => setEditingSale(null)}
+                size="xl"
+                title={editingSale ? `Edit Income — ${editingSale.buyerName || ''}` : 'Edit Income'}
+                description={editingSale ? `${editingSale.ref ? 'Invoice #' + editingSale.ref : ''}${editingSale.date ? ' · ' + editingSale.date : ''}` : undefined}
+              >
+                {editingSale && (
+                  <Sales
+                    embedded
+                    editSale={editingSale}
+                    onSaved={handleSaleUpdated}
+                    onClose={() => setEditingSale(null)}
+                  />
+                )}
+              </Modal>
+
               {/* Bulk action bar: appears when one or more expense rows are selected */}
               {activeTab === 'expenses' && selectedPurchaseIds.size > 0 && (
                 <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex flex-wrap items-center gap-3 bg-white dark:bg-slate-900 border border-blue-200 dark:border-blue-800 shadow-2xl rounded-2xl px-4 py-3 max-w-[92vw]">
@@ -1471,7 +1499,13 @@ export function History() {
                           </div>
                         </div>
 
-                        <div className="flex justify-end pt-2 border-t border-slate-200/60 dark:border-slate-800 mt-1">
+                        <div className="flex justify-end pt-2 border-t border-slate-200/60 dark:border-slate-800 mt-1 gap-2">
+                          {canSalesAction('add') && <button
+                            onClick={() => handleEditSale(s)}
+                            className="p-1 px-3 bg-indigo-50 dark:bg-indigo-950/20 text-indigo-500 hover:text-indigo-700 rounded-lg text-xs font-semibold transition-all flex items-center gap-1"
+                          >
+                            <Pencil className="w-3.5 h-3.5" /> Edit
+                          </button>}
                           {canSalesAction('delete') && <button 
                             onClick={() => handleDeleteIncome(s.id)}
                             className="p-1 px-3 bg-red-50 dark:bg-red-950/20 text-red-500 hover:text-red-700 rounded-lg text-xs font-semibold transition-all flex items-center gap-1"
@@ -1644,7 +1678,7 @@ export function History() {
                             <td className="px-3 py-3 text-sm font-bold text-emerald-700 dark:text-emerald-400 text-right align-top whitespace-nowrap bg-emerald-50/30 dark:bg-emerald-900/10">₱{s.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                             <td className="px-3 py-3 text-sm text-slate-900 dark:text-white text-right align-top whitespace-nowrap">₱{getSaleVatBreakdown(s).netOfVat.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
                             <td className="px-3 py-3 text-sm text-blue-600 dark:text-blue-400 text-right align-top whitespace-nowrap">₱{getSaleVatBreakdown(s).outputTax.toLocaleString(undefined, { minimumFractionDigits: 2 })}</td>
-                            <td className="px-3 py-3 text-center align-top sticky right-0 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/50 z-10 border-l border-slate-100 dark:border-slate-800">{canSalesAction('delete') && <button onClick={() => handleDeleteIncome(s.id)} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all" title="Delete Entry"><Trash2 className="w-4 h-4" /></button>}</td>
+                            <td className="px-3 py-3 text-center align-top sticky right-0 bg-white dark:bg-slate-900 group-hover:bg-slate-50 dark:group-hover:bg-slate-800/50 z-10 border-l border-slate-100 dark:border-slate-800">{canSalesAction('add') && <button onClick={() => handleEditSale(s)} className="p-1.5 text-slate-300 hover:text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg transition-all mr-1" title="Edit Entry"><Pencil className="w-4 h-4" /></button>}{canSalesAction('delete') && <button onClick={() => handleDeleteIncome(s.id)} className="p-1.5 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-all" title="Delete Entry"><Trash2 className="w-4 h-4" /></button>}</td>
                           </tr>
                         ))
                       )}
