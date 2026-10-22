@@ -196,7 +196,7 @@ export function BIRForms() {
   const { currentClient, currentClientId, setCurrentClientId, clients, businessProfile, activePage, navigateToPage, birFormTab, ownerClientId } = useAccounting();
 
   // Active form choice: '2550Q' | '1701Q' | '2551Q' | '1601-C' | '0619-E' | '1601-EQ'
-  const [activeFormType, setActiveFormType] = useState<'2550Q' | '1701Q' | '2551Q' | '1601-C' | '0619-E' | '1601-EQ'>('2550Q');
+  const [activeFormType, setActiveFormType] = useState<any>('ebirforms');
   // eBIRForms generator — Offline eBIRForms Package v7.9.6.2 integration.
   // Activated from the BIR sidebar dropdown ("eBIRForms" button).
   const [ebirForm, setEbirForm] = useState('2550Q');
@@ -627,7 +627,7 @@ export function BIRForms() {
         </div>
       )}
       {/* eBIRForms Generator — activated from BIR dropdown > eBIRForms */}
-      {birFormTab === 'ebirforms' && (() => {
+      {(() => {
         try {
         const ebirFormDef = EBIR_FORMS.find(f => f.id === ebirForm) || EBIR_FORMS[0];
         const allSales = (currentClient?.sales || []) as any[];
@@ -727,7 +727,7 @@ export function BIRForms() {
         } catch (e) { console.error('eBIRForms panel error:', e); return null; }
       })()}
       <div className="mb-4 flex justify-end">
-        <button type="button" onClick={handleDownloadBirPdf} disabled={!canExport || !canViewActiveBirForm} title={canExport && canViewActiveBirForm ? 'Download Form PDF' : 'Export or BIR form permission not granted'} className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-sm disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed">
+        <button type="button" onClick={handleDownloadBirPdf} disabled={!canExport || !canViewActiveBirForm} title={canExport && canViewActiveBirForm ? 'Download Form PDF' : 'Export or BIR form permission not granted'} className="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-blue-600 hover:bg-blue-700 text-white shadow-sm disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed hidden">
           <FileDown className="w-4 h-4" /> Download Form PDF
         </button>
       </div>
@@ -772,30 +772,8 @@ export function BIRForms() {
           <div>
             <h4 className="text-xs font-black uppercase tracking-wider text-slate-400 mb-3 block">Form Generation</h4>
             <div className="flex flex-col gap-1.5">
-              {[
-                { type: '2550Q', label: 'BIR Form 2550Q', desc: 'Quarterly Value-Added Tax' },
-                { type: '1701Q', label: 'BIR Form 1701Q', desc: 'Quarterly Income Tax (Individual)' },
-                { type: '2551Q', label: 'BIR Form 2551Q', desc: 'Quarterly Percentage Tax' },
-                { type: '1601-C', label: 'BIR Form 1601-C', desc: 'Monthly Withholding on Salaries' },
-                { type: '0619-E', label: 'BIR Form 0619-E', desc: 'Monthly Remittance of EWT' },
-                { type: '1601-EQ', label: 'BIR Form 1601-EQ', desc: 'Quarterly Remittance of EWT' }
-              ].filter((f) => canBirDropdown('bir_form', birFormPermissionId[f.type])).map((f) => (
-                <button
-                  key={f.type}
-                  onClick={() => { if (canBirDropdown('bir_form', birFormPermissionId[f.type])) setActiveFormType(f.type as any); }}
-                  className={`w-full p-3 text-left border rounded-xl transition-all ${
-                    activeFormType === f.type 
-                      ? 'bg-blue-600 border-blue-600 text-white shadow-md shadow-blue-500/10' 
-                      : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100'
-                  }`}
-                >
-                  <span className="font-bold text-xs block leading-tight">{f.label}</span>
-                  <span className={`text-[10px] block font-medium mt-0.5 leading-tight ${
-                    activeFormType === f.type 
-                      ? 'text-white/80' 
-                      : 'text-slate-500'
-                  }`}>{f.desc}</span>
-                </button>
+              {[].filter((f) => canBirDropdown('bir_form', birFormPermissionId[(f as any).type])).map((f) => (
+                <button key={(f as any).type} />
               ))}
               <button
                 onClick={() => navigate('/alphalist')}
@@ -810,7 +788,7 @@ export function BIRForms() {
           <hr className="border-slate-200 dark:border-slate-700" />
 
           {/* Configuration */}
-          <div className="space-y-4">
+          <div className="space-y-4 hidden">
             <h4 className="text-xs font-black uppercase tracking-wider text-slate-400 block">
               Filing Period Selection
             </h4>
