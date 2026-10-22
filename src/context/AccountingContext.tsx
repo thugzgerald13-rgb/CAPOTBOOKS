@@ -1418,19 +1418,20 @@ export function AccountingProvider({
     await recordNormalizedMutation('sales', currentClientId, 'put', row);
 
     // ======================================================================
-    // AUTO-ADD CUSTOMER TO TIN LIBRARY (mirrors supplier auto-add in savePurchase)
+    // AUTO-ADD CUSTOMER TO TIN LIBRARY (mirrors supplier auto-add in savePurchase).
+    // Always upsert (idempotent by stable id) so a stale-closure "existing"
+    // check can never skip it; wrapped in try/catch so it can never block saving.
     // ======================================================================
-    if (sale.buyerTin && sale.buyerName) {
-      const tin = String(sale.buyerTin).trim();
-      const name = String(sale.buyerName).trim();
-      const customers = clients[currentClientId]?.tinLibrary?.customers || [];
-      const existing = customers.find((c: any) => String(c.tin).trim() === tin);
-      if (!existing) {
-        const normalizedTin = tin.replace(/\D/g, '');
-        const customerId = `tin_customer_${normalizedTin}`;
-        const customerEntry = { id: customerId, tin, name, address: sale.buyerAddress || '' };
+    try {
+      const tinRaw = String(sale.buyerTin || sale.buyer_tin || '').trim();
+      const name = String(sale.buyerName || sale.buyer_name || '').trim();
+      if (tinRaw && name) {
+        const normalizedTin = tinRaw.replace(/\D/g, '');
+        const customerEntry = { id: `tin_customer_${normalizedTin}`, tin: tinRaw, name, address: sale.buyerAddress || sale.buyer_address || '' };
         await saveTinEntry(customerEntry, 'customer');
       }
+    } catch (e) {
+      console.warn('Customer TIN library auto-add skipped:', e);
     }
     // ======================================================================
 
