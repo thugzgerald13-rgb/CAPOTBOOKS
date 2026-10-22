@@ -149,6 +149,26 @@ export function Sales() {
 
     const persistSale = async () => {
       try {
+        // Duplicate guard: same Invoice # + Customer TIN already saved.
+        const tinDigits = buyerTin.replace(/\D/g, '');
+        const refKey = ref.trim();
+        const dupInMemory = salesRows.some(r => (r.ref || '').trim() === refKey && (r.buyerTin || '').replace(/\D/g, '') === tinDigits);
+        if (dupInMemory) {
+          showToast('Duplicate entry: this Invoice # is already saved for this Customer TIN.');
+          return;
+        }
+        const { data: dupRows } = await supabase
+          .from('sales')
+          .select('id,buyer_tin')
+          .eq('client_id', currentClientId)
+          .eq('ref', refKey)
+          .limit(50);
+        const dupRemote = (dupRows || []).some(r => (r.buyer_tin || '').replace(/\D/g, '') === tinDigits);
+        if (dupRemote) {
+          showToast('Duplicate entry: this Invoice # is already saved for this Customer TIN.');
+          return;
+        }
+
         await saveSale(String(newSale.id), newSale);
 
         // Income History is the single source of truth for both subsidiary journals.
@@ -161,21 +181,20 @@ export function Sales() {
         } else {
           showToast('Income entry added');
         }
+        // Reset form only on successful save (blocked duplicates keep the entry for editing).
+        setRef('');
+        setBuyerName('');
+        setBuyerTin('');
+        setBuyerAddress('');
+        setAmount('');
+        setDesc('');
+        setCreditNote(false);
       } catch (error) {
         console.error('Saving sale failed:', error);
         showToast('Unable to save income entry');
       }
     };
     void persistSale();
-
-    // Reset Form
-    setRef('');
-    setBuyerName('');
-    setBuyerTin('');
-    setBuyerAddress('');
-    setAmount('');
-    setDesc('');
-    setCreditNote(false);
   };
 
   return (
