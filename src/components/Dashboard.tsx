@@ -261,12 +261,6 @@ export function Dashboard() {
     <div className="space-y-6 pb-6">
       {/* Header */}
       <div className="sticky-page-title flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
-        <div className="min-w-0">
-          <h1 className="text-2xl font-extrabold tracking-tight text-text-primary">Dashboard</h1>
-          <p className="mt-0.5 text-sm text-text-muted">
-            {range.label} compared with the prior period. Matches your Profit &amp; Loss and General Ledger.
-          </p>
-        </div>
         <div className="flex flex-wrap items-center gap-2">
           <div role="tablist" aria-label="Reporting period" className="flex items-center rounded-xl border border-border bg-surface p-1 gap-0.5 overflow-x-auto max-w-full">
             {PERIOD_OPTIONS.map(opt => (
@@ -283,18 +277,6 @@ export function Dashboard() {
           </button>
         </div>
       </div>
-
-      {/* Quick actions */}
-      <section aria-label="Quick actions" className="flex flex-wrap items-center gap-2" style={canUse('edit_transactions') ? undefined : { display: 'none' }}>
-        <span className="text-xs font-semibold uppercase tracking-wider text-text-muted mr-1">Quick actions</span>
-        {quickActions.map(qa => (
-          <button key={qa.page} type="button" onClick={() => navigateToPage(qa.page)}
-            className="group inline-flex items-center gap-2 h-9 pl-2.5 pr-3.5 rounded-full border border-border bg-surface text-sm font-semibold text-text-secondary hover:border-brand-400 hover:text-brand-700 dark:hover:text-brand-300 hover:bg-brand-50 dark:hover:bg-brand-500/10 transition-colors">
-            <qa.icon className="w-4 h-4 text-brand-600 dark:text-brand-300" />
-            {qa.label}
-          </button>
-        ))}
-      </section>
 
       {/* Performance */}
       <section aria-labelledby="dash-performance" className="space-y-3">
