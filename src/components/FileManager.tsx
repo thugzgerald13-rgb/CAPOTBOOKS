@@ -3,6 +3,7 @@ import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
 import { useGranularPermissions } from '../lib/useGranularPermissions';
+import { useLocation } from 'react-router-dom';
 import { AppFolder, AppFile } from '../types';
 import { parsePdf } from '../lib/pdfParser';
 import { parseBankStatement, type BankTxn } from '../lib/bankImport';
@@ -486,16 +487,20 @@ export function FileManager() {
   const bankFileRef = useRef<HTMLInputElement>(null);
   const headerFileRef = useRef<HTMLInputElement>(null);
   const CATEGORY_FOLDER: Record<string, string> = { income: 'folder_revenue', expense: 'folder_expense', other: 'folder_other' };
+  const location = useLocation();
+  const pathSeg = location.pathname.split('/').filter(Boolean).pop() || '';
+  const fixedCategory = pathSeg === 'income' || pathSeg === 'expense' || pathSeg === 'other' ? pathSeg : null;
   const [filesCategory, setFilesCategory] = useState<'income' | 'expense' | 'other'>('income');
+  const activeCategory = (fixedCategory || filesCategory) as 'income' | 'expense' | 'other';
   useEffect(() => {
-    const cat = sessionStorage.getItem('filesCategory');
+    const cat = fixedCategory || sessionStorage.getItem('filesCategory');
     if (cat === 'income' || cat === 'expense' || cat === 'other') {
       setFilesCategory(cat);
       setSelectedFolderId(CATEGORY_FOLDER[cat]);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  useEffect(() => { setSelectedFolderId(CATEGORY_FOLDER[filesCategory]); }, [filesCategory]);
+  }, [fixedCategory]);
+  useEffect(() => { setSelectedFolderId(CATEGORY_FOLDER[activeCategory]); }, [activeCategory]);
   const reconcileRules: ReconcileRule[] = DEFAULT_RECONCILE_RULES;
   const handleBankFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -542,14 +547,16 @@ export function FileManager() {
         }
       />
       <input ref={headerFileRef} type="file" multiple onChange={handleFileChange} className="hidden" />
+      {!fixedCategory && (
       <div className="px-4 md:px-6 pt-4 flex flex-wrap gap-2">
         {([['income','Income Files'],['expense','Expense Files'],['other','Other Files']] as const).map(([key,label]) => (
           <button key={key} onClick={() => setFilesCategory(key)}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all border ${filesCategory === key ? 'bg-blue-600 text-white border-blue-600' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-blue-300'}`}>
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all border ${activeCategory === key ? 'bg-blue-600 text-white border-blue-600' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-blue-300'}`}>
             {label}
           </button>
         ))}
       </div>
+      )}
       <div className="p-4 md:p-6 flex-1">
       {/* T019: Bank import + auto-match inbox */}
       <div className="mb-6 rounded-2xl border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 p-4 hidden">
@@ -828,7 +835,7 @@ export function FileManager() {
               onDragLeave={handleDragLeave}
               onDrop={handleDrop}
               onClick={() => fileInputRef.current?.click()}
-              className={`border-2 border-dashed rounded-3xl p-8 py-10 text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-3 ${
+              className={`hidden border-2 border-dashed rounded-3xl p-8 py-10 text-center cursor-pointer transition-all flex flex-col items-center justify-center gap-3 ${
                 isDragging 
                   ? 'border-blue-500 bg-blue-50/50 dark:bg-blue-900/10' 
                   : 'border-slate-200 dark:border-slate-700 hover:border-blue-400 hover:bg-slate-50/50 dark:hover:bg-slate-800/20'

@@ -804,7 +804,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                 <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden flex flex-col gap-1 mt-1 pl-4">
                   {([['income','Income Files'],['expense','Expense Files'],['other','Other Files']] as const).map(([key,label]) => (
                     <button key={key} disabled={!canUse('edit_transactions')}
-                      onClick={() => { sessionStorage.setItem('filesCategory', key); navigateToPage('files'); setIsOpen(false); setIsFilesOpen(false); }}
+                      onClick={() => { navigateToPage(`files/${key}`); setIsOpen(false); setIsFilesOpen(false); }}
                       className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-slate-800 dark:hover:text-blue-400 transition-all w-full text-left">
                       <FolderUp className="w-3.5 h-3.5" /> {label}
                     </button>
