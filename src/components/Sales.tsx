@@ -2,9 +2,9 @@ import { useState, useEffect, useMemo } from 'react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { formatTIN, MONTHS, getMonthName } from '../lib/utils';
-import { Receipt, Plus, Users, RotateCcw } from 'lucide-react';
+import { Receipt, Plus, RotateCcw } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import { buildCustomerList, vatSummary, formatMoney } from '../lib/customerCrm';
+
 import { useGranularPermissions } from '../lib/useGranularPermissions';
 
 const CASH_RECEIPT_PAYMENT_TYPES = ['Cash', 'Check', 'E-Payment', 'Bank Transfer'];
@@ -83,12 +83,15 @@ export function Sales() {
 
 
 
-  // Auto-fill buyer name from TIN library
+  // Auto-fill buyer name + address from TIN library (digits-normalized match).
   useEffect(() => {
-    if (buyerTin.length === 11 && currentClient) {
-      const found = currentClient.tinLibrary.customers.find(c => c.tin === buyerTin);
+    const digits = buyerTin.replace(/\D/g, '');
+    const lib = currentClient?.tinLibrary?.customers || [];
+    if (digits.length >= 9 && lib.length > 0) {
+      const found = lib.find(c => (c.tin || '').replace(/\D/g, '').slice(0, 9) === digits.slice(0, 9));
       if (found) {
         setBuyerName(found.name);
+        if (found.address) setBuyerAddress(found.address);
         setAutoLoadMsg(`Loaded: ${found.name}`);
         const t = setTimeout(() => setAutoLoadMsg(''), 2000);
         return () => clearTimeout(t);
@@ -101,10 +104,6 @@ export function Sales() {
   const isVatable = vatType === 'VATable';
   const netOfVat = isVatable ? grossAmount / 1.12 : grossAmount;
   const outputTax = isVatable ? grossAmount - netOfVat : 0;
-  // Run 008 / T008 — customer CRM + VAT summary (from loaded sales rows)
-  const customers = useMemo(() => buildCustomerList(salesRows, currentClient?.tinLibrary?.customers || []), [salesRows, currentClient]);
-  const vat = useMemo(() => vatSummary(salesRows), [salesRows]);
-  const fillCustomer = (c: { tin: string; name: string; address: string }) => { setBuyerTin(c.tin); setBuyerName(c.name); setBuyerAddress(c.address); };
 
   const handleAddSale = () => {
     if (!canSalesAction('add')) { showToast('Your profile does not have permission to add income entries.'); return; }
@@ -184,38 +183,6 @@ export function Sales() {
       <PageHeader title="Income" icon={<Receipt className="w-5 h-5 text-emerald-500" />} />
       <div className="p-4 md:p-6 flex-1">
 
-      {/* Run 008 / T008 — VAT summary + customer CRM */}
-      {salesRows.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-          {[
-            { label: 'Total Income', value: vat.total, color: 'text-emerald-600' },
-            { label: 'VATable', value: vat.vatable, color: 'text-blue-600' },
-            { label: 'VAT Exempt', value: vat.exempt, color: 'text-slate-600' },
-            { label: 'Output VAT', value: vat.outputTax, color: 'text-amber-600' },
-          ].map(s => (
-            <div key={s.label} className="bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-3">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{s.label}</div>
-              <div className={`text-base font-extrabold mt-1 tabular-nums ${s.color}`}>{formatMoney(s.value)}</div>
-            </div>
-          ))}
-        </div>
-      )}
-      {canSalesAction('add') && customers.length > 0 && (
-        <div className="mb-5">
-          <div className="flex items-center gap-2 mb-2 text-xs font-bold text-slate-500 uppercase tracking-wider">
-            <Users className="w-3.5 h-3.5" /> Customers — click to fill form
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {customers.slice(0, 12).map(c => (
-              <button key={c.key} type="button" onClick={() => fillCustomer(c)}
-                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:border-emerald-400 dark:hover:border-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 transition-all text-left">
-                <span className="text-xs font-semibold text-slate-700 dark:text-slate-200">{c.name || '(no name)'}</span>
-                <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">{formatMoney(c.totalSpend)}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
       {canSalesAction('add') && <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-100 dark:border-slate-700">
         <div>
           <label className="form-label">Date</label>
