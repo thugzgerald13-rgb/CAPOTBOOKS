@@ -11,7 +11,7 @@ const CASH_RECEIPT_PAYMENT_TYPES = ['Cash', 'Check', 'E-Payment', 'Bank Transfer
 const SALES_JOURNAL_PAYMENT_TYPES = ['Credit Card', 'On Account'];
 
 export function Sales() {
-  const { currentClient, currentClientId, saveSale, showToast } = useAccounting();
+  const { currentClient, currentClientId, saveSale, saveTinEntry, showToast } = useAccounting();
   const { canAction: canSalesAction, canDropdownOption: canSalesDropdown } = useGranularPermissions('sales');
   const paymentTypeOptions = [
     { value: 'Cash', label: 'Cash', permission: 'cash' },
@@ -170,6 +170,21 @@ export function Sales() {
         }
 
         await saveSale(String(newSale.id), newSale);
+
+        // Auto-save / update this customer in the TIN library (TIN + name + address).
+        const tinDigits = buyerTin.replace(/\D/g, '');
+        if (tinDigits && buyerName.trim() && saveTinEntry) {
+          try {
+            await saveTinEntry({
+              id: `tin_customer_${tinDigits}`,
+              tin: buyerTin,
+              name: buyerName.trim(),
+              address: buyerAddress.trim() || null,
+            }, 'customer');
+          } catch (e) {
+            console.warn('TIN library customer upsert failed:', e);
+          }
+        }
 
         // Income History is the single source of truth for both subsidiary journals.
         // CRJ/SJ read the saved sale by payment type, so no separate journal copy is created here.
