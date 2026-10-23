@@ -23,7 +23,7 @@ interface SidebarProps {
 }
 
 /** Pages hidden from everyone except the developer account (isAdmin) until built out. */
-const ADMIN_ONLY_PAGES = new Set(['compliance-tracker', 'inventory']);
+const ADMIN_ONLY_PAGES = new Set<string>();
 
 export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   const {

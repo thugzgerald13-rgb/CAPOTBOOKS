@@ -946,11 +946,10 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
 
         {!isOtherPayments && (vatType === 'vat' || vatType === 'vat-nonvat') && (
           <>
-            {vatType !== 'non-vat' && <div>
+            <div>
               <label className="form-label text-red-500">Gross Amount (₱) *</label>
               <input type="text" value={amount} onChange={e => /^[0-9.,]*$/.test(e.target.value) && setAmount(e.target.value)} onBlur={e => { const raw = e.target.value.replace(/,/g, ''); if (raw && !isNaN(parseFloat(raw))) setAmount(parseFloat(raw).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })); }} placeholder="0.00" className="form-input font-bold text-amber-900 border-amber-300 dark:bg-amber-900/20 dark:text-amber-100" />
-            </div>}
-            {vatType !== 'non-vat' && <>
+            </div>
             <div>
               <label className="form-label text-slate-500">Net Amount (₱)</label>
               <input type="text" readOnly value={netAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="form-input bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 font-bold cursor-not-allowed" />
@@ -959,7 +958,6 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
               <label className="form-label text-slate-500">Input Tax (₱)</label>
               <input type="text" readOnly value={inputTax.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} className="form-input bg-blue-50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-900/50 text-blue-700 dark:text-blue-300 font-bold cursor-not-allowed" />
             </div>
-            </>}
           </>
         )}
 

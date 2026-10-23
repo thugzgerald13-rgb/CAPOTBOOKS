@@ -6,6 +6,7 @@ import { AccountingProvider, useAccounting } from './context/AccountingContext';
 import { AnimatePresence, motion } from 'motion/react';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AuthContainer } from './components/AuthContainer';
+import { LandingPage, loadPreselectedOnboardingCategory, type PreselectedOnboardingCategory } from './components/LandingPage';
 import { RoleSelection } from './components/RoleSelection';
 import { HashRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { ToastContainer } from './components/ui/Toast';
@@ -346,6 +347,11 @@ function SubuserPasswordGate({ children }: { children: React.ReactNode }) {
 
 function MainApp() {
   const { user, loading, accountReady, userRole, setUserRole } = useAuth();
+  const [showAuth, setShowAuth] = useState(false);
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login');
+  const [selectedCategory, setSelectedCategory] = useState<PreselectedOnboardingCategory | null>(() =>
+    loadPreselectedOnboardingCategory()
+  );
 
   // Load trial + module entitlements from the server once the user has chosen a
   // role (the server starts the trial clock on this first call), then refresh
@@ -368,7 +374,24 @@ function MainApp() {
   }
 
   if (!user) {
-    return <AuthContainer />;
+    if (!showAuth) {
+      return (
+        <LandingPage
+          onNavigateAuth={(mode, category) => {
+            if (category) setSelectedCategory(category);
+            setAuthMode(mode);
+            setShowAuth(true);
+          }}
+        />
+      );
+    }
+    return (
+      <AuthContainer
+        initialMode={authMode}
+        selectedCategory={selectedCategory}
+        onBackToLanding={() => setShowAuth(false)}
+      />
+    );
   }
 
   // Primary role selection — shown FIRST after login so the user's role
@@ -379,7 +402,7 @@ function MainApp() {
   };
 
   if (!userRole) {
-    return <RoleSelection onSelect={handleRoleSelect} />;
+    return <RoleSelection onSelect={handleRoleSelect} preselectedCategory={selectedCategory} />;
   }
 
   return (

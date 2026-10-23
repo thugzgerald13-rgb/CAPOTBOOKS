@@ -307,11 +307,11 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
   // Payroll workspace tabs retained from Paykaya Enterprise Hub.
   const [currentPage, setCurrentPage] = useState<
     'dashboard' | 'employees' | 'attendance' | 'payroll' | 'payslip' | 'reports' | 'settings'
-  >(initialPage);
+  >(initialPage as any);
 
 
   useEffect(() => {
-    setCurrentPage(initialPage);
+    setCurrentPage(initialPage as any);
   }, [initialPage]);
 
   // Master State: never pre-populate employees. This also removes the known

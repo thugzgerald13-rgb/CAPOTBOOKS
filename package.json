@@ -9,6 +9,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist",
     "lint": "tsc --noEmit",
+    "automation": "tsx scripts/run-automation.ts",
+    "test:automation": "tsx scripts/run-automation.ts",
     "migrate:legacy": "node scripts/migrate-legacy-data.mjs --confirm"
   },
   "dependencies": {

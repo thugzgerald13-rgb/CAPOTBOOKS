@@ -14,6 +14,7 @@ import {
   pendingDirtyCount, recordCacheHit, invalidateQueries, validateCacheSchema,
 } from '../db/localDb';
 import { getCache, setCache, broadcastInvalidate } from '../lib/cacheDB';
+import { loadPreselectedOnboardingCategory } from '../components/LandingPage';
 
 interface AccountingContextType {
   clients: Record<string, Client>;
@@ -98,33 +99,44 @@ const AccountingContext = createContext<AccountingContextType | undefined>(undef
 // the "owner" client's id to the user themselves instead.
 const ownerClientId = (userId: string) => `client_owner_${userId}`;
 
-const defaultBusinessProfile = (name: string): BusinessProfile => ({
-  id: name, // placeholder, immediately overwritten with user.id by the caller
-  name,
-  // Onboarding fields are intentionally left empty. The previous dummy
-  // values ('000-000-000-000', 'General Trade/Services', 'Main Street',
-  // '043B', ...) passed the AppLayout onboarding gate's non-empty checks,
-  // so a brand-new user was never navigated to the Business Profile form
-  // after choosing a role. Empty values keep the gate open until the user
-  // genuinely fills them in. taxpayerClassification keeps a sensible default.
-  tin: '',
-  taxpayerClassification: 'Individual',
-  vatRegistrationType: 'vat',
-  registeredName: name,
-  lastName: '',
-  firstName: '',
-  middleName: '',
-  tradeName: '',
-  substreet: '',
-  street: '',
-  barangay: '',
-  district: '',
-  city: '',
-  zipCode: '',
-  rdoCode: '',
-  accountingType: 'Calendar',
-  fiscalMonthEnd: 12,
-});
+const defaultBusinessProfile = (name: string): BusinessProfile => {
+  const preselected = loadPreselectedOnboardingCategory();
+  return {
+    id: name, // placeholder, immediately overwritten with user.id by the caller
+    name,
+    // Onboarding fields are intentionally left empty. The previous dummy
+    // values ('000-000-000-000', 'General Trade/Services', 'Main Street',
+    // '043B', ...) passed the AppLayout onboarding gate's non-empty checks,
+    // so a brand-new user was never navigated to the Business Profile form
+    // after choosing a role. Empty values keep the gate open until the user
+    // genuinely fills them in. Category / workflow fields inherit the user's
+    // pre-signup Landing Page tile selection when present.
+    tin: '',
+    taxpayerClassification: preselected?.taxpayerClassification || 'Individual',
+    taxpayerSubClassification: preselected?.taxpayerSubClassification || 'sole_proprietor',
+    taxpayerTier: preselected?.taxpayerTier || 'micro',
+    vatRegistrationType: preselected?.vatRegistrationType || 'vat',
+    incomeTaxRegime: preselected?.incomeTaxRegime || 'graduated_itemized',
+    percentageTaxRate: preselected?.percentageTaxRate ?? 0.03,
+    industry: preselected?.industry || 'general-services',
+    category: preselected?.category || 'private',
+    hasEmployees: preselected?.hasEmployees ?? true,
+    registeredName: name,
+    lastName: '',
+    firstName: '',
+    middleName: '',
+    tradeName: '',
+    substreet: '',
+    street: '',
+    barangay: '',
+    district: '',
+    city: '',
+    zipCode: '',
+    rdoCode: '',
+    accountingType: 'Calendar',
+    fiscalMonthEnd: 12,
+  };
+};
 
 const buildMatchingClient = (profileData: BusinessProfile, existing: Client | undefined, ownerId: string): Client =>
   ({
@@ -132,6 +144,12 @@ const buildMatchingClient = (profileData: BusinessProfile, existing: Client | un
     name: profileData.name,
     tin: profileData.tin || '',
     taxpayerClassification: profileData.taxpayerClassification || '',
+    taxpayerSubClassification: profileData.taxpayerSubClassification || existing?.taxpayerSubClassification || 'sole_proprietor',
+    taxpayerTier: profileData.taxpayerTier || existing?.taxpayerTier || 'micro',
+    incomeTaxRegime: profileData.incomeTaxRegime || existing?.incomeTaxRegime,
+    deductionMethod: profileData.deductionMethod || existing?.deductionMethod,
+    percentageTaxRate: profileData.percentageTaxRate ?? existing?.percentageTaxRate ?? 0.03,
+    hasEmployees: profileData.hasEmployees ?? existing?.hasEmployees ?? true,
     registeredName: profileData.registeredName || profileData.name,
     lastName: profileData.lastName || '',
     firstName: profileData.firstName || '',
@@ -151,7 +169,7 @@ const buildMatchingClient = (profileData: BusinessProfile, existing: Client | un
     accountingType: profileData.accountingType || 'Calendar',
     fiscalMonthEnd: profileData.fiscalMonthEnd || 12,
     vatRegistrationType: profileData.vatRegistrationType || existing?.vatRegistrationType || 'vat',
-    industry: existing?.industry || 'general-services',
+    industry: profileData.industry || existing?.industry || 'general-services',
     tinLibrary: existing?.tinLibrary || { customers: [], suppliers: [] },
     sales: existing?.sales || [],
     purchases: existing?.purchases || [],

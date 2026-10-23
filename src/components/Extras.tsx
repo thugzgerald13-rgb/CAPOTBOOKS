@@ -4,8 +4,9 @@ import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
 import { useAuth } from '../context/AuthContext';
 import { Users, TrendingUp, Key, Lightbulb, BookOpen, BookText, LineChart, Scale, Plus, Building2, Save, X, RotateCcw, Library, FileText, Receipt, ShoppingCart, Banknote, Wallet, CreditCard, Trash2, Pencil, Upload, Loader2, CheckCircle2, AlertTriangle, FileImage } from 'lucide-react';
-import { Client, BusinessProfile, ClientIndustry, VatRegistrationType } from '../types';
+import { Client, BusinessProfile, ClientIndustry, VatRegistrationType, TaxpayerSubClassification, TaxpayerSizeTier, IncomeTaxRegime, DeductionMethod } from '../types';
 import { RDO_CODES } from '../lib/utils';
+import { resolveBusinessWorkflow, computeBusinessTax, computeIncomeTaxByRegime } from '../lib/taxEngine';
 import { supabase } from '../lib/supabase';
 import { storageBucket } from '../lib/r2Storage';
 import { formatAccountAmount, glAccountBalanceBefore, getAccountBalances } from '../lib/accountingBalances';
@@ -297,7 +298,7 @@ export function Extras() {
   };
 
   const handleAddClient = () => {
-    const existingCount = Object.values(clients).filter((client: Client) => client.id !== ownerClientId).length;
+    const existingCount = (Object.values(clients) as Client[]).filter((client: Client) => client.id !== ownerClientId).length;
     const nextName = `New Client ${existingCount + 1}`;
     const draftId = 'client_draft_' + Date.now();
 
@@ -385,9 +386,10 @@ export function Extras() {
                   className="hidden"
                   accept="application/pdf,image/*,.pdf,.jpg,.jpeg,.png,.gif,.webp,.bmp,.tif,.tiff,.heic,.heif"
                   onChange={(e) => {
-                    const file = e.target.files?.[0];
+                    const target = e.target as HTMLInputElement;
+                    const file = target.files?.[0];
                     void handleBirCorUpload(file);
-                    e.target.value = '';
+                    target.value = '';
                   }}
                 />
                 <div className="flex flex-col lg:flex-row lg:items-center gap-3 justify-between">
@@ -525,12 +527,112 @@ export function Extras() {
                   className="form-input"
                 >
                   <option value="">Select VAT Registration Type</option>
-                  <option value="vat">VAT Registered</option>
-                  <option value="non-vat">Non-VAT</option>
-                  <option value="exempt">VAT Exempt</option>
-                  <option value="zero-rated">Zero-Rated</option>
+                  <option value="vat">VAT Registered (12% Output VAT — Form 2550Q + RELIEF)</option>
+                  <option value="non-vat">Non-VAT (Percentage Tax Form 2551Q or 8% Flat Option)</option>
+                  <option value="exempt">VAT Exempt (0% VAT Exempt — Sec. 109 NIRC)</option>
+                  <option value="zero-rated">Zero-Rated (0% Output VAT + Input VAT Credit — Form 2550Q + RELIEF)</option>
                 </select>
                 <p className="text-[10px] text-slate-400 mt-1">RELIEF (SLSP) filing is available only for VAT-Registered and Zero-Rated taxpayers. Selecting Non-VAT or VAT Exempt will hide and lock the RELIEF module.</p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 mb-4">
+                <div className="sm:col-span-6">
+                  <label className="form-label">Taxpayer Sub-Classification:</label>
+                  <select
+                    value={editingClient.taxpayerSubClassification || ''}
+                    onChange={e => setEditingClient({ ...editingClient, taxpayerSubClassification: (e.target.value || undefined) as TaxpayerSubClassification | undefined })}
+                    className="form-input"
+                  >
+                    <option value="">Auto / Default by Classification</option>
+                    {editingClient.taxpayerClassification !== 'Non-Individual' ? (
+                      <>
+                        <option value="sole_proprietor">Sole Proprietor (Single Proprietorship)</option>
+                        <option value="professional">Licensed / Freelance Professional</option>
+                        <option value="mixed_income">Mixed Income Earner (Compensation + Business/Profession)</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value="corporation_msme">Domestic MSME Corporation (20% CREATE Rate)</option>
+                        <option value="corporation_regular">Domestic Regular Corporation (25% RCIT)</option>
+                        <option value="opc">One Person Corporation (OPC)</option>
+                        <option value="partnership">Taxable General Partnership</option>
+                        <option value="gpp">General Professional Partnership (GPP — Tax Exempt 1702-EX)</option>
+                        <option value="cooperative">Exempt Cooperative / Non-Stock Non-Profit (1702-EX)</option>
+                      </>
+                    )}
+                  </select>
+                </div>
+                <div className="sm:col-span-6">
+                  <label className="form-label">EOPT Taxpayer Size Tier (RA 11976):</label>
+                  <select
+                    value={editingClient.taxpayerTier || ''}
+                    onChange={e => setEditingClient({ ...editingClient, taxpayerTier: (e.target.value || undefined) as TaxpayerSizeTier | undefined })}
+                    className="form-input"
+                  >
+                    <option value="">Auto-detect from Gross Sales</option>
+                    <option value="micro">Micro Taxpayer (&lt; ₱3M Gross Sales — 10% Reduced Surcharge)</option>
+                    <option value="small">Small Taxpayer (₱3M to &lt; ₱20M — 10% Reduced Surcharge)</option>
+                    <option value="medium">Medium Taxpayer (₱20M to &lt; ₱1B — 25% Standard Surcharge)</option>
+                    <option value="large">Large Taxpayer (≥ ₱1B — 25% Standard Surcharge)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 mb-4">
+                <div className="sm:col-span-5">
+                  <label className="form-label">Income Tax Regime / Rate Option:</label>
+                  <select
+                    value={editingClient.incomeTaxRegime || ''}
+                    onChange={e => setEditingClient({ ...editingClient, incomeTaxRegime: (e.target.value || undefined) as IncomeTaxRegime | undefined })}
+                    className="form-input"
+                  >
+                    <option value="">Auto / Default for Classification</option>
+                    {editingClient.taxpayerClassification !== 'Non-Individual' ? (
+                      <>
+                        <option value="8_percent_flat">8% Flat Income Tax (Non-VAT ≤ ₱3M, Exempt from 2551Q)</option>
+                        <option value="graduated_itemized">Graduated TRAIN (0%–35%) + Itemized Deductions</option>
+                        <option value="graduated_osd">Graduated TRAIN (0%–35%) + 40% OSD on Gross Sales</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value="corp_20_msme">20% CREATE MSME Corporate Tax + Itemized Deductions</option>
+                        <option value="corp_20_osd">20% CREATE MSME Corporate Tax + 40% OSD on Gross Income</option>
+                        <option value="corp_25_regular">25% Regular Corporate Income Tax (RCIT) + Itemized</option>
+                        <option value="corp_25_osd">25% Regular Corporate Income Tax (RCIT) + 40% OSD</option>
+                        <option value="corp_gpp_exempt">0% Tax Exempt (GPP / Exempt Cooperative — Form 1702-EX)</option>
+                        <option value="corp_special_5">5% Special Rate on Gross Income Earned (PEZA — Form 1702-MX)</option>
+                      </>
+                    )}
+                  </select>
+                </div>
+                <div className="sm:col-span-4">
+                  <label className="form-label">Deduction Method:</label>
+                  <select
+                    value={editingClient.deductionMethod || ''}
+                    onChange={e => setEditingClient({ ...editingClient, deductionMethod: (e.target.value || undefined) as DeductionMethod | undefined })}
+                    className="form-input"
+                  >
+                    <option value="">Follow Selected Regime</option>
+                    <option value="itemized">Itemized Deductions</option>
+                    <option value="osd_40">40% Optional Standard Deduction (OSD)</option>
+                    <option value="none_8_percent">No Deduction (8% Flat Gross Tax Base)</option>
+                  </select>
+                </div>
+                <div className="sm:col-span-3">
+                  <label className="form-label">Percentage Tax Rate (2551Q):</label>
+                  <select
+                    value={editingClient.percentageTaxRate !== undefined ? String(editingClient.percentageTaxRate) : ''}
+                    onChange={e => setEditingClient({ ...editingClient, percentageTaxRate: e.target.value === '' ? undefined : Number(e.target.value) })}
+                    className="form-input"
+                  >
+                    <option value="">Default (3% or 0% if 8% Flat)</option>
+                    <option value="0.03">3% Standard Non-VAT (Sec. 116)</option>
+                    <option value="0.01">1% Concessional Rate (CREATE)</option>
+                    <option value="0.02">2% Special Percentage Tax</option>
+                    <option value="0.05">5% Gross Receipts Tax</option>
+                    <option value="0">0% Exempt (8% Flat / Exempt)</option>
+                  </select>
+                </div>
               </div>
 
               <div className="mb-4">
@@ -842,7 +944,7 @@ export function Extras() {
         ) : (
           <>
              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {Object.values(clients)
+              {(Object.values(clients) as Client[])
                 .filter((client: Client) => {
                   if (client.id === ownerClientId) return false;
                   // Defensive guard: also hide any stray entry that duplicates the
@@ -1023,12 +1125,79 @@ export function Extras() {
                   className="form-input"
                 >
                   <option value="">Select VAT Registration Type</option>
-                  <option value="vat">VAT Registered</option>
-                  <option value="non-vat">Non-VAT</option>
-                  <option value="exempt">VAT Exempt</option>
-                  <option value="zero-rated">Zero-Rated</option>
+                  <option value="vat">VAT Registered (12% Output VAT — Form 2550Q + RELIEF)</option>
+                  <option value="non-vat">Non-VAT (Percentage Tax Form 2551Q or 8% Flat Option)</option>
+                  <option value="exempt">VAT Exempt (0% VAT Exempt — Sec. 109 NIRC)</option>
+                  <option value="zero-rated">Zero-Rated (0% Output VAT + Input VAT Credit — Form 2550Q + RELIEF)</option>
                 </select>
                 <p className="text-[10px] text-slate-400 mt-1">RELIEF (SLSP) filing is available only for VAT-Registered and Zero-Rated taxpayers. Selecting Non-VAT or VAT Exempt will hide and lock the RELIEF module.</p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 mb-4">
+                <div className="sm:col-span-4">
+                  <label className="form-label">Industry / Business Type:</label>
+                  <select
+                    value={editingBusiness.industry || DEFAULT_INDUSTRY}
+                    onChange={e => setEditingBusiness({ ...editingBusiness, industry: e.target.value as ClientIndustry })}
+                    className="form-input"
+                  >
+                    {INDUSTRY_OPTIONS.map(option => (
+                      <option key={option.value} value={option.value}>{option.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="sm:col-span-4">
+                  <label className="form-label">Taxpayer Sub-Classification:</label>
+                  <select
+                    value={editingBusiness.taxpayerSubClassification || ''}
+                    onChange={e => setEditingBusiness({ ...editingBusiness, taxpayerSubClassification: (e.target.value || undefined) as TaxpayerSubClassification | undefined })}
+                    className="form-input"
+                  >
+                    <option value="">Auto / Default by Classification</option>
+                    {editingBusiness.taxpayerClassification !== 'Non-Individual' ? (
+                      <>
+                        <option value="sole_proprietor">Sole Proprietor</option>
+                        <option value="professional">Licensed / Freelance Professional</option>
+                        <option value="mixed_income">Mixed Income Earner</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value="corporation_msme">Domestic MSME Corp (20% CREATE)</option>
+                        <option value="corporation_regular">Domestic Regular Corp (25% RCIT)</option>
+                        <option value="opc">One Person Corporation (OPC)</option>
+                        <option value="partnership">Taxable Partnership</option>
+                        <option value="gpp">General Professional Partnership (GPP)</option>
+                        <option value="cooperative">Exempt Cooperative</option>
+                      </>
+                    )}
+                  </select>
+                </div>
+                <div className="sm:col-span-4">
+                  <label className="form-label">Income Tax Regime / Rate:</label>
+                  <select
+                    value={editingBusiness.incomeTaxRegime || ''}
+                    onChange={e => setEditingBusiness({ ...editingBusiness, incomeTaxRegime: (e.target.value || undefined) as IncomeTaxRegime | undefined })}
+                    className="form-input"
+                  >
+                    <option value="">Auto / Default for Classification</option>
+                    {editingBusiness.taxpayerClassification !== 'Non-Individual' ? (
+                      <>
+                        <option value="8_percent_flat">8% Flat Income Tax</option>
+                        <option value="graduated_itemized">Graduated TRAIN + Itemized</option>
+                        <option value="graduated_osd">Graduated TRAIN + 40% OSD</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value="corp_20_msme">20% CREATE MSME + Itemized</option>
+                        <option value="corp_20_osd">20% CREATE MSME + 40% OSD</option>
+                        <option value="corp_25_regular">25% Regular RCIT + Itemized</option>
+                        <option value="corp_25_osd">25% Regular RCIT + 40% OSD</option>
+                        <option value="corp_gpp_exempt">0% Tax Exempt (GPP / Coop)</option>
+                        <option value="corp_special_5">5% Special Rate (PEZA / GIE)</option>
+                      </>
+                    )}
+                  </select>
+                </div>
               </div>
 
               <div className="mb-4">
@@ -1474,23 +1643,75 @@ export function Extras() {
         </div>
       )}
 
-      {activePage === 'taxnotes' && (
-        <div className="w-full flex flex-col">
-          <PageHeader title="Tax Notes & Estimates" icon={<Lightbulb className="text-yellow-500" />} />
-          <div className="p-4 md:p-6 flex-1">
-         <div className="bg-yellow-50 dark:bg-yellow-900/10 border border-yellow-200 dark:border-yellow-800 p-6 rounded-2xl flex flex-col gap-4">
-            <div className="flex justify-between items-center bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm">
-               <span className="font-semibold text-slate-700 dark:text-slate-300">Estimated Income Tax (25% based on Gross)</span>
-               <span className="font-extrabold text-lg text-red-600">₱{(gp > 0 ? gp * 0.25 : 0).toLocaleString()}</span>
+      {activePage === 'taxnotes' && (() => {
+        const wf = resolveBusinessWorkflow(currentClient || businessProfile);
+        const busTax = computeBusinessTax({
+          grossSales: salesTotal,
+          grossPurchases: purchasesTotal,
+          vatRegistrationType: wf.vatRegistrationType,
+          incomeTaxRegime: wf.incomeTaxRegime,
+          percentageTaxRate: wf.percentageTaxRate,
+        });
+        const itr = computeIncomeTaxByRegime({
+          grossSalesOrReceipts: salesTotal,
+          costOfSalesOrServices: purchasesTotal,
+          itemizedOperatingExpenses: (currentClient?.expenses || []).reduce((s, e) => s + (Number(e.amount) || 0), 0),
+          taxpayerClassification: wf.classification,
+          taxpayerSubClassification: wf.subClassification,
+          vatRegistrationType: wf.vatRegistrationType,
+          incomeTaxRegime: wf.incomeTaxRegime,
+          deductionMethod: wf.deductionMethod,
+          totalAssetsExcludingLand: currentClient?.totalAssetsExcludingLand,
+          yearsOfOperation: currentClient?.yearsOfOperation,
+        });
+        return (
+          <div className="w-full flex flex-col">
+            <PageHeader title="Tax Notes & Workflow Estimates" icon={<Lightbulb className="text-yellow-500" />} />
+            <div className="p-4 md:p-6 flex-1">
+              <div className="bg-yellow-50 dark:bg-yellow-900/10 border border-yellow-200 dark:border-yellow-800 p-6 rounded-2xl flex flex-col gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <div className="bg-white dark:bg-slate-800 p-3.5 rounded-xl shadow-sm">
+                    <div className="text-[10px] font-black uppercase text-slate-400">Taxpayer Classification</div>
+                    <div className="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">{wf.classification} ({wf.subClassification.replace(/_/g, ' ')})</div>
+                    <div className="text-[10px] text-slate-500 uppercase mt-0.5">EOPT Tier: {wf.sizeTier}</div>
+                  </div>
+                  <div className="bg-white dark:bg-slate-800 p-3.5 rounded-xl shadow-sm">
+                    <div className="text-[10px] font-black uppercase text-slate-400">VAT / Business Tax Type</div>
+                    <div className="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">{wf.vatLabel}</div>
+                    <div className="text-[10px] text-slate-500 mt-0.5">Form: {wf.businessTaxForm || 'Exempt (None)'}</div>
+                  </div>
+                  <div className="bg-white dark:bg-slate-800 p-3.5 rounded-xl shadow-sm">
+                    <div className="text-[10px] font-black uppercase text-slate-400">Income Tax Regime</div>
+                    <div className="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5">{itr.regime.replace(/_/g, ' ').toUpperCase()}</div>
+                    <div className="text-[10px] text-slate-500 mt-0.5">Forms: {wf.quarterlyItrForm} / {wf.annualItrForm}</div>
+                  </div>
+                  <div className="bg-white dark:bg-slate-800 p-3.5 rounded-xl shadow-sm">
+                    <div className="text-[10px] font-black uppercase text-slate-400">Industry & Cost Structure</div>
+                    <div className="text-sm font-bold text-slate-800 dark:text-slate-100 mt-0.5 uppercase">{wf.industry} ({wf.category})</div>
+                    <div className="text-[10px] text-slate-500 mt-0.5">{wf.costSectionLabel}</div>
+                  </div>
+                </div>
+                <div className="flex justify-between items-center bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm">
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">
+                    Estimated Income Tax ({itr.regime.replace(/_/g, ' ')} — Net Taxable ₱{itr.netTaxableIncome.toLocaleString(undefined, { minimumFractionDigits: 2 })})
+                  </span>
+                  <span className="font-extrabold text-lg text-red-600">₱{itr.netIncomeTaxPayable.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                </div>
+                <div className="flex justify-between items-center bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm">
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">
+                    Estimated Business Tax ({busTax.applicableForm === '2550Q' ? 'Net VAT Payable (2550Q)' : busTax.applicableForm === '2551Q' ? `Percentage Tax (${(busTax.percentageTaxRate * 100).toFixed(0)}% — 2551Q)` : 'Exempt from Business Tax'})
+                  </span>
+                  <span className="font-extrabold text-lg text-amber-600">₱{busTax.totalBusinessTaxPayable.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                </div>
+                <div className="flex justify-between items-center bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm">
+                  <span className="font-semibold text-slate-700 dark:text-slate-300">Available Input VAT (Creditable on VAT / Zero-Rated)</span>
+                  <span className="font-extrabold text-lg text-blue-600">₱{(wf.isReliefApplicable ? totalIpTax : 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                </div>
+              </div>
             </div>
-            <div className="flex justify-between items-center bg-white dark:bg-slate-800 p-4 rounded-xl shadow-sm">
-               <span className="font-semibold text-slate-700 dark:text-slate-300">Available Input VAT (from current DAT)</span>
-               <span className="font-extrabold text-lg text-blue-600">₱{totalIpTax.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
-            </div>
-         </div>
-      </div>
-        </div>
-      )}
+          </div>
+        );
+      })()}
 
       {/* Placeholders for deep accounting features that were blank in the original HTML */}
       {activePage === 'trialbalance' && (

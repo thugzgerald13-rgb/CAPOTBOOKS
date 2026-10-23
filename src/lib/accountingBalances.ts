@@ -166,7 +166,11 @@ export function getProfitAndLossTotals(client: Client, year = getCurrentYear(cli
   // with an opening balance is included even when it has no journal entries.
   const accountBalances = getAccountBalances(client, year);
   const balances: ProfitAndLossAccountLine[] = accountBalances
-    .filter(({ account }) => ['revenue', 'cost', 'costs', 'expense', 'expenses'].includes(String(account.type || '').toLowerCase()))
+    .filter(({ account }) =>
+      ['revenue', 'other income', 'cost', 'costs', 'expense', 'expenses', 'other expense'].includes(
+        String(account.type || '').toLowerCase()
+      )
+    )
     .map(({ account, currentYearDebit, currentYearCredit, currentYearBalance }) => ({
       account_id: String(account.id),
       account_name: String(account.name || ''),
@@ -178,9 +182,13 @@ export function getProfitAndLossTotals(client: Client, year = getCurrentYear(cli
       balance: currentYearBalance,
     }));
 
-  const revenue = balances.filter(x => (x.account_type || '').toLowerCase() === 'revenue');
+  const revenue = balances.filter(x =>
+    ['revenue', 'other income'].includes((x.account_type || '').toLowerCase())
+  );
   const costs = balances.filter(x => ['cost', 'costs'].includes((x.account_type || '').toLowerCase()));
-  const expenses = balances.filter(x => ['expense', 'expenses'].includes((x.account_type || '').toLowerCase()));
+  const expenses = balances.filter(x =>
+    ['expense', 'expenses', 'other expense'].includes((x.account_type || '').toLowerCase())
+  );
 
   // Credit-normal P&L accounts have positive ending amounts when their
   // signed TB balance is negative; debit-normal costs/expenses are positive.
@@ -217,11 +225,11 @@ export function getProfitAndLossForPeriod(client: Client, startISO: string, endE
     const period_credit = periodEntries.reduce((n: number, e: any) => n + Number(String(e.credit ?? '').replace(/,/g, '') || 0), 0);
     return { account_type: String(account.accountType || ''), period_debit, period_credit };
   });
-  const revenueTotal = balances.filter(x => x.account_type.toLowerCase() === 'revenue')
+  const revenueTotal = balances.filter(x => ['revenue', 'other income'].includes(x.account_type.toLowerCase()))
     .reduce((n, x) => n + Math.max(0, x.period_credit - x.period_debit), 0);
   const costTotal = balances.filter(x => ['cost', 'costs'].includes(x.account_type.toLowerCase()))
     .reduce((n, x) => n + Math.max(0, x.period_debit - x.period_credit), 0);
-  const expenseTotal = balances.filter(x => ['expense', 'expenses'].includes(x.account_type.toLowerCase()))
+  const expenseTotal = balances.filter(x => ['expense', 'expenses', 'other expense'].includes(x.account_type.toLowerCase()))
     .reduce((n, x) => n + Math.max(0, x.period_debit - x.period_credit), 0);
   return { revenueTotal, costTotal, expenseTotal, netIncome: revenueTotal - costTotal - expenseTotal };
 }

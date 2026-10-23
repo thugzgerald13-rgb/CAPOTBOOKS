@@ -529,7 +529,7 @@ export function History() {
         for (let i = 0; i < tin.length; i++) {
           hash = ((hash << 5) - hash + tin.charCodeAt(i)) | 0;
         }
-        const id = `supplier-${Math.abs(hash) || Date.now()}`;
+        const id = Math.abs(hash) || Date.now();
         indexByTin.set(tin, merged.length);
         merged.push({
           id,

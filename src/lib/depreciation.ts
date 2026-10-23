@@ -70,11 +70,14 @@ export interface JournalLine { accountName: string; debit: number; credit: numbe
 /** Build the auto-JE for period depreciation: Dr Depreciation Expense / Cr Accumulated Depreciation. Returns lines (one per asset class aggregated). */
 export function buildDepreciationJE(assets: DepreciableAsset[], asOfISO: string): JournalLine[] {
   let total = 0;
+  const yearMatch = String(asOfISO || '').match(/^(\d{4})/);
+  const priorYearEndISO = yearMatch
+    ? `${Number(yearMatch[1]) - 1}-12-31`
+    : `${new Date(asOfISO + 'T00:00:00').getFullYear() - 1}-12-31`;
   for (const a of assets) {
     if (a.disposed) continue;
     const accNow = accumulatedDepreciation(a, asOfISO);
-    const startOfYear = new Date(asOfISO + 'T00:00:00'); startOfYear.setMonth(0, 1); startOfYear.setDate(1);
-    const accPrior = accumulatedDepreciation(a, startOfYear.toISOString().split('T')[0]);
+    const accPrior = accumulatedDepreciation(a, priorYearEndISO);
     total += Math.max(0, accNow - accPrior);
   }
   if (total <= 0) return [];

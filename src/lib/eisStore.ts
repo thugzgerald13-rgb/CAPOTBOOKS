@@ -69,7 +69,7 @@ export function loadEisSettings(clientId: string): EisSettings | null {
 export function saveEisSettings(clientId: string, settings: EisSettings): void {
   localStorage.setItem(LS_SETTINGS_KEY(clientId), JSON.stringify({ ...settings, clientId, updatedAt: new Date().toISOString() }));
   // Best-effort server sync (table may not exist yet — fail silently).
-  supabase?.from('eis_settings').upsert({ ...settings, client_id: clientId }).then(() => {}).catch(() => {});
+  supabase?.from('eis_settings').upsert({ ...settings, client_id: clientId }).then(() => {}, () => {});
 }
 
 // ---------------------------------------------------------------------------
@@ -101,7 +101,7 @@ export function upsertTransmission(clientId: string, record: EisTransmission): E
   const finalRec = { ...record, clientId, updatedAt: now };
   if (idx >= 0) rows[idx] = { ...rows[idx], ...finalRec }; else rows.push({ ...finalRec, createdAt: finalRec.createdAt || now });
   writeLocal(clientId, rows);
-  supabase?.from('eis_transmissions').upsert(toRow(finalRec)).then(() => {}).catch(() => {});
+  supabase?.from('eis_transmissions').upsert(toRow(finalRec)).then(() => {}, () => {});
   return finalRec;
 }
 
@@ -144,7 +144,7 @@ export function markSubmitted(clientId: string, id: string, batchId: string): vo
     r.submittedAt = new Date().toISOString();
     r.attempts += 1;
     writeLocal(clientId, rows);
-    supabase?.from('eis_transmissions').update({ status: 'submitted', batch_id: batchId, submitted_at: r.submittedAt, attempts: r.attempts }).eq('id', id).then(() => {}).catch(() => {});
+    supabase?.from('eis_transmissions').update({ status: 'submitted', batch_id: batchId, submitted_at: r.submittedAt, attempts: r.attempts }).eq('id', id).then(() => {}, () => {});
   }
 }
 
@@ -158,7 +158,7 @@ export function markAck(clientId: string, id: string, ackCode: string, ackMessag
     r.birAckMessage = ackMessage;
     r.birAckAt = new Date().toISOString();
     writeLocal(clientId, rows);
-    supabase?.from('eis_transmissions').update({ status: r.status, bir_ack_code: ackCode, bir_ack_message: ackMessage, bir_ack_at: r.birAckAt }).eq('id', id).then(() => {}).catch(() => {});
+    supabase?.from('eis_transmissions').update({ status: r.status, bir_ack_code: ackCode, bir_ack_message: ackMessage, bir_ack_at: r.birAckAt }).eq('id', id).then(() => {}, () => {});
   }
 }
 
@@ -169,7 +169,7 @@ export function markError(clientId: string, id: string, error: string): void {
     r.lastError = error;
     r.attempts += 1;
     writeLocal(clientId, rows);
-    supabase?.from('eis_transmissions').update({ last_error: error, attempts: r.attempts }).eq('id', id).then(() => {}).catch(() => {});
+    supabase?.from('eis_transmissions').update({ last_error: error, attempts: r.attempts }).eq('id', id).then(() => {}, () => {});
   }
 }
 

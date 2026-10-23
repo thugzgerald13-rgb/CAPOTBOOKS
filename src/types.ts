@@ -7,6 +7,7 @@ export interface TinEntry {
 
 export interface Purchase {
   id: number;
+  sequenceNumber?: number;
   datMonthYear: string;
   date: string;
   paymentMethod: string;
@@ -17,7 +18,7 @@ export interface Purchase {
   supplierAddress: string;
   supplierTin: string;
   amount: number;
-  vatType: string;
+  vatType: 'vat' | 'vat-nonvat' | 'non-vat' | string;
   entrySource?: 'invoiced' | 'other-payments' | 'ap';
   exemptAmount?: number;
   zeroRatedAmount?: number;
@@ -143,16 +144,59 @@ export type ClientIndustry = 'retail' | 'general-services' | 'manufacturing' | '
 // do not file RELIEF, so the RELIEF menu is hidden & locked for those types.
 export type VatRegistrationType = 'vat' | 'non-vat' | 'exempt' | 'zero-rated';
 
+export type TaxpayerClassificationType = 'Individual' | 'Non-Individual' | string;
+
+export type TaxpayerSubClassification =
+  | 'sole_proprietor'
+  | 'professional'
+  | 'mixed_income'
+  | 'corporation_regular'
+  | 'corporation_msme'
+  | 'domestic_corp'
+  | 'msme_corp'
+  | 'opc'
+  | 'partnership'
+  | 'gpp'
+  | 'cooperative';
+
+/** EOPT Act (RA 11976) Taxpayer Size Classification based on Gross Sales. */
+export type TaxpayerSizeTier = 'micro' | 'small' | 'medium' | 'large';
+
+/** Chosen or applicable Income Tax Regime & Tax Rate workflow per business. */
+export type IncomeTaxRegime =
+  | '8_percent_flat'      // Individual: 8% Flat Income Tax (>₱250k for sole prop/prof; full business gross for mixed income) — exempt from 2551Q
+  | 'graduated_itemized'  // Individual: 0%–35% TRAIN Graduated Tax Table with Itemized Deductions
+  | 'graduated_osd'       // Individual: 0%–35% TRAIN Graduated Tax Table with 40% Optional Standard Deduction (OSD) on Gross Sales/Receipts
+  | 'corp_20_msme'        // Non-Individual: 20% CREATE MSME Corporate Income Tax (Net Income ≤ ₱5M & Assets ≤ ₱100M) with Itemized Deductions
+  | 'corp_20_osd'         // Non-Individual: 20% CREATE MSME Corporate Income Tax with 40% OSD on Gross Income
+  | 'corp_25_regular'     // Non-Individual: 25% Regular Corporate Income Tax (RCIT) with Itemized Deductions
+  | 'corp_25_osd'         // Non-Individual: 25% Regular Corporate Income Tax (RCIT) with 40% OSD on Gross Income
+  | 'corp_gpp_exempt'     // Non-Individual: 0% Tax-Exempt General Professional Partnership (GPP) / Exempt Cooperative
+  | 'corp_special_5';     // Non-Individual: 5% Special Gross Income Earned (GIE / PEZA / Ecozone)
+
+export type DeductionMethod = 'itemized' | 'osd' | 'osd_40' | 'none' | 'none_8_percent';
+
 export interface Client {
   id: string;
   name: string; // Display name
+  proprietor?: string;
   tin?: string;
   taxpayerClassification?: string;
+  taxpayerSubClassification?: TaxpayerSubClassification;
+  taxpayerTier?: TaxpayerSizeTier;
+  incomeTaxRegime?: IncomeTaxRegime;
+  deductionMethod?: DeductionMethod;
+  percentageTaxRate?: number; // e.g., 0.03 (3%), 0.01 (1%), 0.02 (2%), 0.05 (5%), 0 (Exempt under 8% Flat)
+  hasEmployees?: boolean;
+  isTopWithholdingAgent?: boolean;
+  totalAssetsExcludingLand?: number;
+  yearsOfOperation?: number;
   registeredName?: string;
   lastName?: string;
   firstName?: string;
   middleName?: string;
   tradeName?: string;
+  address?: string;
   substreet?: string;
   street?: string;
   barangay?: string;
@@ -213,9 +257,26 @@ export interface Client {
   journalVouchers?: JournalVoucher[];
 }
 
+export type TaxFormCode =
+  | '2550Q'
+  | '2550M'
+  | '1701Q'
+  | '1701'
+  | '1701A'
+  | '1702Q'
+  | '1702-RT'
+  | '1702-EX'
+  | '1702-MX'
+  | '2551Q'
+  | '1601-C'
+  | '0619-E'
+  | '1601-EQ'
+  | '1600-VT'
+  | '0605';
+
 export interface TaxDeadline {
   id: string;
-  formType: '2550Q' | '1701Q' | '2551Q' | '1601-C' | '0619-E' | '1601-EQ';
+  formType: TaxFormCode;
   title: string;
   period: string;
   dueDate: string;
@@ -243,6 +304,9 @@ export interface InventoryItem {
   reorderPoint: number;
   location?: string;
   customFields?: Record<string, string>;
+  /** Optional aliases used by inventoryValuation helpers */
+  quantityOnHand?: number;
+  unitCost?: number;
 }
 
 export interface InventoryColumn {
@@ -266,12 +330,14 @@ export interface InventoryMovement {
   itemName: string;
   itemCode: string;
   date: string;
-  type: 'Inbound' | 'Outbound' | 'Adjustment';
+  type: 'Inbound' | 'Outbound' | 'Adjustment' | string;
   qty: number;
   unitCost: number;
   totalValue: number;
   reference: string;
   notes?: string;
+  /** Optional alias used by inventoryValuation helpers */
+  quantity?: number;
 }
 
 export interface AppFolder {
@@ -296,8 +362,19 @@ export interface AppFile {
 export interface BusinessProfile {
   id: string;
   name: string;
+  address?: string;
   tin?: string;
-  taxpayerClassification?: string;
+  taxpayerClassification?: TaxpayerClassificationType;
+  taxpayerSubClassification?: TaxpayerSubClassification;
+  taxpayerTier?: TaxpayerSizeTier;
+  incomeTaxRegime?: IncomeTaxRegime;
+  deductionMethod?: DeductionMethod;
+  percentageTaxRate?: number;
+  hasEmployees?: boolean;
+  isTopWithholdingAgent?: boolean;
+  totalAssetsExcludingLand?: number;
+  yearsOfOperation?: number;
+  industry?: ClientIndustry;
   registeredName?: string;
   lastName?: string;
   firstName?: string;
@@ -356,6 +433,7 @@ export interface BalanceSheetData {
   currentLiabilities: BalanceSheetLine[];
   capital: BalanceSheetLine[];
   certifiedBy: string;
+  notes?: string;
 }
 
 export interface CashFlowLine {
@@ -367,6 +445,7 @@ export interface CashFlowLine {
 
 export interface CashFlowData {
   companyName: string;
+  address?: string;
   reportName: string;
   period: string;
   comparativeNote: string;

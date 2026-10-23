@@ -1,12 +1,14 @@
 // src/lib/supabase.ts
 import { createClient } from '@supabase/supabase-js';
 
+const metaEnv = (import.meta as any)?.env ?? (typeof process !== 'undefined' ? process.env : {}) ?? {};
+
 const rawUrl =
-  import.meta.env.VITE_SUPABASE_URL ||
-  (import.meta.env.SUPABASE_URL as string | undefined) ||
+  metaEnv.VITE_SUPABASE_URL ||
+  (metaEnv.SUPABASE_URL as string | undefined) ||
   'https://obonqrzkadunrnvqnbtv.supabase.co';
 
-const rawKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+const rawKey = metaEnv.VITE_SUPABASE_ANON_KEY || '';
 
 const isPlaceholderUrl = !rawUrl || rawUrl.includes('YOUR_PROJECT_REF');
 const isPlaceholderKey = !rawKey || rawKey === 'YOUR_SUPABASE_ANON_KEY';

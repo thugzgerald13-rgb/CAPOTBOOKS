@@ -1,4 +1,4 @@
-import { TaxDeadline } from '../types';
+import { TaxDeadline, TaxpayerSizeTier } from '../types';
 
 /** BIR deadlines that fall on a weekend roll to the next working day. */
 export function adjustDeadlineForWeekend(dateStr: string): string {
@@ -116,12 +116,37 @@ export const complianceFormsDirectory: FormReference[] = [
 
 export interface PenaltyEstimate { surcharge: number; interest: number; compromise: number; total: number; daysLate: number; }
 
-/** Estimate BIR penalties for an unpaid tax amount past due: 25% surcharge + 20%/yr interest + compromise. */
-export function estimateBirPenalty(unpaidTax: number, dueDateISO: string, todayISO: string = new Date().toISOString().split('T')[0]): PenaltyEstimate {
-  const daysLate = Math.max(0, Math.floor((new Date(todayISO + 'T00:00:00').getTime() - new Date(dueDateISO.slice(0, 10) + 'T00:00:00').getTime()) / 86400000));
-  const surcharge = unpaidTax * 0.25;
-  const interest = unpaidTax * 0.20 * (daysLate / 365);
-  const compromise = unpaidTax > 0 ? Math.min(20000, Math.max(500, unpaidTax * 0.02)) : 0;
+/**
+ * Estimate BIR penalties for an unpaid tax amount past due.
+ * Supports EOPT Act (RA 11976) reduced penalties for Micro & Small taxpayers (10% surcharge, 6%/yr interest, ₱500 max compromise)
+ * as well as standard BIR rates for Medium/Large taxpayers or when sizeTier is omitted.
+ */
+export function estimateBirPenalty(
+  unpaidTax: number,
+  dueDateISO: string,
+  todayISO: string = new Date().toISOString().split('T')[0],
+  sizeTier?: TaxpayerSizeTier
+): PenaltyEstimate {
+  const baseTax = Math.max(0, Number(unpaidTax) || 0);
+  const daysLate = Math.max(
+    0,
+    Math.floor(
+      (new Date(todayISO + 'T00:00:00Z').getTime() -
+        new Date(dueDateISO.slice(0, 10) + 'T00:00:00Z').getTime()) /
+        86400000
+    )
+  );
+  if (daysLate <= 0 || baseTax <= 0) {
+    return { surcharge: 0, interest: 0, compromise: 0, total: 0, daysLate: 0 };
+  }
+  const isMicroOrSmall = sizeTier === 'micro' || sizeTier === 'small';
+  const surchargeRate = isMicroOrSmall ? 0.10 : 0.25;
+  const interestRate = isMicroOrSmall ? 0.06 : sizeTier ? 0.12 : 0.20;
+  const surcharge = baseTax * surchargeRate;
+  const interest = baseTax * interestRate * (daysLate / 365);
+  const compromise = isMicroOrSmall
+    ? 500
+    : Math.min(20000, Math.max(500, baseTax * 0.02));
   return { surcharge, interest, compromise, total: surcharge + interest + compromise, daysLate };
 }
 

@@ -49,6 +49,10 @@ export const ROUTE_PERMISSIONS: Record<string, Permission> = {
   '/billing': 'edit_transactions',
   '/journal-voucher': 'edit_transactions',
   '/files': 'edit_transactions',
+  '/files/income': 'edit_transactions',
+  '/files/expense': 'edit_transactions',
+  '/files/other': 'edit_transactions',
+  '/inventory': 'edit_transactions',
   '/payroll': 'edit_transactions',
   '/eis-center': 'edit_transactions',
   '/purchases': 'edit_transactions',
@@ -73,6 +77,8 @@ export const ROUTE_PERMISSIONS: Record<string, Permission> = {
   '/cashflow': 'view_reports',
   '/bir-forms': 'view_reports',
   '/relief': 'view_reports',
+  '/compliance-tracker': 'view_reports',
+  '/alphalist': 'view_reports',
   '/reports': 'view_reports',
   '/taxnotes': 'view_reports',
   '/books': 'view_reports',
@@ -87,8 +93,6 @@ export const ADMIN_ONLY_ROUTES: ReadonlySet<string> = new Set([
   '/developertools/systemconfig',
   '/developertools/diagnostics',
   '/diagnostics',
-  '/compliance-tracker',
-  '/inventory',
   '/admin/payments',
 ]);
 
@@ -129,20 +133,53 @@ export function routeIsAdminOnly(pathname: string): boolean {
 // ---------------------------------------------------------------------------
 
 const FEATURE_ALLOWED_PAGE_IDS: ReadonlySet<string> = new Set([
+  // Core (Always Free)
   'coa',
+  'sales',
   'purchases',
-  'journal-voucher',
+  'ap-workspace',
   'history',
   'files',
-  'journal',
-  'ledger',
   'business',
+  'clients',
   'tinlibrary',
   'account-settings',
   'plan-billing',
-  'team',
+  'payroll',
+  'payroll/settings',
+  // Paid Module 1: Accounting Books & Ledgers ('accounting_books')
+  'journal-voucher',
+  'journal',
+  'ledger',
   'trialbalance',
+  'sales-journal',
+  'purchase-journal',
+  'cash-receipt',
+  'cash-disbursement',
+  'books',
+  // Paid Module 2: Financial Statements & AFS ('reports')
+  'pl',
+  'balancesheet',
+  'cashflow',
+  'assetlapsing',
+  'reports',
+  'afs-financial-position',
+  'afs-income-statements',
+  'afs-equity-retained-earnings',
+  'afs-ppe',
+  // Paid Module 3: Billing & Invoicing ('billing')
+  'billing',
+  // Paid Module 4: BIR Tax & Compliance ('compliance')
+  'bir-forms',
+  'relief',
+  'compliance-tracker',
   'alphalist',
+  'eis-center',
+  'taxnotes',
+  // Paid Module 5: Inventory Management ('inventory')
+  'inventory',
+  // Paid Module 6: Team & Multi-User ('team')
+  'team',
 ]);
 
 /**
@@ -156,6 +193,8 @@ export function featureAllows(pageIdOrPath: string | null): boolean {
   const norm = String(pageIdOrPath).trim().replace(/^\/+/, '').split(/[?#]/)[0];
   if (norm === '') return true; // dashboard
   if (norm === 'purchases' || norm.startsWith('purchases/')) return true;
+  if (norm === 'files' || norm.startsWith('files/')) return true;
+  if (norm === 'bir-forms' || norm.startsWith('bir-')) return true;
   return FEATURE_ALLOWED_PAGE_IDS.has(norm);
 }
 

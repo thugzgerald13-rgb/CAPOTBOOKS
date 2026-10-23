@@ -16,7 +16,7 @@
  */
 import { supabase } from './supabase';
 
-export const R2_ENABLED = import.meta.env.VITE_R2_ENABLED === 'true';
+export const R2_ENABLED = (import.meta as any)?.env?.VITE_R2_ENABLED === 'true';
 
 // Cached access token, kept fresh by Supabase auto-refresh. Read synchronously
 // by getPublicUrl() (called during render in PaymentApproval etc.).

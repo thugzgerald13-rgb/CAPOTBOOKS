@@ -232,7 +232,7 @@ export const TAX_TABLES_MASTER: TaxBracket[] = [
     payrollFrequency: 'Semi-Monthly',
     tierLevel: 2,
     compensationFloor: 10417.01,
-    compensationCeiling: 16666.00,
+    compensationCeiling: 16666.99,
     baseTaxAmount: 0.00,
     excessPercentage: 0.15,
     effectiveFrom: '2023-01-01',
@@ -246,7 +246,7 @@ export const TAX_TABLES_MASTER: TaxBracket[] = [
     payrollFrequency: 'Semi-Monthly',
     tierLevel: 3,
     compensationFloor: 16667.00,
-    compensationCeiling: 33332.00,
+    compensationCeiling: 33332.99,
     baseTaxAmount: 937.50,
     excessPercentage: 0.20,
     effectiveFrom: '2023-01-01',
@@ -260,7 +260,7 @@ export const TAX_TABLES_MASTER: TaxBracket[] = [
     payrollFrequency: 'Semi-Monthly',
     tierLevel: 4,
     compensationFloor: 33333.00,
-    compensationCeiling: 83332.00,
+    compensationCeiling: 83332.99,
     baseTaxAmount: 4270.70,
     excessPercentage: 0.25,
     effectiveFrom: '2023-01-01',
@@ -274,7 +274,7 @@ export const TAX_TABLES_MASTER: TaxBracket[] = [
     payrollFrequency: 'Semi-Monthly',
     tierLevel: 5,
     compensationFloor: 83333.00,
-    compensationCeiling: 333332.00,
+    compensationCeiling: 333332.99,
     baseTaxAmount: 16770.70,
     excessPercentage: 0.30,
     effectiveFrom: '2023-01-01',
@@ -1204,7 +1204,7 @@ export function computeSssContribution(monthlySalary: number): SssComputationRes
   } else if (salary >= 34750) {
     totalMsc = 35000;
   } else {
-    const tier = Math.floor((salary - 4750) / 500);
+    const tier = Math.floor((salary + 250) / 500);
     totalMsc = Math.min(35000, Math.max(5000, tier * 500));
   }
 
@@ -1339,9 +1339,9 @@ export function computeBirWithholdingTax(
   const matchingTable = TAX_TABLES_MASTER.filter((t) => t.payrollFrequency === frequency);
 
   let matchedBracket = matchingTable[0];
-  for (const bracket of matchingTable) {
-    if (income >= bracket.compensationFloor && income <= bracket.compensationCeiling) {
-      matchedBracket = bracket;
+  for (let i = matchingTable.length - 1; i >= 0; i--) {
+    if (income >= matchingTable[i].compensationFloor) {
+      matchedBracket = matchingTable[i];
       break;
     }
   }

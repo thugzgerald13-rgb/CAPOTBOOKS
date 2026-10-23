@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { TaxDeadline, Client } from '../types';
 import { getComplianceStatusInfo, estimateBirPenalty, computeComplianceRiskScore } from '../lib/complianceUtils';
+import { resolveBusinessWorkflow, computeBusinessTax, computeIncomeTaxByRegime } from '../lib/taxEngine';
 import { generateStandardDeadlines } from './BIRForms';
 import { supabase } from '../lib/supabase';
 
@@ -125,7 +126,7 @@ export function ComplianceTracker() {
       );
 
       if (!hasDeadlinesForYear) {
-        const yearDeadlines = generateStandardDeadlines(selectedYear);
+        const yearDeadlines = generateStandardDeadlines(selectedYear, currentClient);
         const mergedDeadlines = [...existingDeadlines, ...yearDeadlines];
         void saveTaxDeadlines(mergedDeadlines);
       }
@@ -193,33 +194,59 @@ export function ComplianceTracker() {
 
     const salesTotal = sales.reduce((sum, s) => sum + s.amount, 0);
     const purchasesTotal = purchases.reduce((sum, p) => sum + p.amount, 0);
+    const wf = resolveBusinessWorkflow(currentClient);
 
-    if (formType === '2550Q') {
+    if (formType === '2550Q' || formType === '2550M') {
+      if (wf.vatRegistrationType === 'exempt' || wf.vatRegistrationType === 'non-vat') return 0;
+      if (wf.vatRegistrationType === 'zero-rated') return 0;
       // Output tax base must be net-of-VAT, VATable sales only - not gross total sales.
       const vatableNetSales = sales
-        .filter(s => !s.vatType || s.vatType === 'VATable')
-        .reduce((sum, s) => sum + (s.netOfVat !== undefined ? s.netOfVat : s.amount), 0);
-      const inputTaxVal = purchases.filter(p => p.vatType === 'vat').reduce((sum, p) => sum + (p.inputTax || p.amount * 0.12), 0);
-      return Math.max(0, (vatableNetSales * 0.12) - inputTaxVal);
-    }
-    
-    if (formType === '2551Q') {
-      return salesTotal * 0.03;
+        .filter(s => !s.vatType || s.vatType === 'VATable' || s.vatType === 'VAT Registered')
+        .reduce((sum, s) => sum + (s.netOfVat !== undefined ? s.netOfVat : s.amount / 1.12), 0);
+      const inputTaxVal = purchases
+        .filter(p => p.vatType === 'vat' || p.vatType === 'VAT Registered')
+        .reduce((sum, p) => sum + (p.inputTax || p.amount * 0.12), 0);
+      return Math.max(0, vatableNetSales * 0.12 - inputTaxVal);
     }
 
-    if (formType === '1701Q') {
-      return Math.max(0, (salesTotal - 62500) * 0.08); 
+    if (formType === '2551Q') {
+      const busTax = computeBusinessTax({
+        grossSales: salesTotal,
+        vatRegistrationType: wf.vatRegistrationType,
+        incomeTaxRegime: wf.incomeTaxRegime,
+        percentageTaxRate: wf.percentageTaxRate,
+      });
+      return busTax.percentageTaxDue;
+    }
+
+    if (
+      formType === '1701Q' ||
+      formType === '1701' ||
+      formType === '1701A' ||
+      formType === '1702Q' ||
+      formType === '1702-RT' ||
+      formType === '1702-EX' ||
+      formType === '1702-MX'
+    ) {
+      const itr = computeIncomeTaxByRegime({
+        grossSalesOrReceipts: salesTotal,
+        costOfSalesOrServices: purchasesTotal,
+        taxpayerClassification: formType.startsWith('1702') ? 'Non-Individual' : wf.classification,
+        taxpayerSubClassification: wf.subClassification,
+        vatRegistrationType: wf.vatRegistrationType,
+        incomeTaxRegime: wf.incomeTaxRegime,
+        deductionMethod: wf.deductionMethod,
+        totalAssetsExcludingLand: currentClient.totalAssetsExcludingLand,
+        yearsOfOperation: currentClient.yearsOfOperation,
+      });
+      return itr.netIncomeTaxPayable;
     }
 
     if (formType === '1601-C') {
-      return 2500; 
+      return wf.hasEmployees ? 2500 : 0;
     }
 
-    if (formType === '0619-E') {
-      return purchasesTotal * 0.015;
-    }
-
-    if (formType === '1601-EQ') {
+    if (formType === '0619-E' || formType === '1601-EQ') {
       return purchasesTotal * 0.015;
     }
 
@@ -236,8 +263,8 @@ export function ComplianceTracker() {
       d.dueDate.startsWith(yearStr) || d.period.includes(yearStr)
     );
     
-    // Fallback to standard deadlines for the selected year if no entries exist yet
-    const activeList = deadlinesList.length > 0 ? deadlinesList : generateStandardDeadlines(selectedYear);
+    // Fallback to workflow deadlines for the selected year if no entries exist yet
+    const activeList = deadlinesList.length > 0 ? deadlinesList : generateStandardDeadlines(selectedYear, currentClient);
     
     return activeList.map(d => {
       const overdue = isDeadlineOverdue(d.dueDate, d.status);
@@ -316,7 +343,7 @@ export function ComplianceTracker() {
     
     // If the deadline is not in the database, generate and append standard deadlines for this year first
     if (!exists) {
-      const yearDeadlines = generateStandardDeadlines(selectedYear);
+      const yearDeadlines = generateStandardDeadlines(selectedYear, currentClient);
       existingDeadlines = [...existingDeadlines, ...yearDeadlines];
     }
     

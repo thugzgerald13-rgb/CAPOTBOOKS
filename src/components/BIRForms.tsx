@@ -6,15 +6,31 @@ import { useGranularPermissions } from '../lib/useGranularPermissions';
 import { 
   FileText, Printer, Sparkles, CheckCircle2, FileDown
 } from 'lucide-react';
-import { TaxDeadline, Client } from '../types';
+import { TaxDeadline, Client, BusinessProfile } from '../types';
 import { adjustDeadlineForWeekend } from '../lib/complianceUtils';
+import { generateWorkflowDeadlines } from '../lib/taxEngine';
 import { supabase } from '../lib/supabase';
 import { downloadBirFormPdf, validateBirForm } from '../lib/birFormPdf';
 import { EBIR_FORMS, computeEBirFormValues, downloadEBirFormXml, printEBirForm } from '../lib/eBirForms';
 import { useNavigate } from 'react-router-dom';
 
-// Standard BIR filing deadlines generator for Philippines 2026/2025
-export function generateStandardDeadlines(year: number): TaxDeadline[] {
+// Standard & workflow-aware BIR filing deadlines generator for Philippines
+export function generateStandardDeadlines(
+  year: number,
+  client?: Partial<Client & BusinessProfile> | null
+): TaxDeadline[] {
+  if (
+    client &&
+    (client.vatRegistrationType ||
+      client.taxpayerClassification ||
+      client.taxpayerSubClassification ||
+      client.incomeTaxRegime)
+  ) {
+    return generateWorkflowDeadlines(year, client).map(d => ({
+      ...d,
+      dueDate: adjustDeadlineForWeekend(d.dueDate),
+    }));
+  }
   const deadlines: TaxDeadline[] = [];
 
   // 1. Form 2550Q (Quarterly Value-Added Tax)

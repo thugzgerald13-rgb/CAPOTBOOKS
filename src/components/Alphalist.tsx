@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { supabase } from '../lib/supabase';
@@ -213,7 +213,7 @@ export function Alphalist() {
     const { error } = await supabase.from('alphalist_entries').upsert(row);
     setSaving(false);
     if (error) { showToast(`Save failed: ${error.message}`); return; }
-    setEntries(prev => [...prev, { ...row, id, formType: module, returnPeriod, scheduleNum, sequenceNum: nextSequence, taxRate, incomePayment: incomeNum, actualAmtWthld } as AlphaEntry]);
+    setEntries(prev => [...prev, { ...row, id, formType: module, returnPeriod, scheduleNum, sequenceNum: nextSequence, taxRate, incomePayment: incomeNum, actualAmtWthld } as unknown as AlphaEntry]);
     showToast(`Alphalist entry #${nextSequence} saved (${atcCode} @ ${(taxRate * 100).toFixed(1)}%, withheld ₱${actualAmtWthld.toLocaleString()}).`);
     resetForm();
   };

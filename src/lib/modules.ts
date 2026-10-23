@@ -122,7 +122,7 @@ export const BUNDLES: BundleDef[] = [
     label: 'Accountant Practice',
     tagline: 'Every module, built for multi-client work',
     modules: ['accounting_books', 'reports', 'billing', 'compliance', 'inventory', 'team'],
-    monthly: 1799,
+    monthly: 1649,
     audience: 'accountant',
   },
 ];
@@ -214,14 +214,10 @@ export function orderFromSelection(selection: ModuleId[], cycle: BillingCycle): 
 // ---------------------------------------------------------------------------
 const ROUTE_MODULES: [RegExp, ModuleId][] = [
   [/^\/(journal-voucher|journal|ledger|trialbalance|sales-journal|purchase-journal|cash-receipt|cash-disbursement|books)$/, 'accounting_books'],
-  [/^\/pl$/, 'reports'],
-  [/^\/balancesheet$/, 'reports'],
-  [/^\/cashflow$/, 'reports'],
-  [/^\/assetlapsing$/, 'reports'],
+  [/^\/(pl|balancesheet|cashflow|assetlapsing|reports)$/, 'reports'],
   [/^\/afs-(financial-position|income-statements|equity-retained-earnings|ppe)$/, 'reports'],
   [/^\/billing$/, 'billing'],
-  [/^\/bir-forms$/, 'compliance'],
-  [/^\/compliance-tracker$/, 'compliance'],
+  [/^\/(bir-forms|compliance-tracker|relief|alphalist|eis-center|taxnotes)$/, 'compliance'],
   [/^\/inventory$/, 'inventory'],
   [/^\/team$/, 'team'],
 ];

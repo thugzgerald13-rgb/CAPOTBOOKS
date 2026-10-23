@@ -12,21 +12,38 @@ export interface BankTxn {
 }
 
 const toISO = (s: string): string => {
-  const d = new Date(s);
-  if (!isNaN(d.getTime())) return d.toISOString().split('T')[0];
-  // try dd/mm/yyyy
-  const m = s.match(/(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})/);
+  const raw = String(s || '').trim();
+  // 1. Explicit YYYY-MM-DD (avoid UTC shift)
+  const isoMatch = raw.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})/);
+  if (isoMatch) {
+    return `${isoMatch[1]}-${String(isoMatch[2]).padStart(2, '0')}-${String(isoMatch[3]).padStart(2, '0')}`;
+  }
+  // 2. DD/MM/YYYY or MM/DD/YYYY (PH bank statements commonly use DD/MM/YYYY or MM/DD/YYYY)
+  const m = raw.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/);
   if (m) {
-    const dd = parseInt(m[1]), mm = parseInt(m[2]), yy = parseInt(m[3]);
+    const first = parseInt(m[1], 10);
+    const second = parseInt(m[2], 10);
+    const yy = parseInt(m[3], 10);
     const year = yy < 100 ? 2000 + yy : yy;
+    // If second > 12, it must be MM/DD/YYYY; otherwise treat as DD/MM/YYYY
+    const dd = second > 12 ? second : first;
+    const mm = second > 12 ? first : second;
     return `${year}-${String(mm).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
   }
-  return s;
+  const d = new Date(raw);
+  if (!isNaN(d.getTime())) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+  return raw;
 };
 
 const num = (s: string): number => {
-  const n = parseFloat(String(s || '').replace(/[,₱\s]/g, ''));
-  return isFinite(n) ? n : 0;
+  const raw = String(s || '').trim();
+  const isParenNegative = /^\(.*\)$/.test(raw);
+  const cleaned = raw.replace(/[,₱()\s]/g, '');
+  const n = parseFloat(cleaned);
+  if (!isFinite(n)) return 0;
+  return isParenNegative ? -Math.abs(n) : n;
 };
 
 /** Parse a bank CSV into normalized transactions. Auto-detects date/description/amount columns. */

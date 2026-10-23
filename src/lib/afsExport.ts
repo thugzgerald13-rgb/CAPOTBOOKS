@@ -42,7 +42,13 @@ export function exportAfBundle(opts: {
   XLSX.utils.book_append_sheet(wb, sheetFromRows('Balance Sheet', opts.balanceSheet, { ...meta, title: 'BALANCE SHEET' }), 'Balance Sheet');
   XLSX.utils.book_append_sheet(wb, sheetFromRows('Income Statement', opts.incomeStatement, { ...meta, title: 'STATEMENT OF COMPREHENSIVE INCOME' }), 'Income Statement');
   XLSX.utils.book_append_sheet(wb, sheetFromRows('Cash Flow', opts.cashFlow, { ...meta, title: 'STATEMENT OF CASH FLOWS' }), 'Cash Flow');
-  const notesWs = XLSX.utils.aoa_to_sheet([[opts.company], ['NOTES TO FINANCIAL STATEMENTS'], [opts.period], [], opts.notes.split('\n').map(l => [l])].flat());
+  const notesWs = XLSX.utils.aoa_to_sheet([
+    [opts.company],
+    ['NOTES TO FINANCIAL STATEMENTS'],
+    [opts.period],
+    [],
+    ...opts.notes.split('\n').map(l => [l]),
+  ]);
   XLSX.utils.book_append_sheet(wb, notesWs, 'Notes');
   XLSX.writeFile(wb, opts.filename || 'AFS-bundle.xlsx');
 }

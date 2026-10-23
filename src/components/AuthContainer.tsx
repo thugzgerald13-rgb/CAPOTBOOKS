@@ -1,15 +1,30 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { motion } from 'motion/react';
-import { LogIn, UserPlus } from 'lucide-react';
+import { LogIn, UserPlus, ArrowLeft, CheckCircle2 } from 'lucide-react';
+import type { PreselectedOnboardingCategory } from './LandingPage';
 
-export function AuthContainer() {
-  const [isLogin, setIsLogin] = useState(true);
+interface AuthContainerProps {
+  initialMode?: 'login' | 'signup';
+  selectedCategory?: PreselectedOnboardingCategory | null;
+  onBackToLanding?: () => void;
+}
+
+export function AuthContainer({
+  initialMode = 'login',
+  selectedCategory = null,
+  onBackToLanding,
+}: AuthContainerProps) {
+  const [isLogin, setIsLogin] = useState(initialMode !== 'signup');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [info, setInfo] = useState('');
+
+  useEffect(() => {
+    setIsLogin(initialMode !== 'signup');
+  }, [initialMode]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -71,13 +86,61 @@ export function AuthContainer() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-900 p-4">
+    <div className="min-h-screen flex flex-col bg-slate-50 dark:bg-slate-900">
+      {/* Top Bar with Back to Category Tiles & Top-Right Login / Sign Up Words */}
+      <header className="w-full border-b border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            {onBackToLanding && (
+              <button
+                type="button"
+                onClick={onBackToLanding}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" />
+                <span>Category Selection</span>
+              </button>
+            )}
+            <span className="font-black text-base tracking-tight text-slate-900 dark:text-white">
+              CAPOTBOOKS
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 text-sm font-bold">
+            <button
+              type="button"
+              onClick={() => { setIsLogin(true); setError(''); setInfo(''); }}
+              className={`px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                isLogin
+                  ? 'text-cyan-600 dark:text-cyan-400 bg-cyan-50 dark:bg-cyan-950/40'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-cyan-600'
+              }`}
+            >
+              Login
+            </button>
+            <span className="text-slate-300 dark:text-slate-700 select-none">/</span>
+            <button
+              type="button"
+              onClick={() => { setIsLogin(false); setError(''); setInfo(''); }}
+              className={`px-2.5 py-1.5 rounded-lg transition-colors cursor-pointer ${
+                !isLogin
+                  ? 'text-cyan-600 dark:text-cyan-400 bg-cyan-50 dark:bg-cyan-950/40'
+                  : 'text-slate-600 dark:text-slate-300 hover:text-cyan-600'
+              }`}
+            >
+              Sign Up
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <div className="flex-1 flex items-center justify-center p-4">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         className="max-w-md w-full bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-700 p-8"
       >
-        <div className="text-center mb-8">
+        <div className="text-center mb-6">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-cyan-100 text-cyan-600 dark:bg-cyan-900/30 dark:text-cyan-400 mb-4">
             {isLogin ? <LogIn className="w-8 h-8" /> : <UserPlus className="w-8 h-8" />}
           </div>
@@ -85,9 +148,33 @@ export function AuthContainer() {
             {isLogin ? 'Welcome back' : 'Create an account'}
           </h2>
           <p className="text-slate-500 dark:text-slate-400 mt-2">
-            {isLogin ? 'Sign in to access your accounting dashboard' : 'Sign up to get started'}
+            {isLogin ? 'Sign in to access your accounting dashboard' : 'Sign up to get started with your tailored workflow'}
           </p>
         </div>
+
+        {selectedCategory && (
+          <div className="mb-6 p-3.5 rounded-xl bg-cyan-50/70 dark:bg-cyan-950/30 border border-cyan-200 dark:border-cyan-800/80 flex items-start justify-between gap-3">
+            <div className="text-xs space-y-0.5">
+              <div className="font-extrabold text-cyan-900 dark:text-cyan-200 flex items-center gap-1.5">
+                <CheckCircle2 className="w-3.5 h-3.5 text-cyan-600 dark:text-cyan-400 shrink-0" />
+                <span>Category: {selectedCategory.title}</span>
+              </div>
+              <div className="text-[11px] text-cyan-800/80 dark:text-cyan-300/80">
+                {selectedCategory.taxpayerClassification} · {selectedCategory.vatRegistrationType.toUpperCase()} ·{' '}
+                {selectedCategory.incomeTaxRegime.replace(/_/g, ' ').toUpperCase()} · {selectedCategory.industry}
+              </div>
+            </div>
+            {onBackToLanding && (
+              <button
+                type="button"
+                onClick={onBackToLanding}
+                className="text-[11px] font-bold text-cyan-700 dark:text-cyan-300 hover:underline shrink-0 cursor-pointer"
+              >
+                Change
+              </button>
+            )}
+          </div>
+        )}
 
         {error && (
           <div className="mb-6 p-4 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-xl text-sm text-red-600 dark:text-red-400">
@@ -170,6 +257,7 @@ export function AuthContainer() {
           </button>
         </div>
       </motion.div>
+      </div>
     </div>
   );
 }

@@ -642,10 +642,10 @@ function postPurchases(client: Client, accounts: CoaAccount[]): Posting[] {
     const cashDue = total - wht;
 
     if (cashDue > 0) {
-      // On-account (credit) purchases credit Accounts Payable; cash/check
+      // On-account (credit) purchases credit Accounts Payable; cash/check/bank/e-payment
       // purchases credit the resolved cash account (a bare "Cash" label
       // ties between Cash on Hand and Cash in Bank and drops silently).
-      const isOnAccount = p.paymentMethod !== 'Cash' && p.paymentMethod !== 'Check';
+      const isOnAccount = !p.paymentMethod || p.paymentMethod === 'On Account';
       const creditAcct = isOnAccount
         ? findAccountByLabel('Accounts Payable', accounts)
         : resolveCashAccount(accounts);
@@ -924,8 +924,14 @@ function cashPurchasesToCdjEntries(client: Client): JournalEntry[] {
 }
 
 function cashJournalVouchersToCdjEntries(client: Client, accounts: CoaAccount[]): JournalEntry[] {
-  const cashAccount = findAccountByLabel('Cash', accounts);
+  const cashAccount = resolveCashAccount(accounts);
   if (!cashAccount) return [];
+
+  const cashAccountIds = new Set(
+    accounts
+      .filter(a => a.id === cashAccount.id || /^cash(\s+(on\s+hand|in\s+bank))?$/i.test((a.name || '').trim()))
+      .map(a => a.id)
+  );
 
   const entries: JournalEntry[] = [];
   (client.journalVouchers || []).forEach(v => {
@@ -933,9 +939,9 @@ function cashJournalVouchersToCdjEntries(client: Client, accounts: CoaAccount[])
     if (creditLines.length === 0) return;
 
     // Only treat this voucher as a cash disbursement when every credit line
-    // on it is the Cash account. Mixed-credit vouchers are left for manual
+    // on it is a Cash account. Mixed-credit vouchers are left for manual
     // CDJ entry rather than guessing which portion was paid in cash.
-    const isCashOnlyCredit = creditLines.every(l => l.accountId === cashAccount.id);
+    const isCashOnlyCredit = creditLines.every(l => cashAccountIds.has(l.accountId));
     if (!isCashOnlyCredit) return;
 
     v.lines.filter(l => l.debit > 0).forEach(l => {
@@ -1070,7 +1076,7 @@ export function syncCashReceiptsJournal(client: Client): Client {
 
 function purchasesToPjEntries(client: Client): JournalEntry[] {
   return (client.purchases || [])
-    .filter(p => p.paymentMethod !== 'Cash' && p.paymentMethod !== 'Check')
+    .filter(p => !p.paymentMethod || p.paymentMethod === 'On Account')
     .map(p => {
       const net = Number(p.amount) || 0;
       const exemptZero = (Number(p.exemptAmount) || 0) + (Number(p.zeroRatedAmount) || 0);
@@ -1347,11 +1353,24 @@ export function syncGeneralLedger(client: Client): Client {
 export type RecurrenceFrequency = 'Monthly' | 'Quarterly' | 'Annually';
 
 export function addIntervalISO(dateStr: string, frequency: RecurrenceFrequency): string {
-  const d = new Date(dateStr + 'T00:00:00');
-  if (frequency === 'Monthly') d.setMonth(d.getMonth() + 1);
-  else if (frequency === 'Quarterly') d.setMonth(d.getMonth() + 3);
-  else d.setFullYear(d.getFullYear() + 1);
-  return d.toISOString().split('T')[0];
+  const m = String(dateStr || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) {
+    const d = new Date(dateStr + 'T00:00:00Z');
+    if (frequency === 'Monthly') d.setUTCMonth(d.getUTCMonth() + 1);
+    else if (frequency === 'Quarterly') d.setUTCMonth(d.getUTCMonth() + 3);
+    else d.setUTCFullYear(d.getUTCFullYear() + 1);
+    return d.toISOString().split('T')[0];
+  }
+  let year = Number(m[1]);
+  let monthIndex = Number(m[2]) - 1;
+  const day = Number(m[3]);
+  const addMonths = frequency === 'Monthly' ? 1 : frequency === 'Quarterly' ? 3 : 12;
+  const totalMonths = year * 12 + monthIndex + addMonths;
+  year = Math.floor(totalMonths / 12);
+  monthIndex = totalMonths % 12;
+  const maxDay = new Date(Date.UTC(year, monthIndex + 1, 0)).getUTCDate();
+  const clampedDay = Math.min(day, maxDay);
+  return `${year}-${String(monthIndex + 1).padStart(2, '0')}-${String(clampedDay).padStart(2, '0')}`;
 }
 
 export interface JVTemplateLine { accountId: string; accountName: string; debit: number; credit: number; }

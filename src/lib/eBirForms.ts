@@ -4,6 +4,11 @@
 // (importable into the offline eBIRForms app) and a printable BIR form, both
 // populated from the active client's ledger (sales / purchases / EWT).
 import type { Client } from '../types';
+import {
+  resolveBusinessWorkflow,
+  computeIncomeTaxByRegime,
+  computeBusinessTax,
+} from './taxEngine';
 
 export interface EwtAtcEntry { code: string; description: string; rate: number; }
 export const EW_ATC_CODES: EwtAtcEntry[] = [
@@ -128,9 +133,9 @@ export const TAX_RATE_CELLS: Record<string, { value: string; text: string }> = {
   "frm2200Av2020:txtSched1_1A_2020_ATR": { value: "0.20", text: "20%" },
   "frm2200Av2020:txtSched1_1A_2020B_ATR": { value: "0.21", text: "21%" },
   "frm2200Av2020:txtSched1_1A_2021_ATR": { value: "0.22", text: "22%" },
-  "frm2200Av2020:txtSched1_1A_2021_ATR": { value: "0.22", text: "22%" },
-  "frm2200Av2020:txtSched1_1A_2021_ATR": { value: "0.22", text: "22%" },
-  "frm2200Av2020:txtSched1_1A_2021_ATR": { value: "0.22", text: "22%" },
+  "frm2200Av2020:txtSched1_1A_2022_ATR": { value: "0.22", text: "22%" },
+  "frm2200Av2020:txtSched1_1A_2023_ATR": { value: "0.22", text: "22%" },
+  "frm2200Av2020:txtSched1_1A_2024_ATR": { value: "0.22", text: "22%" },
   "frm2200Av2020:txtSched1_1B_2020_ATR": { value: "24.34", text: "24.34" },
   "frm2200Av2020:txtSched1_1B_2020B_ATR": { value: "42.00", text: "42.00" },
   "frm2200Av2020:txtSched1_1B_2021_ATR": { value: "47.00", text: "47.00" },
@@ -205,7 +210,12 @@ export const EBIR_FORMS: EBirFormOption[] = [
   { id: '1601-EQ', title: 'BIR Form 1601-EQ — Quarterly Remittance of Expanded Withholding Tax', period: 'quarterly', category: 'withholding' },
   { id: '1601-C', title: 'BIR Form 1601-C — Monthly Remittance of Withholding Tax on Compensation', period: 'monthly', category: 'withholding' },
   { id: '1701Q', title: 'BIR Form 1701Q — Quarterly Income Tax Return (Individual)', period: 'quarterly', category: 'income' },
+  { id: '1701', title: 'BIR Form 1701 — Annual Income Tax Return (Individual / Mixed Income)', period: 'adhoc', category: 'income' },
+  { id: '1701A', title: 'BIR Form 1701A — Annual Income Tax Return (Individual Purely Business/Profession OSD or 8%)', period: 'adhoc', category: 'income' },
   { id: '1702Q', title: 'BIR Form 1702Q — Quarterly Income Tax Return (Corporation/Partnership)', period: 'quarterly', category: 'income' },
+  { id: '1702-RT', title: 'BIR Form 1702-RT — Annual Income Tax Return (Regular Rate Corporation)', period: 'adhoc', category: 'income' },
+  { id: '1702-EX', title: 'BIR Form 1702-EX — Annual Income Tax Return (Exempt Corporation / GPP)', period: 'adhoc', category: 'income' },
+  { id: '1702-MX', title: 'BIR Form 1702-MX — Annual Income Tax Return (Mixed / Special Rate Corporation)', period: 'adhoc', category: 'income' },
   { id: '0605', title: 'BIR Form 0605 — Payment Form', period: 'adhoc', category: 'payment' },
 ];
 
@@ -245,31 +255,42 @@ export interface EBirFormValues {
 const fmt2 = (n: number) => (Number(n) || 0).toFixed(2);
 const esc = (s: any) => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
-/** Compute the key numeric line items for a BIR form from ledger data. */
+/** Compute the key numeric line items for a BIR form from ledger data and client workflow profile. */
 export function computeEBirFormValues(
   formType: string,
   period: { year: number; month?: number; quarter?: number },
   client: Partial<Client>,
   ledger: EBirLedgerData,
 ): EBirFormValues {
+  const wf = resolveBusinessWorkflow(client);
   const tin = String(client.tin || '').replace(/\D/g, '').slice(0, 9).padStart(9, '0');
   const lineItems: EBirFormValues['lineItems'] = [];
   let totalTaxPayable = 0;
 
   if (formType === '2550M' || formType === '2550Q') {
-    lineItems.push({ itemNo: '14', label: 'Output Tax (12% on taxable sales)', value: ledger.outputTax });
-    lineItems.push({ itemNo: '18A', label: 'Input Tax on Purchases of Goods', value: ledger.goodsInputTax });
-    lineItems.push({ itemNo: '18B', label: 'Input Tax on Purchases of Services', value: ledger.servicesInputTax });
-    lineItems.push({ itemNo: '18C', label: 'Input Tax on Capital Goods', value: ledger.capitalGoodsInputTax });
-    lineItems.push({ itemNo: '20', label: 'Total Allowable Input Tax', value: ledger.inputTax });
-    totalTaxPayable = Math.max(0, ledger.outputTax - ledger.inputTax);
+    const isVat = wf.vatRegistrationType === 'vat';
+    const isZeroRated = wf.vatRegistrationType === 'zero-rated';
+    const outputTax = isVat ? ledger.outputTax : 0;
+    const inputTax = isVat || isZeroRated ? ledger.inputTax : 0;
+    lineItems.push({ itemNo: '14', label: `Output Tax (${isVat ? '12% on taxable sales' : wf.vatLabel})`, value: outputTax });
+    lineItems.push({ itemNo: '18A', label: 'Input Tax on Purchases of Goods', value: isVat || isZeroRated ? ledger.goodsInputTax : 0 });
+    lineItems.push({ itemNo: '18B', label: 'Input Tax on Purchases of Services', value: isVat || isZeroRated ? ledger.servicesInputTax : 0 });
+    lineItems.push({ itemNo: '18C', label: 'Input Tax on Capital Goods', value: isVat || isZeroRated ? ledger.capitalGoodsInputTax : 0 });
+    lineItems.push({ itemNo: '20', label: 'Total Allowable Input Tax', value: inputTax });
+    totalTaxPayable = Math.max(0, outputTax - inputTax);
     lineItems.push({ itemNo: '21', label: 'VAT Payable / (Overpayment)', value: totalTaxPayable });
   } else if (formType === '2551Q') {
-    const pctTax = ledger.salesTotal * 0.03; // 3% percentage tax (non-VAT)
+    const busTax = computeBusinessTax({
+      grossSales: ledger.salesTotal,
+      vatRegistrationType: wf.vatRegistrationType,
+      incomeTaxRegime: wf.incomeTaxRegime,
+      percentageTaxRate: wf.percentageTaxRate,
+    });
+    const pctRateDisplay = +(busTax.percentageTaxRate * 100).toFixed(2);
     lineItems.push({ itemNo: '15', label: 'Taxable Amount (Gross Receipts)', value: ledger.salesTotal });
-    lineItems.push({ itemNo: '16', label: 'Tax Rate 3%', value: 3 });
-    lineItems.push({ itemNo: '17', label: 'Tax Due', value: pctTax });
-    totalTaxPayable = pctTax;
+    lineItems.push({ itemNo: '16', label: `Tax Rate ${pctRateDisplay}%`, value: pctRateDisplay });
+    lineItems.push({ itemNo: '17', label: 'Tax Due', value: busTax.percentageTaxDue });
+    totalTaxPayable = busTax.percentageTaxDue;
   } else if (formType === '0619-E' || formType === '1601-EQ') {
     let total = 0;
     for (const e of ledger.ewtByAtc) {
@@ -281,14 +302,75 @@ export function computeEBirFormValues(
   } else if (formType === '1601-C') {
     lineItems.push({ itemNo: '16', label: 'Total Compensation Withholding Tax', value: ledger.compensationWithholding });
     totalTaxPayable = ledger.compensationWithholding;
-  } else if (formType === '1701Q' || formType === '1702Q') {
-    const gross = ledger.salesTotal;
-    const net = Math.max(0, gross - ledger.purchasesTotal - ledger.expensesTotal);
-    lineItems.push({ itemNo: '19', label: 'Gross Sales / Receipts', value: gross });
-    lineItems.push({ itemNo: '25', label: 'Total Deductions', value: ledger.purchasesTotal + ledger.expensesTotal });
-    lineItems.push({ itemNo: '26', label: 'Taxable Income', value: net });
-    totalTaxPayable = net * 0.25; // 25% corporate / graduated for individual; placeholder
-    lineItems.push({ itemNo: '27', label: 'Income Tax Due (25% est.)', value: totalTaxPayable });
+  } else if (
+    formType === '1701Q' ||
+    formType === '1701' ||
+    formType === '1701A' ||
+    formType === '1702Q' ||
+    formType === '1702-RT' ||
+    formType === '1702-EX' ||
+    formType === '1702-MX'
+  ) {
+    const isCorporateForm = formType.startsWith('1702');
+    const itr = computeIncomeTaxByRegime({
+      grossSalesOrReceipts: ledger.salesTotal,
+      costOfSalesOrServices: ledger.purchasesTotal,
+      itemizedOperatingExpenses: ledger.expensesTotal,
+      taxpayerClassification: isCorporateForm ? 'Non-Individual' : wf.classification,
+      taxpayerSubClassification:
+        formType === '1702-EX'
+          ? 'gpp'
+          : isCorporateForm && wf.classification === 'Individual'
+            ? 'corporation_msme'
+            : wf.subClassification,
+      vatRegistrationType: wf.vatRegistrationType,
+      incomeTaxRegime:
+        formType === '1702-EX'
+          ? 'corp_gpp_exempt'
+          : formType === '1702-MX'
+            ? 'corp_special_5'
+            : isCorporateForm && !wf.incomeTaxRegime.startsWith('corp_')
+              ? wf.deductionMethod === 'osd_40'
+                ? 'corp_20_osd'
+                : 'corp_20_msme'
+              : wf.incomeTaxRegime,
+      deductionMethod: wf.deductionMethod,
+      totalAssetsExcludingLand: client.totalAssetsExcludingLand,
+      yearsOfOperation: client.yearsOfOperation,
+    });
+
+    lineItems.push({ itemNo: '19', label: 'Gross Sales / Receipts', value: itr.grossSalesOrReceipts });
+    lineItems.push({ itemNo: '20', label: wf.costSectionLabel, value: itr.costOfSalesOrServices });
+    lineItems.push({
+      itemNo: '25',
+      label:
+        itr.deductionMethod === 'osd_40'
+          ? 'Optional Standard Deduction (40% OSD)'
+          : itr.deductionMethod === 'none_8_percent'
+            ? 'Exempt Threshold (8% Flat Regime)'
+            : 'Total Allowable Itemized Deductions',
+      value:
+        itr.deductionMethod === 'none_8_percent'
+          ? itr.exemptThresholdApplied
+          : itr.allowableDeduction,
+    });
+    lineItems.push({ itemNo: '26', label: 'Net Taxable Income', value: itr.netTaxableIncome });
+    totalTaxPayable = itr.netIncomeTaxPayable;
+    const regimeDesc =
+      itr.regime === '8_percent_flat'
+        ? '8% Flat Income Tax'
+        : itr.regime === 'graduated_osd'
+          ? 'TRAIN Graduated + 40% OSD'
+          : itr.regime === 'graduated_itemized'
+            ? 'TRAIN Graduated + Itemized'
+            : itr.regime === 'corp_gpp_exempt'
+              ? '0% Exempt / GPP'
+              : itr.regime === 'corp_special_5'
+                ? '5% Special GIE'
+                : itr.mcitApplied
+                  ? `MCIT (exceeds ${(itr.effectiveTaxRate * 100).toFixed(0)}% RCIT)`
+                  : `${(itr.effectiveTaxRate * 100).toFixed(0)}% Corporate Income Tax`;
+    lineItems.push({ itemNo: '27', label: `Income Tax Due (${regimeDesc})`, value: totalTaxPayable });
   }
 
   return {
@@ -299,7 +381,7 @@ export function computeEBirFormValues(
     tin,
     rdoCode: String(client.rdoCode || ''),
     registeredName: client.registeredName || client.name || '',
-    tradeName: client.name || '',
+    tradeName: client.tradeName || client.name || '',
     address: client.address || '',
     lineItems,
     totalTaxPayable,
@@ -319,7 +401,8 @@ export function taxRateCellsForForm(formId: string) {
 /** Official form versions (from generated sample: 2550Qv2024). */
 export const EBIR_FORM_VERSIONS: Record<string, string> = {
   '2550Q': 'v2024', '2550M': 'v2024', '2551Q': 'v2018', '0619-E': 'v2018',
-  '1601-EQ': 'v2018', '1601-C': 'v2018', '1701Q': 'v2018', '1702Q': 'v2018C', '0605': '',
+  '1601-EQ': 'v2018', '1601-C': 'v2018', '1701Q': 'v2018', '1701': 'v2018', '1701A': 'v2018',
+  '1702Q': 'v2018C', '1702-RT': 'v2018C', '1702-EX': 'v2018C', '1702-MX': 'v2018C', '0605': '',
 };
 /** Official eBIRForms cell-ID prefix: frm{formLower}{version}, e.g. frm2550qv2024. */
 export function ebirCellPrefix(formType: string): string {
@@ -365,18 +448,30 @@ export function buildOfficialSaveFields(values: EBirFormValues, ledger: EBirLedg
   add('txtTaxpayerName1', urlEnc(values.registeredName));
   add('txtAddress', urlEnc(values.address));
   add('txtTaxPayerAdd', urlEnc(values.address));
-  add('txtZipCode', '');
-  add('txtTaxPayerZip', '');
-  add('txtTelNum', '');
-  add('txtLineBus', urlEnc('GENERAL SERVICES'));
-  add('txtDescription', urlEnc('GENERAL SERVICES'));
+  const wf = resolveBusinessWorkflow(currentClient);
+  const industryLabel =
+    wf.industry === 'retail'
+      ? 'RETAIL AND MERCHANDISING'
+      : wf.industry === 'manufacturing'
+        ? 'MANUFACTURING'
+        : wf.industry === 'construction'
+          ? 'CONSTRUCTION'
+          : 'GENERAL SERVICES';
+  add('txtZipCode', String(currentClient?.zipCode || ''));
+  add('txtTaxPayerZip', String(currentClient?.zipCode || ''));
+  add('txtTelNum', String(currentClient?.phone || ''));
+  add('txtLineBus', urlEnc(industryLabel));
+  add('txtDescription', urlEnc(industryLabel));
 
   // --- Form-specific line items ---
   if (values.formType.startsWith('2550')) {
-    const outputTax = ledger.outputTax;
-    const inputTax = ledger.inputTax;
+    const isVat = wf.vatRegistrationType === 'vat';
+    const isZeroRated = wf.vatRegistrationType === 'zero-rated';
+    const outputTax = isVat ? ledger.outputTax : 0;
+    const inputTax = isVat || isZeroRated ? ledger.inputTax : 0;
     const netVat = Math.max(0, outputTax - inputTax);
-    add('calendarNo1', 'true'); add('fiscalNo1', 'false');
+    add('calendarNo1', currentClient?.accountingType === 'Fiscal' ? 'false' : 'true');
+    add('fiscalNo1', currentClient?.accountingType === 'Fiscal' ? 'true' : 'false');
     if (values.month) add('selectedMonthNo2', String(values.month));
     add('txtYearNo2', String(values.year));
     if (values.quarter) {
@@ -385,23 +480,26 @@ export function buildOfficialSaveFields(values: EBirFormValues, ledger: EBirLedg
       add('OptQuarter3', values.quarter === 3 ? 'true' : 'false');
       add('OptQuarter4', values.quarter === 4 ? 'true' : 'false');
       const qm = values.quarter * 3; const fromM = qm - 2;
-      const lastDay = qm === 2 ? 28 : (qm === 4 || qm === 6 || qm === 9 || qm === 11 ? 30 : 31);
+      const lastDay = new Date(Date.UTC(values.year, qm, 0)).getUTCDate();
       add('RtnPeriodFromNo4', `${fromM}/01/${values.year}`);
       add('RtnPeriodToNo4', `${qm}/${lastDay}/${values.year}`);
     }
     add('amendedReturnYesNo5', 'false'); add('amendedReturnNo5', 'true');
     add('OptShortPrd1', 'false'); add('OptShortPrd2', 'true');
-    add('taxPayerClassification1', 'false'); add('taxPayerClassification2', 'true');
-    add('taxPayerClassification3', 'false'); add('taxPayerClassification4', 'false');
+    add('taxPayerClassification1', wf.sizeTier === 'micro' ? 'true' : 'false');
+    add('taxPayerClassification2', wf.sizeTier === 'small' ? 'true' : 'false');
+    add('taxPayerClassification3', wf.sizeTier === 'medium' ? 'true' : 'false');
+    add('taxPayerClassification4', wf.sizeTier === 'large' ? 'true' : 'false');
     add('internationalTreatyYn', 'false'); add('specialRateYn', 'false');
     add('taxpayerName', urlEnc(values.registeredName));
     add('taxpayerAddress', urlEnc(values.address));
-    add('taxpayerZip', ''); add('taxpayerContactNumber', '');
+    add('taxpayerZip', String(currentClient?.zipCode || ''));
+    add('taxpayerContactNumber', String(currentClient?.phone || ''));
     add('taxpayerEmailAddress', urlEnc((currentClient && (currentClient as any).email) || ''));
-    add('vatableSales', numFmt(ledger.vatableSales || ledger.salesTotal));
+    add('vatableSales', numFmt(isVat ? (ledger.vatableSales || ledger.salesTotal) : 0));
     add('outputVatSales', numFmt(outputTax));
-    add('zeroRatedSales', numFmt(ledger.zeroRatedSales));
-    add('exemptSales', numFmt(ledger.exemptSales));
+    add('zeroRatedSales', numFmt(isZeroRated ? (ledger.zeroRatedSales || ledger.salesTotal) : ledger.zeroRatedSales));
+    add('exemptSales', numFmt(wf.vatRegistrationType === 'exempt' ? (ledger.exemptSales || ledger.salesTotal) : ledger.exemptSales));
     add('totalSales', numFmt(ledger.salesTotal));
     add('outputTaxDue', numFmt(outputTax));
     add('lessOutputVat', '0.00'); add('addOutputVat', '0.00');
@@ -426,7 +524,7 @@ export function buildOfficialSaveFields(values: EBirFormValues, ledger: EBirLedg
     f.push({ cellId: 'txtEnroll', value: 'Y' });
   } else if (values.formType === '2551Q') {
     add('txt15', numFmt(ledger.salesTotal));
-    add('txt16', '3');
+    add('txt16', String(+(wf.percentageTaxRate * 100).toFixed(2)));
     add('txt17', numFmt(values.totalTaxPayable));
   } else if (values.formType === '0619-E' || values.formType === '1601-EQ') {
     add('txtAtc', ledger.ewtByAtc.map(e => e.atcCode).join(' '));

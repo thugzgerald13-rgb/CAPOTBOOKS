@@ -30,8 +30,10 @@ export function validateBirForm(
   if (tin.length !== 9 && tin.length !== 12) errors.push('TIN is missing or invalid (must be 9 or 12 digits).');
   if (!profile?.rdoCode) errors.push('RDO code is not set in Business Profile.');
   if (!profile?.name && !profile?.registeredName) errors.push('Business/registered name is missing.');
-  if (formType === '2550Q' && data.salesTotal <= 0) errors.push('2550Q: no taxable sales found for the selected quarter.');
-  if (['1601-C', '0619-E', '1601-EQ'].includes(formType) && data.quarterlyTotalTaxesWithheld <= 0 && data.monthlyEwtTotal <= 0) errors.push(`${formType}: no withholding taxes found for the selected period.`);
+  if (formType === '2550Q' && data.salesTotal < 0) errors.push('2550Q: sales total cannot be negative.');
+  if (['1601-C', '0619-E', '1601-EQ'].includes(formType) && (data.quarterlyTotalTaxesWithheld < 0 || data.monthlyEwtTotal < 0)) {
+    errors.push(`${formType}: withholding taxes cannot be negative.`);
+  }
   return errors;
 }
 
