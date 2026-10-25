@@ -28,6 +28,30 @@ export interface StagedFile {
   description: string;
 }
 
+// ---- Page scoping: Income / Expense / Other Files are fully stand-alone. ----
+// Each folder belongs to exactly one page, so files uploaded on one page are
+// never visible on another.
+type FileCategory = 'income' | 'expense' | 'other';
+const CATEGORY_DEFAULT_TYPE: Record<FileCategory, NonNullable<AppFolder['type']>> = {
+  income: 'revenue', expense: 'expense', other: 'other',
+};
+const CATEGORY_DEFAULT_NAME: Record<FileCategory, string> = {
+  income: 'Revenue', expense: 'Expense', other: 'Other',
+};
+const SYSTEM_DEFAULT_TYPES = new Set<string>(['revenue', 'expense', 'other']);
+
+/** Which Upload Files page a folder belongs to. Legacy 'custom' folders go to Other. */
+const folderCategory = (folder: AppFolder): FileCategory => {
+  const t = String(folder.type || '');
+  if (t === 'revenue' || t === 'custom:income') return 'income';
+  if (t === 'expense' || t === 'custom:expense') return 'expense';
+  return 'other';
+};
+
+/** Only the page's built-in Revenue / Expense / Other folder is protected; every added folder is deletable. */
+const isSystemDefaultFolder = (folder: AppFolder) =>
+  !!folder.isDefault && SYSTEM_DEFAULT_TYPES.has(String(folder.type || ''));
+
 export function FileManager() {
   const { canAction: canFilesAction, canDropdownOption: canFilesDropdown } = useGranularPermissions('files');
   const canDelete = usePermission('delete_transactions') && canFilesAction('delete');
@@ -36,7 +60,7 @@ export function FileManager() {
   const canDownloadFiles = canFilesAction('download') && canFilesDropdown('file_action', 'download');
 
   const { currentClient, saveFolder, deleteFolder, saveFile, deleteFile, showToast } = useAccounting();
-  const [selectedFolderId, setSelectedFolderId] = useState<string>('folder_revenue');
+  const [selectedFolderId, setSelectedFolderId] = useState<string>('');
   const [newFolderName, setNewFolderName] = useState('');
   const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
   const [editingFolderName, setEditingFolderName] = useState('');
@@ -50,10 +74,34 @@ export function FileManager() {
   const [cameraBusy, setCameraBusy] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  // activeFolderId is declared after the early `return null` below, so it
+  // The active folder is resolved after the early `return null` below, so it
   // cannot appear in any hook dependency array (Temporal Dead Zone). Mirror
-  // it into a ref so the camera auto-upload closure always reads the latest.
-  const activeFolderIdRef = useRef('folder_revenue');
+  // an "ensure active folder exists and return its id" function into a ref so
+  // the camera auto-upload closure always targets the current page's folder.
+  const ensureActiveFolderRef = useRef<() => Promise<string>>(async () => '');
+
+  // ---- Page category (Income / Expense / Other Files) ----
+  // Declared before the early return so hook order stays stable.
+  const location = useLocation();
+  const pathSeg = location.pathname.split('/').filter(Boolean).pop() || '';
+  const fixedCategory: FileCategory | null = pathSeg === 'income' || pathSeg === 'expense' || pathSeg === 'other' ? pathSeg : null;
+  const [filesCategory, setFilesCategory] = useState<FileCategory>(() => {
+    const saved = sessionStorage.getItem('filesCategory');
+    return saved === 'income' || saved === 'expense' || saved === 'other' ? saved : 'income';
+  });
+  const activeCategory: FileCategory = fixedCategory || filesCategory;
+  // Switching page resets the folder selection and any staged uploads so
+  // nothing carries over between Income / Expense / Other Files.
+  useEffect(() => {
+    setSelectedFolderId('');
+    setStagedFiles([]);
+    setEditingFolderId(null);
+  }, [activeCategory]);
+
+  // ---- T019: bank statement import + auto-match reconciliation ----
+  const [bankTxns, setBankTxns] = useState<BankTxn[]>([]);
+  const bankFileRef = useRef<HTMLInputElement>(null);
+  const headerFileRef = useRef<HTMLInputElement>(null);
 
   const stopCameraStream = useCallback(() => {
     streamRef.current?.getTracks().forEach(t => t.stop());
@@ -103,6 +151,14 @@ export function FileManager() {
     const stamp = new Date().toLocaleString(undefined, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }).replace(/[\/:]/g, '-');
     const name = `Photo_${stamp}.jpg`;
     const safeName = name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    let targetFolderId: string;
+    try {
+      targetFolderId = await ensureActiveFolderRef.current();
+    } catch (err) {
+      console.error(err);
+      showToast('Could not prepare the destination folder');
+      return;
+    }
     const storagePath = `${currentClient.id}/${id}/${Date.now().toString(36)}-${safeName}`;
     const comma = base64.indexOf(',');
     const b64 = comma >= 0 ? base64.slice(comma + 1) : base64;
@@ -120,7 +176,7 @@ export function FileManager() {
     }
     await saveFile({
       id, name, type: 'image/jpeg', size: compressed.size, uploadedAt: new Date().toISOString(),
-      folderId: activeFolderIdRef.current, storagePath, description: 'Captured with camera',
+      folderId: targetFolderId, storagePath, description: 'Captured with camera',
     });
     showToast('Photo captured & uploaded automatically');
   }, [canAddFiles, currentClient, saveFile, showToast]);
@@ -212,18 +268,46 @@ export function FileManager() {
 
   if (!currentClient) return null;
 
-  // Gracefully handle undefined folders/files
-  const folders = currentClient.folders || [
-    { id: 'folder_revenue', name: 'Revenue', isDefault: true, type: 'revenue' },
-    { id: 'folder_expense', name: 'Expense', isDefault: true, type: 'expense' },
-    { id: 'folder_other', name: 'Other', isDefault: true, type: 'other' }
-  ];
+  const allFolders: AppFolder[] = currentClient.folders || [];
   const files = currentClient.files || [];
 
-  // Active folder selection fallback
-  const activeFolder = folders.find(f => f.id === selectedFolderId) || folders[0];
-  const activeFolderId = activeFolder?.id || 'folder_revenue';
-  activeFolderIdRef.current = activeFolderId;
+  // Older client records were created with an empty "BIR Registration"
+  // folder by default. It is only kept for clients that actually have a
+  // COR / 2303 (or any file) stored in it.
+  const isUnusedBirRegistrationFolder = (folder: AppFolder) =>
+    folder.name === 'BIR Registration' && !files.some(f => f.folderId === folder.id);
+
+  // Folders that belong to the current page only.
+  const categoryFolders = allFolders.filter(
+    f => folderCategory(f) === activeCategory && !isUnusedBirRegistrationFolder(f)
+  );
+
+  // Each page always has its own built-in folder. If the client doesn't have
+  // one yet (e.g. "Other"), show a client-scoped placeholder that is
+  // persisted on first upload / rename.
+  const persistedDefault = categoryFolders.find(
+    f => isSystemDefaultFolder(f) && f.type === CATEGORY_DEFAULT_TYPE[activeCategory]
+  );
+  const defaultFolder: AppFolder = persistedDefault || {
+    id: `${currentClient.id}_folder_${activeCategory}`,
+    name: CATEGORY_DEFAULT_NAME[activeCategory],
+    isDefault: true,
+    type: CATEGORY_DEFAULT_TYPE[activeCategory],
+  };
+  const folders: AppFolder[] = [defaultFolder, ...categoryFolders.filter(f => f.id !== defaultFolder.id)];
+
+  // Active folder selection fallback (always within the current page)
+  const activeFolder = folders.find(f => f.id === selectedFolderId) || defaultFolder;
+  const activeFolderId = activeFolder.id;
+
+  /** Make sure the active folder exists in the database before files reference it. */
+  const ensureActiveFolder = async (): Promise<string> => {
+    if (!allFolders.some(f => f.id === activeFolder.id)) {
+      await saveFolder(activeFolder);
+    }
+    return activeFolder.id;
+  };
+  ensureActiveFolderRef.current = ensureActiveFolder;
 
   const handleCreateFolder = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -231,13 +315,20 @@ export function FileManager() {
     if (!newFolderName.trim()) return;
 
     const newFolder: AppFolder = {
-      id: 'folder_' + Date.now(),
+      id: 'folder_' + Date.now() + '_' + Math.random().toString(36).slice(2, 7),
       name: newFolderName.trim(),
       isDefault: false,
-      type: 'custom'
+      // Scope the folder to the page it was created on.
+      type: `custom:${activeCategory}` as AppFolder['type'],
     };
 
-    await saveFolder(newFolder);
+    try {
+      await saveFolder(newFolder);
+    } catch (err) {
+      console.error(err);
+      showToast('Could not create folder');
+      return;
+    }
     setNewFolderName('');
     setSelectedFolderId(newFolder.id);
     showToast(`Created folder "${newFolder.name}"`);
@@ -268,27 +359,38 @@ export function FileManager() {
 
   const handleDeleteFolder = async (folder: AppFolder) => {
     if (!canDelete) { showToast('You do not have permission to delete folders.'); return; }
-    if (folder.isDefault) {
+    if (isSystemDefaultFolder(folder)) {
       showToast('Default folders cannot be deleted');
       return;
     }
+    const fileCount = files.filter(f => f.folderId === folder.id).length;
+    const confirmMsg = fileCount > 0
+      ? `Delete folder "${folder.name}" and its ${fileCount} file(s)? This cannot be undone.`
+      : `Delete folder "${folder.name}"?`;
+    if (!window.confirm(confirmMsg)) return;
 
     // Delete normalized folder metadata. app_files.folder_id uses ON DELETE SET NULL;
     // remove the associated files explicitly below so the UI semantics stay unchanged.
     const filesInFolder = files.filter(f => f.folderId === folder.id);
-    for (const file of filesInFolder) {
-      if (file.storagePath) {
-        const { error } = await storageBucket('client-files').remove([file.storagePath]);
-        evictCachedFile(file.storagePath).catch(() => {});
-        if (error) console.warn('Storage file deletion failed:', error);
+    try {
+      for (const file of filesInFolder) {
+        if (file.storagePath) {
+          const { error } = await storageBucket('client-files').remove([file.storagePath]);
+          evictCachedFile(file.storagePath).catch(() => {});
+          if (error) console.warn('Storage file deletion failed:', error);
+        }
+        await deleteFile(file.id);
       }
-      await deleteFile(file.id);
+      await deleteFolder(folder.id);
+    } catch (err) {
+      console.error('Folder deletion failed:', err);
+      showToast(`Could not delete folder "${folder.name}"`);
+      return;
     }
-    await deleteFolder(folder.id);
-    
-    // Fall back to a default folder if the deleted folder was active
+
+    // Fall back to this page's default folder if the deleted folder was active
     if (selectedFolderId === folder.id) {
-      setSelectedFolderId('folder_revenue');
+      setSelectedFolderId('');
     }
     showToast(`Deleted folder "${folder.name}" and any files inside`);
   };
@@ -375,6 +477,15 @@ export function FileManager() {
     if (!canAddFiles) { showToast('You do not have permission to upload files.'); return; }
     if (stagedFiles.length === 0) return;
 
+    let targetFolderId: string;
+    try {
+      targetFolderId = await ensureActiveFolder();
+    } catch (err) {
+      console.error(err);
+      showToast('Could not prepare the destination folder');
+      return;
+    }
+
     const newFiles: AppFile[] = [];
     for (const sf of stagedFiles) {
       const id = 'file_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
@@ -398,7 +509,7 @@ export function FileManager() {
       if (uploadError) throw uploadError;
       newFiles.push({
         id, name, type: sf.type, size: sf.size, uploadedAt: new Date().toISOString(),
-        folderId: activeFolderId, storagePath, description: sf.description.trim() || undefined
+        folderId: targetFolderId, storagePath, description: sf.description.trim() || undefined
       });
     }
 
@@ -482,25 +593,6 @@ export function FileManager() {
 
   const activeFolderFiles = files.filter(f => f.folderId === activeFolderId);
 
-  // ---- T019: bank statement import + auto-match reconciliation ----
-  const [bankTxns, setBankTxns] = useState<BankTxn[]>([]);
-  const bankFileRef = useRef<HTMLInputElement>(null);
-  const headerFileRef = useRef<HTMLInputElement>(null);
-  const CATEGORY_FOLDER: Record<string, string> = { income: 'folder_revenue', expense: 'folder_expense', other: 'folder_other' };
-  const location = useLocation();
-  const pathSeg = location.pathname.split('/').filter(Boolean).pop() || '';
-  const fixedCategory = pathSeg === 'income' || pathSeg === 'expense' || pathSeg === 'other' ? pathSeg : null;
-  const [filesCategory, setFilesCategory] = useState<'income' | 'expense' | 'other'>('income');
-  const activeCategory = (fixedCategory || filesCategory) as 'income' | 'expense' | 'other';
-  useEffect(() => {
-    const cat = fixedCategory || sessionStorage.getItem('filesCategory');
-    if (cat === 'income' || cat === 'expense' || cat === 'other') {
-      setFilesCategory(cat);
-      setSelectedFolderId(CATEGORY_FOLDER[cat]);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fixedCategory]);
-  useEffect(() => { setSelectedFolderId(CATEGORY_FOLDER[activeCategory]); }, [activeCategory]);
   const reconcileRules: ReconcileRule[] = DEFAULT_RECONCILE_RULES;
   const handleBankFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -550,7 +642,7 @@ export function FileManager() {
       {!fixedCategory && (
       <div className="px-4 md:px-6 pt-4 flex flex-wrap gap-2">
         {([['income','Income Files'],['expense','Expense Files'],['other','Other Files']] as const).map(([key,label]) => (
-          <button key={key} onClick={() => setFilesCategory(key)}
+          <button key={key} onClick={() => { setFilesCategory(key); sessionStorage.setItem('filesCategory', key); }}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition-all border ${activeCategory === key ? 'bg-blue-600 text-white border-blue-600' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-blue-300'}`}>
             {label}
           </button>
@@ -661,7 +753,7 @@ export function FileManager() {
                           </span>
                         </button>
 
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity ml-2">
+                        <div className="flex items-center gap-1 md:opacity-0 md:group-hover:opacity-100 focus-within:opacity-100 transition-opacity ml-2">
                           <button
                             onClick={() => handleStartRename(folder)} disabled={!canEditFiles}
                             className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded text-slate-500 dark:text-slate-400"
@@ -669,7 +761,7 @@ export function FileManager() {
                           >
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
-                          {!folder.isDefault && (
+                          {!isSystemDefaultFolder(folder) && (
                             <button
                               onClick={() => handleDeleteFolder(folder)}
                               disabled={!canDelete}
@@ -716,7 +808,7 @@ export function FileManager() {
           <div>
             <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
               <span>{activeFolder?.name} Folder</span>
-              {activeFolder?.isDefault && (
+              {activeFolder && isSystemDefaultFolder(activeFolder) && (
                 <span className="text-[10px] bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
                   Default
                 </span>

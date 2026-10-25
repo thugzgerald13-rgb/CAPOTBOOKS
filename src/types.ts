@@ -344,7 +344,13 @@ export interface AppFolder {
   id: string;
   name: string;
   isDefault: boolean;
-  type?: 'revenue' | 'expense' | 'custom';
+  /**
+   * 'revenue' | 'expense' | 'other' = system default folder of the Income /
+   * Expense / Other Files page. 'custom:income' | 'custom:expense' |
+   * 'custom:other' = user-added folder scoped to that page. Legacy 'custom'
+   * folders are shown under Other Files.
+   */
+  type?: 'revenue' | 'expense' | 'other' | 'custom' | 'custom:income' | 'custom:expense' | 'custom:other';
 }
 
 export interface AppFile {

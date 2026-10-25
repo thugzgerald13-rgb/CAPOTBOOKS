@@ -32,6 +32,7 @@ export function Extras() {
     ownerClientId,
     showToast,
     saveFile,
+    saveFolder,
   } = useAccounting();
   const { userRole, isSubuser } = useAuth();
   // Standalone Accountant/Bookkeeper accounts own their workspace and must be
@@ -220,7 +221,7 @@ export function Extras() {
         folderId: folderId || '',
         storagePath,
         description: 'BIR Certificate of Registration (COR / BIR Form 2303) used to populate client profile',
-      });
+      }, clientId);
     } catch (error) {
       await storageBucket('client-files').remove([storagePath]);
       throw error;
@@ -236,8 +237,17 @@ export function Extras() {
       if (wasNewClient && fileToAttach) {
         setBirCorStatus('Saving the COR / 2303 with the client record…');
         try {
-          const registrationFolderId = editingClient.folders?.find((folder) => folder.name === 'BIR Registration')?.id;
-          await uploadBirCorAttachment(editingClient.id, fileToAttach, registrationFolderId);
+          // The BIR Registration folder is no longer a default folder. It is
+          // created only for the client that actually has a COR / 2303 file,
+          // as a regular (deletable) folder under "Other Files".
+          const registrationFolder = {
+            id: `${editingClient.id}_registration`,
+            name: 'BIR Registration',
+            isDefault: false,
+            type: 'custom:other' as const,
+          };
+          await saveFolder(registrationFolder, editingClient.id);
+          await uploadBirCorAttachment(editingClient.id, fileToAttach, registrationFolder.id);
           setBirCorStatus('COR / 2303 saved with this client.');
         } catch (attachmentError) {
           console.error('BIR COR attachment upload failed:', attachmentError);
@@ -314,9 +324,8 @@ export function Extras() {
       purchases: [],
       expenses: [],
       folders: [
-        { id: 'folder_revenue', name: 'Revenue', isDefault: true, type: 'revenue' },
-        { id: 'folder_expense', name: 'Expense', isDefault: true, type: 'expense' },
-        { id: `${draftId}_registration`, name: 'BIR Registration', isDefault: true, type: 'custom' },
+        { id: `${draftId}_folder_revenue`, name: 'Revenue', isDefault: true, type: 'revenue' },
+        { id: `${draftId}_folder_expense`, name: 'Expense', isDefault: true, type: 'expense' },
       ],
       files: [],
     } as Client;

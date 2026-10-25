@@ -73,9 +73,10 @@ interface AccountingContextType {
   addClient: (name: string) => Promise<string | null>;
   deleteClient: (id: string) => Promise<void>;
   saveBusinessProfile: (profile: BusinessProfile) => Promise<void>;
-  saveFolder: (folder: any) => Promise<void>;
+  /** Optional targetClientId writes to a specific client (e.g. a just-created client) instead of the active one. */
+  saveFolder: (folder: any, targetClientId?: string) => Promise<void>;
   deleteFolder: (folderId: string) => Promise<void>;
-  saveFile: (file: any) => Promise<void>;
+  saveFile: (file: any, targetClientId?: string) => Promise<void>;
   deleteFile: (fileId: string) => Promise<void>;
   // Editable report snapshots (P&L / Balance Sheet / Cash Flow), the Asset
   // Lapsing schedule, and Tax Compliance deadlines are each persisted to
@@ -174,9 +175,11 @@ const buildMatchingClient = (profileData: BusinessProfile, existing: Client | un
     sales: existing?.sales || [],
     purchases: existing?.purchases || [],
     expenses: existing?.expenses || [],
+    // app_folders.id is a global primary key, so default folder ids are
+    // scoped to the client to avoid colliding with other clients' rows.
     folders: existing?.folders || [
-      { id: 'folder_revenue', name: 'Revenue', isDefault: true, type: 'revenue' },
-      { id: 'folder_expense', name: 'Expense', isDefault: true, type: 'expense' },
+      { id: `${ownerId}_folder_revenue`, name: 'Revenue', isDefault: true, type: 'revenue' },
+      { id: `${ownerId}_folder_expense`, name: 'Expense', isDefault: true, type: 'expense' },
     ],
     files: existing?.files || [],
     taxDeadlines: existing?.taxDeadlines || [],
@@ -1964,41 +1967,49 @@ export function AccountingProvider({
     setClients(prev => ({ ...prev, [currentClientId]: { ...prev[currentClientId], purchases: (prev[currentClientId]?.purchases || []).filter((p:any)=>String(p.id)!==String(id)) } as Client }));
   };
 
-  const saveFolder = async (folder: any) => {
-    if (!user || !currentClientId) return;
+  const saveFolder = async (folder: any, targetClientId?: string) => {
+    const clientId = targetClientId || currentClientId;
+    if (!user || !clientId) return;
     const row = {
-      id: String(folder.id), client_id: currentClientId, name: folder.name || '',
+      id: String(folder.id), client_id: clientId, name: folder.name || '',
       is_default: !!folder.isDefault, type: folder.type || 'custom'
     };
     const { error } = await supabase.from('app_folders').upsert(row, { onConflict: 'id' });
     if (error) throw error;
-    setClients(prev => ({ ...prev, [currentClientId]: { ...prev[currentClientId], folders: [...(prev[currentClientId]?.folders || []).filter((f:any)=>String(f.id)!==String(folder.id)), folder] } as Client }));
+    // Drop the cached full-fetch so a reload doesn't serve a stale folder list.
+    await recordNormalizedMutation('app_folders', clientId, 'put', row);
+    setClients(prev => prev[clientId] ? ({ ...prev, [clientId]: { ...prev[clientId], folders: [...(prev[clientId]?.folders || []).filter((f:any)=>String(f.id)!==String(folder.id)), folder] } as Client }) : prev);
   };
 
   const deleteFolder = async (folderId: string) => {
     if (!user || !currentClientId) return;
     const { error } = await supabase.from('app_folders').delete().eq('client_id', currentClientId).eq('id', String(folderId));
     if (error) throw error;
+    // Without this the 5-min IndexedDB cache would resurrect the deleted folder on reload.
+    await recordNormalizedMutation('app_folders', currentClientId, 'delete', { id: String(folderId) });
     setClients(prev => ({ ...prev, [currentClientId]: { ...prev[currentClientId], folders: (prev[currentClientId]?.folders || []).filter((f:any)=>String(f.id)!==String(folderId)), files: (prev[currentClientId]?.files || []).filter((f:any)=>String(f.folderId)!==String(folderId)) } as Client }));
   };
 
-  const saveFile = async (file: any) => {
-    if (!user || !currentClientId) return;
+  const saveFile = async (file: any, targetClientId?: string) => {
+    const clientId = targetClientId || currentClientId;
+    if (!user || !clientId) return;
     const row = {
-      id: String(file.id), client_id: currentClientId, name: file.name || '',
+      id: String(file.id), client_id: clientId, name: file.name || '',
       type: file.type || 'application/octet-stream', size: Number(file.size || 0),
       uploaded_at: file.uploadedAt || new Date().toISOString(), folder_id: file.folderId || null,
       storage_path: file.storagePath || null, description: file.description || null
     };
     const { error } = await supabase.from('app_files').upsert(row, { onConflict: 'id' });
     if (error) throw error;
-    setClients(prev => ({ ...prev, [currentClientId]: { ...prev[currentClientId], files: [...(prev[currentClientId]?.files || []).filter((f:any)=>String(f.id)!==String(file.id)), file] } as Client }));
+    await recordNormalizedMutation('app_files', clientId, 'put', row);
+    setClients(prev => prev[clientId] ? ({ ...prev, [clientId]: { ...prev[clientId], files: [...(prev[clientId]?.files || []).filter((f:any)=>String(f.id)!==String(file.id)), file] } as Client }) : prev);
   };
 
   const deleteFile = async (fileId: string) => {
     if (!user || !currentClientId) return;
     const { error } = await supabase.from('app_files').delete().eq('client_id', currentClientId).eq('id', String(fileId));
     if (error) throw error;
+    await recordNormalizedMutation('app_files', currentClientId, 'delete', { id: String(fileId) });
     setClients(prev => ({ ...prev, [currentClientId]: { ...prev[currentClientId], files: (prev[currentClientId]?.files || []).filter((f:any)=>String(f.id)!==String(fileId)) } as Client }));
   };
 
@@ -2015,8 +2026,8 @@ export function AccountingProvider({
       purchases: [],
       expenses: [],
       folders: [
-        { id: 'folder_revenue', name: 'Revenue', isDefault: true, type: 'revenue' },
-        { id: 'folder_expense', name: 'Expense', isDefault: true, type: 'expense' },
+        { id: `${newId}_folder_revenue`, name: 'Revenue', isDefault: true, type: 'revenue' },
+        { id: `${newId}_folder_expense`, name: 'Expense', isDefault: true, type: 'expense' },
       ],
       files: [],
     } as Client;
