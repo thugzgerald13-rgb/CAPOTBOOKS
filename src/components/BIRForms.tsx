@@ -11,7 +11,7 @@ import { adjustDeadlineForWeekend } from '../lib/complianceUtils';
 import { generateWorkflowDeadlines } from '../lib/taxEngine';
 import { supabase } from '../lib/supabase';
 import { downloadBirFormPdf, validateBirForm } from '../lib/birFormPdf';
-import { EBIR_FORMS, computeEBirFormValues, downloadEBirFormXml, printEBirForm } from '../lib/eBirForms';
+import { EBIR_FORMS, getApplicableEBirForms, computeEBirFormValues, downloadEBirFormXml, printEBirForm } from '../lib/eBirForms';
 import { useNavigate } from 'react-router-dom';
 
 // Standard & workflow-aware BIR filing deadlines generator for Philippines
@@ -216,6 +216,19 @@ export function BIRForms() {
   // eBIRForms generator — Offline eBIRForms Package v7.9.6.2 integration.
   // Activated from the BIR sidebar dropdown ("eBIRForms" button).
   const [ebirForm, setEbirForm] = useState('2550Q');
+  // eBIRForms dropdown filtered by the active business profile (VAT type,
+  // income-tax regime, EOPT tier, employees, Top-WTA status, industry).
+  const applicableEbirForms = useMemo(() => {
+    const profile = businessProfile || (currentClient as any) || {};
+    return getApplicableEBirForms(profile, { includeAdhoc: false });
+  }, [businessProfile, currentClient]);
+  // Keep the selected form valid when the filter changes (e.g. user switches client).
+  useEffect(() => {
+    const all = [...applicableEbirForms.routine, ...applicableEbirForms.adhoc];
+    if (all.length > 0 && !all.some(f => f.id === ebirForm)) {
+      setEbirForm(all[0].id);
+    }
+  }, [applicableEbirForms, ebirForm]);
   const [ebirYear, setEbirYear] = useState(new Date().getFullYear());
   const [ebirMonth, setEbirMonth] = useState(new Date().getMonth() + 1);
   const [ebirQuarter, setEbirQuarter] = useState(1);
@@ -701,9 +714,25 @@ export function BIRForms() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
               <div>
-                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 block mb-1">BIR Form</label>
+                <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 block mb-1">
+                  BIR Form
+                  <span className="ml-1 normal-case font-semibold text-indigo-500">
+                    ({applicableEbirForms.routine.length} applicable · {applicableEbirForms.adhoc.length} other)
+                  </span>
+                </label>
                 <select value={ebirForm} onChange={e => setEbirForm(e.target.value)} className="w-full text-xs font-bold border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-2 rounded-xl outline-none">
-                  {EBIR_FORMS.map(f => <option key={f.id} value={f.id}>{f.id} — {f.title.split('—')[1]?.trim() || f.title}</option>)}
+                  <optgroup label="Required for your business">
+                    {applicableEbirForms.routine.map(f => (
+                      <option key={f.id} value={f.id}>{f.id} — {f.title.split('—')[1]?.trim() || f.title}</option>
+                    ))}
+                  </optgroup>
+                  {applicableEbirForms.adhoc.length > 0 && (
+                    <optgroup label="Others (as applicable)">
+                      {applicableEbirForms.adhoc.map(f => (
+                        <option key={f.id} value={f.id}>{f.id} — {f.title.split('—')[1]?.trim() || f.title}</option>
+                      ))}
+                    </optgroup>
+                  )}
                 </select>
               </div>
               <div>

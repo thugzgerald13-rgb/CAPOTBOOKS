@@ -196,28 +196,224 @@ export const TAX_RATE_CELLS: Record<string, { value: string; text: string }> = {
   "frm2550qv2024:hiddenVatRate": { value: "12.0", text: "" },
 };
 
+export interface EBirFormEligibility {
+  /** VAT-registered only (2550 series). */
+  requiresVat?: boolean;
+  /** Non-VAT only; also hidden when taxpayer is on the 8% flat income tax (exempt from percentage tax). */
+  requiresNonVat?: boolean;
+  /** Hide for 8% flat income taxpayers (percentage-tax forms). */
+  exemptIf8Percent?: boolean;
+  /** Restrict to individual / non-individual taxpayers. */
+  taxpayerType?: 'individual' | 'corporation' | 'any';
+  /** Only when the business has employees (compensation withholding / fringe benefit). */
+  requiresEmployees?: boolean;
+  /** Only for Top Withholding Agents (or corporations, which are routinely required to withhold). */
+  requiresWithholding?: boolean;
+  /** EOPT Act (RA 11976) Micro-tier only (Form 1701MS). */
+  requiresMicroTier?: boolean;
+  /** Only for excisable industries (alcohol, tobacco, fuel, mining, automobiles, etc.). */
+  requiresExciseIndustry?: boolean;
+  /** Situational forms shown in an "Others (as applicable)" group rather than the main list. */
+  adhoc?: boolean;
+  /** Corporate income-tax regimes this annual form applies to. */
+  corporateRegime?: Array<string>;
+}
+
 export interface EBirFormOption {
   id: string;
   title: string;
-  period: 'monthly' | 'quarterly' | 'adhoc';
-  category: 'vat' | 'percentage' | 'withholding' | 'income' | 'payment';
+  period: 'monthly' | 'quarterly' | 'annual' | 'adhoc';
+  category: 'vat' | 'percentage' | 'withholding' | 'income' | 'payment' | 'excise' | 'capital' | 'transfer';
+  /** Eligibility rules used to filter the dropdown by the active business profile. */
+  eligibility?: EBirFormEligibility;
+  /** Short reason shown when a form is filtered out (for debugging / "show all" tooltip). */
+  hiddenReason?: string;
 }
+
+/**
+ * Full eBIRForms v7.9.6.2 form catalog (84 form variants) with eligibility metadata
+ * derived from each form's BIR applicability. Filter with getApplicableEBirForms().
+ */
 export const EBIR_FORMS: EBirFormOption[] = [
-  { id: '2550M', title: 'BIR Form 2550M — Monthly Value-Added Tax Declaration', period: 'monthly', category: 'vat' },
-  { id: '2550Q', title: 'BIR Form 2550Q — Quarterly Value-Added Tax Return', period: 'quarterly', category: 'vat' },
-  { id: '2551Q', title: 'BIR Form 2551Q — Quarterly Percentage Tax Return', period: 'quarterly', category: 'percentage' },
-  { id: '0619-E', title: 'BIR Form 0619-E — Monthly Remittance of Expanded Withholding Tax', period: 'monthly', category: 'withholding' },
-  { id: '1601-EQ', title: 'BIR Form 1601-EQ — Quarterly Remittance of Expanded Withholding Tax', period: 'quarterly', category: 'withholding' },
-  { id: '1601-C', title: 'BIR Form 1601-C — Monthly Remittance of Withholding Tax on Compensation', period: 'monthly', category: 'withholding' },
-  { id: '1701Q', title: 'BIR Form 1701Q — Quarterly Income Tax Return (Individual)', period: 'quarterly', category: 'income' },
-  { id: '1701', title: 'BIR Form 1701 — Annual Income Tax Return (Individual / Mixed Income)', period: 'adhoc', category: 'income' },
-  { id: '1701A', title: 'BIR Form 1701A — Annual Income Tax Return (Individual Purely Business/Profession OSD or 8%)', period: 'adhoc', category: 'income' },
-  { id: '1702Q', title: 'BIR Form 1702Q — Quarterly Income Tax Return (Corporation/Partnership)', period: 'quarterly', category: 'income' },
-  { id: '1702-RT', title: 'BIR Form 1702-RT — Annual Income Tax Return (Regular Rate Corporation)', period: 'adhoc', category: 'income' },
-  { id: '1702-EX', title: 'BIR Form 1702-EX — Annual Income Tax Return (Exempt Corporation / GPP)', period: 'adhoc', category: 'income' },
-  { id: '1702-MX', title: 'BIR Form 1702-MX — Annual Income Tax Return (Mixed / Special Rate Corporation)', period: 'adhoc', category: 'income' },
+  // ---- Payment (always available) ----
   { id: '0605', title: 'BIR Form 0605 — Payment Form', period: 'adhoc', category: 'payment' },
+
+  // ---- VAT (VAT-registered only) ----
+  { id: '2550M', title: 'BIR Form 2550M — Monthly Value-Added Tax Declaration', period: 'monthly', category: 'vat', eligibility: { requiresVat: true }, hiddenReason: 'Requires VAT registration' },
+  { id: '2550Q', title: 'BIR Form 2550Q — Quarterly Value-Added Tax Return', period: 'quarterly', category: 'vat', eligibility: { requiresVat: true }, hiddenReason: 'Requires VAT registration' },
+  { id: '2550DS', title: 'BIR Form 2550DS — VAT Declaration/Return (Death of VAT-Registered)', period: 'adhoc', category: 'vat', eligibility: { requiresVat: true, adhoc: true }, hiddenReason: 'Requires VAT registration' },
+
+  // ---- Percentage Tax (non-VAT, not on 8% flat) ----
+  { id: '2551M', title: 'BIR Form 2551M — Monthly Percentage Tax Return', period: 'monthly', category: 'percentage', eligibility: { requiresNonVat: true, exemptIf8Percent: true }, hiddenReason: 'Non-VAT only; 8% flat taxpayers are exempt' },
+  { id: '2551Q', title: 'BIR Form 2551Q — Quarterly Percentage Tax Return', period: 'quarterly', category: 'percentage', eligibility: { requiresNonVat: true, exemptIf8Percent: true }, hiddenReason: 'Non-VAT only; 8% flat taxpayers are exempt' },
+  { id: '2000', title: 'BIR Form 2000 — Monthly Percentage Tax Return (VAT-Exempt Persons)', period: 'monthly', category: 'percentage', eligibility: { requiresNonVat: true, exemptIf8Percent: true }, hiddenReason: 'Non-VAT only' },
+  { id: '2000OT', title: 'BIR Form 2000-OT — Monthly Percentage Tax Return (Other Percentage Taxes)', period: 'monthly', category: 'percentage', eligibility: { requiresNonVat: true, exemptIf8Percent: true, adhoc: true }, hiddenReason: 'Non-VAT only; other percentage taxes' },
+  { id: '2552', title: 'BIR Form 2552 — Percentage Tax Return (Banks / Non-Bank Financial Intermediaries)', period: 'quarterly', category: 'percentage', eligibility: { requiresNonVat: true, exemptIf8Percent: true, adhoc: true }, hiddenReason: 'Banks/financial intermediaries only' },
+  { id: '2553', title: 'BIR Form 2553 — Percentage Tax Return (Insurance Premiums / Franchise)', period: 'quarterly', category: 'percentage', eligibility: { requiresNonVat: true, exemptIf8Percent: true, adhoc: true }, hiddenReason: 'Insurance/franchise grantees only' },
+
+  // ---- Individual Income Tax ----
+  { id: '1700', title: 'BIR Form 1700 — Annual Income Tax Return (Individual Purely Compensation)', period: 'annual', category: 'income', eligibility: { taxpayerType: 'individual', adhoc: true }, hiddenReason: 'Individual taxpayers only' },
+  { id: '1701Q', title: 'BIR Form 1701Q — Quarterly Income Tax Return (Individual)', period: 'quarterly', category: 'income', eligibility: { taxpayerType: 'individual', exemptIf8Percent: true }, hiddenReason: 'Individual; 8% flat taxpayers file annual only' },
+  { id: '1701', title: 'BIR Form 1701 — Annual Income Tax Return (Individual / Mixed Income, Itemized)', period: 'annual', category: 'income', eligibility: { taxpayerType: 'individual' }, hiddenReason: 'Individual taxpayers only' },
+  { id: '1701A', title: 'BIR Form 1701A — Annual Income Tax Return (Individual Purely Business/Profession, OSD or 8%)', period: 'annual', category: 'income', eligibility: { taxpayerType: 'individual' }, hiddenReason: 'Individual taxpayers only' },
+  { id: '1701MS', title: 'BIR Form 1701MS — Annual Income Tax Return for Micro-Taxpayers (EOPT Act RA 11976)', period: 'annual', category: 'income', eligibility: { taxpayerType: 'individual', requiresMicroTier: true }, hiddenReason: 'EOPT Micro-tier taxpayers only' },
+
+  // ---- Corporate Income Tax ----
+  { id: '1702Q', title: 'BIR Form 1702Q — Quarterly Income Tax Return (Corporation/Partnership)', period: 'quarterly', category: 'income', eligibility: { taxpayerType: 'corporation' }, hiddenReason: 'Corporations/partnerships only' },
+  { id: '1702RT', title: 'BIR Form 1702-RT — Annual Income Tax Return (Regular Rate: 20% MSME / 25% RCIT)', period: 'annual', category: 'income', eligibility: { taxpayerType: 'corporation', corporateRegime: ['corp_20_msme', 'corp_20_osd', 'corp_25_regular', 'corp_25_osd'] }, hiddenReason: 'Regular-rate corporations only' },
+  { id: '1702EX', title: 'BIR Form 1702-EX — Annual Income Tax Return (Exempt Corporation / GPP / Cooperative)', period: 'annual', category: 'income', eligibility: { taxpayerType: 'corporation', corporateRegime: ['corp_gpp_exempt'] }, hiddenReason: 'Exempt corporations / GPP only' },
+  { id: '1702MX', title: 'BIR Form 1702-MX — Annual Income Tax Return (Mixed Income / Special Rates: 5% GIE, EOPT 15%)', period: 'annual', category: 'income', eligibility: { taxpayerType: 'corporation', corporateRegime: ['corp_special_5'] }, hiddenReason: 'Special-rate / mixed-income corporations only' },
+
+  // ---- Compensation Withholding (with employees) ----
+  { id: '1601-C', title: 'BIR Form 1601-C — Monthly Remittance of Withholding Tax on Compensation', period: 'monthly', category: 'withholding', eligibility: { requiresEmployees: true }, hiddenReason: 'Requires employees' },
+  { id: '1604-C', title: 'BIR Form 1604-C — Annual Information Return of Income Taxes Withheld on Compensation', period: 'annual', category: 'withholding', eligibility: { requiresEmployees: true }, hiddenReason: 'Requires employees' },
+
+  // ---- Expanded Withholding (Top WTA / corporations) ----
+  { id: '0619-E', title: 'BIR Form 0619-E — Monthly Remittance of Creditable/Expanded Withholding Tax', period: 'monthly', category: 'withholding', eligibility: { requiresWithholding: true }, hiddenReason: 'Required for Top Withholding Agents / corporations' },
+  { id: '1601-EQ', title: 'BIR Form 1601-EQ — Quarterly Remittance of Creditable/Expanded Withholding Tax', period: 'quarterly', category: 'withholding', eligibility: { requiresWithholding: true }, hiddenReason: 'Required for Top Withholding Agents / corporations' },
+  { id: '1604-E', title: 'BIR Form 1604-E — Annual Information Return of Creditable Income Taxes Withheld (Expanded)', period: 'annual', category: 'withholding', eligibility: { requiresWithholding: true }, hiddenReason: 'Required for Top Withholding Agents / corporations' },
+
+  // ---- Final Withholding ----
+  { id: '0619-F', title: 'BIR Form 0619-F — Monthly Remittance of Final Income Taxes Withheld', period: 'monthly', category: 'withholding', eligibility: { requiresWithholding: true, adhoc: true }, hiddenReason: 'For final-withholding agents' },
+  { id: '1601-FQ', title: 'BIR Form 1601-FQ — Quarterly Remittance of Final Income Taxes Withheld', period: 'quarterly', category: 'withholding', eligibility: { requiresWithholding: true, adhoc: true }, hiddenReason: 'For final-withholding agents' },
+  { id: '1604-F', title: 'BIR Form 1604-F — Annual Information Return of Income Payments Subjected to Final Withholding Tax', period: 'annual', category: 'withholding', eligibility: { requiresWithholding: true, adhoc: true }, hiddenReason: 'For final-withholding agents' },
+  { id: '0620', title: 'BIR Form 0620 — Annual Remittance Form of Final Income Taxes Withheld', period: 'annual', category: 'withholding', eligibility: { requiresWithholding: true, adhoc: true }, hiddenReason: 'For final-withholding agents' },
+
+  // ---- Fringe Benefit (corporations with managerial/supervisory employees) ----
+  { id: '1603', title: 'BIR Form 1603 — Quarterly Remittance of Fringe Benefits Tax Withheld', period: 'quarterly', category: 'withholding', eligibility: { taxpayerType: 'corporation', requiresEmployees: true }, hiddenReason: 'Corporations with managerial employees' },
+  { id: '1603Q', title: 'BIR Form 1603Q — Quarterly Fringe Benefits Tax Return', period: 'quarterly', category: 'withholding', eligibility: { taxpayerType: 'corporation', requiresEmployees: true, adhoc: true }, hiddenReason: 'Corporations with managerial employees' },
+
+  // ---- Percentage Taxes Withheld (Top WTA / Government) ----
+  { id: '1600', title: 'BIR Form 1600 — Monthly Remittance of Percentage Taxes Withheld', period: 'monthly', category: 'withholding', eligibility: { requiresWithholding: true, adhoc: true }, hiddenReason: 'For Top Withholding Agents / government money payments' },
+  { id: '1600PT', title: 'BIR Form 1600PT — Percentage Taxes Withheld on Payments to Private Contractors', period: 'monthly', category: 'withholding', eligibility: { requiresWithholding: true, adhoc: true }, hiddenReason: 'For government/Top WTA money payments' },
+  { id: '1600VT', title: 'BIR Form 1600VT — Value-Added Taxes Withheld', period: 'monthly', category: 'withholding', eligibility: { requiresWithholding: true, adhoc: true }, hiddenReason: 'For government/Top WTA VAT withholding' },
+  { id: '1600WP', title: 'BIR Form 1600WP — Withholding of Percentage/VAT on Government Money Payments', period: 'monthly', category: 'withholding', eligibility: { requiresWithholding: true, adhoc: true }, hiddenReason: 'For government money payments' },
+
+  // ---- Capital Gains / Real Property (adhoc) ----
+  { id: '1602', title: 'BIR Form 1602 — Final Tax on Interest on Foreign Currency Deposits', period: 'monthly', category: 'capital', eligibility: { adhoc: true }, hiddenReason: 'As applicable (banks/foreign currency deposits)' },
+  { id: '1602Q', title: 'BIR Form 1602Q — Capital Gains Tax Return (On Sale of Shares of Stock Not Traded)', period: 'quarterly', category: 'capital', eligibility: { adhoc: true }, hiddenReason: 'As applicable (sale of shares)' },
+  { id: '1606', title: 'BIR Form 1606 — Withholding Tax Return on Sale/Transfer/Exchange of Real Property', period: 'adhoc', category: 'capital', eligibility: { adhoc: true }, hiddenReason: 'As applicable (real property disposition)' },
+  { id: '1704', title: 'BIR Form 1704 — Improperly Accumulated Earnings Tax Return', period: 'annual', category: 'capital', eligibility: { taxpayerType: 'corporation', adhoc: true }, hiddenReason: 'Corporations only, as applicable' },
+  { id: '1706', title: 'BIR Form 1706 — Capital Gains Tax Return (On Sale of Real Property)', period: 'adhoc', category: 'capital', eligibility: { adhoc: true }, hiddenReason: 'As applicable (real property sale)' },
+  { id: '1707', title: 'BIR Form 1707 — Capital Gains Tax Return (On Sale of Shares of Stock Not Traded)', period: 'adhoc', category: 'capital', eligibility: { adhoc: true }, hiddenReason: 'As applicable (share sale)' },
+  { id: '1707A', title: 'BIR Form 1707-A — Capital Gains Tax Return (On Sale of Shares of Stock Traded)', period: 'adhoc', category: 'capital', eligibility: { adhoc: true }, hiddenReason: 'As applicable (listed share sale)' },
+
+  // ---- Transfer Taxes (Donors / Estate) — adhoc ----
+  { id: '1800', title: 'BIR Form 1800 — Donor\'s Tax Return', period: 'adhoc', category: 'transfer', eligibility: { adhoc: true }, hiddenReason: 'As applicable (donation/gift)' },
+  { id: '1801', title: 'BIR Form 1801 — Estate Tax Return', period: 'adhoc', category: 'transfer', eligibility: { adhoc: true }, hiddenReason: 'As applicable (estate settlement)' },
+  { id: '1621', title: 'BIR Form 1621 — Donor\'s Tax Return (Business/Property)', period: 'adhoc', category: 'transfer', eligibility: { adhoc: true }, hiddenReason: 'As applicable (donation)' },
+
+  // ---- Excise Tax (excisable industries only) ----
+  { id: '2200A', title: 'BIR Form 2200-A — Excise Tax Return (Alcohol Products)', period: 'monthly', category: 'excise', eligibility: { requiresExciseIndustry: true }, hiddenReason: 'Alcohol manufacturers/importers only' },
+  { id: '2200AN', title: 'BIR Form 2200-AN — Excise Tax Return (Automobiles / Non-Essential Goods)', period: 'monthly', category: 'excise', eligibility: { requiresExciseIndustry: true }, hiddenReason: 'Automobile/sweetened beverage importers only' },
+  { id: '2200C', title: 'BIR Form 2200-C — Excise Tax Return (Cigars & Tobacco)', period: 'monthly', category: 'excise', eligibility: { requiresExciseIndustry: true }, hiddenReason: 'Tobacco manufacturers/importers only' },
+  { id: '2200M', title: 'BIR Form 2200-M — Excise Tax Return (Mineral Products)', period: 'monthly', category: 'excise', eligibility: { requiresExciseIndustry: true }, hiddenReason: 'Mineral producers only' },
+  { id: '2200P', title: 'BIR Form 2200-P — Excise Tax Return (Petroleum Products)', period: 'monthly', category: 'excise', eligibility: { requiresExciseIndustry: true }, hiddenReason: 'Petroleum manufacturers/importers only' },
+  { id: '2200S', title: 'BIR Form 2200-S — Excise Tax Return (Sweetened Beverages)', period: 'monthly', category: 'excise', eligibility: { requiresExciseIndustry: true }, hiddenReason: 'Sweetened beverage manufacturers only' },
+  { id: '2200T', title: 'BIR Form 2200-T — Excise Tax Return (Tobacco Products)', period: 'monthly', category: 'excise', eligibility: { requiresExciseIndustry: true }, hiddenReason: 'Tobacco products only' },
 ];
+
+/** Normalize a VAT registration value from either Client.vatType or BusinessProfile.vatRegistrationType. */
+function isVatRegistered(profile: { vatRegistrationType?: string; vatType?: string } | null | undefined): boolean {
+  const v = (profile?.vatRegistrationType || profile?.vatType || '').toString().toLowerCase();
+  return v === 'vat' || v === 'vatable' || v.startsWith('vat');
+}
+
+/** True when the taxpayer is an individual on the 8% flat income tax (exempt from percentage tax & quarterly ITR). */
+function is8PercentFlat(profile: { incomeTaxRegime?: string } | null | undefined): boolean {
+  return profile?.incomeTaxRegime === '8_percent_flat';
+}
+
+function isIndividual(profile: { taxpayerClassification?: string } | null | undefined): boolean {
+  return (profile?.taxpayerClassification || '').toString().toLowerCase().startsWith('individual');
+}
+
+function isCorporation(profile: { taxpayerClassification?: string } | null | undefined): boolean {
+  const c = (profile?.taxpayerClassification || '').toString().toLowerCase();
+  return c.startsWith('non-individual') || c.startsWith('corporation') || c.includes('corp') || c.includes('partnership');
+}
+
+const EXCISE_INDUSTRIES = ['alcohol', 'tobacco', 'cigarette', 'petroleum', 'fuel', 'mining', 'mineral', 'automobile', 'car', 'sweetened', 'beverage', 'excise', 'distillery', 'brewery'];
+
+function isExciseIndustry(profile: { industry?: string } | null | undefined): boolean {
+  const ind = (profile?.industry || '').toString().toLowerCase();
+  return EXCISE_INDUSTRIES.some(k => ind.includes(k));
+}
+
+export interface ApplicableFormsResult {
+  /** Forms routinely required for this business profile (main dropdown group). */
+  routine: EBirFormOption[];
+  /** Situational forms shown in an "Others (as applicable)" group. */
+  adhoc: EBirFormOption[];
+  /** Forms hidden by the filter (with reason), for "show all" / debugging. */
+  hidden: Array<{ form: EBirFormOption; reason: string }>;
+}
+
+/**
+ * Filter the full eBIRForms catalog by the active business profile:
+ * VAT type, income-tax regime (8% flat vs graduated vs corporate), EOPT tier
+ * (Micro → 1701MS), employees (compensation withholding), Top Withholding
+ * Agent status (expanded/final withholding), and excise industry.
+ */
+export function getApplicableEBirForms(
+  profile: {
+    vatRegistrationType?: string;
+    vatType?: string;
+    taxpayerClassification?: string;
+    incomeTaxRegime?: string;
+    taxpayerTier?: string;
+    hasEmployees?: boolean;
+    isTopWithholdingAgent?: boolean;
+    industry?: string;
+  } | null | undefined,
+  options: { includeAdhoc?: boolean } = {}
+): ApplicableFormsResult {
+  const vat = isVatRegistered(profile);
+  const flat8 = is8PercentFlat(profile);
+  const individual = isIndividual(profile);
+  const corporation = isCorporation(profile);
+  const hasEmployees = !!profile?.hasEmployees;
+  const topWTA = !!profile?.isTopWithholdingAgent;
+  const microTier = profile?.taxpayerTier === 'micro';
+  const excise = isExciseIndustry(profile);
+  // Withholding forms: routinely required for Top WTAs, corporations, or any business with employees.
+  const requiresWithholding = topWTA || corporation || hasEmployees;
+  const regime = profile?.incomeTaxRegime || '';
+
+  const routine: EBirFormOption[] = [];
+  const adhoc: EBirFormOption[] = [];
+  const hidden: Array<{ form: EBirFormOption; reason: string }> = [];
+
+  for (const form of EBIR_FORMS) {
+    const e = form.eligibility || {};
+    let reason = '';
+    if (e.requiresVat && !vat) reason = form.hiddenReason || 'Requires VAT registration';
+    else if (e.requiresNonVat && vat) reason = form.hiddenReason || 'Non-VAT businesses only';
+    else if (e.exemptIf8Percent && flat8) reason = form.hiddenReason || '8% flat taxpayers are exempt from this form';
+    else if (e.taxpayerType === 'individual' && !individual) reason = form.hiddenReason || 'Individual taxpayers only';
+    else if (e.taxpayerType === 'corporation' && !corporation) reason = form.hiddenReason || 'Corporations/partnerships only';
+    else if (e.requiresEmployees && !hasEmployees) reason = form.hiddenReason || 'Requires employees';
+    else if (e.requiresWithholding && !requiresWithholding) reason = form.hiddenReason || 'Required for Top Withholding Agents / corporations';
+    else if (e.requiresMicroTier && !microTier) reason = form.hiddenReason || 'EOPT Micro-tier only';
+    else if (e.requiresExciseIndustry && !excise) reason = form.hiddenReason || 'Excisable-industry only';
+    else if (e.corporateRegime && e.corporateRegime.length > 0 && !e.corporateRegime.includes(regime)) reason = form.hiddenReason || 'Does not match selected corporate income-tax regime';
+
+    if (reason) {
+      hidden.push({ form, reason });
+    } else if (e.adhoc && !options.includeAdhoc) {
+      adhoc.push(form);
+    } else {
+      routine.push(form);
+    }
+  }
+
+  // Stable ordering: routine by category, then adhoc.
+  const order: Record<string, number> = { income: 0, vat: 1, percentage: 2, withholding: 3, payment: 4, excise: 5, capital: 6, transfer: 7 };
+  routine.sort((a, b) => (order[a.category] ?? 9) - (order[b.category] ?? 9) || a.id.localeCompare(b.id));
+  adhoc.sort((a, b) => (order[a.category] ?? 9) - (order[b.category] ?? 9) || a.id.localeCompare(b.id));
+
+  return { routine, adhoc, hidden };
+}
 
 export interface EBirLedgerData {
   salesTotal: number;
