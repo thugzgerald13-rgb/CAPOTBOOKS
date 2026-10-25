@@ -717,22 +717,13 @@ export function BIRForms() {
                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 block mb-1">
                   BIR Form
                   <span className="ml-1 normal-case font-semibold text-indigo-500">
-                    ({applicableEbirForms.routine.length} applicable · {applicableEbirForms.adhoc.length} other)
+                    ({applicableEbirForms.routine.length} applicable to your business)
                   </span>
                 </label>
                 <select value={ebirForm} onChange={e => setEbirForm(e.target.value)} className="w-full text-xs font-bold border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-2 rounded-xl outline-none">
-                  <optgroup label="Required for your business">
-                    {applicableEbirForms.routine.map(f => (
-                      <option key={f.id} value={f.id}>{f.id} — {f.title.split('—')[1]?.trim() || f.title}</option>
-                    ))}
-                  </optgroup>
-                  {applicableEbirForms.adhoc.length > 0 && (
-                    <optgroup label="Others (as applicable)">
-                      {applicableEbirForms.adhoc.map(f => (
-                        <option key={f.id} value={f.id}>{f.id} — {f.title.split('—')[1]?.trim() || f.title}</option>
-                      ))}
-                    </optgroup>
-                  )}
+                  {applicableEbirForms.routine.map(f => (
+                    <option key={f.id} value={f.id}>{f.id} — {f.title.split('—')[1]?.trim() || f.title}</option>
+                  ))}
                 </select>
               </div>
               <div>
