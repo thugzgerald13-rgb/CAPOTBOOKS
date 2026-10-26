@@ -1152,7 +1152,21 @@ export function Extras() {
                   <label className="form-label">Taxpayer Classification:</label>
                   <select 
                     value={editingBusiness.taxpayerClassification || ''}
-                    onChange={e => setEditingBusiness({...editingBusiness, taxpayerClassification: e.target.value})}
+                    onChange={e => {
+                      const cls = e.target.value;
+                      setEditingBusiness(current => {
+                        const next = { ...current, taxpayerClassification: cls };
+                        if (cls === 'Individual') {
+                          next.registeredName = '';
+                        } else if (cls === 'Non-Individual') {
+                          next.lastName = ''; next.firstName = ''; next.middleName = '';
+                        }
+                        next.taxpayerSubClassification = undefined;
+                        next.incomeTaxRegime = undefined;
+                        next.deductionMethod = undefined;
+                        return next;
+                      });
+                    }}
                     className="form-input"
                   >
                     <option value="">Select Classification</option>
@@ -1166,7 +1180,18 @@ export function Extras() {
                 <label className="form-label">VAT Registration Type:</label>
                 <select
                   value={editingBusiness.vatRegistrationType || ''}
-                  onChange={e => setEditingBusiness({...editingBusiness, vatRegistrationType: e.target.value as VatRegistrationType})}
+                  onChange={e => {
+                    const vat = e.target.value as VatRegistrationType;
+                    setEditingBusiness(current => {
+                      const next = { ...current, vatRegistrationType: vat };
+                      if (vat !== 'non-vat') {
+                        next.percentageTaxRate = undefined;
+                        if (next.incomeTaxRegime === '8_percent_flat') next.incomeTaxRegime = undefined;
+                        if (next.deductionMethod === 'none_8_percent') next.deductionMethod = undefined;
+                      }
+                      return next;
+                    });
+                  }}
                   className="form-input"
                 >
                   <option value="">Select VAT Registration Type</option>
@@ -1227,7 +1252,9 @@ export function Extras() {
                     <option value="">Auto / Default for Classification</option>
                     {editingBusiness.taxpayerClassification !== 'Non-Individual' ? (
                       <>
-                        <option value="8_percent_flat">8% Flat Income Tax</option>
+                        {editingBusiness.vatRegistrationType === 'non-vat' && (
+                          <option value="8_percent_flat">8% Flat Income Tax</option>
+                        )}
                         <option value="graduated_itemized">Graduated TRAIN + Itemized</option>
                         <option value="graduated_osd">Graduated TRAIN + 40% OSD</option>
                       </>
