@@ -233,7 +233,15 @@ export function BIRForms() {
   const [ebirMonth, setEbirMonth] = useState(new Date().getMonth() + 1);
   const [ebirQuarter, setEbirQuarter] = useState(1);
   const birFormPermissionId: Record<string, string> = { '2550Q': '2550q', '1701Q': '1701q', '2551Q': '2551q', '1601-C': '1601c', '0619-E': '0619e', '1601-EQ': '1601eq' };
-  const allowedBirFormTypes = ['2550Q', '1701Q', '2551Q', '1601-C', '0619-E', '1601-EQ'].filter(type => canBirDropdown('bir_form', birFormPermissionId[type]));
+  // Applicable BIR forms are derived from the active client/business profile:
+  // taxpayer classification, VAT registration type, income-tax regime, deduction
+  // method, and any user-added additional BIR forms. Only the six forms that have
+  // full manual data-entry UI here are selectable as tabs; the eBIRForms generator
+  // dropdown above already offers every applicable form from the full catalog.
+  const applicableIds = new Set([...applicableEbirForms.routine, ...applicableEbirForms.adhoc].map(f => f.id));
+  const allowedBirFormTypes = ['2550Q', '1701Q', '2551Q', '1601-C', '0619-E', '1601-EQ']
+    .filter(type => applicableIds.has(type))
+    .filter(type => canBirDropdown('bir_form', birFormPermissionId[type]));
   useEffect(() => {
     if (!canBirDropdown('bir_form', birFormPermissionId[activeFormType]) && allowedBirFormTypes.length > 0) {
       setActiveFormType(allowedBirFormTypes[0] as typeof activeFormType);

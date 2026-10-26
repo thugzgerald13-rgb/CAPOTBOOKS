@@ -277,8 +277,8 @@ function isVatRegistered(profile: { vatRegistrationType?: string; vatType?: stri
 }
 
 /** True when the taxpayer is an individual on the 8% flat income tax (exempt from percentage tax & quarterly ITR). */
-function is8PercentFlat(profile: { incomeTaxRegime?: string } | null | undefined): boolean {
-  return profile?.incomeTaxRegime === '8_percent_flat';
+function is8PercentFlat(profile: { incomeTaxRegime?: string; deductionMethod?: string } | null | undefined): boolean {
+  return profile?.incomeTaxRegime === '8_percent_flat' || profile?.deductionMethod === 'none_8_percent';
 }
 
 function isIndividual(profile: { taxpayerClassification?: string } | null | undefined): boolean {
@@ -323,6 +323,7 @@ export function getApplicableEBirForms(
     isTopWithholdingAgent?: boolean;
     industry?: string;
     additionalBirForms?: string[];
+    deductionMethod?: string;
   } | null | undefined,
   options: { includeAdhoc?: boolean } = {}
 ): ApplicableFormsResult {
