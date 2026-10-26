@@ -11,7 +11,7 @@ import { supabase } from '../lib/supabase';
 import { CoaAccount } from '../types';
 import { cn } from '../lib/utils';
 import { balanceFor } from '../lib/accountingBalances';
-import { allCoaCategoryTitles, categoryAcceptsType, categoryTitleKey, findCategoryAccountId, getCoaCategoryNodes, getCoaCategoryOptions } from '../lib/coaCategory';
+import { allCoaCategoryTitles, categoryAcceptsType, categoryTitleKey, findCategoryAccountId, getCoaCategoryNodes, getCoaCategoryOptions, type CoaCategoryOption } from '../lib/coaCategory';
 
 import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide, isNominalAccountType, getDefaultAccountsForIndustry, sortAccountsChronologically } from '../lib/journalDefaults';
 export { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide };
@@ -368,6 +368,147 @@ function recodeImportedReviewAccounts(
     ...account,
     parentId: account.parentId ? (idMap.get(String(account.parentId)) || account.parentId) : undefined,
   }));
+}
+
+interface HierarchyRecodeResult {
+  /** Postable accounts with regenerated codes, ordered by the default hierarchy sequence.
+   *  `parentId` is intentionally left as the ORIGINAL fixed hierarchy id so review state
+   *  stays consistent across edits; remap it through `hierarchyIdMap` before saving. */
+  postable: CoaAccount[];
+  /** Used hierarchy group accounts (1st / 2nd / 3rd), renumbered so unused groups leave no gaps. */
+  hierarchy: CoaAccount[];
+  /** original fixed hierarchy id -> renumbered id */
+  hierarchyIdMap: Map<string, string>;
+}
+
+/**
+ * Recode uploaded postable accounts after the user picks a 2nd / 3rd hierarchy level.
+ * Two things happen automatically (numeric format):
+ *  1. SEQUENCE REARRANGE — accounts are ordered by the default hierarchy path
+ *     (1st > 2nd > 3rd in COA-CATEGORY.txt order), not merely by account type.
+ *  2. CODE ADJUSTMENT — 2nd / 3rd hierarchy groups that are NOT APPLICABLE (no account
+ *     uses them) are skipped; the remaining applicable groups are renumbered sequentially
+ *     under their parent (steps of 10000 for 2nd level, 1000 for 3rd level), so no gaps
+ *     remain; postable accounts are then coded under the renumbered parent.
+ * Alphanumeric format keeps its mnemonic group codes; only the sequence is reordered.
+ */
+function recodeReviewWithHierarchy(
+  reviewAccounts: CoaAccount[],
+  fixedAccounts: CoaAccount[],
+  format: 'numeric' | 'alphanumeric',
+  categoryOptions: CoaCategoryOption[]
+): HierarchyRecodeResult {
+  const normalized = reviewAccounts.map(account => {
+    const typeInfo = normalizeUploadedType(account.type);
+    return { ...account, type: typeInfo.type, normalSide: getNormalSide(typeInfo.type) };
+  });
+
+  const optionById = new Map(categoryOptions.map(o => [String(o.id), o]));
+  const fixedById = new Map(fixedAccounts.map(a => [String(a.id), a]));
+
+  // Index of each option in the default-format ordered list = its sort key.
+  const optionIndex = (opt: CoaCategoryOption | undefined, parentId?: string): number => {
+    if (opt) return categoryOptions.indexOf(opt);
+    // Parent not resolvable to a category node (rare fallback): sort to the end of its section.
+    return parentId ? categoryOptions.length + 1 : categoryOptions.length;
+  };
+
+  const parentOptionOf = (opt: CoaCategoryOption): CoaCategoryOption | undefined => {
+    const idx = categoryOptions.indexOf(opt);
+    for (let i = idx - 1; i >= 0; i--) if (categoryOptions[i].depth < opt.depth) return categoryOptions[i];
+    return undefined;
+  };
+
+  // Sort by default hierarchy sequence (parent option index), preserving input order within the same parent.
+  const sorted = normalized
+    .map((account, inputIndex) => ({ account, opt: account.parentId ? optionById.get(String(account.parentId)) : undefined, inputIndex }))
+    .sort((a, b) => {
+      const ai = optionIndex(a.opt, a.account.parentId);
+      const bi = optionIndex(b.opt, b.account.parentId);
+      return ai !== bi ? ai - bi : a.inputIndex - b.inputIndex;
+    });
+
+  if (format !== 'numeric') {
+    // Alphanumeric: mnemonic group codes are kept; codes are assigned by type prefix as before.
+    const recoded = recodeImportedReviewAccounts(sorted.map(s => s.account), format, fixedAccounts);
+    return { postable: recoded, hierarchy: [], hierarchyIdMap: new Map() };
+  }
+
+  // --- Numeric: renumber used 2nd / 3rd hierarchy groups, closing gaps left by not-applicable groups. ---
+  const usedOriginalIds = new Set<string>();
+  for (const { opt } of sorted) {
+    if (!opt) continue;
+    usedOriginalIds.add(String(opt.id));
+    let parent = parentOptionOf(opt);
+    while (parent) { usedOriginalIds.add(String(parent.id)); parent = parentOptionOf(parent); }
+  }
+  const usedOptions = categoryOptions.filter(o => usedOriginalIds.has(String(o.id)));
+
+  const hierarchyIdMap = new Map<string, string>();
+  // 1st level (depth 0, statement section) keeps its fixed type-based code.
+  for (const opt of usedOptions.filter(o => o.depth === 0)) {
+    const fixed = fixedById.get(String(opt.id));
+    const code = fixed && /^\d{6}$/.test(String(fixed.id)) ? String(fixed.id) : String(TYPE_BASE_CODE[opt.type] ?? 900000).padStart(6, '0');
+    hierarchyIdMap.set(String(opt.id), code);
+  }
+  // 2nd level (depth 1): sequential under each 1st section, step 10000.
+  for (const d0 of usedOptions.filter(o => o.depth === 0)) {
+    const children = usedOptions.filter(o => o.depth === 1 && parentOptionOf(o) === d0);
+    const base = Number(hierarchyIdMap.get(String(d0.id)));
+    children.forEach((child, i) => hierarchyIdMap.set(String(child.id), String(base + 10000 * (i + 1)).padStart(6, '0')));
+  }
+  // 3rd level (depth 2): sequential under each 2nd level, step 1000. Unused groups are skipped -> codes auto-adjust.
+  for (const d1 of usedOptions.filter(o => o.depth === 1)) {
+    const children = usedOptions.filter(o => o.depth === 2 && parentOptionOf(o) === d1);
+    const baseCode = hierarchyIdMap.get(String(d1.id));
+    if (!baseCode) continue;
+    const base = Number(baseCode);
+    children.forEach((child, i) => hierarchyIdMap.set(String(child.id), String(base + 1000 * (i + 1)).padStart(6, '0')));
+  }
+
+  // Build the renumbered hierarchy accounts (copy fields from the fixed chart, remap id + parentId).
+  const hierarchy: CoaAccount[] = [];
+  for (const opt of usedOptions) {
+    const fixed = fixedById.get(String(opt.id));
+    if (!fixed) continue;
+    const newId = hierarchyIdMap.get(String(opt.id)) || String(fixed.id);
+    const parentOpt = parentOptionOf(opt);
+    const newParentId = parentOpt ? (hierarchyIdMap.get(String(parentOpt.id)) || String(parentOpt.id)) : undefined;
+    hierarchy.push({ ...fixed, id: newId, ...(newParentId ? { parentId: newParentId } : { parentId: undefined }) });
+  }
+
+  // Assign postable codes under the renumbered parent (step 100, then 10, then 1).
+  const usedIds = new Set<string>(hierarchy.map(a => String(a.id)));
+  const takeCodeUnder = (parentCode: string, type: string): string => {
+    if (/^\d{6}$/.test(parentCode)) {
+      const parentNumber = Number(parentCode);
+      let unit = 1;
+      while (unit < 100000 && parentNumber % (unit * 10) === 0) unit *= 10;
+      for (let step = Math.min(unit / 10, 100); step >= 1; step /= 10) {
+        for (let i = 1; i <= 9; i++) {
+          const code = String(parentNumber + step * i).padStart(6, '0');
+          if (!usedIds.has(code)) { usedIds.add(code); return code; }
+        }
+      }
+    }
+    // Fallback: type-based base code.
+    const base = TYPE_BASE_CODE[type] ?? 900000;
+    let next = base + 100;
+    while (usedIds.has(String(next).padStart(6, '0'))) next += 100;
+    const code = String(Math.min(next, 999999)).padStart(6, '0');
+    usedIds.add(code);
+    return code;
+  };
+
+  const postable = sorted.map(({ account }) => {
+    const renumberedParent = account.parentId ? hierarchyIdMap.get(String(account.parentId)) : undefined;
+    const parentForCode = renumberedParent || (account.parentId ? String(account.parentId) : String(TYPE_BASE_CODE[account.type] ?? 900000).padStart(6, '0'));
+    const newId = takeCodeUnder(parentForCode, account.type);
+    // Keep original parentId for review-state consistency (remap on save via hierarchyIdMap).
+    return { ...account, id: newId };
+  });
+
+  return { postable, hierarchy, hierarchyIdMap };
 }
 
 function normalizeImportedAccountCode(raw: any, type: string, usedIds: Set<string>, format: 'numeric' | 'alphanumeric'): { id: string; generated: boolean } {
@@ -1530,21 +1671,24 @@ export function ChartOfAccounts() {
       const regrouped = changed
         ? [...edited.filter(account => account.id !== accountId), changed]
         : edited;
-      return recodeImportedReviewAccounts(regrouped, reviewFormat, reviewFixedAccounts);
+      // Sequence auto-rearranges by default hierarchy; 2nd/3rd group codes auto-adjust when a group is not applicable.
+      return recodeReviewWithHierarchy(regrouped, reviewFixedAccounts, reviewFormat, reviewCategoryOptions).postable;
     });
   };
 
   // Lets the user choose which COA-CATEGORY.txt category an uploaded postable
-  // account belongs to. The code is regenerated under the new parent.
+  // account belongs to. The sequence rearranges by default format and codes are
+  // regenerated under the new parent; when a 2nd/3rd hierarchy group becomes
+  // not applicable, the remaining groups' codes auto-adjust (no gaps).
   const updatePendingReviewCategory = (accountId: string, parentId: string) => {
     const reviewFormat = currentClient.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric';
     const reviewFixedAccounts = defaultAccountsFor(currentClient?.taxpayerClassification, reviewFormat, currentClient?.industry);
-    // The code follows the hierarchy, so it is regenerated under the new parent.
-    setPendingReviewAccounts(prev => recodeImportedReviewAccounts(
+    setPendingReviewAccounts(prev => recodeReviewWithHierarchy(
       prev.map(account => account.id === accountId ? { ...account, parentId: parentId || undefined } : account),
+      reviewFixedAccounts,
       reviewFormat,
-      reviewFixedAccounts
-    ));
+      reviewCategoryOptions
+    ).postable);
   };
 
   const movePendingReviewAccount = (accountId: string, direction: -1 | 1) => {
@@ -1557,11 +1701,13 @@ export function ChartOfAccounts() {
 
       const next = [...prev];
       [next[index], next[target]] = [next[target], next[index]];
-      return recodeImportedReviewAccounts(
+      const moveFormat = currentClient.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric';
+      return recodeReviewWithHierarchy(
         next,
-        currentClient.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric',
-        defaultAccountsFor(currentClient?.taxpayerClassification, currentClient.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric', currentClient?.industry)
-      );
+        defaultAccountsFor(currentClient?.taxpayerClassification, moveFormat, currentClient?.industry),
+        moveFormat,
+        reviewCategoryOptions
+      ).postable;
     });
   };
 
@@ -1621,7 +1767,12 @@ export function ChartOfAccounts() {
       setPendingUploadRows(rawRows);
       setPendingUploadFileName(file.name);
       setPendingUploadAnalysis(analysis);
-      setPendingReviewAccounts(recodeImportedReviewAccounts(analysis.accounts, format, fixedAccounts));
+      const uploadOptions = getCoaCategoryOptions(
+        isIndividualTaxpayer(currentClient?.taxpayerClassification) ? 'Individual' : 'Non-Individual',
+        resolveCoaTemplateBusinessType(currentClient?.industry),
+        fixedAccounts
+      );
+      setPendingReviewAccounts(recodeReviewWithHierarchy(analysis.accounts, fixedAccounts, format, uploadOptions).postable);
       setShowUploadChoice(true);
     } catch (err: any) {
       console.error('Failed to read Chart of Accounts upload:', err);
@@ -1688,20 +1839,28 @@ export function ChartOfAccounts() {
     });
     // Override saves only what is in the edited upload: the uploaded postable accounts
     // plus the hierarchy levels (1st / 2nd / 3rd) they sit under. Every other default
-    // account, including unused hierarchy levels, is removed. Merge keeps the full base.
+    // account, including unused hierarchy levels, is removed — and the remaining
+    // 2nd/3rd hierarchy groups are renumbered sequentially so not-applicable groups
+    // leave no gaps. Merge keeps the full base and never renumbers existing hierarchy.
     let keptBase = baseAccounts;
+    let finalAccounts: CoaAccount[];
     if (overwrite) {
-      const neededIds = new Set<string>();
-      categorised.forEach(account => {
-        let parentId: string | undefined = account.parentId;
-        for (let guard = 0; parentId && guard < 20 && !neededIds.has(String(parentId)); guard++) {
-          neededIds.add(String(parentId));
-          parentId = baseAccounts.find(base => String(base.id) === String(parentId))?.parentId;
-        }
-      });
-      keptBase = baseAccounts.filter(base => neededIds.has(String(base.id)));
+      const applyOptions = getCoaCategoryOptions(
+        isIndividualTaxpayer(currentClient?.taxpayerClassification) ? 'Individual' : 'Non-Individual',
+        businessType,
+        fixedAccounts
+      );
+      const recoded = recodeReviewWithHierarchy(categorised, fixedAccounts, format, applyOptions);
+      keptBase = recoded.hierarchy;
+      finalAccounts = recoded.postable.map(account => ({
+        ...account,
+        parentId: account.parentId ? (recoded.hierarchyIdMap.get(String(account.parentId)) || account.parentId) : undefined,
+      }));
+    } else {
+      // Merge: keep the full base (existing accounts + fixed hierarchy) so codes
+      // are assigned without colliding with existing accounts.
+      finalAccounts = recodeImportedReviewAccounts(categorised, format, keptBase);
     }
-    const finalAccounts = recodeImportedReviewAccounts(categorised, format, keptBase);
     const analysis = pendingUploadAnalysis;
 
     clearPendingUploadReview();
@@ -2340,7 +2499,7 @@ export function ChartOfAccounts() {
                 <div className="border border-slate-200 dark:border-slate-700 rounded-xl overflow-hidden mb-5">
                   <div className="px-3 py-2 bg-slate-100 dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700">
                     <div className="text-[10px] uppercase font-bold tracking-wide text-slate-500">Edit before applying</div>
-                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Change an account's type, choose its 2nd and 3rd hierarchy level, or move it within its section. Codes follow the hierarchy (numeric format) and are regenerated automatically; they stay 6 characters.</div>
+                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Change an account's type, choose its 2nd and 3rd hierarchy level, or move it within its group. The list automatically rearranges into the default format sequence, and account codes auto-adjust — when a 2nd/3rd hierarchy group is not applicable (unused), the remaining groups are renumbered with no gaps. Codes stay 6 characters.</div>
                   </div>
                   <div className="grid grid-cols-[32px_80px_minmax(0,1fr)_110px_minmax(95px,0.55fr)_minmax(165px,0.9fr)_minmax(190px,1fr)_115px_72px] gap-2 px-3 py-2 bg-slate-50 dark:bg-slate-900/60 text-[10px] uppercase font-bold tracking-wide text-slate-500">
                     <div>#</div><div>Code</div><div>Account Title</div><div>Type</div><div>1st Hierarchy</div><div>2nd Hierarchy</div><div>3rd Hierarchy</div><div className="text-right">Opening / Prev. Year Bal.</div><div className="text-center">Move</div>
