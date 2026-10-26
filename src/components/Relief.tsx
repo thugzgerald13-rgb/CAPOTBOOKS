@@ -9,7 +9,7 @@ import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
 import { useGranularPermissions } from '../lib/useGranularPermissions';
 import { supabase } from '../lib/supabase';
-import { FileText, Receipt, ShoppingCart, Boxes, FileDown, Plus, Trash2, Undo2, Search, Printer, FileSpreadsheet, ArrowLeft } from 'lucide-react';
+import { FileText, Receipt, ShoppingCart, Boxes, FileDown, Plus, Trash2, Undo2, Search, Printer, FileSpreadsheet, ArrowLeft, Lock, Unlock } from 'lucide-react';
 
 /**
  * BIR RELIEF (Reconciliation of Listings for Enforcement) — SLSP.
@@ -182,6 +182,11 @@ export function Relief() {
   const [reliefCloudStatus, setReliefCloudStatus] = useState<'loading' | 'ready' | 'saving' | 'error'>('loading');
   const [reliefCloudMessage, setReliefCloudMessage] = useState('');
   const [legacyTransfersForImport, setLegacyTransfersForImport] = useState<TransfersMap | null>(null);
+  // RELIEF filing lock: once a month is "Filed" for a tab, its entries are
+  // snapshotted and locked. Late-encoded entries for that month roll forward
+  // to the next unfiled month. "Amend" unlocks the month; entries already
+  // locked to another filed month stay locked there.
+  const [filedMonths, setFiledMonths] = useState<Record<string, { filedAt: string; entryIds: string[] }>>({});
 
   const tab = (['sales', 'purchases', 'imports'].includes(reliefTab) ? reliefTab : 'sales') as ReliefTab;
   const activeTab = TABS.find(t => t.id === tab)!;
@@ -358,7 +363,7 @@ export function Relief() {
         .from('relief_records')
         .select('record_type,record_id,data')
         .eq('client_id', clientId)
-        .in('record_type', ['purchase_transfer', 'importation', 'settings']);
+        .in('record_type', ['purchase_transfer', 'importation', 'settings', 'filed']);
       if (cancelled) return;
       if (error) {
         setReliefCloudStatus('error');
@@ -381,6 +386,13 @@ export function Relief() {
       setImportRowsDirty(false);
       setNonCreditable(Math.max(0, Number(setting.nonCreditable) || 0));
       setConsolidateNoTinPurchases(!!setting.consolidateNoTinPurchases);
+      const filedRecords = records.filter((r: any) => r.record_type === 'filed');
+      const nextFiled: Record<string, { filedAt: string; entryIds: string[] }> = {};
+      for (const r of filedRecords) {
+        const k = String(r.record_id);
+        nextFiled[k] = { filedAt: r.data?.filedAt || '', entryIds: Array.isArray(r.data?.entryIds) ? r.data.entryIds : [] };
+      }
+      setFiledMonths(nextFiled);
       setLoadedReliefKey(activeKey);
       setReliefCloudStatus('ready');
       setReliefCloudMessage(`RELIEF data loaded from Supabase for ${owner.registeredName || owner.name || clientId}.`);
@@ -598,6 +610,23 @@ export function Relief() {
   const { purchaseRows, noTinCount, transferredInCount } = useMemo(() => buildPurchases(year, month),
     [currentClient, year, month, monthKey, transfers, consolidateNoTinPurchases, historyRecords]);
 
+  // ---- RELIEF filing lock: filed months show their filed snapshot; unfiled
+  // months exclude entries already locked to another filed month. ----
+  const filedKey = `${tab}|${monthKey}`;
+  const isMonthFiled = !!filedMonths[filedKey];
+  const reliefEntryKey = (r: any) =>
+    String(r?.id ?? r?.recordId ?? r?.invoiceNo ?? r?.entryNo ?? `${r?.date}|${r?.supplierName || r?.buyerName || r?.registeredName || ''}|${r?.amount || r?.dutiableValue || ''}`);
+  const activeRows = useMemo(() => {
+    const rows: any[] = tab === 'sales' ? salesRows : tab === 'purchases' ? purchaseRows : importRows;
+    if (isMonthFiled) {
+      const keep = new Set(filedMonths[filedKey]?.entryIds || []);
+      return rows.filter(r => keep.has(reliefEntryKey(r)));
+    }
+    const locked = new Set<string>();
+    for (const [k, v] of Object.entries(filedMonths)) if (k.startsWith(`${tab}|`)) for (const id of v.entryIds) locked.add(id);
+    return rows.filter(r => !locked.has(reliefEntryKey(r)));
+  }, [tab, salesRows, purchaseRows, importRows, isMonthFiled, filedMonths, filedKey]);
+
   const movePurchaseRow = async (row: any, targetMonth: string) => {
     if (!canEditTransfers) { showToast('You do not have permission to edit RELIEF transfers.'); return; }
     if (!currentClientId || !reliefDataReady) {
@@ -650,22 +679,22 @@ export function Relief() {
   // Totals (must equal sum of details — written into the header)
   const totals = useMemo(() => {
     if (tab === 'sales') {
-      return salesRows.reduce((a, r) => ({
+      return activeRows.reduce((a, r) => ({
         v1: a.v1 + r.exempt, v2: a.v2 + r.zeroRated, v3: a.v3 + r.taxable, v4: a.v4 + r.outputTax,
         v5: 0, v6: 0, count: a.count + r.count,
       }), { v1: 0, v2: 0, v3: 0, v4: 0, v5: 0, v6: 0, count: 0 });
     }
     if (tab === 'purchases') {
-      return purchaseRows.reduce((a, r) => ({
+      return activeRows.reduce((a, r) => ({
         v1: a.v1 + r.exempt, v2: a.v2 + r.zeroRated, v3: a.v3 + r.services, v4: a.v4 + r.capital,
         v5: a.v5 + r.goodsOther, v6: a.v6 + r.inputTax, count: a.count + r.count,
       }), { v1: 0, v2: 0, v3: 0, v4: 0, v5: 0, v6: 0, count: 0 });
     }
-    return importRows.reduce((a, r) => ({
+    return activeRows.reduce((a, r) => ({
       v1: a.v1 + Number(r.dutiableValue || 0), v2: a.v2 + Number(r.charges || 0), v3: 0, v4: 0,
       v5: a.v5 + Number(r.vat || 0), v6: 0, count: a.count + 1,
     }), { v1: 0, v2: 0, v3: 0, v4: 0, v5: 0, v6: 0, count: 0 });
-  }, [tab, salesRows, purchaseRows, importRows]);
+  }, [tab, activeRows]);
 
   // ---- Build BIR RELIEF .DAT — mirrors the BIR Relief-generated samples ----
   const buildDat = (): string => {
@@ -700,16 +729,16 @@ export function Relief() {
       return `"${tin9(r.tin)}",${q(up(r.regName), 50)},,,,${q(loc.city, 30)},${q(loc.province, 30)}`;
     };
     if (tab === 'sales') {
-      for (const r of salesRows) {
+      for (const r of activeRows) {
         lines.push(`D,S,${party(r)},${[r.exempt, r.zeroRated, r.taxable, r.outputTax].map(fmtD).join(',')},${ownerTin},${tmd}`);
       }
     } else if (tab === 'purchases') {
-      for (const r of purchaseRows) {
+      for (const r of activeRows) {
         lines.push(`D,P,${party(r)},${[r.exempt, r.zeroRated, r.services, r.capital, r.goodsOther, r.inputTax].map(fmtD).join(',')},${ownerTin},${tmd}`);
       }
     } else {
       // D,I (unchanged): entryNo,assessDate,regName,country,landCost,dutiable,charges,geImport,gtImport,vat,orNumber,vatPayDate,ownerTin,taxMonthDate
-      for (const r of importRows) {
+      for (const r of activeRows) {
         lines.push(`D,I,${r.entryNo},${r.assessDate || ''},${r.registeredName},${r.country},,` +
           `${fmt(r.dutiableValue)},${fmt(r.charges)},,,${fmt(r.vat)},${r.orNumber},${r.vatPaymentDate || ''},${ownerTin},${tmd}`);
       }
@@ -784,6 +813,34 @@ export function Relief() {
     showToast(`RELIEF file ${fname} exported (${totals.count} entries, BIR Relief sample format).`);
   };
 
+  const handleFileMonth = async () => {
+    if (!currentClientId || !reliefDataReady) { showToast('RELIEF data is still loading.'); return; }
+    if (isMonthFiled) return;
+    const entryIds = activeRows.map(reliefEntryKey);
+    setReliefCloudStatus('saving');
+    const { error } = await supabase.from('relief_records').upsert({
+      client_id: currentClientId, record_type: 'filed', record_id: filedKey,
+      data: { filedAt: new Date().toISOString(), entryIds, tab, monthKey },
+    }, { onConflict: 'client_id,record_type,record_id' });
+    if (error) { setReliefCloudStatus('error'); showToast(`Filed failed: ${error.message}`); return; }
+    setFiledMonths(prev => ({ ...prev, [filedKey]: { filedAt: new Date().toISOString(), entryIds } }));
+    await writeReliefAudit(currentClientId, 'relief_filed', tab, monthKey, { count: entryIds.length });
+    setReliefCloudStatus('ready');
+    showToast(`${activeTab.label} RELIEF for ${monthKey} is now FILED and locked. New entries for this month will roll to the next unfiled month.`);
+  };
+
+  const handleAmendMonth = async () => {
+    if (!currentClientId || !isMonthFiled) return;
+    setReliefCloudStatus('saving');
+    const { error } = await supabase.from('relief_records').delete()
+      .eq('client_id', currentClientId).eq('record_type', 'filed').eq('record_id', filedKey);
+    if (error) { setReliefCloudStatus('error'); showToast(`Amend failed: ${error.message}`); return; }
+    setFiledMonths(prev => { const next = { ...prev }; delete next[filedKey]; return next; });
+    await writeReliefAudit(currentClientId, 'relief_amended', tab, monthKey, {});
+    setReliefCloudStatus('ready');
+    showToast(`${activeTab.label} RELIEF for ${monthKey} unlocked (amend). Repopulated from live records; entries already locked to other filed months are excluded.`);
+  };
+
   const clearAllTransfers = async () => {
     if (!canResetTransfers) { showToast('You do not have permission to reset RELIEF transfers.'); return; }
     if (!currentClientId || !reliefDataReady) {
@@ -814,6 +871,11 @@ export function Relief() {
         icon={<FileText className="w-6 h-6 text-indigo-600" />}
         badge="Summary List of Sales, Purchases & Importations"
         actions={<div className="flex gap-2">
+          {isMonthFiled ? (
+            <Button variant="outline" onClick={() => void handleAmendMonth()} className="gap-2 border-orange-300 text-orange-700 dark:border-orange-700 dark:text-orange-300"><Unlock className="w-4 h-4" /> Amend</Button>
+          ) : (
+            <Button variant="outline" onClick={() => void handleFileMonth()} disabled={!reliefDataReady} className="gap-2 border-emerald-300 text-emerald-700 dark:border-emerald-700 dark:text-emerald-300 disabled:opacity-40"><Lock className="w-4 h-4" /> Mark as Filed</Button>
+          )}
           {canPrint && canReliefDropdown('relief_action', 'view_schedule') && <Button variant="outline" onClick={openInquiry} className="gap-2"><Search className="w-4 h-4" /> Inquire / Print</Button>}
           {canExport && <Button onClick={handleExport} className="gap-2"><FileDown className="w-4 h-4" /> Export .DAT</Button>}
         </div>}
@@ -845,6 +907,7 @@ export function Relief() {
           </Field>
           <div className="ml-auto text-sm text-slate-500">
             Period: <span className="font-semibold text-slate-700 dark:text-slate-200">{monthKey}</span>
+            {isMonthFiled && <span className="ml-2 px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 text-xs font-bold uppercase">Filed · Locked</span>}
             {' · '}{totals.count} counterparty{totals.count === 1 ? '' : 'ies'}
             {' · Output/Input Tax ₱'}<span className="font-semibold text-slate-700 dark:text-slate-200">{fmt(tab === 'sales' ? totals.v4 : totals.v6)}</span>
           </div>
@@ -864,7 +927,7 @@ export function Relief() {
 
       {tab === 'sales' && (
         <Card><CardContent className="p-0 overflow-x-auto">
-          {salesRows.length === 0 ? (
+          {activeRows.length === 0 ? (
             <EmptyState title="No sales this month" description="Record sales in Billing / Income to include them here." />
           ) : (
             <table className="w-full text-sm">
@@ -874,7 +937,7 @@ export function Relief() {
                   <th className="text-right px-4 py-3">Taxable</th><th className="text-right px-4 py-3">Output Tax</th></tr>
               </thead>
               <tbody>
-                {salesRows.map((r, i) => (
+                {activeRows.map((r, i) => (
                   <tr key={i} className="border-t border-slate-100 dark:border-slate-800">
                     <td className="px-4 py-2.5 font-mono text-xs">{r.tin || '—'}</td>
                     <td className="px-4 py-2.5">{r.regName || '(unnamed)'}</td>
@@ -885,7 +948,7 @@ export function Relief() {
                   </tr>))}
               </tbody>
               <tfoot className="bg-slate-50 dark:bg-slate-800/60 font-semibold">
-                <tr><td className="px-4 py-3" colSpan={2}>Total ({salesRows.length})</td>
+                <tr><td className="px-4 py-3" colSpan={2}>Total ({activeRows.length})</td>
                   <td className="px-4 py-3 text-right">{fmt(totals.v1)}</td>
                   <td className="px-4 py-3 text-right">{fmt(totals.v2)}</td>
                   <td className="px-4 py-3 text-right">{fmt(totals.v3)}</td>
@@ -923,7 +986,7 @@ export function Relief() {
             )}
           </div>
           <Card><CardContent className="p-0 overflow-x-auto">
-            {purchaseRows.length === 0 ? (
+            {activeRows.length === 0 ? (
               <EmptyState title="No TIN-bearing purchases this month" description="Record purchases with a supplier TIN in Purchases / Bills to include them here." />
             ) : (
               <table className="w-full text-sm">
@@ -935,7 +998,7 @@ export function Relief() {
                     <th className="text-left px-4 py-3 min-w-[150px]">Claim Month</th></tr>
                 </thead>
                 <tbody>
-                  {purchaseRows.map((r, i) => (
+                  {activeRows.map((r, i) => (
                     <tr key={i} className={`border-t border-slate-100 dark:border-slate-800 ${r.transferredIn ? 'bg-amber-50/40 dark:bg-amber-950/10' : ''}`}>
                       <td className="px-4 py-2.5 font-mono text-xs">{r.tin || '—'}</td>
                       <td className="px-4 py-2.5"><div className="flex items-center gap-2">{r.regName || '(unnamed)'}
@@ -955,7 +1018,7 @@ export function Relief() {
                     </tr>))}
                 </tbody>
                 <tfoot className="bg-slate-50 dark:bg-slate-800/60 font-semibold">
-                  <tr><td className="px-4 py-3" colSpan={2}>Total ({purchaseRows.length})</td>
+                  <tr><td className="px-4 py-3" colSpan={2}>Total ({activeRows.length})</td>
                     <td className="px-4 py-3 text-right">{fmt(totals.v1)}</td>
                     <td className="px-4 py-3 text-right">{fmt(totals.v2)}</td>
                     <td className="px-4 py-3 text-right">{fmt(totals.v3)}</td>
