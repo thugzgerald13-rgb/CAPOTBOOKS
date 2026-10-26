@@ -518,7 +518,25 @@ export function Extras() {
                   <label className="form-label">Taxpayer Classification:</label>
                   <select 
                     value={editingClient.taxpayerClassification || ''}
-                    onChange={e => setEditingClient({...editingClient, taxpayerClassification: e.target.value})}
+                    onChange={e => {
+                      const cls = e.target.value;
+                      setEditingClient(current => {
+                        if (!current) return current;
+                        const next = { ...current, taxpayerClassification: cls };
+                        if (cls === 'Individual') {
+                          // Registered Name is not applicable for individuals — always blank.
+                          next.registeredName = '';
+                        } else if (cls === 'Non-Individual') {
+                          // Taxpayer Name (last/first/middle) is not applicable for corporations — always blank.
+                          next.lastName = ''; next.firstName = ''; next.middleName = '';
+                        }
+                        // Sub-classification, income-tax regime and deduction method options differ by classification.
+                        next.taxpayerSubClassification = undefined;
+                        next.incomeTaxRegime = undefined;
+                        next.deductionMethod = undefined;
+                        return next;
+                      });
+                    }}
                     className="form-input"
                   >
                     <option value="">Select Classification</option>
@@ -532,7 +550,20 @@ export function Extras() {
                 <label className="form-label">VAT Registration Type:</label>
                 <select
                   value={editingClient.vatRegistrationType || ''}
-                  onChange={e => setEditingClient({...editingClient, vatRegistrationType: e.target.value as VatRegistrationType})}
+                  onChange={e => {
+                    const vat = e.target.value as VatRegistrationType;
+                    setEditingClient(current => {
+                      if (!current) return current;
+                      const next = { ...current, vatRegistrationType: vat };
+                      if (vat !== 'non-vat') {
+                        // Percentage tax (2551Q) and 8% flat are only for Non-VAT taxpayers.
+                        next.percentageTaxRate = undefined;
+                        if (next.incomeTaxRegime === '8_percent_flat') next.incomeTaxRegime = undefined;
+                        if (next.deductionMethod === 'none_8_percent') next.deductionMethod = undefined;
+                      }
+                      return next;
+                    });
+                  }}
                   className="form-input"
                 >
                   <option value="">Select VAT Registration Type</option>
@@ -598,7 +629,9 @@ export function Extras() {
                     <option value="">Auto / Default for Classification</option>
                     {editingClient.taxpayerClassification !== 'Non-Individual' ? (
                       <>
-                        <option value="8_percent_flat">8% Flat Income Tax (Non-VAT ≤ ₱3M, Exempt from 2551Q)</option>
+                        {editingClient.vatRegistrationType === 'non-vat' && (
+                          <option value="8_percent_flat">8% Flat Income Tax (Non-VAT ≤ ₱3M, Exempt from 2551Q)</option>
+                        )}
                         <option value="graduated_itemized">Graduated TRAIN (0%–35%) + Itemized Deductions</option>
                         <option value="graduated_osd">Graduated TRAIN (0%–35%) + 40% OSD on Gross Sales</option>
                       </>
@@ -624,7 +657,9 @@ export function Extras() {
                     <option value="">Follow Selected Regime</option>
                     <option value="itemized">Itemized Deductions</option>
                     <option value="osd_40">40% Optional Standard Deduction (OSD)</option>
-                    <option value="none_8_percent">No Deduction (8% Flat Gross Tax Base)</option>
+                    {editingClient.incomeTaxRegime === '8_percent_flat' && editingClient.vatRegistrationType === 'non-vat' && (
+                      <option value="none_8_percent">No Deduction (8% Flat Gross Tax Base)</option>
+                    )}
                   </select>
                 </div>
                 <div className="sm:col-span-3">
@@ -632,7 +667,8 @@ export function Extras() {
                   <select
                     value={editingClient.percentageTaxRate !== undefined ? String(editingClient.percentageTaxRate) : ''}
                     onChange={e => setEditingClient({ ...editingClient, percentageTaxRate: e.target.value === '' ? undefined : Number(e.target.value) })}
-                    className="form-input"
+                    disabled={editingClient.vatRegistrationType !== 'non-vat'}
+                    className="form-input disabled:opacity-50"
                   >
                     <option value="">Default (3% or 0% if 8% Flat)</option>
                     <option value="0.03">3% Standard Non-VAT (Sec. 116)</option>
