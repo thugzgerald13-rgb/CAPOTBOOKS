@@ -1995,7 +1995,11 @@ export function AccountingProvider({
 
   const saveFolder = async (folder: any, targetClientId?: string) => {
     const clientId = targetClientId || currentClientId;
-    if (!user || !clientId) return;
+    // Never silently report success when auth/client context is missing.
+    // FileManager relies on a thrown error to keep the new folder from appearing
+    // selected as though it had been persisted.
+    if (!user) throw new Error('You must be signed in to save a folder.');
+    if (!clientId) throw new Error('No active client is selected; the folder was not saved.');
     const row = {
       id: String(folder.id), client_id: clientId, name: folder.name || '',
       is_default: !!folder.isDefault, type: folder.type || 'custom'

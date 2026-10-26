@@ -55,6 +55,10 @@ const isSystemDefaultFolder = (folder: AppFolder) =>
 export function FileManager() {
   const { canAction: canFilesAction, canDropdownOption: canFilesDropdown } = useGranularPermissions('files');
   const canDelete = usePermission('delete_transactions') && canFilesAction('delete');
+  // Folder creation is an Add action, not a file-upload dropdown action.
+  // A user who can manage folders should still see New Folder even if the
+  // separate Upload file dropdown permission is disabled.
+  const canAddFolders = canFilesAction('add');
   const canAddFiles = canFilesAction('add') && canFilesDropdown('file_action', 'upload');
   const canEditFiles = canFilesAction('edit');
   const canDownloadFiles = canFilesAction('download') && canFilesDropdown('file_action', 'download');
@@ -311,7 +315,7 @@ export function FileManager() {
 
   const handleCreateFolder = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!canAddFiles) { showToast('You do not have permission to add file folders.'); return; }
+    if (!canAddFolders) { showToast('You do not have permission to add file folders.'); return; }
     if (!newFolderName.trim()) return;
 
     const newFolder: AppFolder = {
@@ -325,8 +329,13 @@ export function FileManager() {
     try {
       await saveFolder(newFolder);
     } catch (err) {
-      console.error(err);
-      showToast('Could not create folder');
+      console.error('Folder creation failed:', err);
+      const error = err && typeof err === 'object' ? err as { message?: unknown; details?: unknown; hint?: unknown; code?: unknown } : {};
+      const detail = [error.message, error.details, error.hint]
+        .filter((value): value is string => typeof value === 'string' && value.trim().length > 0)
+        .join(' — ');
+      const code = typeof error.code === 'string' && error.code ? ` (${error.code})` : '';
+      showToast(`Could not create folder${code}${detail ? `: ${detail}` : '. Check the browser console for details.'}`);
       return;
     }
     setNewFolderName('');
@@ -780,7 +789,7 @@ export function FileManager() {
             </div>
           </div>
 
-          {canAddFiles && <form onSubmit={handleCreateFolder} className="mt-auto pt-4 border-t border-slate-100 dark:border-slate-800">
+          {canAddFolders && <form onSubmit={handleCreateFolder} className="mt-auto pt-4 border-t border-slate-100 dark:border-slate-800">
             <h5 className="text-xs font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-2">
               New Folder
             </h5>
