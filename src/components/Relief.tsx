@@ -76,6 +76,12 @@ interface TransferEntry {
 type TransfersMap = Record<string, TransferEntry>;
 
 const fmt = (n: number) => (Number(n) || 0).toFixed(2);
+const describeSupabaseError = (error: any): string => [
+  error?.message ? `Message: ${error.message}` : '',
+  error?.code ? `Code: ${error.code}` : '',
+  error?.details ? `Details: ${error.details}` : '',
+  error?.hint ? `Hint: ${error.hint}` : '',
+].filter(Boolean).join(' | ') || 'Unknown Supabase error';
 const csvQ = (s: string) => `"${(s || '').replace(/"/g, '""')}"`;
 const monthKeyOf = (y: number, m: number) => `${y}-${String(m).padStart(2, '0')}`;
 const monthKeyYear = (key: string) => {
@@ -669,9 +675,11 @@ export function Relief() {
       const { error } = await supabase.from('relief_records').delete()
         .eq('client_id', currentClientId).eq('record_type', 'purchase_transfer').eq('record_id', tKey);
       if (error) {
+        const reason = describeSupabaseError(error);
+        console.error('[Relief] Could not reset purchase-month transfer in Supabase:', error);
         setReliefCloudStatus('error');
-        setReliefCloudMessage(`Could not reset purchase-month transfer: ${error.message}`);
-        showToast('Could not save this RELIEF transfer to Supabase.');
+        setReliefCloudMessage(`Could not reset purchase-month transfer: ${reason}`);
+        showToast(`Could not reset this RELIEF transfer: ${error.message || 'Supabase rejected the request'}${error.code ? ` (code ${error.code})` : ''}`);
         return;
       }
       setTransfers(prev => { const next = { ...prev }; delete next[tKey]; return next; });
@@ -692,9 +700,11 @@ export function Relief() {
       client_id: currentClientId, record_type: 'purchase_transfer', record_id: tKey, data: transfer,
     }, { onConflict: 'client_id,record_type,record_id' });
     if (error) {
+      const reason = describeSupabaseError(error);
+      console.error('[Relief] Could not save purchase-month transfer to Supabase:', error);
       setReliefCloudStatus('error');
-      setReliefCloudMessage(`Could not save purchase-month transfer: ${error.message}`);
-      showToast('Could not save this RELIEF transfer to Supabase.');
+      setReliefCloudMessage(`Could not save purchase-month transfer: ${reason}`);
+      showToast(`Could not save this RELIEF transfer: ${error.message || 'Supabase rejected the request'}${error.code ? ` (code ${error.code})` : ''}`);
       return;
     }
     setTransfers(prev => ({ ...prev, [tKey]: transfer }));
