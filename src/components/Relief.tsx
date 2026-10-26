@@ -235,6 +235,10 @@ export function Relief() {
   };
 
   const saveReliefSetting = async (nextNonCreditable: number, nextConsolidate: boolean) => {
+    if (filedMonths[`${tab}|${monthKey}`]) {
+      showToast('This RELIEF month is filed and locked. Amend it before changing its settings.');
+      return;
+    }
     if (!currentClientId || !reliefDataReady) {
       showToast('RELIEF data is still loading. Please try again when cloud data is ready.');
       return;
@@ -444,6 +448,7 @@ export function Relief() {
   }, [importRows, importRowsDirty, reliefDataReady, currentClientId, monthKey, importRetryToken]);
 
   const updateImportRows = (rows: ImportRow[]) => {
+    if (isMonthFiled) { showToast('This RELIEF month is filed and locked. Amend it before editing importations.'); return; }
     if (!canReliefAction('edit')) { showToast('You do not have permission to edit RELIEF importation rows.'); return; }
     importRevisionRef.current += 1;
     importRowsRef.current = rows;
@@ -610,8 +615,9 @@ export function Relief() {
   const { purchaseRows, noTinCount, transferredInCount } = useMemo(() => buildPurchases(year, month),
     [currentClient, year, month, monthKey, transfers, consolidateNoTinPurchases, historyRecords]);
 
-  // ---- RELIEF filing lock: filed months show their filed snapshot; unfiled
-  // months exclude entries already locked to another filed month. ----
+  // ---- RELIEF filing lock is scoped to the exact tab + month. A filed month's
+  // snapshot is shown for that month only; never filter another month's rows by
+  // entry ID because source systems may reuse IDs across different periods. ----
   const filedKey = `${tab}|${monthKey}`;
   const isMonthFiled = !!filedMonths[filedKey];
   const reliefEntryKey = (r: any) =>
@@ -622,12 +628,12 @@ export function Relief() {
       const keep = new Set(filedMonths[filedKey]?.entryIds || []);
       return rows.filter(r => keep.has(reliefEntryKey(r)));
     }
-    const locked = new Set<string>();
-    for (const [k, v] of Object.entries(filedMonths)) if (k.startsWith(`${tab}|`)) for (const id of v.entryIds) locked.add(id);
-    return rows.filter(r => !locked.has(reliefEntryKey(r)));
+    // Filing one month must not make matching IDs disappear from other months.
+    return rows;
   }, [tab, salesRows, purchaseRows, importRows, isMonthFiled, filedMonths, filedKey]);
 
   const movePurchaseRow = async (row: any, targetMonth: string) => {
+    if (isMonthFiled) { showToast('This RELIEF month is filed and locked. Amend it before changing claim months.'); return; }
     if (!canEditTransfers) { showToast('You do not have permission to edit RELIEF transfers.'); return; }
     if (!currentClientId || !reliefDataReady) {
       showToast('RELIEF cloud data is still loading. Please retry the transfer.');
@@ -969,13 +975,13 @@ export function Relief() {
             )}
             <label className="flex items-center gap-1.5 text-slate-500">
               Non-creditable input tax ₱
-              <input type="number" min={0} step="0.01" value={nonCreditable || ''} placeholder="0.00"
+              <input type="number" min={0} step="0.01" value={nonCreditable || ''} placeholder="0.00" disabled={isMonthFiled}
                 onChange={e => setNonCreditable(Math.max(0, Number(e.target.value) || 0))}
                 onBlur={() => void saveReliefSetting(nonCreditable, consolidateNoTinPurchases)}
                 className="w-28 form-input text-xs py-1" />
             </label>
             <label className="flex items-center gap-1.5 text-slate-500 cursor-pointer">
-              <input type="checkbox" checked={consolidateNoTinPurchases} onChange={e => { const checked = e.target.checked; setConsolidateNoTinPurchases(checked); void saveReliefSetting(nonCreditable, checked); }} />
+              <input type="checkbox" checked={consolidateNoTinPurchases} disabled={isMonthFiled} onChange={e => { const checked = e.target.checked; setConsolidateNoTinPurchases(checked); void saveReliefSetting(nonCreditable, checked); }} />
               Consolidate purchases without TIN as VARIOUS PURCHASES (000000002)
             </label>
             <span className="text-slate-400">Use “Claim Month” to move a supplier's input tax to another month. Export matches the BIR Relief sample format.</span>
@@ -1011,7 +1017,7 @@ export function Relief() {
                       <td className="px-4 py-2.5 text-right font-medium">{fmt(r.inputTax)}</td>
                       <td className="px-4 py-2.5">
                         <Select value={r.transferredIn ? monthKey : r.fromMonth}
-                          onChange={e => movePurchaseRow(r, e.target.value)} disabled={!canEditTransfers} className="text-xs py-1">
+                          onChange={e => movePurchaseRow(r, e.target.value)} disabled={isMonthFiled || !canEditTransfers} className="text-xs py-1">
                           {monthOptions.map(mk => <option key={mk} value={mk}>{mk}{mk === r.fromMonth ? ' (original)' : ''}</option>)}
                         </Select>
                       </td>
@@ -1035,7 +1041,7 @@ export function Relief() {
         <Card><CardContent className="space-y-3 py-4">
           <div className="flex items-center justify-between">
             <p className="text-sm text-slate-500">Enter import entries for {monthKey}; exported as <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">D,I,</code> records (14 fields, valrlf 2.3 order).</p>
-            <Button variant="outline" onClick={() => updateImportRows([...importRows, emptyImport()])} className="gap-2"><Plus className="w-4 h-4" /> Add Entry</Button>
+            <Button variant="outline" onClick={() => updateImportRows([...importRows, emptyImport()])} disabled={isMonthFiled || !canReliefAction('edit')} className="gap-2"><Plus className="w-4 h-4" /> Add Entry</Button>
           </div>
           {importRows.length === 0 ? (
             <EmptyState title="No import entries" description="Click “Add Entry” to record an importation for this month." />
@@ -1043,16 +1049,16 @@ export function Relief() {
             <div className="space-y-2">
               {importRows.map((r, i) => (
                 <div key={r.id} className="grid grid-cols-12 gap-2 items-center p-3 rounded-lg border border-slate-200 dark:border-slate-700">
-                  <div className="col-span-1"><Input placeholder="Entry No." value={r.entryNo} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, entryNo: e.target.value } : x))} /></div>
-                  <div className="col-span-2"><Input type="date" value={r.assessDate} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, assessDate: e.target.value } : x))} /></div>
-                  <div className="col-span-2"><Input placeholder="Registered name" value={r.registeredName} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, registeredName: e.target.value } : x))} /></div>
-                  <div className="col-span-1"><Input placeholder="Country" value={r.country} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, country: e.target.value } : x))} /></div>
-                  <div className="col-span-1"><Input type="number" placeholder="Dutiable" value={r.dutiableValue || ''} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, dutiableValue: Number(e.target.value) } : x))} /></div>
-                  <div className="col-span-1"><Input type="number" placeholder="Charges" value={r.charges || ''} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, charges: Number(e.target.value) } : x))} /></div>
-                  <div className="col-span-1"><Input type="number" placeholder="VAT" value={r.vat || ''} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, vat: Number(e.target.value) } : x))} /></div>
-                  <div className="col-span-1"><Input placeholder="OR No." value={r.orNumber} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, orNumber: e.target.value } : x))} /></div>
-                  <div className="col-span-1"><Input type="date" value={r.vatPaymentDate} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, vatPaymentDate: e.target.value } : x))} /></div>
-                  <button onClick={() => updateImportRows(importRows.filter((_, xi) => xi !== i))} className="col-span-1 text-slate-400 hover:text-red-500 flex justify-center"><Trash2 className="w-4 h-4" /></button>
+                  <div className="col-span-1"><Input placeholder="Entry No." value={r.entryNo} disabled={isMonthFiled} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, entryNo: e.target.value } : x))} /></div>
+                  <div className="col-span-2"><Input type="date" value={r.assessDate} disabled={isMonthFiled} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, assessDate: e.target.value } : x))} /></div>
+                  <div className="col-span-2"><Input placeholder="Registered name" value={r.registeredName} disabled={isMonthFiled} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, registeredName: e.target.value } : x))} /></div>
+                  <div className="col-span-1"><Input placeholder="Country" value={r.country} disabled={isMonthFiled} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, country: e.target.value } : x))} /></div>
+                  <div className="col-span-1"><Input type="number" placeholder="Dutiable" value={r.dutiableValue || ''} disabled={isMonthFiled} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, dutiableValue: Number(e.target.value) } : x))} /></div>
+                  <div className="col-span-1"><Input type="number" placeholder="Charges" value={r.charges || ''} disabled={isMonthFiled} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, charges: Number(e.target.value) } : x))} /></div>
+                  <div className="col-span-1"><Input type="number" placeholder="VAT" value={r.vat || ''} disabled={isMonthFiled} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, vat: Number(e.target.value) } : x))} /></div>
+                  <div className="col-span-1"><Input placeholder="OR No." value={r.orNumber} disabled={isMonthFiled} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, orNumber: e.target.value } : x))} /></div>
+                  <div className="col-span-1"><Input type="date" value={r.vatPaymentDate} disabled={isMonthFiled} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, vatPaymentDate: e.target.value } : x))} /></div>
+                  <button onClick={() => updateImportRows(importRows.filter((_, xi) => xi !== i))} disabled={isMonthFiled} className="col-span-1 text-slate-400 hover:text-red-500 flex justify-center disabled:opacity-40 disabled:cursor-not-allowed"><Trash2 className="w-4 h-4" /></button>
                 </div>
               ))}
             </div>
