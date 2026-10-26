@@ -15,10 +15,10 @@ The feature does **not** update purchase transactions, supplier records, sales, 
 
 1. Open the Supabase project used by CAPOTBOOKS.
 2. In SQL Editor, confirm the existing core schema and `public.can_access_client_operation(text, text)` helper are already installed. The usual prerequisites are `scripts/schema.sql` and `scripts/client_specific_permissions.sql`.
-3. For a new installation, run `scripts/relief_supabase_migration.sql`.
-4. For an existing installation that reports SQLSTATE `23514` with constraint `relief_records_type_check` when saving transfers or filing a month, run `scripts/relief_records_type_constraint_fix.sql` in the Supabase SQL Editor. This explicitly updates the constraint on the already-created table; rerunning `CREATE TABLE IF NOT EXISTS` alone cannot do that.
+3. Run `scripts/relief_supabase_migration.sql`.
+4. Run `scripts/relief_filed_month_database_lock.sql`. This installs database-side purchase-month assignments, rejects writes/transfers into filed months, makes filed snapshots immutable except through the authorized Amend RPC, and backfills existing purchases.
 5. Deploy the web app containing the changed `src/components/Relief.tsx`.
-6. Sign in, choose a business/client profile, open **BIR RELIEF**, and verify that a transfer within the same calendar year saves and remains after refresh.
+6. Sign in, choose a business/client profile, open **BIR RELIEF**, and confirm the cloud status reports that data was loaded from Supabase.
 
 The migration is repeatable. Do not run it before the `clients` table and permission helper exist.
 
@@ -40,3 +40,17 @@ The former `localStorage` key `relief-purchase-transfers` was not tagged with a 
 - Add an importation and verify it survives refresh for that profile and tax month.
 - Change RELIEF-only settings, refresh, and verify the settings persist for that profile/month.
 - Check `public.relief_records` and the `audit` rows; do not expose service-role keys in frontend environment variables.
+
+
+## Filed-month locking and purchase rollover (database-enforced)
+
+Run `scripts/relief_filed_month_database_lock.sql` after the core schema and RELIEF persistence migration. It creates `public.relief_purchase_assignments`, fills assignments for existing purchases, and keeps them synchronized when purchases or filed-month markers change.
+
+- Purchases are still saved normally to `public.purchases`; their accounting transaction dates and amounts are not changed by RELIEF rollover.
+- A purchase whose date is in an unfiled month is assigned to that month.
+- Once a purchase month is filed, purchases included in its transaction-ID snapshot remain assigned to the filed month. Late-encoded purchases are assigned to the first succeeding unfiled month in the **same calendar year**.
+- If no succeeding unfiled month remains in that year, the purchase stays in accounting records with `relief_month = NULL` until an appropriate month is amended. The application does not carry that purchase into another calendar year.
+- Supabase rejects manual transfer writes to filed source/destination months and cross-year transfers. Direct updates/deletes of filed snapshots are rejected; the app's **Amend** action uses the authorized `amend_relief_month` RPC.
+- Database assignment reads follow `view_reports`; writes are performed by database triggers, not directly by the browser client.
+
+After applying the migration, verify `public.relief_purchase_assignments` for a purchase dated in a filed month. A newly inserted transaction should receive `assignment_status = 'rolled_forward'` and the first succeeding unfiled `relief_month`. If every later month is filed, it should receive `assignment_status = 'no_unfiled_month'`.

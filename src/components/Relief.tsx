@@ -74,6 +74,8 @@ interface TransferEntry {
   inputTax: number;
 }
 type TransfersMap = Record<string, TransferEntry>;
+type PurchaseMonthAssignment = { sourceMonth: string; reliefMonth: string | null; assignmentStatus: string };
+type PurchaseAssignmentsMap = Record<string, PurchaseMonthAssignment>;
 
 const fmt = (n: number) => (Number(n) || 0).toFixed(2);
 const csvQ = (s: string) => `"${(s || '').replace(/"/g, '""')}"`;
@@ -192,6 +194,7 @@ export function Relief() {
   const [nonCreditable, setNonCreditable] = useState(0);
   const [consolidateNoTinPurchases, setConsolidateNoTinPurchases] = useState(false);
   const [transfers, setTransfers] = useState<TransfersMap>({});
+  const [purchaseAssignments, setPurchaseAssignments] = useState<PurchaseAssignmentsMap>({});
   const [loadedReliefKey, setLoadedReliefKey] = useState<string | null>(null);
   const [reliefCloudStatus, setReliefCloudStatus] = useState<'loading' | 'ready' | 'saving' | 'error'>('loading');
   const [reliefCloudMessage, setReliefCloudMessage] = useState('');
@@ -345,6 +348,7 @@ export function Relief() {
     let cancelled = false;
     if (!currentClientId || !monthKey) {
       setTransfers({});
+      setPurchaseAssignments({});
       setImportRows([]);
       setImportRowsDirty(false);
       setNonCreditable(0);
@@ -363,6 +367,7 @@ export function Relief() {
     setReliefCloudMessage('Loading RELIEF-only data for the active profile…');
     importRevisionRef.current += 1;
     setTransfers({});
+    setPurchaseAssignments({});
     setImportRows([]);
     setImportRowsDirty(false);
     setNonCreditable(0);
@@ -370,19 +375,37 @@ export function Relief() {
     setLegacyTransfersForImport(null);
 
     void (async () => {
-      const { data, error } = await supabase
-        .from('relief_records')
-        .select('record_type,record_id,data')
-        .eq('client_id', clientId)
-        .in('record_type', ['purchase_transfer', 'importation', 'settings', 'filed']);
+      const [reliefResult, assignmentResult] = await Promise.all([
+        supabase
+          .from('relief_records')
+          .select('record_type,record_id,data')
+          .eq('client_id', clientId)
+          .in('record_type', ['purchase_transfer', 'importation', 'settings', 'filed']),
+        supabase
+          .from('relief_purchase_assignments')
+          .select('purchase_id,source_month,relief_month,assignment_status')
+          .eq('client_id', clientId),
+      ]);
       if (cancelled) return;
-      if (error) {
+      if (reliefResult.error) {
         setReliefCloudStatus('error');
-        setReliefCloudMessage(`RELIEF cloud data could not be loaded: ${error.message}. Apply scripts/relief_supabase_migration.sql first.`);
+        setReliefCloudMessage(`RELIEF cloud data could not be loaded: ${reliefResult.error.message}. Apply scripts/relief_supabase_migration.sql first.`);
         return;
       }
+      if (assignmentResult.error) {
+        setReliefCloudStatus('error');
+        setReliefCloudMessage(`Database-enforced RELIEF purchase-month locking is not installed or could not be read: ${assignmentResult.error.message}. Apply scripts/relief_filed_month_database_lock.sql in Supabase SQL Editor.`);
+        return;
+      }
+      setPurchaseAssignments(Object.fromEntries((assignmentResult.data || []).map((row: any) => [
+        String(row.purchase_id), {
+          sourceMonth: String(row.source_month),
+          reliefMonth: row.relief_month ? String(row.relief_month) : null,
+          assignmentStatus: String(row.assignment_status || ''),
+        },
+      ])));
 
-      const records = data || [];
+      const records = reliefResult.data || [];
       const transferRecords = records.filter((r: any) => r.record_type === 'purchase_transfer');
       const nextTransfers: TransfersMap = Object.fromEntries(
         transferRecords.map((r: any) => [String(r.record_id), (r.data || {}) as TransferEntry]),
@@ -410,7 +433,13 @@ export function Relief() {
       setFiledMonths(nextFiled);
       setLoadedReliefKey(activeKey);
       setReliefCloudStatus('ready');
-      setReliefCloudMessage(`RELIEF data loaded from Supabase for ${owner.registeredName || owner.name || clientId}.`);
+      const unassignedLatePurchases = (assignmentResult.data || []).filter((row: any) => row.assignment_status === 'no_unfiled_month').length;
+      setReliefCloudMessage(
+        `RELIEF data loaded from Supabase for ${owner.registeredName || owner.name || clientId}.` +
+        (unassignedLatePurchases
+          ? ` ${unassignedLatePurchases} late purchase(s) have no succeeding unfiled month left in the same calendar year; amend a month before including them in RELIEF.`
+          : ''),
+      );
 
       // Older releases used one browser-wide key. Never assign those transfers to a profile silently;
       // offer explicit import only when the selected profile has no cloud transfers.
@@ -428,6 +457,41 @@ export function Relief() {
 
     return () => { cancelled = true; };
   }, [currentClientId, monthKey, loadRetryToken]);
+
+  // Refresh database assignments when the live purchase cache or filing state
+  // changes, so newly encoded purchases cannot linger in a stale month view.
+  const purchaseAssignmentRefreshKey = useMemo(() => JSON.stringify(
+    (((currentClient?.purchases || []) as any[]).map(purchase => [
+      String(purchase?.id ?? purchase?.recordId ?? ''),
+      String(purchase?.date ?? ''),
+      String(purchase?.createdAt ?? purchase?.created_at ?? ''),
+    ])).sort((a, b) => String(a[0]).localeCompare(String(b[0])))
+  ), [currentClient?.purchases]);
+  const filedMonthsAssignmentKey = Object.keys(filedMonths).sort().join('|');
+  useEffect(() => {
+    if (!currentClientId || !reliefDataReady) return;
+    let cancelled = false;
+    const clientId = currentClientId;
+    void supabase
+      .from('relief_purchase_assignments')
+      .select('purchase_id,source_month,relief_month,assignment_status')
+      .eq('client_id', clientId)
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error) {
+          console.warn('[Relief] Could not refresh purchase-month assignments:', error.message);
+          return;
+        }
+        setPurchaseAssignments(Object.fromEntries((data || []).map((row: any) => [
+          String(row.purchase_id), {
+            sourceMonth: String(row.source_month),
+            reliefMonth: row.relief_month ? String(row.relief_month) : null,
+            assignmentStatus: String(row.assignment_status || ''),
+          },
+        ])));
+      });
+    return () => { cancelled = true; };
+  }, [currentClientId, purchaseAssignmentRefreshKey, filedMonthsAssignmentKey, reliefDataReady]);
 
   // Importation entry edits are debounced and stored as RELIEF rows only. No accounting transaction table is touched.
   useEffect(() => {
@@ -597,17 +661,30 @@ export function Relief() {
     for (const purchase of purchasePool.values()) {
       const sourceMonth = purchaseMonthKeyOf(purchase.date);
       if (!sourceMonth) continue;
+      const purchaseId = String(purchase?.id ?? purchase?.recordId ?? '');
+      const assignment = purchaseId ? purchaseAssignments[purchaseId] : undefined;
+      // Supabase's purchase trigger is the authoritative assignment source.
+      // If there is no assignment yet (e.g. a newly synced row), retain the
+      // same deterministic fallback until the next cloud refresh.
+      if (assignment && assignment.sourceMonth === sourceMonth) {
+        if (!assignment.reliefMonth || assignment.reliefMonth !== targetMonthKey) continue;
+        inMonth.push({
+          ...purchase,
+          __reliefSourceMonth: sourceMonth,
+          __reliefAutoRollover: assignment.reliefMonth !== sourceMonth,
+        });
+        continue;
+      }
       const sourceFiling = filedMonths[`purchases|${sourceMonth}`];
       const isNewAfterFile = !!sourceFiling && purchaseWasAddedAfterFiling(purchase, sourceMonth);
       if (sourceFiling && isNewAfterFile) {
-        // A newly encoded purchase dated in a filed month is never included in
-        // that locked month; it belongs in the first succeeding unfiled month.
+        // Fallback only while the database assignment for a new/changed row is
+        // still syncing; a filed month's new purchases roll forward in-year.
         const nextMonth = nextUnfiledMonthAfter(sourceMonth);
         if (nextMonth === targetMonthKey) inMonth.push({ ...purchase, __reliefSourceMonth: sourceMonth, __reliefAutoRollover: true });
         continue;
       }
       if (sourceMonth === targetMonthKey) {
-        // In the filed source month, only the transaction snapshot is shown.
         inMonth.push({ ...purchase, __reliefSourceMonth: sourceMonth, __reliefAutoRollover: false });
       }
     }
@@ -688,7 +765,7 @@ export function Relief() {
     return { purchaseRows: rows, noTinCount, transferredInCount };
   };
   const { purchaseRows, noTinCount, transferredInCount } = useMemo(() => buildPurchases(year, month),
-    [currentClient, year, month, monthKey, transfers, consolidateNoTinPurchases, historyRecords, historyPeriod, filedMonths]);
+    [currentClient, year, month, monthKey, transfers, consolidateNoTinPurchases, historyRecords, historyPeriod, filedMonths, purchaseAssignments]);
 
   // ---- RELIEF filing lock: filed months show their filed snapshot; unfiled
   // months exclude entries already locked to another filed month. ----
@@ -932,11 +1009,26 @@ export function Relief() {
       filedAt, entryIds, tab, monthKey,
       ...(purchaseTransactionIds ? { purchaseTransactionIds } : {}),
     };
-    const { error } = await supabase.from('relief_records').upsert({
+    // Filed snapshots are immutable in Supabase. INSERT avoids turning an
+    // accidental duplicate filing into an UPDATE of an existing lock.
+    const { error } = await supabase.from('relief_records').insert({
       client_id: currentClientId, record_type: 'filed', record_id: filedKey, data: filedData,
-    }, { onConflict: 'client_id,record_type,record_id' });
+    });
     if (error) { setReliefCloudStatus('error'); showToast(`Filed failed: ${error.message}`); return; }
     setFiledMonths(prev => ({ ...prev, [filedKey]: { filedAt, entryIds, ...(purchaseTransactionIds ? { purchaseTransactionIds } : {}) } }));
+    // The filing trigger recalculates database-side purchase assignments in the same transaction.
+    const { data: refreshedAssignments, error: assignmentRefreshError } = await supabase
+      .from('relief_purchase_assignments')
+      .select('purchase_id,source_month,relief_month,assignment_status')
+      .eq('client_id', currentClientId);
+    if (assignmentRefreshError) {
+      setPurchaseAssignments({});
+      console.warn('[Relief] Filed month saved, but purchase assignments need refresh:', assignmentRefreshError.message);
+    } else {
+      setPurchaseAssignments(Object.fromEntries((refreshedAssignments || []).map((row: any) => [
+        String(row.purchase_id), { sourceMonth: String(row.source_month), reliefMonth: row.relief_month ? String(row.relief_month) : null, assignmentStatus: String(row.assignment_status || '') },
+      ])));
+    }
     await writeReliefAudit(currentClientId, 'relief_filed', tab, monthKey, { count: entryIds.length });
     setReliefCloudStatus('ready');
     showToast(`${activeTab.label} RELIEF for ${monthKey} is now FILED and locked. New entries for this month will roll to the next unfiled month.`);
@@ -945,10 +1037,26 @@ export function Relief() {
   const handleAmendMonth = async () => {
     if (!currentClientId || !isMonthFiled) return;
     setReliefCloudStatus('saving');
-    const { error } = await supabase.from('relief_records').delete()
-      .eq('client_id', currentClientId).eq('record_type', 'filed').eq('record_id', filedKey);
+    // Direct deletion of filed snapshots is blocked by the database trigger;
+    // the RPC authorizes and performs an explicit amendment.
+    const { error } = await supabase.rpc('amend_relief_month', {
+      p_client_id: currentClientId,
+      p_filed_key: filedKey,
+    });
     if (error) { setReliefCloudStatus('error'); showToast(`Amend failed: ${error.message}`); return; }
     setFiledMonths(prev => { const next = { ...prev }; delete next[filedKey]; return next; });
+    const { data: refreshedAssignments, error: assignmentRefreshError } = await supabase
+      .from('relief_purchase_assignments')
+      .select('purchase_id,source_month,relief_month,assignment_status')
+      .eq('client_id', currentClientId);
+    if (assignmentRefreshError) {
+      setPurchaseAssignments({});
+      console.warn('[Relief] Month amended, but purchase assignments need refresh:', assignmentRefreshError.message);
+    } else {
+      setPurchaseAssignments(Object.fromEntries((refreshedAssignments || []).map((row: any) => [
+        String(row.purchase_id), { sourceMonth: String(row.source_month), reliefMonth: row.relief_month ? String(row.relief_month) : null, assignmentStatus: String(row.assignment_status || '') },
+      ])));
+    }
     await writeReliefAudit(currentClientId, 'relief_amended', tab, monthKey, {});
     setReliefCloudStatus('ready');
     showToast(`${activeTab.label} RELIEF for ${monthKey} unlocked (amend). Repopulated from live records; entries already locked to other filed months are excluded.`);
