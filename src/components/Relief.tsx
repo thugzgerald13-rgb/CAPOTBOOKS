@@ -78,6 +78,15 @@ type TransfersMap = Record<string, TransferEntry>;
 const fmt = (n: number) => (Number(n) || 0).toFixed(2);
 const csvQ = (s: string) => `"${(s || '').replace(/"/g, '""')}"`;
 const monthKeyOf = (y: number, m: number) => `${y}-${String(m).padStart(2, '0')}`;
+const monthKeyYear = (key: string) => {
+  const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(String(key || ''));
+  return match ? Number(match[1]) : null;
+};
+const isSameCalendarYear = (fromMonth: string, toMonth: string) => {
+  const fromYear = monthKeyYear(fromMonth);
+  const toYear = monthKeyYear(toMonth);
+  return fromYear !== null && toYear !== null && fromYear === toYear;
+};
 // Samples use the LAST day of the tax month, MM/DD/YYYY (e.g. 03/31/2026).
 const taxMonthDate = (y: number, m: number) =>
   `${String(m).padStart(2, '0')}/${String(new Date(y, m, 0).getDate()).padStart(2, '0')}/${y}`;
@@ -192,12 +201,11 @@ export function Relief() {
   const activeTab = TABS.find(t => t.id === tab)!;
   const monthKey = monthKeyOf(year, month);
   const years = [now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1];
-  const monthOptions = useMemo(() => {
-    const opts: string[] = [];
-    for (let y = now.getFullYear() - 1; y <= now.getFullYear() + 1; y++)
-      for (let m = 1; m <= 12; m++) opts.push(monthKeyOf(y, m));
-    return opts;
-  }, [now]);
+  // Claim-month transfers are limited to the selected calendar year.
+  const monthOptions = useMemo(
+    () => Array.from({ length: 12 }, (_, i) => monthKeyOf(year, i + 1)),
+    [year],
+  );
 
   const owner = currentClient || ({} as any);
   const ownerTin = tin9(owner.tin);
@@ -592,14 +600,17 @@ export function Relief() {
     for (const [, r] of map) {
       const tKey = `${r.tin}|${monthKey}`;
       const t = transfers[tKey];
-      if (t && t.toMonth !== monthKey) continue;
+      // Ignore old cross-year transfers. They must not keep hiding the original
+      // purchase from its valid source month.
+      if (t && isSameCalendarYear(monthKey, t.toMonth) && t.toMonth !== monthKey) continue;
       rows.push({ ...r, transferKey: tKey, fromMonth: monthKey, transferredIn: false });
     }
     let transferredInCount = 0;
     for (const [tKey, t] of Object.entries(transfers)) {
-      if (t.toMonth !== monthKey) continue;
       const fromMonth = tKey.split('|').slice(1).join('|');
-      if (fromMonth === monthKey) continue;
+      if (t.toMonth !== monthKey || fromMonth === monthKey) continue;
+      // Only show transfer-ins where the source and claim month are in the same year.
+      if (!isSameCalendarYear(fromMonth, t.toMonth)) continue;
       rows.push({
         tin: t.tin, regName: t.name, lastName: '', firstName: '', middleName: '',
         addr1: t.address, addr2: '',
@@ -639,9 +650,22 @@ export function Relief() {
       showToast('RELIEF cloud data is still loading. Please retry the transfer.');
       return;
     }
+
+    const sourceMonth = String(row.fromMonth || monthKey);
+    if (!isSameCalendarYear(sourceMonth, targetMonth) || monthKeyYear(targetMonth) !== year) {
+      showToast(`Claim Month must be within ${year}, the same calendar year as the purchase.`);
+      return;
+    }
+    const currentlySelectedClaimMonth = row.transferredIn ? monthKey : sourceMonth;
+    if (targetMonth === currentlySelectedClaimMonth) return;
+    if (filedMonths[`purchases|${targetMonth}`]) {
+      showToast(`RELIEF Purchases for ${targetMonth} is filed and locked. Amend that month before transferring to it.`);
+      return;
+    }
+
     const tKey = String(row.transferKey);
     setReliefCloudStatus('saving');
-    if (targetMonth === row.fromMonth) {
+    if (targetMonth === sourceMonth) {
       const { error } = await supabase.from('relief_records').delete()
         .eq('client_id', currentClientId).eq('record_type', 'purchase_transfer').eq('record_id', tKey);
       if (error) {
@@ -1017,7 +1041,8 @@ export function Relief() {
                       <td className="px-4 py-2.5 text-right font-medium">{fmt(r.inputTax)}</td>
                       <td className="px-4 py-2.5">
                         <Select value={r.transferredIn ? monthKey : r.fromMonth}
-                          onChange={e => movePurchaseRow(r, e.target.value)} disabled={isMonthFiled || !canEditTransfers} className="text-xs py-1">
+                          onChange={e => void movePurchaseRow(r, e.target.value)}
+                          disabled={isMonthFiled || !canEditTransfers || !reliefDataReady || reliefCloudStatus === 'saving'} className="text-xs py-1">
                           {monthOptions.map(mk => <option key={mk} value={mk}>{mk}{mk === r.fromMonth ? ' (original)' : ''}</option>)}
                         </Select>
                       </td>
