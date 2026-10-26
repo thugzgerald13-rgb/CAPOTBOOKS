@@ -9,7 +9,7 @@ import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
 import { useGranularPermissions } from '../lib/useGranularPermissions';
 import { supabase } from '../lib/supabase';
-import { FileText, Receipt, ShoppingCart, Boxes, FileDown, Plus, Trash2, Undo2, Search, Printer, FileSpreadsheet, ArrowLeft, Lock, Unlock } from 'lucide-react';
+import { FileText, Receipt, ShoppingCart, Boxes, FileDown, Plus, Trash2, Undo2, Search, Printer, FileSpreadsheet, ArrowLeft, Lock, Unlock, ChevronLeft, ChevronRight } from 'lucide-react';
 
 /**
  * BIR RELIEF (Reconciliation of Listings for Enforcement) — SLSP.
@@ -36,10 +36,10 @@ import { FileText, Receipt, ShoppingCart, Boxes, FileDown, Plus, Trash2, Undo2, 
 
 type ReliefTab = 'sales' | 'purchases' | 'imports';
 
-const TABS: { id: ReliefTab; label: string; icon: React.ReactNode; typeCode: string }[] = [
-  { id: 'sales', label: 'Sales', icon: <Receipt className="w-4 h-4" />, typeCode: 'S' },
-  { id: 'purchases', label: 'Purchases', icon: <ShoppingCart className="w-4 h-4" />, typeCode: 'P' },
-  { id: 'imports', label: 'Importation', icon: <Boxes className="w-4 h-4" />, typeCode: 'I' },
+const TABS: { id: ReliefTab; label: string; icon: React.ReactNode; typeCode: string; hint: string }[] = [
+  { id: 'sales', label: 'Sales', icon: <Receipt className="w-4 h-4" />, typeCode: 'S', hint: 'Output VAT' },
+  { id: 'purchases', label: 'Purchases', icon: <ShoppingCart className="w-4 h-4" />, typeCode: 'P', hint: 'Input VAT' },
+  { id: 'imports', label: 'Importation', icon: <Boxes className="w-4 h-4" />, typeCode: 'I', hint: 'Imports' },
 ];
 
 interface ImportRow {
@@ -904,8 +904,31 @@ export function Relief() {
     showToast('All RELIEF month transfers reset. Purchase transactions were not changed.');
   };
 
+  const periodLabel = `${MONTH_NAMES[month - 1]} ${year}`;
+  const shiftMonth = (delta: number) => {
+    const d = new Date(year, month - 1 + delta, 1);
+    void changePeriod(d.getFullYear(), d.getMonth() + 1);
+  };
+  const peso = (n: number) => `₱${formatMoney(n)}`;
+  const summaryCards: { label: string; value: string }[] = tab === 'sales' ? [
+    { label: 'Buyers', value: String(activeRows.length) },
+    { label: 'Total Sales', value: peso(totals.v1 + totals.v2 + totals.v3) },
+    { label: 'Taxable Sales', value: peso(totals.v3) },
+    { label: 'Output VAT', value: peso(totals.v4) },
+  ] : tab === 'purchases' ? [
+    { label: 'Suppliers', value: String(activeRows.length) },
+    { label: 'Total Purchases', value: peso(totals.v1 + totals.v2 + totals.v3 + totals.v4 + totals.v5) },
+    { label: 'Input VAT', value: peso(totals.v6) },
+    { label: 'Creditable Input VAT', value: peso(totals.v6 - Math.min(Math.max(Number(nonCreditable) || 0, 0), totals.v6)) },
+  ] : [
+    { label: 'Entries', value: String(activeRows.length) },
+    { label: 'Dutiable Value', value: peso(totals.v1) },
+    { label: 'Charges', value: peso(totals.v2) },
+    { label: 'VAT Paid', value: peso(totals.v5) },
+  ];
+
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-5">
+    <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-4">
       <PageHeader
         title="BIR RELIEF — SLSP"
         icon={<FileText className="w-6 h-6 text-indigo-600" />}
@@ -921,70 +944,102 @@ export function Relief() {
         </div>}
       />
 
-      <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs ${reliefCloudStatus === 'error' ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300' : 'border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-300'}`}>
-        <span>{reliefCloudMessage || (reliefCloudStatus === 'loading' ? 'Loading RELIEF data…' : 'RELIEF cloud data status')}</span>
-        <div className="flex items-center gap-2 shrink-0">
-          {reliefCloudStatus === 'error' && <Button variant="outline" onClick={() => { if (importRowsDirty && reliefDataReady) setImportRetryToken(v => v + 1); else setLoadRetryToken(v => v + 1); }} className="py-1">Retry sync</Button>}
-          {legacyTransfersForImport && Object.keys(legacyTransfersForImport).length > 0 && Object.keys(transfers).length === 0 && reliefDataReady && (
-            <Button variant="outline" onClick={importLegacyTransfersToActiveProfile} disabled={!canEditTransfers} className="py-1">Import old transfers to this profile</Button>
-          )}
+      {(reliefCloudStatus !== 'ready' || (legacyTransfersForImport && Object.keys(legacyTransfersForImport).length > 0 && Object.keys(transfers).length === 0)) && (
+        <div role="status" className={`flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-xl border px-4 py-2.5 text-sm ${reliefCloudStatus === 'error' ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300' : 'border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-300'}`}>
+          <span>{reliefCloudMessage || (reliefCloudStatus === 'saving' ? 'Saving…' : 'Loading RELIEF data…')}</span>
+          <div className="flex items-center gap-2 shrink-0">
+            {reliefCloudStatus === 'error' && <Button variant="outline" onClick={() => { if (importRowsDirty && reliefDataReady) setImportRetryToken(v => v + 1); else setLoadRetryToken(v => v + 1); }} className="py-1">Retry sync</Button>}
+            {legacyTransfersForImport && Object.keys(legacyTransfersForImport).length > 0 && Object.keys(transfers).length === 0 && reliefDataReady && (
+              <Button variant="outline" onClick={importLegacyTransfersToActiveProfile} disabled={!canEditTransfers} className="py-1">Import old transfers to this profile</Button>
+            )}
+          </div>
         </div>
-      </div>
+      )}
 
+      {/* Step 1 — choose the tax period */}
       <Card>
-        <CardContent className="flex flex-wrap items-end gap-4 py-4">
-          <Field label="Year">
-            <Select value={String(year)} onChange={e => { void changePeriod(Number(e.target.value), month); }}>
-              {years.map(y => <option key={y} value={y}>{y}</option>)}
-            </Select>
-          </Field>
-          <Field label="Month">
-            <Select value={String(month)} onChange={e => { void changePeriod(year, Number(e.target.value)); }}>
-              {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
-                <option key={m} value={m}>{new Date(year, m - 1, 1).toLocaleString('en-PH', { month: 'long' })}</option>
-              ))}
-            </Select>
-          </Field>
-          <div className="ml-auto text-sm text-slate-500">
-            Period: <span className="font-semibold text-slate-700 dark:text-slate-200">{monthKey}</span>
-            {isMonthFiled && <span className="ml-2 px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 text-xs font-bold uppercase">Filed · Locked</span>}
-            {' · '}{totals.count} counterparty{totals.count === 1 ? '' : 'ies'}
-            {' · Output/Input Tax ₱'}<span className="font-semibold text-slate-700 dark:text-slate-200">{fmt(tab === 'sales' ? totals.v4 : totals.v6)}</span>
+        <CardContent className="flex flex-wrap items-end gap-3 py-4">
+          <div className="flex items-end gap-2">
+            <button type="button" aria-label="Previous month" onClick={() => shiftMonth(-1)}
+              className="h-10 w-10 flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+            <Field label="Month">
+              <Select value={String(month)} onChange={e => { void changePeriod(year, Number(e.target.value)); }}>
+                {MONTH_NAMES.map((name, i) => <option key={name} value={i + 1}>{name}</option>)}
+              </Select>
+            </Field>
+            <Field label="Year">
+              <Select value={String(year)} onChange={e => { void changePeriod(Number(e.target.value), month); }}>
+                {years.map(y => <option key={y} value={y}>{y}</option>)}
+              </Select>
+            </Field>
+            <button type="button" aria-label="Next month" onClick={() => shiftMonth(1)}
+              className="h-10 w-10 flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="ml-auto flex items-center gap-2 text-sm">
+            {historyLoading && <span className="text-xs text-slate-400">Refreshing records…</span>}
+            {isMonthFiled ? (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 text-xs font-bold">
+                <Lock className="w-3.5 h-3.5" /> Filed · Locked
+              </span>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 text-xs font-bold">
+                <Unlock className="w-3.5 h-3.5" /> Open for editing
+              </span>
+            )}
           </div>
         </CardContent>
       </Card>
 
-      <div className="flex gap-2 border-b border-slate-200 dark:border-slate-700">
-        {TABS.map(t => (
-          <button key={t.id} onClick={() => setReliefTab(t.id)}
-            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px transition-colors ${
-              tab === t.id ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
-                : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>
-            {t.icon} {t.label}
-          </button>
+      {/* Step 2 — pick the schedule */}
+      <div role="tablist" aria-label="RELIEF schedule" className="grid grid-cols-1 sm:grid-cols-3 gap-2 p-1 rounded-xl bg-slate-100 dark:bg-slate-800/60">
+        {TABS.map(t => {
+          const selected = tab === t.id;
+          return (
+            <button key={t.id} role="tab" aria-selected={selected} onClick={() => setReliefTab(t.id)}
+              className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all ${
+                selected ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm'
+                  : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-200'}`}>
+              {t.icon} {t.label}
+              <span className="text-[10px] font-normal text-slate-400 hidden md:inline">· {t.hint}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Summary */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {summaryCards.map(c => (
+          <div key={c.label} className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-3">
+            <div className="text-[11px] font-bold uppercase tracking-wide text-slate-400">{c.label}</div>
+            <div className="mt-1 text-lg font-bold text-slate-800 dark:text-slate-100 tabular-nums truncate">{c.value}</div>
+          </div>
         ))}
       </div>
 
       {tab === 'sales' && (
         <Card><CardContent className="p-0 overflow-x-auto">
           {activeRows.length === 0 ? (
-            <EmptyState title="No sales this month" description="Record sales in Billing / Income to include them here." />
+            <EmptyState title={`No sales in ${periodLabel}`} description="Record sales in Billing / Income to include them here, or pick another month." />
           ) : (
-            <table className="w-full text-sm">
-              <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 text-xs uppercase">
+            <table className="w-full text-sm tabular-nums">
+              <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 text-xs uppercase sticky top-0">
                 <tr><th className="text-left px-4 py-3">Buyer TIN</th><th className="text-left px-4 py-3">Registered Name</th>
                   <th className="text-right px-4 py-3">Exempt</th><th className="text-right px-4 py-3">Zero-Rated</th>
                   <th className="text-right px-4 py-3">Taxable</th><th className="text-right px-4 py-3">Output Tax</th></tr>
               </thead>
               <tbody>
                 {activeRows.map((r, i) => (
-                  <tr key={i} className="border-t border-slate-100 dark:border-slate-800">
+                  <tr key={i} className="border-t border-slate-100 dark:border-slate-800 hover:bg-slate-50/70 dark:hover:bg-slate-800/40">
                     <td className="px-4 py-2.5 font-mono text-xs">{r.tin || '—'}</td>
                     <td className="px-4 py-2.5">{r.regName || '(unnamed)'}</td>
                     <td className="px-4 py-2.5 text-right">{fmt(r.exempt)}</td>
                     <td className="px-4 py-2.5 text-right">{fmt(r.zeroRated)}</td>
                     <td className="px-4 py-2.5 text-right">{fmt(r.taxable)}</td>
-                    <td className="px-4 py-2.5 text-right font-medium">{fmt(r.outputTax)}</td>
+                    <td className="px-4 py-2.5 text-right font-semibold">{fmt(r.outputTax)}</td>
                   </tr>))}
               </tbody>
               <tfoot className="bg-slate-50 dark:bg-slate-800/60 font-semibold">
@@ -1000,46 +1055,51 @@ export function Relief() {
 
       {tab === 'purchases' && (
         <>
-          <div className="flex flex-wrap items-center gap-3 text-xs">
-            {noTinCount > 0 && (
-              <Badge variant="warning">{noTinCount} purchase{noTinCount === 1 ? '' : 's'} without supplier TIN excluded (BIR SLSP requires a TIN)</Badge>
-            )}
-            {transferredInCount > 0 && (
-              <Badge variant="info">{transferredInCount} supplier row{transferredInCount === 1 ? '' : 's'} transferred into {monthKey}</Badge>
-            )}
-            <label className="flex items-center gap-1.5 text-slate-500">
-              Non-creditable input tax ₱
-              <input type="number" min={0} step="0.01" value={nonCreditable || ''} placeholder="0.00" disabled={isMonthFiled}
-                onChange={e => setNonCreditable(Math.max(0, Number(e.target.value) || 0))}
-                onBlur={() => void saveReliefSetting(nonCreditable, consolidateNoTinPurchases)}
-                className="w-28 form-input text-xs py-1" />
-            </label>
-            <label className="flex items-center gap-1.5 text-slate-500 cursor-pointer">
-              <input type="checkbox" checked={consolidateNoTinPurchases} disabled={isMonthFiled} onChange={e => { const checked = e.target.checked; setConsolidateNoTinPurchases(checked); void saveReliefSetting(nonCreditable, checked); }} />
-              Consolidate purchases without TIN as VARIOUS PURCHASES (000000002)
-            </label>
-            <span className="text-slate-400">Use “Claim Month” to move a supplier's input tax to another month. Export matches the BIR Relief sample format.</span>
-            {Object.keys(transfers).length > 0 && (
-              <button onClick={clearAllTransfers} disabled={!canResetTransfers} className="ml-auto flex items-center gap-1 text-slate-400 hover:text-red-500 transition-colors">
-                <Undo2 className="w-3.5 h-3.5" /> Reset all transfers
-              </button>
-            )}
-          </div>
+          {(noTinCount > 0 || transferredInCount > 0) && (
+            <div className="flex flex-wrap items-center gap-2">
+              {noTinCount > 0 && (
+                <Badge variant="warning">{noTinCount} purchase{noTinCount === 1 ? '' : 's'} without supplier TIN excluded (BIR SLSP requires a TIN)</Badge>
+              )}
+              {transferredInCount > 0 && (
+                <Badge variant="info">{transferredInCount} supplier row{transferredInCount === 1 ? '' : 's'} transferred into {monthKey}</Badge>
+              )}
+            </div>
+          )}
+          <Card>
+            <CardContent className="flex flex-wrap items-center gap-x-6 gap-y-3 py-3">
+              <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                <span className="font-medium">Non-creditable input tax ₱</span>
+                <input type="number" min={0} step="0.01" value={nonCreditable || ''} placeholder="0.00" disabled={isMonthFiled}
+                  onChange={e => setNonCreditable(Math.max(0, Number(e.target.value) || 0))}
+                  onBlur={() => void saveReliefSetting(nonCreditable, consolidateNoTinPurchases)}
+                  className="w-32 form-input text-sm py-1.5" />
+              </label>
+              <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300 cursor-pointer">
+                <input type="checkbox" checked={consolidateNoTinPurchases} disabled={isMonthFiled} onChange={e => { const checked = e.target.checked; setConsolidateNoTinPurchases(checked); void saveReliefSetting(nonCreditable, checked); }} />
+                Combine purchases without TIN as VARIOUS PURCHASES
+              </label>
+              {Object.keys(transfers).length > 0 && (
+                <button onClick={clearAllTransfers} disabled={!canResetTransfers} className="ml-auto flex items-center gap-1 text-sm text-slate-500 hover:text-red-500 transition-colors disabled:opacity-40">
+                  <Undo2 className="w-4 h-4" /> Reset all transfers
+                </button>
+              )}
+            </CardContent>
+          </Card>
           <Card><CardContent className="p-0 overflow-x-auto">
             {activeRows.length === 0 ? (
-              <EmptyState title="No TIN-bearing purchases this month" description="Record purchases with a supplier TIN in Purchases / Bills to include them here." />
+              <EmptyState title={`No TIN-bearing purchases in ${periodLabel}`} description="Record purchases with a supplier TIN in Purchases / Bills to include them here, or pick another month." />
             ) : (
-              <table className="w-full text-sm">
-                <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 text-xs uppercase">
+              <table className="w-full text-sm tabular-nums">
+                <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 text-xs uppercase sticky top-0">
                   <tr><th className="text-left px-4 py-3">Supplier TIN</th><th className="text-left px-4 py-3">Registered Name</th>
                     <th className="text-right px-4 py-3">Exempt</th><th className="text-right px-4 py-3">Zero-Rated</th>
                     <th className="text-right px-4 py-3">Services</th><th className="text-right px-4 py-3">Capital Goods</th>
                     <th className="text-right px-4 py-3">Goods (Other)</th><th className="text-right px-4 py-3">Input Tax</th>
-                    <th className="text-left px-4 py-3 min-w-[150px]">Claim Month</th></tr>
+                    <th className="text-left px-4 py-3 min-w-[150px]" title="Move this supplier's input tax to another month of the same year">Claim Month</th></tr>
                 </thead>
                 <tbody>
                   {activeRows.map((r, i) => (
-                    <tr key={i} className={`border-t border-slate-100 dark:border-slate-800 ${r.transferredIn ? 'bg-amber-50/40 dark:bg-amber-950/10' : ''}`}>
+                    <tr key={i} className={`border-t border-slate-100 dark:border-slate-800 hover:bg-slate-50/70 dark:hover:bg-slate-800/40 ${r.transferredIn ? 'bg-amber-50/40 dark:bg-amber-950/10' : ''}`}>
                       <td className="px-4 py-2.5 font-mono text-xs">{r.tin || '—'}</td>
                       <td className="px-4 py-2.5"><div className="flex items-center gap-2">{r.regName || '(unnamed)'}
                         {r.transferredIn && <Badge variant="warning">from {r.fromMonth}</Badge>}</div></td>
@@ -1048,7 +1108,7 @@ export function Relief() {
                       <td className="px-4 py-2.5 text-right">{fmt(r.services)}</td>
                       <td className="px-4 py-2.5 text-right">{fmt(r.capital)}</td>
                       <td className="px-4 py-2.5 text-right">{fmt(r.goodsOther)}</td>
-                      <td className="px-4 py-2.5 text-right font-medium">{fmt(r.inputTax)}</td>
+                      <td className="px-4 py-2.5 text-right font-semibold">{fmt(r.inputTax)}</td>
                       <td className="px-4 py-2.5">
                         <Select value={r.transferredIn ? monthKey : r.fromMonth}
                           onChange={e => void movePurchaseRow(r, e.target.value)}
@@ -1073,32 +1133,43 @@ export function Relief() {
       )}
 
       {tab === 'imports' && (
-        <Card><CardContent className="space-y-3 py-4">
-          <div className="flex items-center justify-between">
-            <p className="text-sm text-slate-500">Enter import entries for {monthKey}; exported as <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">D,I,</code> records (14 fields, valrlf 2.3 order).</p>
-            <Button variant="outline" onClick={() => updateImportRows([...importRows, emptyImport()])} disabled={isMonthFiled || !canReliefAction('edit')} className="gap-2"><Plus className="w-4 h-4" /> Add Entry</Button>
+        <div className="space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-slate-500">Enter each import entry for {periodLabel}. Changes save automatically.</p>
+            <Button onClick={() => updateImportRows([...importRows, emptyImport()])} disabled={isMonthFiled || !canReliefAction('edit')} className="gap-2"><Plus className="w-4 h-4" /> Add Entry</Button>
           </div>
           {importRows.length === 0 ? (
-            <EmptyState title="No import entries" description="Click “Add Entry” to record an importation for this month." />
+            <Card><CardContent className="py-6">
+              <EmptyState title="No import entries" description="Click “Add Entry” to record an importation for this month." />
+            </CardContent></Card>
           ) : (
-            <div className="space-y-2">
-              {importRows.map((r, i) => (
-                <div key={r.id} className="grid grid-cols-12 gap-2 items-center p-3 rounded-lg border border-slate-200 dark:border-slate-700">
-                  <div className="col-span-1"><Input placeholder="Entry No." value={r.entryNo} disabled={isMonthFiled} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, entryNo: e.target.value } : x))} /></div>
-                  <div className="col-span-2"><Input type="date" value={r.assessDate} disabled={isMonthFiled} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, assessDate: e.target.value } : x))} /></div>
-                  <div className="col-span-2"><Input placeholder="Registered name" value={r.registeredName} disabled={isMonthFiled} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, registeredName: e.target.value } : x))} /></div>
-                  <div className="col-span-1"><Input placeholder="Country" value={r.country} disabled={isMonthFiled} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, country: e.target.value } : x))} /></div>
-                  <div className="col-span-1"><Input type="number" placeholder="Dutiable" value={r.dutiableValue || ''} disabled={isMonthFiled} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, dutiableValue: Number(e.target.value) } : x))} /></div>
-                  <div className="col-span-1"><Input type="number" placeholder="Charges" value={r.charges || ''} disabled={isMonthFiled} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, charges: Number(e.target.value) } : x))} /></div>
-                  <div className="col-span-1"><Input type="number" placeholder="VAT" value={r.vat || ''} disabled={isMonthFiled} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, vat: Number(e.target.value) } : x))} /></div>
-                  <div className="col-span-1"><Input placeholder="OR No." value={r.orNumber} disabled={isMonthFiled} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, orNumber: e.target.value } : x))} /></div>
-                  <div className="col-span-1"><Input type="date" value={r.vatPaymentDate} disabled={isMonthFiled} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, vatPaymentDate: e.target.value } : x))} /></div>
-                  <button onClick={() => updateImportRows(importRows.filter((_, xi) => xi !== i))} disabled={isMonthFiled} className="col-span-1 text-slate-400 hover:text-red-500 flex justify-center disabled:opacity-40 disabled:cursor-not-allowed"><Trash2 className="w-4 h-4" /></button>
-                </div>
-              ))}
+            <div className="space-y-3">
+              {importRows.map((r, i) => {
+                const set = (patch: Partial<ImportRow>) => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, ...patch } : x));
+                return (
+                  <Card key={r.id}><CardContent className="py-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold uppercase tracking-wide text-slate-400">Entry #{i + 1}</span>
+                      <button onClick={() => updateImportRows(importRows.filter((_, xi) => xi !== i))} disabled={isMonthFiled} aria-label={`Delete entry ${i + 1}`}
+                        className="flex items-center gap-1 text-xs text-slate-400 hover:text-red-500 disabled:opacity-40 disabled:cursor-not-allowed"><Trash2 className="w-4 h-4" /> Remove</button>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                      <Field label="Import Entry No."><Input value={r.entryNo} disabled={isMonthFiled} onChange={e => set({ entryNo: e.target.value })} /></Field>
+                      <Field label="Assessment Date"><Input type="date" value={r.assessDate} disabled={isMonthFiled} onChange={e => set({ assessDate: e.target.value })} /></Field>
+                      <Field label="Seller / Registered Name"><Input value={r.registeredName} disabled={isMonthFiled} onChange={e => set({ registeredName: e.target.value })} /></Field>
+                      <Field label="Country of Origin"><Input value={r.country} disabled={isMonthFiled} onChange={e => set({ country: e.target.value })} /></Field>
+                      <Field label="Dutiable Value (₱)"><Input type="number" value={r.dutiableValue || ''} disabled={isMonthFiled} onChange={e => set({ dutiableValue: Number(e.target.value) })} /></Field>
+                      <Field label="Charges Before Release (₱)"><Input type="number" value={r.charges || ''} disabled={isMonthFiled} onChange={e => set({ charges: Number(e.target.value) })} /></Field>
+                      <Field label="VAT Paid (₱)"><Input type="number" value={r.vat || ''} disabled={isMonthFiled} onChange={e => set({ vat: Number(e.target.value) })} /></Field>
+                      <Field label="OR Number"><Input value={r.orNumber} disabled={isMonthFiled} onChange={e => set({ orNumber: e.target.value })} /></Field>
+                      <Field label="VAT Payment Date"><Input type="date" value={r.vatPaymentDate} disabled={isMonthFiled} onChange={e => set({ vatPaymentDate: e.target.value })} /></Field>
+                    </div>
+                  </CardContent></Card>
+                );
+              })}
             </div>
           )}
-        </CardContent></Card>
+        </div>
       )}
 
 
@@ -1220,7 +1291,7 @@ export function Relief() {
       )}
 
       <p className="text-xs text-slate-400 text-center">
-        Exported .DAT mirrors BIR Relief-generated samples: quoted header with totals + RDO + tax-month end date + fiscal year-end month, then <code>D,S,</code> / <code>D,P,</code> detail lines (zero amounts as <code>0</code>).
+        “Export .DAT” creates the file you upload to the BIR RELIEF validation module for {activeTab.label} · {periodLabel}.
       </p>
     </div>
   );
