@@ -80,6 +80,7 @@ export function Extras() {
   const [isNewClient, setIsNewClient] = useState(false);
   const [birCorFile, setBirCorFile] = useState<File | null>(null);
   const [birCorExtraction, setBirCorExtraction] = useState<BirCorExtractionResult | null>(null);
+  const [birFormInput, setBirFormInput] = useState('');
   const [birCorStatus, setBirCorStatus] = useState<string | null>(null);
   const [birCorError, setBirCorError] = useState<string | null>(null);
   const isBirCorBusy = !!birCorStatus && (birCorStatus.includes('Starting') || birCorStatus.includes('Reading') || birCorStatus.includes('Preparing') || birCorStatus.includes('%') || birCorStatus.includes('switching to OCR'));
@@ -681,6 +682,38 @@ export function Extras() {
               </div>
 
               <div className="mb-4">
+                <label className="form-label">Additional BIR / eBIR Forms (optional):</label>
+                <div className="flex gap-2 mb-2">
+                  <input
+                    type="text"
+                    value={birFormInput}
+                    onChange={e => setBirFormInput(e.target.value.toUpperCase())}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const code = birFormInput.trim();
+                        if (code) { setEditingClient(current => current ? { ...current, additionalBirForms: [...(current.additionalBirForms || []), code] } : current); setBirFormInput(''); }
+                      }
+                    }}
+                    placeholder="e.g. 1702MX, 2000, 1604-F"
+                    className="form-input flex-1 font-mono"
+                  />
+                  <button type="button" onClick={() => { const code = birFormInput.trim(); if (code) { setEditingClient(current => current ? { ...current, additionalBirForms: [...(current.additionalBirForms || []), code] } : current); setBirFormInput(''); } }} className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded">Add</button>
+                </div>
+                {(editingClient.additionalBirForms || []).length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {(editingClient.additionalBirForms || []).map(code => (
+                      <span key={code} className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-200 rounded text-xs font-mono font-bold">
+                        {code}
+                        <button type="button" onClick={() => setEditingClient(current => current ? { ...current, additionalBirForms: (current.additionalBirForms || []).filter(c => c !== code) } : current)} className="hover:text-red-600 leading-none">×</button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <p className="text-[10px] text-slate-400 mt-1">Forms added here always appear as applicable in the eBIRForms page, alongside the forms auto-detected from your taxpayer classification, VAT type, and income-tax regime.</p>
+              </div>
+
+              <div className="mb-4">
                 <label className="form-label">Industry / Business Type:</label>
                 <select
                   value={editingClient.industry || DEFAULT_INDUSTRY}
@@ -1270,6 +1303,73 @@ export function Extras() {
                     )}
                   </select>
                 </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 mb-4">
+                <div className="sm:col-span-4">
+                  <label className="form-label">EOPT Taxpayer Size Tier (RA 11976):</label>
+                  <select value={editingBusiness.taxpayerTier || ''} onChange={e => setEditingBusiness({ ...editingBusiness, taxpayerTier: (e.target.value || undefined) as any })} className="form-input">
+                    <option value="">Auto-detect from Gross Sales</option>
+                    <option value="micro">Micro Taxpayer (&lt; ₱3M)</option>
+                    <option value="small">Small Taxpayer (₱3M to &lt; ₱20M)</option>
+                    <option value="medium">Medium Taxpayer (₱20M to &lt; ₱1B)</option>
+                    <option value="large">Large Taxpayer (≥ ₱1B)</option>
+                  </select>
+                </div>
+                <div className="sm:col-span-4">
+                  <label className="form-label">Deduction Method:</label>
+                  <select value={editingBusiness.deductionMethod || ''} onChange={e => setEditingBusiness({ ...editingBusiness, deductionMethod: (e.target.value || undefined) as any })} className="form-input">
+                    <option value="">Follow Selected Regime</option>
+                    <option value="itemized">Itemized Deductions</option>
+                    <option value="osd_40">40% Optional Standard Deduction (OSD)</option>
+                    {editingBusiness.incomeTaxRegime === '8_percent_flat' && editingBusiness.vatRegistrationType === 'non-vat' && (
+                      <option value="none_8_percent">No Deduction (8% Flat Gross Tax Base)</option>
+                    )}
+                  </select>
+                </div>
+                <div className="sm:col-span-4">
+                  <label className="form-label">Percentage Tax Rate (2551Q):</label>
+                  <select value={editingBusiness.percentageTaxRate !== undefined ? String(editingBusiness.percentageTaxRate) : ''} onChange={e => setEditingBusiness({ ...editingBusiness, percentageTaxRate: e.target.value === '' ? undefined : Number(e.target.value) })} disabled={editingBusiness.vatRegistrationType !== 'non-vat'} className="form-input disabled:opacity-50">
+                    <option value="">Default (3% or 0% if 8% Flat)</option>
+                    <option value="0.03">3% Standard Non-VAT (Sec. 116)</option>
+                    <option value="0.01">1% Concessional Rate (CREATE)</option>
+                    <option value="0.02">2% Special Percentage Tax</option>
+                    <option value="0.05">5% Gross Receipts Tax</option>
+                    <option value="0">0% Exempt (8% Flat / Exempt)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="mb-4">
+                <label className="form-label">Additional BIR / eBIR Forms (optional):</label>
+                <div className="flex gap-2 mb-2">
+                  <input
+                    type="text"
+                    value={birFormInput}
+                    onChange={e => setBirFormInput(e.target.value.toUpperCase())}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const code = birFormInput.trim();
+                        if (code) { setEditingBusiness(current => current ? { ...current, additionalBirForms: [...(current.additionalBirForms || []), code] } : current); setBirFormInput(''); }
+                      }
+                    }}
+                    placeholder="e.g. 1702MX, 2000, 1604-F"
+                    className="form-input flex-1 font-mono"
+                  />
+                  <button type="button" onClick={() => { const code = birFormInput.trim(); if (code) { setEditingBusiness(current => current ? { ...current, additionalBirForms: [...(current.additionalBirForms || []), code] } : current); setBirFormInput(''); } }} className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded">Add</button>
+                </div>
+                {(editingBusiness.additionalBirForms || []).length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {(editingBusiness.additionalBirForms || []).map(code => (
+                      <span key={code} className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-200 rounded text-xs font-mono font-bold">
+                        {code}
+                        <button type="button" onClick={() => setEditingBusiness(current => current ? { ...current, additionalBirForms: (current.additionalBirForms || []).filter(c => c !== code) } : current)} className="hover:text-red-600 leading-none">×</button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <p className="text-[10px] text-slate-400 mt-1">Forms added here always appear as applicable in the eBIRForms page, alongside the forms auto-detected from your taxpayer classification, VAT type, and income-tax regime.</p>
               </div>
 
               <div className="mb-4">

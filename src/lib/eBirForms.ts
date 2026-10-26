@@ -322,6 +322,7 @@ export function getApplicableEBirForms(
     hasEmployees?: boolean;
     isTopWithholdingAgent?: boolean;
     industry?: string;
+    additionalBirForms?: string[];
   } | null | undefined,
   options: { includeAdhoc?: boolean } = {}
 ): ApplicableFormsResult {
@@ -368,6 +369,27 @@ export function getApplicableEBirForms(
   const order: Record<string, number> = { income: 0, vat: 1, percentage: 2, withholding: 3, payment: 4, excise: 5, capital: 6, transfer: 7 };
   routine.sort((a, b) => (order[a.category] ?? 9) - (order[b.category] ?? 9) || a.id.localeCompare(b.id));
   adhoc.sort((a, b) => (order[a.category] ?? 9) - (order[b.category] ?? 9) || a.id.localeCompare(b.id));
+
+  // User-added additional BIR forms (from Client / Business Information page)
+  // always appear as applicable — even if the eligibility filter would hide them.
+  const extraCodes = (profile?.additionalBirForms || []).map(c => String(c).trim().toUpperCase()).filter(Boolean);
+  if (extraCodes.length) {
+    const extraSet = new Set(extraCodes);
+    const inRoutine = new Set(routine.map(f => f.id.toUpperCase()));
+    for (const f of EBIR_FORMS) {
+      if (extraSet.has(f.id.toUpperCase()) && !inRoutine.has(f.id.toUpperCase())) {
+        routine.push(f);
+        inRoutine.add(f.id.toUpperCase());
+      }
+    }
+    for (const code of extraCodes) {
+      if (!inRoutine.has(code)) {
+        routine.push({ id: code, title: `BIR Form ${code} (user-added)`, period: 'adhoc', category: 'payment' });
+        inRoutine.add(code);
+      }
+    }
+    routine.sort((a, b) => (order[a.category] ?? 9) - (order[b.category] ?? 9) || a.id.localeCompare(b.id));
+  }
 
   return { routine, adhoc, hidden };
 }

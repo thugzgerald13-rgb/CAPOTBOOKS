@@ -187,6 +187,7 @@ export interface Client {
   incomeTaxRegime?: IncomeTaxRegime;
   deductionMethod?: DeductionMethod;
   percentageTaxRate?: number; // e.g., 0.03 (3%), 0.01 (1%), 0.02 (2%), 0.05 (5%), 0 (Exempt under 8% Flat)
+  additionalBirForms?: string[]; // user-added extra BIR/eBIR form codes to show as applicable
   hasEmployees?: boolean;
   isTopWithholdingAgent?: boolean;
   totalAssetsExcludingLand?: number;
@@ -376,6 +377,7 @@ export interface BusinessProfile {
   incomeTaxRegime?: IncomeTaxRegime;
   deductionMethod?: DeductionMethod;
   percentageTaxRate?: number;
+  additionalBirForms?: string[]; // user-added extra BIR/eBIR form codes to show as applicable
   hasEmployees?: boolean;
   isTopWithholdingAgent?: boolean;
   totalAssetsExcludingLand?: number;

@@ -277,7 +277,7 @@ const SNAPSHOTS_COLUMNS = 'report_type,data';
 // `tax_id`, `created_at`, and `updated_at` columns that nothing here reads.
 // select('*') was shipping all of that on every client-list load and on
 // every single realtime row refresh. Project only what's mapped below.
-const CLIENTS_LIST_COLUMNS = 'id,name,tin,taxpayer_classification,registered_name,last_name,first_name,middle_name,trade_name,substreet,street,barangay,district,city,zip_code,rdo_code,phone,email,category,has_multiple_business_lines,accounting_type,fiscal_month_end,coa_format,industry,vat_registration_type,taxpayer_sub_classification,taxpayer_tier,income_tax_regime,deduction_method,percentage_tax_rate';
+const CLIENTS_LIST_COLUMNS = 'id,name,tin,taxpayer_classification,registered_name,last_name,first_name,middle_name,trade_name,substreet,street,barangay,district,city,zip_code,rdo_code,phone,email,category,has_multiple_business_lines,accounting_type,fiscal_month_end,coa_format,industry,vat_registration_type,taxpayer_sub_classification,taxpayer_tier,income_tax_regime,deduction_method,percentage_tax_rate,additional_bir_forms';
 
 // ---------------------------------------------------------------------------
 // Incremental ("delta") sync for the highest-volume, most-frequently-edited
@@ -569,7 +569,7 @@ const persistNormalizedClient = async (client: Client, userId: string, options: 
     zip_code:client.zipCode||null,rdo_code:client.rdoCode||null,phone:client.phone||null,email:client.email||null,
     category:client.category||'private',has_multiple_business_lines:!!client.hasMultipleBusinessLines,
     accounting_type:client.accountingType||'Calendar',fiscal_month_end:client.fiscalMonthEnd||12,
-    coa_format:client.coaFormat||'numeric',industry:client.industry||'general-services',vat_registration_type:client.vatRegistrationType||null,taxpayer_sub_classification:client.taxpayerSubClassification||null,taxpayer_tier:client.taxpayerTier||null,income_tax_regime:client.incomeTaxRegime||null,deduction_method:client.deductionMethod||null,percentage_tax_rate:client.percentageTaxRate??null,updated_at:new Date().toISOString()
+    coa_format:client.coaFormat||'numeric',industry:client.industry||'general-services',vat_registration_type:client.vatRegistrationType||null,taxpayer_sub_classification:client.taxpayerSubClassification||null,taxpayer_tier:client.taxpayerTier||null,income_tax_regime:client.incomeTaxRegime||null,deduction_method:client.deductionMethod||null,percentage_tax_rate:client.percentageTaxRate??null,additional_bir_forms:client.additionalBirForms||[],updated_at:new Date().toISOString()
   };
   const { error: parentError } = await supabase.from('clients').upsert(parent,{onConflict:'id'});
   if (parentError) throw parentError;
@@ -797,6 +797,7 @@ export function AccountingProvider({
           incomeTaxRegime: row.income_tax_regime || undefined,
           deductionMethod: row.deduction_method || undefined,
           percentageTaxRate: row.percentage_tax_rate ?? undefined,
+          additionalBirForms: Array.isArray(row.additional_bir_forms) ? row.additional_bir_forms : [],
           tinLibrary: normalized.tinLibrary ?? {customers:[], suppliers:[]},
           sales: normalized.sales ?? [], purchases: normalized.purchases ?? [], expenses: purchasesToExpenses(normalized.purchases ?? []),
           ...(normalized as any)
@@ -1033,6 +1034,7 @@ export function AccountingProvider({
             incomeTaxRegime: row.income_tax_regime || undefined,
             deductionMethod: row.deduction_method || undefined,
             percentageTaxRate: row.percentage_tax_rate ?? undefined,
+            additionalBirForms: Array.isArray(row.additional_bir_forms) ? row.additional_bir_forms : [],
             tinLibrary: normalized.tinLibrary ?? {customers:[], suppliers:[]}, sales: normalized.sales ?? [], purchases: normalized.purchases ?? [], expenses: purchasesToExpenses(normalized.purchases ?? []), ...(normalized as any) } as Client;
           return [row.id, client] as const;
         }));
@@ -1243,7 +1245,8 @@ export function AccountingProvider({
                       taxpayerTier: row.taxpayer_tier || undefined,
                       incomeTaxRegime: row.income_tax_regime || undefined,
                       deductionMethod: row.deduction_method || undefined,
-                      percentageTaxRate: row.percentage_tax_rate ?? undefined
+                      percentageTaxRate: row.percentage_tax_rate ?? undefined,
+                      additionalBirForms: Array.isArray(row.additional_bir_forms) ? row.additional_bir_forms : []
                     } as Client };
                   });
                 });
@@ -1841,6 +1844,7 @@ export function AccountingProvider({
       income_tax_regime: clientData.incomeTaxRegime || null,
       deduction_method: clientData.deductionMethod || null,
       percentage_tax_rate: clientData.percentageTaxRate ?? null,
+      additional_bir_forms: clientData.additionalBirForms || [],
       updated_at: new Date().toISOString(),
     };
     const { error } = await supabase.from('clients').upsert(row, { onConflict: 'id' });
