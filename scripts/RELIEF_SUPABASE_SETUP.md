@@ -15,9 +15,10 @@ The feature does **not** update purchase transactions, supplier records, sales, 
 
 1. Open the Supabase project used by CAPOTBOOKS.
 2. In SQL Editor, confirm the existing core schema and `public.can_access_client_operation(text, text)` helper are already installed. The usual prerequisites are `scripts/schema.sql` and `scripts/client_specific_permissions.sql`.
-3. Run `scripts/relief_supabase_migration.sql`.
-4. Deploy the web app containing the changed `src/components/Relief.tsx`.
-5. Sign in, choose a business/client profile, open **BIR RELIEF**, and confirm the cloud status reports that data was loaded from Supabase.
+3. For a new installation, run `scripts/relief_supabase_migration.sql`.
+4. For an existing installation that reports SQLSTATE `23514` with constraint `relief_records_type_check` when saving transfers or filing a month, run `scripts/relief_records_type_constraint_fix.sql` in the Supabase SQL Editor. This explicitly updates the constraint on the already-created table; rerunning `CREATE TABLE IF NOT EXISTS` alone cannot do that.
+5. Deploy the web app containing the changed `src/components/Relief.tsx`.
+6. Sign in, choose a business/client profile, open **BIR RELIEF**, and verify that a transfer within the same calendar year saves and remains after refresh.
 
 The migration is repeatable. Do not run it before the `clients` table and permission helper exist.
 

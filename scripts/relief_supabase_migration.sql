@@ -16,7 +16,7 @@ create table if not exists public.relief_records (
   updated_at timestamptz not null default now(),
   constraint relief_records_pkey primary key (client_id, record_type, record_id),
   constraint relief_records_type_check check (
-    record_type in ('purchase_transfer', 'importation', 'settings', 'audit')
+    record_type in ('purchase_transfer', 'importation', 'settings', 'filed', 'audit')
   ),
   constraint relief_records_data_object check (jsonb_typeof(data) = 'object'),
   constraint relief_records_record_id_not_empty check (length(trim(record_id)) > 0)
