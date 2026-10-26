@@ -1052,6 +1052,123 @@ function onlyPostableUploadedAccounts(imported: CoaAccount[], fixedAccounts: Coa
   });
 }
 
+// --- PPE contra-account (Accumulated Depreciation) auto-creation + lapsing schedule auto-population ---
+const PPE_GROUP_RE = /property.*plant.*equip/i;
+const LAND_RE = /(^|\s)land(\s|$)/i;
+const ACCUM_DEP_RE = /accumulated\s*dep/i;
+
+/** Find the Property, Plant & Equipment group account id in the fixed chart. */
+function findPpeGroupId(fixedAccounts: CoaAccount[]): string | undefined {
+  return fixedAccounts.find(a => PPE_GROUP_RE.test(a.name))?.id;
+}
+
+/** Default useful life (years) by asset name. Land returns 0 (nondepreciable). */
+function defaultUsefulLifeYears(name: string): number {
+  const n = name.toLowerCase();
+  if (LAND_RE.test(n) || n.trim() === 'land') return 0;
+  if (/building|warehouse|bldg/.test(n)) return 25;
+  if (/vehicle|transport|car|motor|truck|van|service vehicle/.test(n)) return 5;
+  if (/machinery|machine|equipment|equip|factory/.test(n)) return 10;
+  if (/furniture|fixture/.test(n)) return 5;
+  if (/software|computer|laptop|it equipment/.test(n)) return 3;
+  return 5;
+}
+
+/**
+ * Auto-add an "Accumulated Depreciation - <Asset>" contra-account for every
+ * uploaded PPE postable account (except Land, which is nondepreciable). If an
+ * account with that name already exists in the upload (or fixed chart), it is
+ * reused (no duplicate). Contra accounts are credit-normal, under the same PPE group.
+ */
+function withPpeContraAccounts(accounts: CoaAccount[], fixedAccounts: CoaAccount[]): { accounts: CoaAccount[]; contraAdded: number } {
+  const ppeGroupId = findPpeGroupId(fixedAccounts);
+  if (!ppeGroupId) return { accounts, contraAdded: 0 };
+  const existingNames = new Set(
+    [...accounts, ...fixedAccounts].map(a => a.name.trim().toLowerCase())
+  );
+  const added: CoaAccount[] = [];
+  let counter = 0;
+  for (const account of accounts) {
+    if (String(account.parentId) !== String(ppeGroupId)) continue;
+    if (account.type !== 'Asset') continue;
+    if (ACCUM_DEP_RE.test(account.name)) continue;            // already a contra
+    if (defaultUsefulLifeYears(account.name) === 0) continue;  // Land — nondepreciable
+    const contraName = `Accumulated Depreciation - ${account.name.trim()}`;
+    if (existingNames.has(contraName.toLowerCase())) continue;
+    existingNames.add(contraName.toLowerCase());
+    added.push({
+      id: `__ppe_contra_${++counter}`,
+      name: contraName,
+      type: 'Asset',
+      normalSide: 'credit',
+      parentId: ppeGroupId,
+    });
+  }
+  return { accounts: added.length ? [...accounts, ...added] : accounts, contraAdded: added.length };
+}
+
+/** Solve a purchase date so straight-line accumulated depreciation at `asOfISO` equals adOpening. */
+function solvePurchaseDate(cost: number, adOpening: number, lifeYears: number, salvage: number, asOfISO: string): string {
+  const depreciable = Math.max(0, (cost || 0) - (salvage || 0));
+  const life = Math.max(1, lifeYears || 5);
+  if (adOpening <= 0 || depreciable <= 0) return asOfISO; // acquired this period
+  const monthly = depreciable / (life * 12);
+  let months = Math.round(adOpening / monthly);
+  months = Math.max(0, Math.min(months, life * 12 - 1));
+  const asOf = new Date(asOfISO + 'T00:00:00');
+  const purchase = new Date(asOf.getFullYear(), asOf.getMonth() - months, 1);
+  return purchase.toISOString().split('T')[0];
+}
+
+/**
+ * Build AssetLapsingEntry rows from the saved PPE postable accounts + their
+ * Accumulated Depreciation contra-accounts. cost = PPE opening balance; the
+ * purchase date is solved so computed accumulated depreciation matches the
+ * contra-account's opening balance. Merged with existing entries (no dupes).
+ */
+function buildLapsingEntriesFromPpe(
+  postableAccounts: CoaAccount[],
+  hierarchyAccounts: CoaAccount[],
+  existingEntries: Array<{ id: string; description: string }> = []
+): Array<{ id: string; datePurchased: string; invoiceNo: string; description: string; cost: number; usefulLifeYears: number; salvageValue: number }> {
+  const ppeGroupIds = new Set(
+    hierarchyAccounts.filter(a => PPE_GROUP_RE.test(a.name)).map(a => String(a.id))
+  );
+  const ppeAccounts = postableAccounts.filter(a => {
+    if (a.type !== 'Asset' || ACCUM_DEP_RE.test(a.name)) return false;
+    if (defaultUsefulLifeYears(a.name) === 0) return false;
+    let pid: string | undefined = a.parentId;
+    for (let guard = 0; pid && guard < 10; guard++) {
+      if (ppeGroupIds.has(String(pid))) return true;
+      pid = hierarchyAccounts.find(h => String(h.id) === String(pid))?.parentId;
+    }
+    return false;
+  });
+  if (!ppeAccounts.length) return [];
+  const startOfYear = `${new Date().getFullYear()}-01-01`;
+  const existingDescs = new Set(existingEntries.map(e => e.description.trim().toLowerCase()));
+  const entries: ReturnType<typeof buildLapsingEntriesFromPpe> = [];
+  for (const ppe of ppeAccounts) {
+    if (existingDescs.has(ppe.name.trim().toLowerCase())) continue;
+    const contra = postableAccounts.find(a =>
+      ACCUM_DEP_RE.test(a.name) && a.name.toLowerCase().includes(ppe.name.trim().toLowerCase())
+    );
+    const cost = Number(ppe.openingBalance ?? 0);
+    const adOpening = Number(contra?.openingBalance ?? 0);
+    const life = defaultUsefulLifeYears(ppe.name);
+    entries.push({
+      id: typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `ppe-${Date.now()}-${ppe.id}`,
+      datePurchased: solvePurchaseDate(cost, adOpening, life, 0, startOfYear),
+      invoiceNo: '',
+      description: ppe.name,
+      cost,
+      usefulLifeYears: life,
+      salvageValue: 0,
+    });
+  }
+  return entries;
+}
+
 /** Remove business-type annotations from the four cost-section account titles.
  * The suffix remains in COA-CATEGORY.txt for selecting the correct business type.
  */
@@ -1098,7 +1215,7 @@ export function ChartOfAccounts() {
     { value: 'Other Expense', permission: 'expense' },
   ].filter((option) => canCoaDropdown('account_type', option.permission));
 
-  const { currentClient, currentClientId, saveCoaAccounts, saveCoaColumns, showToast } = useAccounting();
+  const { currentClient, currentClientId, saveCoaAccounts, saveCoaColumns, saveAssetLapsingSchedule, showToast } = useAccounting();
   const [isAdding, setIsAdding] = useState(false);
   const [typeFilter, setTypeFilter] = useState('All');
   const [hierarchyMode, setHierarchyMode] = useState(false);
@@ -1788,6 +1905,12 @@ export function ChartOfAccounts() {
           parentId: fixedHierarchyParent(normalizedAccount, fixedAccounts, resolveCoaTemplateBusinessType(currentClient?.industry)),
         };
       });
+      // Auto-add an Accumulated Depreciation contra-account for every uploaded
+      // PPE postable account (except Land, which is nondepreciable).
+      const contraResult = withPpeContraAccounts(analysis.accounts, fixedAccounts);
+      analysis.accounts = contraResult.accounts;
+      if (contraResult.contraAdded > 0) analysis.generatedCodes = (analysis.generatedCodes || 0) + contraResult.contraAdded;
+
       if (analysis.accounts.length === 0) {
         alert('No postable account titles were detected. Upload a file with detail/posting accounts; the fixed COA hierarchy is supplied automatically.');
         return;
@@ -1911,11 +2034,25 @@ export function ChartOfAccounts() {
     const saved = await handleSaveAccounts([...keptBase, ...uniqueFinalAccounts]);
     if (!saved) return;
 
+    // Auto-populate the asset lapsing schedule from uploaded PPE accounts +
+    // their Accumulated Depreciation contra-account opening balances.
+    let lapsingAdded = 0;
+    try {
+      const lapsingEntries = buildLapsingEntriesFromPpe(uniqueFinalAccounts, keptBase, currentClient?.assetLapsingSchedule || []);
+      lapsingAdded = lapsingEntries.length;
+      if (lapsingAdded > 0 && saveAssetLapsingSchedule) {
+        await saveAssetLapsingSchedule([...(currentClient?.assetLapsingSchedule || []), ...lapsingEntries]);
+      }
+    } catch (err) {
+      console.warn('Lapsing schedule auto-populate failed:', err);
+    }
+
     const notes = [
       analysis?.generatedCodes ? `${analysis.generatedCodes} detected/generated code${analysis.generatedCodes === 1 ? '' : 's'}` : '',
       analysis?.inferredTypes ? `${analysis.inferredTypes} type${analysis.inferredTypes === 1 ? '' : 's'} inferred` : '',
       analysis?.detectedOpeningBalances ? `${analysis.detectedOpeningBalances} opening balance${analysis.detectedOpeningBalances === 1 ? '' : 's'} detected` : '',
       analysis?.skipped ? `${analysis.skipped} row${analysis.skipped === 1 ? '' : 's'} skipped` : '',
+      lapsingAdded ? `${lapsingAdded} PPE asset${lapsingAdded === 1 ? '' : 's'} added to lapsing schedule` : '',
     ].filter(Boolean).join(' • ');
 
     showToast(`${overwrite ? 'Chart of Accounts replaced with' : 'Uploaded'} ${uniqueFinalAccounts.length} postable account${uniqueFinalAccounts.length === 1 ? '' : 's'}${notes ? ` • ${notes}` : ''}.`);
@@ -2511,7 +2648,7 @@ export function ChartOfAccounts() {
               <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 dark:border-blue-900/50 dark:bg-blue-950/20 p-3 text-xs text-blue-800 dark:text-blue-200">
                 <div className="font-bold mb-1">Smart import</div>
                 <div>{pendingUploadAnalysis.detectedColumns.join(' • ')}</div>
-                <div className="mt-1">The default hierarchy is fixed for this taxpayer classification and business type. Only postable/detail accounts from the uploaded file are added; each is assigned to the deepest matching default category, which you can change below. Uploaded headings and group rows do not replace the fixed format.</div>
+                <div className="mt-1">The default hierarchy is fixed for this taxpayer classification and business type. Only postable/detail accounts from the uploaded file are added; each is assigned to the deepest matching default category, which you can change below. Uploaded headings and group rows do not replace the fixed format. PPE asset accounts automatically get an <b>Accumulated Depreciation</b> contra-account (except Land, which is nondepreciable), and their opening balances — together with the contra opening balance — automatically populate the asset lapsing schedule.</div>
               </div>
 
               <div className="mb-4 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50 dark:bg-indigo-950/20 p-3">
