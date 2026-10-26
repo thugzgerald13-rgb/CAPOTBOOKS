@@ -1027,13 +1027,25 @@ function fixedHierarchyParent(account: CoaAccount, fixedAccounts: CoaAccount[], 
   return fallback?.id;
 }
 
+// Statement-section (1st hierarchy) headings — never postable. 2nd/3rd hierarchy
+// headings (e.g. DIRECT MATERIALS, a Manufacturing default) ARE still importable
+// when uploaded by another business type; fixedHierarchyParent places them where
+// they belong based on the client's own business type.
+const STATEMENT_SECTION_KEYS = new Set(
+  (['Individual', 'Non-Individual'] as const).flatMap(cls =>
+    (Object.keys(COA_TEMPLATE_GROUPS) as CoaTemplateBusinessType[]).flatMap(bt =>
+      getCoaCategoryNodes(cls, bt).filter(n => n.depth === 0).map(n => categoryTitleKey(n.title))
+    )
+  )
+);
 function onlyPostableUploadedAccounts(imported: CoaAccount[], fixedAccounts: CoaAccount[]): CoaAccount[] {
-  const fixedNames = new Set([...FIXED_COA_GROUP_TITLES].map(fixedTitleKey));
   const parentIds = new Set(imported.map(a => a.parentId).filter(Boolean));
   return imported.filter(account => {
-    const key = fixedTitleKey(account.name);
-    // Fixed-format hierarchy headings are never imported as posting accounts.
-    if (fixedNames.has(key) || isCostHierarchyHeading(account.name)) return false;
+    // Only statement-section (1st hierarchy) headings and cost-section headers are
+    // non-postable. An account title that happens to be a default 2nd/3rd hierarchy
+    // heading of another business type is NOT blocked — it is imported and placed
+    // where it belongs under the client's business type.
+    if (STATEMENT_SECTION_KEYS.has(categoryTitleKey(account.name)) || isCostHierarchyHeading(account.name)) return false;
     // When the file has no explicit Postable column, a row with children is a group, not a posting account.
     if (parentIds.has(account.id)) return false;
     return true;
@@ -1097,6 +1109,7 @@ export function ChartOfAccounts() {
   const [newType, setNewType] = useState('Asset');
   const [newNormalSide, setNewNormalSide] = useState<'debit' | 'credit'>('debit');
   const [newParentId, setNewParentId] = useState('');
+  const [newAccountKind, setNewAccountKind] = useState<'postable' | 'group'>('postable');
 
   // Custom Columns / Category States
   const [showColumnManager, setShowColumnManager] = useState(false);
@@ -1408,10 +1421,14 @@ export function ChartOfAccounts() {
     resolveCoaTemplateBusinessType(currentClient?.industry),
     accounts
   );
-  const lockedHierarchyIds = new Set(hierarchyCategoryOptions.filter(option => option.depth <= 2).map(option => option.id));
-  const undeletableHierarchyIds = new Set(hierarchyCategoryOptions.filter(option => option.depth <= 1).map(option => option.id));
-  const FIXED_HIERARCHY_MESSAGE = 'This account is part of the fixed 1st–3rd hierarchy and cannot be edited or moved (3rd-level groups can be deleted).';
-  const FIXED_HIERARCHY_NO_DELETE_MESSAGE = 'The 1st and 2nd hierarchy levels are fixed and cannot be deleted.';
+  // Only the 1st hierarchy level (statement section: ASSETS, LIABILITIES, ...) is
+  // fixed. Users can add, edit, rename and delete 2nd & 3rd hierarchy groups and any
+  // postable account — only the default FORMAT is inherited, not the account titles.
+  const hierarchyNodeIds = new Set(hierarchyCategoryOptions.map(option => option.id));
+  const lockedHierarchyIds = new Set(hierarchyCategoryOptions.filter(option => option.depth <= 0).map(option => option.id));
+  const undeletableHierarchyIds = new Set(hierarchyCategoryOptions.filter(option => option.depth <= 0).map(option => option.id));
+  const FIXED_HIERARCHY_MESSAGE = 'Only the 1st hierarchy level (statement section) is fixed. 2nd & 3rd hierarchy groups and postable accounts can be edited, moved, added and deleted.';
+  const FIXED_HIERARCHY_NO_DELETE_MESSAGE = 'The 1st hierarchy level (statement section) is fixed and cannot be deleted. 2nd & 3rd hierarchy groups can be deleted.';
 
   // Category choices for the upload review: the COA-CATEGORY.txt hierarchy for this
   // taxpayer classification and business type, resolved to the fixed COA's accounts.
@@ -1613,6 +1630,16 @@ export function ChartOfAccounts() {
       if (resolvedParentId) resolvedParentId = preview.mapping.get(resolvedParentId) || resolvedParentId;
     }
 
+    // A hierarchy group (2nd / 3rd level) must sit under a 1st section or 2nd level.
+    if (newAccountKind === 'group' && !resolvedParentId) {
+      alert('A hierarchy group must have a parent: pick a 1st-level section (to add a 2nd hierarchy) or a 2nd-level group (to add a 3rd hierarchy).');
+      return;
+    }
+    // 2nd-level groups (under a 1st section) follow the default convention of being
+    // NO-AMOUNT headers; 3rd-level groups (under a 2nd level) show a rollup total.
+    const isGroupHeader = newAccountKind === 'group' && resolvedParentId
+      && /^\d{6}$/.test(String(resolvedParentId)) && Number(resolvedParentId) % 100000 === 0;
+
     // Add custom fields
     const customFields: Record<string, any> = {};
     Object.keys(newCustomValues).forEach(key => {
@@ -1625,6 +1652,7 @@ export function ChartOfAccounts() {
       type: newType, 
       normalSide: newNormalSide,
       parentId: resolvedParentId,
+      ...(isGroupHeader ? { isHeader: true } : {}),
       ...customFields
     }];
     // Only close the dialog and clear the form once the account has actually
@@ -1639,6 +1667,7 @@ export function ChartOfAccounts() {
     setNewType('Asset');
     setNewNormalSide('debit');
     setNewParentId('');
+    setNewAccountKind('postable');
     setNewCustomValues({});
   };
 
@@ -1898,9 +1927,9 @@ export function ChartOfAccounts() {
     const hasChildren = accounts.some(a => a.parentId === id);
     // Auto-close the gap: if this account sat evenly between two neighbors, shift
     // every later code in its group down by one step (safe — collisions abort).
-    // Deleting a fixed 3rd-level group must not renumber the other hierarchy codes,
-    // so the gap-closing renumber is skipped for it.
-    const closeGap = lockedHierarchyIds.has(id)
+    // Deleting a hierarchy group (1st/2nd/3rd level) must not renumber the other
+    // hierarchy codes, so the gap-closing renumber is skipped for any hierarchy node.
+    const closeGap = hierarchyNodeIds.has(id)
       ? { accounts, renames: new Map<string, string>() }
       : shiftDownAfterDeletion(accounts, id);
     const renames = closeGap.renames;
@@ -2680,21 +2709,49 @@ export function ChartOfAccounts() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Parent Account (Optional)</label>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Account Kind</label>
+                  <select
+                    value={newAccountKind}
+                    onChange={e => setNewAccountKind(e.target.value as 'postable' | 'group')}
+                    className="w-full form-input"
+                  >
+                    <option value="postable">Postable (detail) account</option>
+                    <option value="group">Hierarchy group (2nd / 3rd level heading)</option>
+                  </select>
+                  {newAccountKind === 'group' && (
+                    <p className="text-[10px] text-slate-400 mt-1">Pick a 1st-level section as parent to add a 2nd hierarchy, or a 2nd-level group to add a 3rd hierarchy. The next available group code is suggested automatically.</p>
+                  )}
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-500 uppercase tracking-wide mb-1.5">Parent Account {newAccountKind === 'group' ? '(Required)' : '(Optional)'}</label>
                   <select
                     value={newParentId}
                     onChange={e => {
-                      setNewParentId(e.target.value);
-                      const parent = accounts.find(a => a.id === e.target.value);
+                      const pid = e.target.value;
+                      setNewParentId(pid);
+                      const parent = accounts.find(a => a.id === pid);
                       if (parent) {
                         setNewType(parent.type);
                         if (parent.normalSide) setNewNormalSide(parent.normalSide);
                       }
+                      // Auto-suggest the next hierarchy-group code (step 10000 under a
+                      // 1st section = 2nd level; step 1000 under a 2nd level = 3rd level).
+                      if (newAccountKind === 'group' && pid && /^\d{6}$/.test(pid)) {
+                        const pnum = Number(pid);
+                        const step = pnum % 100000 === 0 ? 10000 : (pnum % 10000 === 0 ? 1000 : 100);
+                        const taken = new Set(accounts.map(a => String(a.id)));
+                        let next = pnum + step;
+                        while (taken.has(String(next).padStart(6, '0'))) next += step;
+                        setNewCode(String(next).padStart(6, '0'));
+                      }
                     }}
                     className="w-full form-input"
                   >
-                    <option value="">None (Top-Level Account)</option>
-                    {parentCandidates.map(p => (
+                    <option value="">{newAccountKind === 'group' ? '— Select a parent section/group —' : 'None (Top-Level Account)'}</option>
+                    {(newAccountKind === 'group'
+                      ? parentCandidates.filter(p => { const opt = hierarchyCategoryOptions.find(o => String(o.id) === String(p.id)); return opt && opt.depth <= 1; })
+                      : parentCandidates
+                    ).map(p => (
                       <option key={p.id} value={p.id}>{displayCoaAccountName(p.name)} ({p.id})</option>
                     ))}
                   </select>
