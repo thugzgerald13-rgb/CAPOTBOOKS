@@ -253,7 +253,7 @@ const purchasesToExpenses = (purchases: any[] = []) => purchases.map((p:any) => 
 // 19 tables on every single client load, which is pure wasted PostgREST
 // egress. Each list below is exactly the set of columns actually consumed
 // further down in this function.
-const PURCHASES_COLUMNS = 'id,dat_month_year,date,payment_method,check_number,bank_name,invoice_no,supplier_name,supplier_address,supplier_tin,amount,vat_type,account_title,transaction_details,input_tax,exempt_amount,zero_rated_amount,attachment_name,attachment_type,attachment_original_type,attachment_size,attachment_original_size,attachment_compression,attachment_storage_path,withholding_option,atc_code,wht_rate,wht_amount';
+const PURCHASES_COLUMNS = 'id,dat_month_year,date,payment_method,check_number,bank_name,invoice_no,supplier_name,supplier_address,supplier_tin,amount,vat_type,account_title,transaction_details,input_tax,exempt_amount,zero_rated_amount,attachment_name,attachment_type,attachment_original_type,attachment_size,attachment_original_size,attachment_compression,attachment_storage_path,withholding_option,atc_code,wht_rate,wht_amount,created_at';
 const SALES_COLUMNS = 'id,dat_month_year,date,ref,payment_type,buyer_tin,buyer_name,buyer_address,vat_type,amount,net_of_vat,output_tax,income_type,description';
 const COA_COLUMNS_COLUMNS = 'id,name,is_system';
 const COA_ACCOUNTS_COLUMNS = 'id,name,type,normal_side,parent_id,hidden,opening_balance,custom_values';
@@ -521,7 +521,7 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
   jvlRows.forEach((r:any) => { const a=linesByVoucher.get(r.journal_voucher_id)||[]; a.push({ id:strId(r.id), accountId:r.account_id||'', accountName:r.account_name||'', debit:Number(r.debit||0), credit:Number(r.credit||0) }); linesByVoucher.set(r.journal_voucher_id,a); });
 
   const result: Partial<Client> = {
-    purchases: pRows.map((r:any) => ({ id:Number(r.id) || r.id, datMonthYear:r.dat_month_year||'', date:rowDate(r.date), paymentMethod:r.payment_method||'', checkNumber:r.check_number, bankName:r.bank_name, invoiceNo:r.invoice_no||'', supplierName:r.supplier_name||'', supplierAddress:r.supplier_address||'', supplierTin:r.supplier_tin||'', amount:Number(r.amount||0), vatType:r.vat_type||'', accountTitle:r.account_title||'', transactionDetails:r.transaction_details, inputTax:Number(r.input_tax||0), exemptAmount:Number(r.exempt_amount||0), zeroRatedAmount:Number(r.zero_rated_amount||0), attachment:r.attachment_name ? { name:r.attachment_name, type:r.attachment_type||'', originalType:r.attachment_original_type||r.attachment_type||'', size:Number(r.attachment_size||0), originalSize:Number(r.attachment_original_size||r.attachment_size||0), compression:r.attachment_compression as any, content:'', storagePath:r.attachment_storage_path } : undefined, withholdingOption:r.withholding_option as any, atcCode:r.atc_code, whtRate:r.wht_rate == null ? null : Number(r.wht_rate), whtAmount:r.wht_amount == null ? undefined : Number(r.wht_amount) })),
+    purchases: pRows.map((r:any) => ({ id:Number(r.id) || r.id, createdAt:r.created_at||undefined, datMonthYear:r.dat_month_year||'', date:rowDate(r.date), paymentMethod:r.payment_method||'', checkNumber:r.check_number, bankName:r.bank_name, invoiceNo:r.invoice_no||'', supplierName:r.supplier_name||'', supplierAddress:r.supplier_address||'', supplierTin:r.supplier_tin||'', amount:Number(r.amount||0), vatType:r.vat_type||'', accountTitle:r.account_title||'', transactionDetails:r.transaction_details, inputTax:Number(r.input_tax||0), exemptAmount:Number(r.exempt_amount||0), zeroRatedAmount:Number(r.zero_rated_amount||0), attachment:r.attachment_name ? { name:r.attachment_name, type:r.attachment_type||'', originalType:r.attachment_original_type||r.attachment_type||'', size:Number(r.attachment_size||0), originalSize:Number(r.attachment_original_size||r.attachment_size||0), compression:r.attachment_compression as any, content:'', storagePath:r.attachment_storage_path } : undefined, withholdingOption:r.withholding_option as any, atcCode:r.atc_code, whtRate:r.wht_rate == null ? null : Number(r.wht_rate), whtAmount:r.wht_amount == null ? undefined : Number(r.wht_amount) })),
     sales: sRows.map((r:any) => ({ id:Number(r.id)||r.id, datMonthYear:r.dat_month_year||'', date:rowDate(r.date), ref:r.ref||'', paymentType:r.payment_type||'', buyerTin:r.buyer_tin||'', buyerName:r.buyer_name||'', buyerAddress:r.buyer_address||'', vatType:r.vat_type||'', amount:Number(r.amount||0), netOfVat:Number(r.net_of_vat||0), outputTax:Number(r.output_tax||0), incomeType:r.income_type||'', desc:r.description||'' })),
      expenses: purchasesToExpenses(pRows),
     coaColumns: ccRows.map((r:any) => ({ id:strId(r.id), name:r.name, isSystem:!!r.is_system })),
@@ -1142,7 +1142,7 @@ export function AccountingProvider({
                 next.expenses = purchasesToExpenses(next.purchases || []);
               } else {
                 replaceRow('purchases', {
-                  id: Number(row.id) || row.id, datMonthYear: row.dat_month_year || '', date: rowDate(row.date),
+                  id: Number(row.id) || row.id, createdAt: row.created_at || current.purchases?.find((p: any) => String(p.id) === rowId)?.createdAt, datMonthYear: row.dat_month_year || '', date: rowDate(row.date),
                   paymentMethod: row.payment_method || '', checkNumber: row.check_number, bankName: row.bank_name,
                   invoiceNo: row.invoice_no || '', supplierName: row.supplier_name || '', supplierAddress: row.supplier_address || '',
                   supplierTin: row.supplier_tin || '', amount: Number(row.amount || 0), vatType: row.vat_type || '',
@@ -1974,7 +1974,7 @@ export function AccountingProvider({
     }
     // ======================================================================
 
-    const hydrated = { ...purchase, attachment: purchase.attachment ? { ...purchase.attachment, storagePath, data: undefined } : undefined };
+    const hydrated = { ...purchase, createdAt: existingPurchase?.createdAt || purchase?.createdAt || new Date().toISOString(), attachment: purchase.attachment ? { ...purchase.attachment, storagePath, data: undefined } : undefined };
     setClients(prev => ({ ...prev, [currentClientId]: { ...prev[currentClientId], purchases: [...(prev[currentClientId]?.purchases || []).filter((p:any)=>String(p.id)!==String(id)), hydrated] } as Client }));
   };
 
@@ -1995,11 +1995,7 @@ export function AccountingProvider({
 
   const saveFolder = async (folder: any, targetClientId?: string) => {
     const clientId = targetClientId || currentClientId;
-    // Never silently report success when auth/client context is missing.
-    // FileManager relies on a thrown error to keep the new folder from appearing
-    // selected as though it had been persisted.
-    if (!user) throw new Error('You must be signed in to save a folder.');
-    if (!clientId) throw new Error('No active client is selected; the folder was not saved.');
+    if (!user || !clientId) return;
     const row = {
       id: String(folder.id), client_id: clientId, name: folder.name || '',
       is_default: !!folder.isDefault, type: folder.type || 'custom'

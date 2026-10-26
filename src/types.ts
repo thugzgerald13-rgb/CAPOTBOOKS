@@ -7,6 +7,8 @@ export interface TinEntry {
 
 export interface Purchase {
   id: number;
+  /** Database insert timestamp used to detect purchases encoded after RELIEF filing. */
+  createdAt?: string;
   sequenceNumber?: number;
   datMonthYear: string;
   date: string;

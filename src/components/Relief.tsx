@@ -9,7 +9,7 @@ import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
 import { useGranularPermissions } from '../lib/useGranularPermissions';
 import { supabase } from '../lib/supabase';
-import { FileText, Receipt, ShoppingCart, Boxes, FileDown, Plus, Trash2, Undo2, Search, Printer, FileSpreadsheet, ArrowLeft, Lock, Unlock, ChevronLeft, ChevronRight } from 'lucide-react';
+import { FileText, Receipt, ShoppingCart, Boxes, FileDown, Plus, Trash2, Undo2, Search, Printer, FileSpreadsheet, ArrowLeft, Lock, Unlock } from 'lucide-react';
 
 /**
  * BIR RELIEF (Reconciliation of Listings for Enforcement) — SLSP.
@@ -36,10 +36,10 @@ import { FileText, Receipt, ShoppingCart, Boxes, FileDown, Plus, Trash2, Undo2, 
 
 type ReliefTab = 'sales' | 'purchases' | 'imports';
 
-const TABS: { id: ReliefTab; label: string; icon: React.ReactNode; typeCode: string; hint: string }[] = [
-  { id: 'sales', label: 'Sales', icon: <Receipt className="w-4 h-4" />, typeCode: 'S', hint: 'Output VAT' },
-  { id: 'purchases', label: 'Purchases', icon: <ShoppingCart className="w-4 h-4" />, typeCode: 'P', hint: 'Input VAT' },
-  { id: 'imports', label: 'Importation', icon: <Boxes className="w-4 h-4" />, typeCode: 'I', hint: 'Imports' },
+const TABS: { id: ReliefTab; label: string; icon: React.ReactNode; typeCode: string }[] = [
+  { id: 'sales', label: 'Sales', icon: <Receipt className="w-4 h-4" />, typeCode: 'S' },
+  { id: 'purchases', label: 'Purchases', icon: <ShoppingCart className="w-4 h-4" />, typeCode: 'P' },
+  { id: 'imports', label: 'Importation', icon: <Boxes className="w-4 h-4" />, typeCode: 'I' },
 ];
 
 interface ImportRow {
@@ -76,22 +76,21 @@ interface TransferEntry {
 type TransfersMap = Record<string, TransferEntry>;
 
 const fmt = (n: number) => (Number(n) || 0).toFixed(2);
-const describeSupabaseError = (error: any): string => [
-  error?.message ? `Message: ${error.message}` : '',
-  error?.code ? `Code: ${error.code}` : '',
-  error?.details ? `Details: ${error.details}` : '',
-  error?.hint ? `Hint: ${error.hint}` : '',
-].filter(Boolean).join(' | ') || 'Unknown Supabase error';
 const csvQ = (s: string) => `"${(s || '').replace(/"/g, '""')}"`;
 const monthKeyOf = (y: number, m: number) => `${y}-${String(m).padStart(2, '0')}`;
-const monthKeyYear = (key: string) => {
-  const match = /^(\d{4})-(0[1-9]|1[0-2])$/.exec(String(key || ''));
-  return match ? Number(match[1]) : null;
+const parseLocalDate = (value: any): Date | null => {
+  const raw = String(value ?? '').trim();
+  if (!raw) return null;
+  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(raw);
+  if (iso) return new Date(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+  const us = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(raw);
+  if (us) return new Date(Number(us[3]), Number(us[1]) - 1, Number(us[2]));
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
 };
-const isSameCalendarYear = (fromMonth: string, toMonth: string) => {
-  const fromYear = monthKeyYear(fromMonth);
-  const toYear = monthKeyYear(toMonth);
-  return fromYear !== null && toYear !== null && fromYear === toYear;
+const purchaseMonthKeyOf = (value: any) => {
+  const date = parseLocalDate(value);
+  return date ? monthKeyOf(date.getFullYear(), date.getMonth() + 1) : '';
 };
 // Samples use the LAST day of the tax month, MM/DD/YYYY (e.g. 03/31/2026).
 const taxMonthDate = (y: number, m: number) =>
@@ -201,17 +200,15 @@ export function Relief() {
   // snapshotted and locked. Late-encoded entries for that month roll forward
   // to the next unfiled month. "Amend" unlocks the month; entries already
   // locked to another filed month stay locked there.
-  const [filedMonths, setFiledMonths] = useState<Record<string, { filedAt: string; entryIds: string[] }>>({});
+  const [filedMonths, setFiledMonths] = useState<Record<string, { filedAt: string; entryIds: string[]; purchaseTransactionIds?: string[] }>>({});
 
   const tab = (['sales', 'purchases', 'imports'].includes(reliefTab) ? reliefTab : 'sales') as ReliefTab;
   const activeTab = TABS.find(t => t.id === tab)!;
   const monthKey = monthKeyOf(year, month);
   const years = [now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1];
-  // Claim-month transfers are limited to the selected calendar year.
-  const monthOptions = useMemo(
-    () => Array.from({ length: 12 }, (_, i) => monthKeyOf(year, i + 1)),
-    [year],
-  );
+  // Claim-month transfers are restricted to the currently selected calendar year.
+  const monthOptions = useMemo(() =>
+    Array.from({ length: 12 }, (_, index) => monthKeyOf(year, index + 1)), [year]);
 
   const owner = currentClient || ({} as any);
   const ownerTin = tin9(owner.tin);
@@ -249,10 +246,6 @@ export function Relief() {
   };
 
   const saveReliefSetting = async (nextNonCreditable: number, nextConsolidate: boolean) => {
-    if (filedMonths[`${tab}|${monthKey}`]) {
-      showToast('This RELIEF month is filed and locked. Amend it before changing its settings.');
-      return;
-    }
     if (!currentClientId || !reliefDataReady) {
       showToast('RELIEF data is still loading. Please try again when cloud data is ready.');
       return;
@@ -405,10 +398,14 @@ export function Relief() {
       setNonCreditable(Math.max(0, Number(setting.nonCreditable) || 0));
       setConsolidateNoTinPurchases(!!setting.consolidateNoTinPurchases);
       const filedRecords = records.filter((r: any) => r.record_type === 'filed');
-      const nextFiled: Record<string, { filedAt: string; entryIds: string[] }> = {};
+      const nextFiled: Record<string, { filedAt: string; entryIds: string[]; purchaseTransactionIds?: string[] }> = {};
       for (const r of filedRecords) {
         const k = String(r.record_id);
-        nextFiled[k] = { filedAt: r.data?.filedAt || '', entryIds: Array.isArray(r.data?.entryIds) ? r.data.entryIds : [] };
+        nextFiled[k] = {
+          filedAt: r.data?.filedAt || '',
+          entryIds: Array.isArray(r.data?.entryIds) ? r.data.entryIds : [],
+          ...(Array.isArray(r.data?.purchaseTransactionIds) ? { purchaseTransactionIds: r.data.purchaseTransactionIds.map((id: any) => String(id)) } : {}),
+        };
       }
       setFiledMonths(nextFiled);
       setLoadedReliefKey(activeKey);
@@ -462,7 +459,6 @@ export function Relief() {
   }, [importRows, importRowsDirty, reliefDataReady, currentClientId, monthKey, importRetryToken]);
 
   const updateImportRows = (rows: ImportRow[]) => {
-    if (isMonthFiled) { showToast('This RELIEF month is filed and locked. Amend it before editing importations.'); return; }
     if (!canReliefAction('edit')) { showToast('You do not have permission to edit RELIEF importation rows.'); return; }
     importRevisionRef.current += 1;
     importRowsRef.current = rows;
@@ -549,37 +545,94 @@ export function Relief() {
   };
   const salesRows = useMemo(() => buildSalesRows(year, month), [currentClient, year, month, historyRecords]);
 
-  // ---- Purchases: TIN required; 6 amount buckets; month transfers ----
-  const buildPurchases = (year: number, month: number) => {
-    const monthKey = monthKeyOf(year, month);
-    // Source: Expense History page records (shared fetch). Used only when the
-    // requested month matches the loaded snapshot; otherwise fall back to the
-    // AccountingContext client cache (needed for multi-month inquiry reports).
-    const useSnapshot = historyRecords && historyPeriod === monthKeyOf(year, month);
-    const purchases = (useSnapshot ? historyRecords!.purchases : (currentClient?.purchases || [])) as any[];
-    const inMonth = purchases.filter(p => {
-      const d = p.date ? new Date(p.date) : null;
-      return d && d.getFullYear() === year && (d.getMonth() + 1) === month;
-    });
+  // ---- Purchases: TIN required; late entries from filed periods roll forward ----
+  const purchaseWasAddedAfterFiling = (purchase: any, sourceMonth: string) => {
+    const filing = filedMonths[`purchases|${sourceMonth}`];
+    if (!filing) return false;
+    const purchaseId = String(purchase?.id ?? purchase?.recordId ?? '');
+    if (Array.isArray(filing.purchaseTransactionIds)) {
+      return !purchaseId || !filing.purchaseTransactionIds.includes(purchaseId);
+    }
+    // Legacy filed records predate the stored transaction-ID snapshot. The DB
+    // created_at timestamp lets those records distinguish late entries safely.
+    const createdAt = Date.parse(String(purchase?.createdAt ?? purchase?.created_at ?? ''));
+    const filedAt = Date.parse(String(filing.filedAt || ''));
+    return Number.isFinite(createdAt) && Number.isFinite(filedAt) && createdAt > filedAt;
+  };
+
+  const nextUnfiledMonthAfter = (sourceMonth: string): string | null => {
+    const match = /^(\d{4})-(\d{2})$/.exec(sourceMonth);
+    if (!match) return null;
+    const sourceYear = Number(match[1]);
+    const sourceMonthNumber = Number(match[2]);
+    // As with manual Claim Month transfers, automatic roll-forward never crosses
+    // a calendar-year boundary.
+    for (let m = sourceMonthNumber + 1; m <= 12; m++) {
+      const candidate = monthKeyOf(sourceYear, m);
+      if (!filedMonths[`purchases|${candidate}`]) return candidate;
+    }
+    return null;
+  };
+
+  const buildPurchases = (targetYear: number, targetMonth: number) => {
+    const targetMonthKey = monthKeyOf(targetYear, targetMonth);
+    const useSnapshot = historyRecords && historyPeriod === targetMonthKey;
+    // Use the selected-month History snapshot for consistency, while keeping the
+    // profile-wide cache so late entries dated in prior filed months can roll
+    // into a later unfiled month without changing the original purchase date.
+    const purchasePool = new Map<string, any>();
+    for (const purchase of ((currentClient?.purchases || []) as any[])) {
+      const id = String(purchase?.id ?? `${purchase?.date}|${purchase?.supplierTin}|${purchase?.invoiceNo}|${purchase?.amount}`);
+      purchasePool.set(id, purchase);
+    }
+    if (useSnapshot) {
+      for (const purchase of historyRecords!.purchases as any[]) {
+        const id = String(purchase?.id ?? `${purchase?.date}|${purchase?.supplierTin}|${purchase?.invoiceNo}|${purchase?.amount}`);
+        const existing = purchasePool.get(id) || {};
+        purchasePool.set(id, { ...existing, ...purchase, createdAt: purchase.createdAt || purchase.created_at || existing.createdAt || existing.created_at });
+      }
+    }
+
+    const inMonth: any[] = [];
+    for (const purchase of purchasePool.values()) {
+      const sourceMonth = purchaseMonthKeyOf(purchase.date);
+      if (!sourceMonth) continue;
+      const sourceFiling = filedMonths[`purchases|${sourceMonth}`];
+      const isNewAfterFile = !!sourceFiling && purchaseWasAddedAfterFiling(purchase, sourceMonth);
+      if (sourceFiling && isNewAfterFile) {
+        // A newly encoded purchase dated in a filed month is never included in
+        // that locked month; it belongs in the first succeeding unfiled month.
+        const nextMonth = nextUnfiledMonthAfter(sourceMonth);
+        if (nextMonth === targetMonthKey) inMonth.push({ ...purchase, __reliefSourceMonth: sourceMonth, __reliefAutoRollover: true });
+        continue;
+      }
+      if (sourceMonth === targetMonthKey) {
+        // In the filed source month, only the transaction snapshot is shown.
+        inMonth.push({ ...purchase, __reliefSourceMonth: sourceMonth, __reliefAutoRollover: false });
+      }
+    }
+
     const withTin = inMonth.filter(p => (p.supplierTin || '').trim() !== '');
     const noTinList = inMonth.filter(p => (p.supplierTin || '').trim() === '');
     const noTinCount = consolidateNoTinPurchases ? 0 : noTinList.length;
     const map = new Map<string, any>();
     for (const p of (consolidateNoTinPurchases ? inMonth : withTin)) {
       const noTin = (p.supplierTin || '').trim() === '';
-      const key = noTin ? VARIOUS_PURCHASES_TIN : `${(p.supplierTin || '').trim()}|${(p.supplierName || '').trim()}`;
+      const sourceMonth = String(p.__reliefSourceMonth || targetMonthKey);
+      const autoRollover = !!p.__reliefAutoRollover;
+      const supplierKey = noTin ? VARIOUS_PURCHASES_TIN : `${(p.supplierTin || '').trim()}|${(p.supplierName || '').trim()}`;
+      // Keep late-rollover rows separate from transactions originally encoded
+      // in the target month, even if both rows belong to the same supplier.
+      const key = `${sourceMonth}|${autoRollover ? 'late' : 'current'}|${supplierKey}`;
       const cur = map.get(key) || {
         tin: noTin ? VARIOUS_PURCHASES_TIN : (p.supplierTin || '').trim(), regName: noTin ? 'VARIOUS PURCHASES' : (p.supplierName || ''), lastName: '', firstName: '', middleName: '',
         addr1: noTin ? '' : (p.supplierAddress || ''), addr2: '', various: noTin,
         exempt: 0, zeroRated: 0, services: 0, capital: 0, goodsOther: 0, inputTax: 0, count: 0,
+        sourceMonth, autoRollover, supplierKey, sourcePurchaseIds: [],
       };
       const amt = Number(p.amount || 0);
       const vt = String(p.vatType || '').toLowerCase();
       const et = String(p.accountTitle || '').toLowerCase();
-      // Exempt / Zero-Rated columns are populated from the Expense History
-      // record's explicit exemptAmount / zeroRatedAmount fields. When those
-      // are not set, fall back to vat-type bucketing (non-vat / exempt ->
-      // exempt; zero-rated -> zero-rated). The remainder is taxable.
       const explicitExempt = Number(p.exemptAmount || 0);
       const explicitZero = Number(p.zeroRatedAmount || 0);
       const isExemptType = vt.includes('exempt') || vt.includes('non-vat') || vt.includes('nonvat');
@@ -588,41 +641,46 @@ export function Relief() {
       const zeroAmt = explicitZero > 0 ? explicitZero : (isZeroType ? amt : 0);
       cur.exempt += exemptAmt;
       cur.zeroRated += zeroAmt;
-      // `amount` on a purchase record is the VATable NET amount only — exempt
-      // and zero-rated values live in their own fields (exemptAmount /
-      // zeroRatedAmount) and are bucketed above. They must NOT be subtracted
-      // again from the net-of-VAT taxable amount (services / capital / goods).
       const taxableAmt = Math.max(0, amt);
       if (taxableAmt > 0) {
         if (et.includes('service')) cur.services += taxableAmt;
         else if (et.includes('capital') || et.includes('asset')) cur.capital += taxableAmt;
-        else cur.goodsOther += taxableAmt; // goods other than capital goods
+        else cur.goodsOther += taxableAmt;
       }
       cur.inputTax += Number(p.inputTax || 0);
       cur.count += 1;
+      const purchaseId = String(p?.id ?? p?.recordId ?? '');
+      if (purchaseId) cur.sourcePurchaseIds.push(purchaseId);
       map.set(key, cur);
     }
     const rows: any[] = [];
     for (const [, r] of map) {
-      const tKey = `${r.tin}|${monthKey}`;
-      const t = transfers[tKey];
-      // Ignore old cross-year transfers. They must not keep hiding the original
-      // purchase from its valid source month.
-      if (t && isSameCalendarYear(monthKey, t.toMonth) && t.toMonth !== monthKey) continue;
-      rows.push({ ...r, transferKey: tKey, fromMonth: monthKey, transferredIn: false });
+      const tKey = `${r.tin}|${r.sourceMonth}`;
+      // Automatically rolled late entries are not stored as manual transfers;
+      // they are derived from the original purchase's source month and filing.
+      const t = r.autoRollover ? null : transfers[tKey];
+      if (t && t.toMonth !== targetMonthKey) continue;
+      rows.push({
+        ...r,
+        reliefKey: `${r.autoRollover ? 'purchase-roll' : 'purchase'}:${r.sourceMonth}:${r.supplierKey}`,
+        transferKey: tKey,
+        fromMonth: r.sourceMonth,
+        transferredIn: r.autoRollover,
+        autoRollover: r.autoRollover,
+      });
     }
     let transferredInCount = 0;
     for (const [tKey, t] of Object.entries(transfers)) {
+      if (t.toMonth !== targetMonthKey) continue;
       const fromMonth = tKey.split('|').slice(1).join('|');
-      if (t.toMonth !== monthKey || fromMonth === monthKey) continue;
-      // Only show transfer-ins where the source and claim month are in the same year.
-      if (!isSameCalendarYear(fromMonth, t.toMonth)) continue;
+      if (fromMonth === targetMonthKey) continue;
       rows.push({
         tin: t.tin, regName: t.name, lastName: '', firstName: '', middleName: '',
         addr1: t.address, addr2: '',
-        exempt: t.exempt, zeroRated: t.zeroRated, services: t.services,
-        capital: t.capital, goodsOther: t.goodsOther, inputTax: t.inputTax,
-        count: 0, transferKey: tKey, fromMonth, transferredIn: true,
+        exempt: t.exempt, zeroRated: t.zeroRated, services: t.services, capital: t.capital,
+        goodsOther: t.goodsOther, inputTax: t.inputTax, count: 0,
+        transferKey: tKey, fromMonth, transferredIn: true, autoRollover: false,
+        reliefKey: `transfer:${tKey}`,
       });
       transferredInCount++;
     }
@@ -630,56 +688,63 @@ export function Relief() {
     return { purchaseRows: rows, noTinCount, transferredInCount };
   };
   const { purchaseRows, noTinCount, transferredInCount } = useMemo(() => buildPurchases(year, month),
-    [currentClient, year, month, monthKey, transfers, consolidateNoTinPurchases, historyRecords]);
+    [currentClient, year, month, monthKey, transfers, consolidateNoTinPurchases, historyRecords, historyPeriod, filedMonths]);
 
-  // ---- RELIEF filing lock is scoped to the exact tab + month. A filed month's
-  // snapshot is shown for that month only; never filter another month's rows by
-  // entry ID because source systems may reuse IDs across different periods. ----
+  // ---- RELIEF filing lock: filed months show their filed snapshot; unfiled
+  // months exclude entries already locked to another filed month. ----
   const filedKey = `${tab}|${monthKey}`;
   const isMonthFiled = !!filedMonths[filedKey];
   const reliefEntryKey = (r: any) =>
-    String(r?.id ?? r?.recordId ?? r?.invoiceNo ?? r?.entryNo ?? `${r?.date}|${r?.supplierName || r?.buyerName || r?.registeredName || ''}|${r?.amount || r?.dutiableValue || ''}`);
+    String(r?.reliefKey ?? r?.id ?? r?.recordId ?? r?.invoiceNo ?? r?.entryNo ?? `${r?.date}|${r?.supplierName || r?.buyerName || r?.registeredName || r?.regName || ''}|${r?.amount || r?.dutiableValue || ''}`);
   const activeRows = useMemo(() => {
     const rows: any[] = tab === 'sales' ? salesRows : tab === 'purchases' ? purchaseRows : importRows;
     if (isMonthFiled) {
-      const keep = new Set(filedMonths[filedKey]?.entryIds || []);
+      const filing = filedMonths[filedKey];
+      // Existing filed purchase records used a non-unique aggregate key, so the
+      // legacy row-ID snapshot cannot be trusted. buildPurchases already keeps
+      // only transactions present at filing (using created_at for legacy files).
+      if (tab === 'purchases' && !Array.isArray(filing?.purchaseTransactionIds)) return rows;
+      const keep = new Set(filing?.entryIds || []);
       return rows.filter(r => keep.has(reliefEntryKey(r)));
     }
-    // Filing one month must not make matching IDs disappear from other months.
-    return rows;
+    const locked = new Set<string>();
+    for (const [k, v] of Object.entries(filedMonths)) if (k.startsWith(`${tab}|`)) for (const id of v.entryIds) locked.add(id);
+    return rows.filter(r => !locked.has(reliefEntryKey(r)));
   }, [tab, salesRows, purchaseRows, importRows, isMonthFiled, filedMonths, filedKey]);
 
   const movePurchaseRow = async (row: any, targetMonth: string) => {
-    if (isMonthFiled) { showToast('This RELIEF month is filed and locked. Amend it before changing claim months.'); return; }
     if (!canEditTransfers) { showToast('You do not have permission to edit RELIEF transfers.'); return; }
     if (!currentClientId || !reliefDataReady) {
       showToast('RELIEF cloud data is still loading. Please retry the transfer.');
       return;
     }
-
-    const sourceMonth = String(row.fromMonth || monthKey);
-    if (!isSameCalendarYear(sourceMonth, targetMonth) || monthKeyYear(targetMonth) !== year) {
-      showToast(`Claim Month must be within ${year}, the same calendar year as the purchase.`);
+    if (row.autoRollover) {
+      showToast('This purchase was automatically rolled forward because its original month is filed.');
       return;
     }
-    const currentlySelectedClaimMonth = row.transferredIn ? monthKey : sourceMonth;
-    if (targetMonth === currentlySelectedClaimMonth) return;
+    const sourceYear = String(row.fromMonth || '').slice(0, 4);
+    const destinationYear = String(targetMonth || '').slice(0, 4);
+    if (!sourceYear || sourceYear !== destinationYear) {
+      showToast('RELIEF purchase transfers are allowed only within the same calendar year.');
+      return;
+    }
+    if (filedMonths[`purchases|${row.fromMonth}`]) {
+      showToast(`The original month ${row.fromMonth} is filed. Amend it before changing its transfer.`);
+      return;
+    }
     if (filedMonths[`purchases|${targetMonth}`]) {
-      showToast(`RELIEF Purchases for ${targetMonth} is filed and locked. Amend that month before transferring to it.`);
+      showToast(`The destination month ${targetMonth} is filed. Amend it before transferring purchases into it.`);
       return;
     }
-
     const tKey = String(row.transferKey);
     setReliefCloudStatus('saving');
-    if (targetMonth === sourceMonth) {
+    if (targetMonth === row.fromMonth) {
       const { error } = await supabase.from('relief_records').delete()
         .eq('client_id', currentClientId).eq('record_type', 'purchase_transfer').eq('record_id', tKey);
       if (error) {
-        const reason = describeSupabaseError(error);
-        console.error('[Relief] Could not reset purchase-month transfer in Supabase:', error);
         setReliefCloudStatus('error');
-        setReliefCloudMessage(`Could not reset purchase-month transfer: ${reason}`);
-        showToast(`Could not reset this RELIEF transfer: ${error.message || 'Supabase rejected the request'}${error.code ? ` (code ${error.code})` : ''}`);
+        setReliefCloudMessage(`Could not reset purchase-month transfer: ${error.message}`);
+        showToast('Could not save this RELIEF transfer to Supabase.');
         return;
       }
       setTransfers(prev => { const next = { ...prev }; delete next[tKey]; return next; });
@@ -700,11 +765,9 @@ export function Relief() {
       client_id: currentClientId, record_type: 'purchase_transfer', record_id: tKey, data: transfer,
     }, { onConflict: 'client_id,record_type,record_id' });
     if (error) {
-      const reason = describeSupabaseError(error);
-      console.error('[Relief] Could not save purchase-month transfer to Supabase:', error);
       setReliefCloudStatus('error');
-      setReliefCloudMessage(`Could not save purchase-month transfer: ${reason}`);
-      showToast(`Could not save this RELIEF transfer: ${error.message || 'Supabase rejected the request'}${error.code ? ` (code ${error.code})` : ''}`);
+      setReliefCloudMessage(`Could not save purchase-month transfer: ${error.message}`);
+      showToast('Could not save this RELIEF transfer to Supabase.');
       return;
     }
     setTransfers(prev => ({ ...prev, [tKey]: transfer }));
@@ -857,13 +920,23 @@ export function Relief() {
     if (!currentClientId || !reliefDataReady) { showToast('RELIEF data is still loading.'); return; }
     if (isMonthFiled) return;
     const entryIds = activeRows.map(reliefEntryKey);
+    const filedAt = new Date().toISOString();
+    const purchaseTransactionIds = tab === 'purchases' ? Array.from(new Set([
+      ...((currentClient?.purchases || []) as any[]),
+      ...((historyRecords && historyPeriod === monthKey ? historyRecords.purchases : []) as any[]),
+    ].filter(purchase => purchaseMonthKeyOf(purchase.date) === monthKey)
+      .map(purchase => String(purchase?.id ?? purchase?.recordId ?? ''))
+      .filter(Boolean))) : undefined;
     setReliefCloudStatus('saving');
+    const filedData = {
+      filedAt, entryIds, tab, monthKey,
+      ...(purchaseTransactionIds ? { purchaseTransactionIds } : {}),
+    };
     const { error } = await supabase.from('relief_records').upsert({
-      client_id: currentClientId, record_type: 'filed', record_id: filedKey,
-      data: { filedAt: new Date().toISOString(), entryIds, tab, monthKey },
+      client_id: currentClientId, record_type: 'filed', record_id: filedKey, data: filedData,
     }, { onConflict: 'client_id,record_type,record_id' });
     if (error) { setReliefCloudStatus('error'); showToast(`Filed failed: ${error.message}`); return; }
-    setFiledMonths(prev => ({ ...prev, [filedKey]: { filedAt: new Date().toISOString(), entryIds } }));
+    setFiledMonths(prev => ({ ...prev, [filedKey]: { filedAt, entryIds, ...(purchaseTransactionIds ? { purchaseTransactionIds } : {}) } }));
     await writeReliefAudit(currentClientId, 'relief_filed', tab, monthKey, { count: entryIds.length });
     setReliefCloudStatus('ready');
     showToast(`${activeTab.label} RELIEF for ${monthKey} is now FILED and locked. New entries for this month will roll to the next unfiled month.`);
@@ -904,31 +977,8 @@ export function Relief() {
     showToast('All RELIEF month transfers reset. Purchase transactions were not changed.');
   };
 
-  const periodLabel = `${MONTH_NAMES[month - 1]} ${year}`;
-  const shiftMonth = (delta: number) => {
-    const d = new Date(year, month - 1 + delta, 1);
-    void changePeriod(d.getFullYear(), d.getMonth() + 1);
-  };
-  const peso = (n: number) => `₱${formatMoney(n)}`;
-  const summaryCards: { label: string; value: string }[] = tab === 'sales' ? [
-    { label: 'Buyers', value: String(activeRows.length) },
-    { label: 'Total Sales', value: peso(totals.v1 + totals.v2 + totals.v3) },
-    { label: 'Taxable Sales', value: peso(totals.v3) },
-    { label: 'Output VAT', value: peso(totals.v4) },
-  ] : tab === 'purchases' ? [
-    { label: 'Suppliers', value: String(activeRows.length) },
-    { label: 'Total Purchases', value: peso(totals.v1 + totals.v2 + totals.v3 + totals.v4 + totals.v5) },
-    { label: 'Input VAT', value: peso(totals.v6) },
-    { label: 'Creditable Input VAT', value: peso(totals.v6 - Math.min(Math.max(Number(nonCreditable) || 0, 0), totals.v6)) },
-  ] : [
-    { label: 'Entries', value: String(activeRows.length) },
-    { label: 'Dutiable Value', value: peso(totals.v1) },
-    { label: 'Charges', value: peso(totals.v2) },
-    { label: 'VAT Paid', value: peso(totals.v5) },
-  ];
-
   return (
-    <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-4">
+    <div className="p-6 max-w-7xl mx-auto space-y-5">
       <PageHeader
         title="BIR RELIEF — SLSP"
         icon={<FileText className="w-6 h-6 text-indigo-600" />}
@@ -944,102 +994,70 @@ export function Relief() {
         </div>}
       />
 
-      {(reliefCloudStatus !== 'ready' || (legacyTransfersForImport && Object.keys(legacyTransfersForImport).length > 0 && Object.keys(transfers).length === 0)) && (
-        <div role="status" className={`flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-xl border px-4 py-2.5 text-sm ${reliefCloudStatus === 'error' ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300' : 'border-indigo-200 bg-indigo-50 text-indigo-700 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-300'}`}>
-          <span>{reliefCloudMessage || (reliefCloudStatus === 'saving' ? 'Saving…' : 'Loading RELIEF data…')}</span>
-          <div className="flex items-center gap-2 shrink-0">
-            {reliefCloudStatus === 'error' && <Button variant="outline" onClick={() => { if (importRowsDirty && reliefDataReady) setImportRetryToken(v => v + 1); else setLoadRetryToken(v => v + 1); }} className="py-1">Retry sync</Button>}
-            {legacyTransfersForImport && Object.keys(legacyTransfersForImport).length > 0 && Object.keys(transfers).length === 0 && reliefDataReady && (
-              <Button variant="outline" onClick={importLegacyTransfersToActiveProfile} disabled={!canEditTransfers} className="py-1">Import old transfers to this profile</Button>
-            )}
-          </div>
+      <div className={`flex flex-col sm:flex-row sm:items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs ${reliefCloudStatus === 'error' ? 'border-red-300 bg-red-50 text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300' : 'border-slate-200 bg-slate-50 text-slate-600 dark:border-slate-700 dark:bg-slate-900/50 dark:text-slate-300'}`}>
+        <span>{reliefCloudMessage || (reliefCloudStatus === 'loading' ? 'Loading RELIEF data…' : 'RELIEF cloud data status')}</span>
+        <div className="flex items-center gap-2 shrink-0">
+          {reliefCloudStatus === 'error' && <Button variant="outline" onClick={() => { if (importRowsDirty && reliefDataReady) setImportRetryToken(v => v + 1); else setLoadRetryToken(v => v + 1); }} className="py-1">Retry sync</Button>}
+          {legacyTransfersForImport && Object.keys(legacyTransfersForImport).length > 0 && Object.keys(transfers).length === 0 && reliefDataReady && (
+            <Button variant="outline" onClick={importLegacyTransfersToActiveProfile} disabled={!canEditTransfers} className="py-1">Import old transfers to this profile</Button>
+          )}
         </div>
-      )}
+      </div>
 
-      {/* Step 1 — choose the tax period */}
       <Card>
-        <CardContent className="flex flex-wrap items-end gap-3 py-4">
-          <div className="flex items-end gap-2">
-            <button type="button" aria-label="Previous month" onClick={() => shiftMonth(-1)}
-              className="h-10 w-10 flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <Field label="Month">
-              <Select value={String(month)} onChange={e => { void changePeriod(year, Number(e.target.value)); }}>
-                {MONTH_NAMES.map((name, i) => <option key={name} value={i + 1}>{name}</option>)}
-              </Select>
-            </Field>
-            <Field label="Year">
-              <Select value={String(year)} onChange={e => { void changePeriod(Number(e.target.value), month); }}>
-                {years.map(y => <option key={y} value={y}>{y}</option>)}
-              </Select>
-            </Field>
-            <button type="button" aria-label="Next month" onClick={() => shiftMonth(1)}
-              className="h-10 w-10 flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-          <div className="ml-auto flex items-center gap-2 text-sm">
-            {historyLoading && <span className="text-xs text-slate-400">Refreshing records…</span>}
-            {isMonthFiled ? (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 text-xs font-bold">
-                <Lock className="w-3.5 h-3.5" /> Filed · Locked
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300 text-xs font-bold">
-                <Unlock className="w-3.5 h-3.5" /> Open for editing
-              </span>
-            )}
+        <CardContent className="flex flex-wrap items-end gap-4 py-4">
+          <Field label="Year">
+            <Select value={String(year)} onChange={e => { void changePeriod(Number(e.target.value), month); }}>
+              {years.map(y => <option key={y} value={y}>{y}</option>)}
+            </Select>
+          </Field>
+          <Field label="Month">
+            <Select value={String(month)} onChange={e => { void changePeriod(year, Number(e.target.value)); }}>
+              {Array.from({ length: 12 }, (_, i) => i + 1).map(m => (
+                <option key={m} value={m}>{new Date(year, m - 1, 1).toLocaleString('en-PH', { month: 'long' })}</option>
+              ))}
+            </Select>
+          </Field>
+          <div className="ml-auto text-sm text-slate-500">
+            Period: <span className="font-semibold text-slate-700 dark:text-slate-200">{monthKey}</span>
+            {isMonthFiled && <span className="ml-2 px-2 py-0.5 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300 text-xs font-bold uppercase">Filed · Locked</span>}
+            {' · '}{totals.count} counterparty{totals.count === 1 ? '' : 'ies'}
+            {' · Output/Input Tax ₱'}<span className="font-semibold text-slate-700 dark:text-slate-200">{fmt(tab === 'sales' ? totals.v4 : totals.v6)}</span>
           </div>
         </CardContent>
       </Card>
 
-      {/* Step 2 — pick the schedule */}
-      <div role="tablist" aria-label="RELIEF schedule" className="grid grid-cols-1 sm:grid-cols-3 gap-2 p-1 rounded-xl bg-slate-100 dark:bg-slate-800/60">
-        {TABS.map(t => {
-          const selected = tab === t.id;
-          return (
-            <button key={t.id} role="tab" aria-selected={selected} onClick={() => setReliefTab(t.id)}
-              className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-semibold transition-all ${
-                selected ? 'bg-white dark:bg-slate-900 text-indigo-600 dark:text-indigo-400 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-200'}`}>
-              {t.icon} {t.label}
-              <span className="text-[10px] font-normal text-slate-400 hidden md:inline">· {t.hint}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Summary */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        {summaryCards.map(c => (
-          <div key={c.label} className="rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-3">
-            <div className="text-[11px] font-bold uppercase tracking-wide text-slate-400">{c.label}</div>
-            <div className="mt-1 text-lg font-bold text-slate-800 dark:text-slate-100 tabular-nums truncate">{c.value}</div>
-          </div>
+      <div className="flex gap-2 border-b border-slate-200 dark:border-slate-700">
+        {TABS.map(t => (
+          <button key={t.id} onClick={() => setReliefTab(t.id)}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px transition-colors ${
+              tab === t.id ? 'border-indigo-600 text-indigo-600 dark:text-indigo-400'
+                : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'}`}>
+            {t.icon} {t.label}
+          </button>
         ))}
       </div>
 
       {tab === 'sales' && (
         <Card><CardContent className="p-0 overflow-x-auto">
           {activeRows.length === 0 ? (
-            <EmptyState title={`No sales in ${periodLabel}`} description="Record sales in Billing / Income to include them here, or pick another month." />
+            <EmptyState title="No sales this month" description="Record sales in Billing / Income to include them here." />
           ) : (
-            <table className="w-full text-sm tabular-nums">
-              <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 text-xs uppercase sticky top-0">
+            <table className="w-full text-sm">
+              <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 text-xs uppercase">
                 <tr><th className="text-left px-4 py-3">Buyer TIN</th><th className="text-left px-4 py-3">Registered Name</th>
                   <th className="text-right px-4 py-3">Exempt</th><th className="text-right px-4 py-3">Zero-Rated</th>
                   <th className="text-right px-4 py-3">Taxable</th><th className="text-right px-4 py-3">Output Tax</th></tr>
               </thead>
               <tbody>
                 {activeRows.map((r, i) => (
-                  <tr key={i} className="border-t border-slate-100 dark:border-slate-800 hover:bg-slate-50/70 dark:hover:bg-slate-800/40">
+                  <tr key={i} className="border-t border-slate-100 dark:border-slate-800">
                     <td className="px-4 py-2.5 font-mono text-xs">{r.tin || '—'}</td>
                     <td className="px-4 py-2.5">{r.regName || '(unnamed)'}</td>
                     <td className="px-4 py-2.5 text-right">{fmt(r.exempt)}</td>
                     <td className="px-4 py-2.5 text-right">{fmt(r.zeroRated)}</td>
                     <td className="px-4 py-2.5 text-right">{fmt(r.taxable)}</td>
-                    <td className="px-4 py-2.5 text-right font-semibold">{fmt(r.outputTax)}</td>
+                    <td className="px-4 py-2.5 text-right font-medium">{fmt(r.outputTax)}</td>
                   </tr>))}
               </tbody>
               <tfoot className="bg-slate-50 dark:bg-slate-800/60 font-semibold">
@@ -1055,51 +1073,46 @@ export function Relief() {
 
       {tab === 'purchases' && (
         <>
-          {(noTinCount > 0 || transferredInCount > 0) && (
-            <div className="flex flex-wrap items-center gap-2">
-              {noTinCount > 0 && (
-                <Badge variant="warning">{noTinCount} purchase{noTinCount === 1 ? '' : 's'} without supplier TIN excluded (BIR SLSP requires a TIN)</Badge>
-              )}
-              {transferredInCount > 0 && (
-                <Badge variant="info">{transferredInCount} supplier row{transferredInCount === 1 ? '' : 's'} transferred into {monthKey}</Badge>
-              )}
-            </div>
-          )}
-          <Card>
-            <CardContent className="flex flex-wrap items-center gap-x-6 gap-y-3 py-3">
-              <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-                <span className="font-medium">Non-creditable input tax ₱</span>
-                <input type="number" min={0} step="0.01" value={nonCreditable || ''} placeholder="0.00" disabled={isMonthFiled}
-                  onChange={e => setNonCreditable(Math.max(0, Number(e.target.value) || 0))}
-                  onBlur={() => void saveReliefSetting(nonCreditable, consolidateNoTinPurchases)}
-                  className="w-32 form-input text-sm py-1.5" />
-              </label>
-              <label className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300 cursor-pointer">
-                <input type="checkbox" checked={consolidateNoTinPurchases} disabled={isMonthFiled} onChange={e => { const checked = e.target.checked; setConsolidateNoTinPurchases(checked); void saveReliefSetting(nonCreditable, checked); }} />
-                Combine purchases without TIN as VARIOUS PURCHASES
-              </label>
-              {Object.keys(transfers).length > 0 && (
-                <button onClick={clearAllTransfers} disabled={!canResetTransfers} className="ml-auto flex items-center gap-1 text-sm text-slate-500 hover:text-red-500 transition-colors disabled:opacity-40">
-                  <Undo2 className="w-4 h-4" /> Reset all transfers
-                </button>
-              )}
-            </CardContent>
-          </Card>
+          <div className="flex flex-wrap items-center gap-3 text-xs">
+            {noTinCount > 0 && (
+              <Badge variant="warning">{noTinCount} purchase{noTinCount === 1 ? '' : 's'} without supplier TIN excluded (BIR SLSP requires a TIN)</Badge>
+            )}
+            {transferredInCount > 0 && (
+              <Badge variant="info">{transferredInCount} supplier row{transferredInCount === 1 ? '' : 's'} transferred into {monthKey}</Badge>
+            )}
+            <label className="flex items-center gap-1.5 text-slate-500">
+              Non-creditable input tax ₱
+              <input type="number" min={0} step="0.01" value={nonCreditable || ''} placeholder="0.00"
+                onChange={e => setNonCreditable(Math.max(0, Number(e.target.value) || 0))}
+                onBlur={() => void saveReliefSetting(nonCreditable, consolidateNoTinPurchases)}
+                className="w-28 form-input text-xs py-1" />
+            </label>
+            <label className="flex items-center gap-1.5 text-slate-500 cursor-pointer">
+              <input type="checkbox" checked={consolidateNoTinPurchases} onChange={e => { const checked = e.target.checked; setConsolidateNoTinPurchases(checked); void saveReliefSetting(nonCreditable, checked); }} />
+              Consolidate purchases without TIN as VARIOUS PURCHASES (000000002)
+            </label>
+            <span className="text-slate-400">Use “Claim Month” to move a supplier's input tax to another month. Export matches the BIR Relief sample format.</span>
+            {Object.keys(transfers).length > 0 && (
+              <button onClick={clearAllTransfers} disabled={!canResetTransfers} className="ml-auto flex items-center gap-1 text-slate-400 hover:text-red-500 transition-colors">
+                <Undo2 className="w-3.5 h-3.5" /> Reset all transfers
+              </button>
+            )}
+          </div>
           <Card><CardContent className="p-0 overflow-x-auto">
             {activeRows.length === 0 ? (
-              <EmptyState title={`No TIN-bearing purchases in ${periodLabel}`} description="Record purchases with a supplier TIN in Purchases / Bills to include them here, or pick another month." />
+              <EmptyState title="No TIN-bearing purchases this month" description="Record purchases with a supplier TIN in Purchases / Bills to include them here." />
             ) : (
-              <table className="w-full text-sm tabular-nums">
-                <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 text-xs uppercase sticky top-0">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 dark:bg-slate-800/60 text-slate-500 text-xs uppercase">
                   <tr><th className="text-left px-4 py-3">Supplier TIN</th><th className="text-left px-4 py-3">Registered Name</th>
                     <th className="text-right px-4 py-3">Exempt</th><th className="text-right px-4 py-3">Zero-Rated</th>
                     <th className="text-right px-4 py-3">Services</th><th className="text-right px-4 py-3">Capital Goods</th>
                     <th className="text-right px-4 py-3">Goods (Other)</th><th className="text-right px-4 py-3">Input Tax</th>
-                    <th className="text-left px-4 py-3 min-w-[150px]" title="Move this supplier's input tax to another month of the same year">Claim Month</th></tr>
+                    <th className="text-left px-4 py-3 min-w-[150px]">Claim Month</th></tr>
                 </thead>
                 <tbody>
                   {activeRows.map((r, i) => (
-                    <tr key={i} className={`border-t border-slate-100 dark:border-slate-800 hover:bg-slate-50/70 dark:hover:bg-slate-800/40 ${r.transferredIn ? 'bg-amber-50/40 dark:bg-amber-950/10' : ''}`}>
+                    <tr key={i} className={`border-t border-slate-100 dark:border-slate-800 ${r.transferredIn ? 'bg-amber-50/40 dark:bg-amber-950/10' : ''}`}>
                       <td className="px-4 py-2.5 font-mono text-xs">{r.tin || '—'}</td>
                       <td className="px-4 py-2.5"><div className="flex items-center gap-2">{r.regName || '(unnamed)'}
                         {r.transferredIn && <Badge variant="warning">from {r.fromMonth}</Badge>}</div></td>
@@ -1108,12 +1121,11 @@ export function Relief() {
                       <td className="px-4 py-2.5 text-right">{fmt(r.services)}</td>
                       <td className="px-4 py-2.5 text-right">{fmt(r.capital)}</td>
                       <td className="px-4 py-2.5 text-right">{fmt(r.goodsOther)}</td>
-                      <td className="px-4 py-2.5 text-right font-semibold">{fmt(r.inputTax)}</td>
+                      <td className="px-4 py-2.5 text-right font-medium">{fmt(r.inputTax)}</td>
                       <td className="px-4 py-2.5">
                         <Select value={r.transferredIn ? monthKey : r.fromMonth}
-                          onChange={e => void movePurchaseRow(r, e.target.value)}
-                          disabled={isMonthFiled || !canEditTransfers || !reliefDataReady || reliefCloudStatus === 'saving'} className="text-xs py-1">
-                          {monthOptions.map(mk => <option key={mk} value={mk}>{mk}{mk === r.fromMonth ? ' (original)' : ''}</option>)}
+                          onChange={e => movePurchaseRow(r, e.target.value)} disabled={!canEditTransfers || isMonthFiled || !!r.autoRollover || !!filedMonths[`purchases|${r.fromMonth}`]} className="text-xs py-1">
+                          {monthOptions.filter(mk => !filedMonths[`purchases|${mk}`] || mk === monthKey || mk === r.fromMonth).map(mk => <option key={mk} value={mk}>{mk}{mk === r.fromMonth ? ' (original)' : ''}</option>)}
                         </Select>
                       </td>
                     </tr>))}
@@ -1133,43 +1145,32 @@ export function Relief() {
       )}
 
       {tab === 'imports' && (
-        <div className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-slate-500">Enter each import entry for {periodLabel}. Changes save automatically.</p>
-            <Button onClick={() => updateImportRows([...importRows, emptyImport()])} disabled={isMonthFiled || !canReliefAction('edit')} className="gap-2"><Plus className="w-4 h-4" /> Add Entry</Button>
+        <Card><CardContent className="space-y-3 py-4">
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-slate-500">Enter import entries for {monthKey}; exported as <code className="bg-slate-100 dark:bg-slate-800 px-1 rounded">D,I,</code> records (14 fields, valrlf 2.3 order).</p>
+            <Button variant="outline" onClick={() => updateImportRows([...importRows, emptyImport()])} className="gap-2"><Plus className="w-4 h-4" /> Add Entry</Button>
           </div>
           {importRows.length === 0 ? (
-            <Card><CardContent className="py-6">
-              <EmptyState title="No import entries" description="Click “Add Entry” to record an importation for this month." />
-            </CardContent></Card>
+            <EmptyState title="No import entries" description="Click “Add Entry” to record an importation for this month." />
           ) : (
-            <div className="space-y-3">
-              {importRows.map((r, i) => {
-                const set = (patch: Partial<ImportRow>) => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, ...patch } : x));
-                return (
-                  <Card key={r.id}><CardContent className="py-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-bold uppercase tracking-wide text-slate-400">Entry #{i + 1}</span>
-                      <button onClick={() => updateImportRows(importRows.filter((_, xi) => xi !== i))} disabled={isMonthFiled} aria-label={`Delete entry ${i + 1}`}
-                        className="flex items-center gap-1 text-xs text-slate-400 hover:text-red-500 disabled:opacity-40 disabled:cursor-not-allowed"><Trash2 className="w-4 h-4" /> Remove</button>
-                    </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                      <Field label="Import Entry No."><Input value={r.entryNo} disabled={isMonthFiled} onChange={e => set({ entryNo: e.target.value })} /></Field>
-                      <Field label="Assessment Date"><Input type="date" value={r.assessDate} disabled={isMonthFiled} onChange={e => set({ assessDate: e.target.value })} /></Field>
-                      <Field label="Seller / Registered Name"><Input value={r.registeredName} disabled={isMonthFiled} onChange={e => set({ registeredName: e.target.value })} /></Field>
-                      <Field label="Country of Origin"><Input value={r.country} disabled={isMonthFiled} onChange={e => set({ country: e.target.value })} /></Field>
-                      <Field label="Dutiable Value (₱)"><Input type="number" value={r.dutiableValue || ''} disabled={isMonthFiled} onChange={e => set({ dutiableValue: Number(e.target.value) })} /></Field>
-                      <Field label="Charges Before Release (₱)"><Input type="number" value={r.charges || ''} disabled={isMonthFiled} onChange={e => set({ charges: Number(e.target.value) })} /></Field>
-                      <Field label="VAT Paid (₱)"><Input type="number" value={r.vat || ''} disabled={isMonthFiled} onChange={e => set({ vat: Number(e.target.value) })} /></Field>
-                      <Field label="OR Number"><Input value={r.orNumber} disabled={isMonthFiled} onChange={e => set({ orNumber: e.target.value })} /></Field>
-                      <Field label="VAT Payment Date"><Input type="date" value={r.vatPaymentDate} disabled={isMonthFiled} onChange={e => set({ vatPaymentDate: e.target.value })} /></Field>
-                    </div>
-                  </CardContent></Card>
-                );
-              })}
+            <div className="space-y-2">
+              {importRows.map((r, i) => (
+                <div key={r.id} className="grid grid-cols-12 gap-2 items-center p-3 rounded-lg border border-slate-200 dark:border-slate-700">
+                  <div className="col-span-1"><Input placeholder="Entry No." value={r.entryNo} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, entryNo: e.target.value } : x))} /></div>
+                  <div className="col-span-2"><Input type="date" value={r.assessDate} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, assessDate: e.target.value } : x))} /></div>
+                  <div className="col-span-2"><Input placeholder="Registered name" value={r.registeredName} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, registeredName: e.target.value } : x))} /></div>
+                  <div className="col-span-1"><Input placeholder="Country" value={r.country} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, country: e.target.value } : x))} /></div>
+                  <div className="col-span-1"><Input type="number" placeholder="Dutiable" value={r.dutiableValue || ''} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, dutiableValue: Number(e.target.value) } : x))} /></div>
+                  <div className="col-span-1"><Input type="number" placeholder="Charges" value={r.charges || ''} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, charges: Number(e.target.value) } : x))} /></div>
+                  <div className="col-span-1"><Input type="number" placeholder="VAT" value={r.vat || ''} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, vat: Number(e.target.value) } : x))} /></div>
+                  <div className="col-span-1"><Input placeholder="OR No." value={r.orNumber} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, orNumber: e.target.value } : x))} /></div>
+                  <div className="col-span-1"><Input type="date" value={r.vatPaymentDate} onChange={e => updateImportRows(importRows.map((x, xi) => xi === i ? { ...x, vatPaymentDate: e.target.value } : x))} /></div>
+                  <button onClick={() => updateImportRows(importRows.filter((_, xi) => xi !== i))} className="col-span-1 text-slate-400 hover:text-red-500 flex justify-center"><Trash2 className="w-4 h-4" /></button>
+                </div>
+              ))}
             </div>
           )}
-        </div>
+        </CardContent></Card>
       )}
 
 
@@ -1291,7 +1292,7 @@ export function Relief() {
       )}
 
       <p className="text-xs text-slate-400 text-center">
-        “Export .DAT” creates the file you upload to the BIR RELIEF validation module for {activeTab.label} · {periodLabel}.
+        Exported .DAT mirrors BIR Relief-generated samples: quoted header with totals + RDO + tax-month end date + fiscal year-end month, then <code>D,S,</code> / <code>D,P,</code> detail lines (zero amounts as <code>0</code>).
       </p>
     </div>
   );
