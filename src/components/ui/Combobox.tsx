@@ -12,6 +12,8 @@ interface ComboboxProps {
   placeholder?: string;
   className?: string;
   inputClassName?: string;
+  /** When true, users may filter by typing but must select a listed option. Blank is allowed. */
+  selectionOnly?: boolean;
 }
 
 /**
@@ -22,10 +24,10 @@ interface ComboboxProps {
  * datalist suggestions at all (a long-standing WebKit limitation), so the
  * "choose from suggestions" half of the field silently didn't work on
  * iPhone/iPad. This component renders its own dropdown, so tapping/clicking
- * an option always works the same way everywhere, while still allowing free
- * typing for accounts that aren't in the list yet.
+ * an option always works the same way everywhere. By default, free typing is
+ * supported; selectionOnly fields use typing strictly to filter listed options.
  */
-export function Combobox({ value, onChange, options, placeholder, className, inputClassName }: ComboboxProps) {
+export function Combobox({ value, onChange, options, placeholder, className, inputClassName, selectionOnly = false }: ComboboxProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState(value);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -69,11 +71,23 @@ export function Combobox({ value, onChange, options, placeholder, className, inp
         type="text"
         value={query}
         onChange={e => {
-          setQuery(e.target.value);
-          onChange(e.target.value);
+          const nextValue = e.target.value;
+          setQuery(nextValue);
+          // Selection-only fields still allow typing to filter the dropdown,
+          // but only a picked option (or an empty value) is committed.
+          if (!selectionOnly || nextValue.trim() === '') onChange(nextValue);
           setIsOpen(true);
         }}
         onFocus={() => setIsOpen(true)}
+        onBlur={() => {
+          if (selectionOnly && query !== value) {
+            // Discard unselected text instead of saving an arbitrary account
+            // title. Clearing is allowed, so a blank Payment for is valid.
+            setQuery('');
+            onChange('');
+          }
+          setIsOpen(false);
+        }}
         placeholder={placeholder}
         autoComplete="off"
         className={inputClassName}

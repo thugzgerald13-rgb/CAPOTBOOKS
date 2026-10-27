@@ -13,7 +13,6 @@ import { AtcSelect } from './AtcSelect';
 import { useGranularPermissions } from '../lib/useGranularPermissions';
 import { useAuth } from '../context/AuthContext';
 import { modulePermissionKey, actionPermissionKey } from '../lib/granularPermissions';
-import { YearDropdownDateInput } from './ui/YearDropdownDateInput';
 
 
 // Embedded mode lets the Expense History page open the Invoiced / Other
@@ -177,7 +176,7 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
   const [bankName, setBankName] = useState('');
   const [checkNumber, setCheckNumber] = useState('');
   const [invoiceNo, setInvoiceNo] = useState('');
-  const transactionDateRef = useRef<HTMLSelectElement>(null);
+  const transactionDateRef = useRef<HTMLInputElement>(null);
   // Embedded-edit bookkeeping: the record's real id (viewIndex is not a
   // context index in embedded mode) and its original storage-backed
   // attachment so it is not wiped out when the user saves without re-uploading.
@@ -557,6 +556,16 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
     if (!isAP && (!withholdingPermission || !canPurchaseDropdown('withholding', withholdingPermission))) { showToast('The selected withholding option is not permitted for your profile.'); return; }
     if (!currentClient || !currentClientId) return;
 
+    // Invoiced purchases may leave Payment for blank, but if a value is
+    // supplied it must be one of the available postable COA account titles.
+    // Keep this guard even though the UI is selection-only, so invalid values
+    // cannot be saved through stale state or another form interaction.
+    if (!isAP && !isOtherPayments && String(accountTitle || '').trim() !== ''
+      && !coaAccounts.some(account => account.name === accountTitle)) {
+      showToast('Payment for must be selected from the available account list, or left blank.');
+      return;
+    }
+
     // Validate the values currently shown in the form. In edit mode, fields
     // loaded from an existing record must remain valid even when the user only
     // changes one field (for example, Amount).
@@ -818,7 +827,15 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
         <div className="lg:col-span-3 pb-2 mb-2 border-b border-slate-200 dark:border-slate-700 flex flex-col md:flex-row gap-4 justify-between">
             <div className="w-full md:w-1/3">
               <label className="form-label text-red-500">Transaction Date *</label>
-              <YearDropdownDateInput ref={transactionDateRef} value={date} onChange={value => setDate(value)} min={currentDat ? `${currentDat.year}-${String(currentDat.month).padStart(2, '0')}-01` : undefined} max={currentDat ? `${currentDat.year}-${String(currentDat.month).padStart(2, '0')}-${String(new Date(currentDat.year, currentDat.month, 0).getDate()).padStart(2, '0')}` : undefined} className="form-input" />
+              <input 
+                ref={transactionDateRef}
+                type="date" 
+                value={date} 
+                onChange={e => setDate(e.target.value)} 
+                min={currentDat ? `${currentDat.year}-${String(currentDat.month).padStart(2, '0')}-01` : undefined}
+                max={currentDat ? `${currentDat.year}-${String(currentDat.month).padStart(2, '0')}-${String(new Date(currentDat.year, currentDat.month, 0).getDate()).padStart(2, '0')}` : undefined}
+                className="form-input" 
+              />
               {dateWarning && <p className="text-xs text-amber-600 bg-amber-100 p-2 mt-1 rounded-lg">{dateWarning}</p>}
             </div>
             
@@ -1021,6 +1038,7 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
             onChange={setAccountTitle}
             options={coaAccounts.map(a => ({ id: a.id, label: a.name }))}
             placeholder="Type or choose an account..."
+            selectionOnly={!isAP}
             inputClassName="form-input bg-blue-50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-900/50 font-bold text-blue-800 dark:text-blue-300"
           />
           {showAddPaymentAccount && (
@@ -1111,7 +1129,7 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
                         <tr key={row.id} className="border-t border-slate-100 dark:border-slate-800">
                           <td className="px-2 py-1.5 text-slate-400 font-bold">{idx + 1}</td>
                           <td className="px-2 py-1.5">
-                            <YearDropdownDateInput value={row.date} onChange={value => updateMultiRow(row.id, 'date', value)} className="form-input !py-1 !text-xs !px-2" />
+                            <input type="date" value={row.date} onChange={e => updateMultiRow(row.id, 'date', e.target.value)} className="form-input !py-1 !text-xs !px-2" />
                           </td>
                           <td className="px-2 py-1.5">
                             <input type="text" value={row.supplierName} onChange={e => updateMultiRow(row.id, 'supplierName', e.target.value)} placeholder="Supplier name" className="form-input !py-1 !text-xs !px-2" />
