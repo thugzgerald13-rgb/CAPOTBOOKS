@@ -3,9 +3,11 @@ import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { supabase } from '../lib/supabase';
 import { MONTHS, formatTIN } from '../lib/utils';
+import { buildMonthlyAlphalistPrintHtml, buildMonthlyAlphalistRows } from '../lib/monthlyAlphalist';
+import { printHtml } from '../lib/reliefInquiry';
 import { ALPHALIST_ATC_BY_MODULE, type AlphalistAtcEntry } from '../lib/alphalistAtc';
 import { usePermission } from '../lib/teamPermissions';
-import { FileSpreadsheet, Plus, Trash2, ShieldCheck, Save, Users, Receipt, Landmark, X } from 'lucide-react';
+import { FileSpreadsheet, Plus, Trash2, ShieldCheck, Save, Users, Receipt, Landmark, X, Printer } from 'lucide-react';
 
 /**
  * BIR Alphalist Data Entry & Validation Module — reverse-engineered from
@@ -83,13 +85,14 @@ function fmt202(n: number): string {
 }
 
 export function Alphalist() {
-  const { currentClientId, showToast } = useAccounting();
+  const { currentClient, currentClientId, showToast } = useAccounting();
   const canAdd = usePermission('edit_transactions');
   const canDelete = usePermission('delete_transactions');
   const canExport = usePermission('export_data');
+  const canPrint = usePermission('view_reports');
 
   const [module, setModule] = useState<AlphaModule>('1601E');
-  const [view, setView] = useState<'entry' | 'annual'>('entry');
+  const [view, setView] = useState<'entry' | 'annual' | 'monthly-payees'>('entry');
   const now = new Date();
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [year, setYear] = useState(now.getFullYear());
@@ -115,6 +118,19 @@ export function Alphalist() {
   const [validationResults, setValidationResults] = useState<{ id: string; seq: number; name: string; errors: string[] }[] | null>(null);
 
   const returnPeriod = `${year}-${String(month).padStart(2, '0')}-01`;
+  const monthlyPayeeRows = useMemo(() => buildMonthlyAlphalistRows(currentClient, month, year), [currentClient, month, year]);
+  const monthlyPayeeTotals = useMemo(() => ({
+    income: monthlyPayeeRows.reduce((sum, row) => sum + row.incomePayment, 0),
+    withheld: monthlyPayeeRows.reduce((sum, row) => sum + row.taxWithheld, 0),
+  }), [monthlyPayeeRows]);
+  const reportCompanyName = currentClient?.tradeName?.trim() || currentClient?.registeredName?.trim() || currentClient?.name || '';
+  const reportAddress = currentClient?.address?.trim() || [currentClient?.substreet, currentClient?.street, currentClient?.barangay, currentClient?.district, currentClient?.city, currentClient?.zipCode].filter(Boolean).join(', ');
+  const reportOwnerName = currentClient?.proprietor?.trim() || [currentClient?.firstName, currentClient?.middleName, currentClient?.lastName].filter(Boolean).join(' ') || currentClient?.name || '';
+
+  const handlePrintMonthlyPayees = () => {
+    if (!canPrint) { showToast('You do not have permission to print reports.'); return; }
+    printHtml(buildMonthlyAlphalistPrintHtml(currentClient, month, year, monthlyPayeeRows));
+  };
 
   const selectedAtc = atcList.find(a => a.code === atcCode);
   const taxRate = selectedAtc?.rate ?? 0;
@@ -261,23 +277,33 @@ export function Alphalist() {
 
   return (
     <div className="w-full flex flex-col">
-      <PageHeader title="Alphalist Data Entry & Validation" icon={<Users className="w-5 h-5 text-indigo-500" />} />
+      <PageHeader title={view === 'monthly-payees' ? 'Monthly Alphalist of Payees' : 'Alphalist Data Entry & Validation'} icon={<Users className="w-5 h-5 text-indigo-500" />} actions={view === 'monthly-payees' ? (
+        <button type="button" onClick={handlePrintMonthlyPayees} disabled={!canPrint} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-xs font-bold hover:opacity-90 disabled:opacity-40" title="Print Monthly Alphalist of Payees">
+          <Printer className="w-4 h-4" /> Print
+        </button>
+      ) : undefined} />
       <div className="p-4 md:p-6 flex-1 flex flex-col gap-5">
-        {/* Module tabs */}
+        {/* Alphalist pages and withholding report */}
         <div className="flex flex-wrap gap-2">
-          {MODULES.map(m => (
+          {view !== 'monthly-payees' && MODULES.map(m => (
             <button key={m.id} onClick={() => { setModule(m.id); setValidationResults(null); }}
               className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all border ${module === m.id ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-300'}`}>
               {m.icon}<span>{m.label}</span>
             </button>
           ))}
           <div className="flex-1" />
-          <button onClick={() => setView(view === 'entry' ? 'annual' : 'entry')}
-            className="px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 border border-slate-200 dark:border-slate-700">
-            {view === 'entry' ? 'Annual 1604 Summary →' : '← Monthly Data Entry'}
+          {view !== 'monthly-payees' && (
+            <button onClick={() => setView(view === 'entry' ? 'annual' : 'entry')}
+              className="px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 border border-slate-200 dark:border-slate-700">
+              {view === 'entry' ? 'Annual 1604 Summary →' : '← Monthly Data Entry'}
+            </button>
+          )}
+          <button onClick={() => setView(view === 'monthly-payees' ? 'entry' : 'monthly-payees')}
+            className={`px-4 py-2.5 rounded-xl text-xs font-bold border ${view === 'monthly-payees' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white dark:bg-slate-800 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/20'}`}>
+            {view === 'monthly-payees' ? '← Back to Alphalist' : 'Monthly Alphalist of Payees →'}
           </button>
         </div>
-        <p className="text-xs text-slate-500 -mt-3">{mod.sub} · {mod.form}</p>
+        {view !== 'monthly-payees' && <p className="text-xs text-slate-500 -mt-3">{mod.sub} · {mod.form}</p>}
 
         {view === 'entry' ? (
           <>
@@ -435,7 +461,7 @@ export function Alphalist() {
               )}
             </div>
           </>
-        ) : (
+        ) : view === 'annual' ? (
           /* Annual 1604 summary (aggregation by ATC) */
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden">
             <div className="p-4 border-b border-slate-100 dark:border-slate-800">
@@ -469,6 +495,61 @@ export function Alphalist() {
                 </table>
               </div>
             )}
+          </div>
+        ) : (
+          /* One-page Monthly Alphalist of Payees, sourced only from Expense History purchases with withholding. */
+          <div className="flex flex-col gap-4">
+            <div className="no-print flex flex-wrap items-center gap-3 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-700">
+              <span className="text-xs font-bold text-slate-500 uppercase">For the month of:</span>
+              <select value={month} onChange={e => setMonth(parseInt(e.target.value))} className="text-xs font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2">
+                {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+              </select>
+              <select value={year} onChange={e => setYear(parseInt(e.target.value))} className="text-xs font-bold bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2">
+                {years.map(y => <option key={y} value={y}>{y}</option>)}
+              </select>
+              <span className="text-[11px] text-slate-500">Automatic from Expense History purchases with withholding tax.</span>
+            </div>
+
+            <div className="monthly-alphalist-paper bg-white text-slate-900 border border-slate-300 rounded-xl shadow-sm p-5 md:p-8">
+              <header className="text-center mb-6">
+                <h2 className="text-base md:text-lg font-black uppercase tracking-wide">{reportCompanyName || 'BUSINESS NAME'}</h2>
+                {currentClient?.tin && <p className="text-sm font-semibold mt-1">{currentClient.tin}</p>}
+                {reportAddress && <p className="text-xs mt-1">{reportAddress}</p>}
+                <h3 className="text-base md:text-lg font-black mt-5 tracking-wide">MONTHLY ALPHALIST OF PAYEES</h3>
+                <p className="text-sm mt-1">For the month of {MONTHS[month - 1]} {year}</p>
+              </header>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs border-collapse">
+                  <thead><tr className="text-[10px] uppercase tracking-wide">
+                    {['#', 'Taxpayer Identification Number', 'Name of Payees', 'ATC Code', 'Nature of Payment', 'Amount of Income Payment', 'Tax Rate', 'Amount of Tax Withheld'].map(label => <th key={label} className="border border-slate-500 px-2 py-2 text-center font-black align-middle">{label}</th>)}
+                  </tr></thead>
+                  <tbody>
+                    {monthlyPayeeRows.length === 0 ? <tr><td colSpan={8} className="border border-slate-500 px-3 py-8 text-center text-slate-500">No withholding purchase records found for {MONTHS[month - 1]} {year}.</td></tr> : monthlyPayeeRows.map((row, index) => (
+                      <tr key={`${row.tin}-${row.name}-${row.atcCode}-${row.natureOfPayment}-${row.taxRate}-${index}`}>
+                        <td className="border border-slate-500 px-2 py-2 text-center">{index + 1}</td>
+                        <td className="border border-slate-500 px-2 py-2 font-mono">{row.tin || '—'}</td>
+                        <td className="border border-slate-500 px-2 py-2 font-semibold">{row.name}</td>
+                        <td className="border border-slate-500 px-2 py-2 font-mono font-bold">{row.atcCode || '—'}</td>
+                        <td className="border border-slate-500 px-2 py-2">{row.natureOfPayment}</td>
+                        <td className="border border-slate-500 px-2 py-2 text-right whitespace-nowrap">{row.incomePayment.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        <td className="border border-slate-500 px-2 py-2 text-right whitespace-nowrap">{(row.taxRate * 100).toLocaleString(undefined, { maximumFractionDigits: 4 })}%</td>
+                        <td className="border border-slate-500 px-2 py-2 text-right whitespace-nowrap">{row.taxWithheld.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot><tr className="font-black">
+                    <td colSpan={5} className="border border-slate-500 px-2 py-2 text-right tracking-widest">T O T A L</td>
+                    <td className="border border-slate-500 px-2 py-2 text-right whitespace-nowrap">{monthlyPayeeTotals.income.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td className="border border-slate-500 px-2 py-2"></td>
+                    <td className="border border-slate-500 px-2 py-2 text-right whitespace-nowrap">{monthlyPayeeTotals.withheld.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                  </tr></tfoot>
+                </table>
+              </div>
+              <div className="mt-14 w-72 max-w-full text-center">
+                <div className="border-b border-slate-700 pb-1 text-sm font-black uppercase">{reportOwnerName || 'Owner'}</div>
+                <p className="text-xs mt-1">Owner</p>
+              </div>
+            </div>
           </div>
         )}
       </div>
