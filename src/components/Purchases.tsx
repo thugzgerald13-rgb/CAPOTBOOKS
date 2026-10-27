@@ -13,6 +13,7 @@ import { AtcSelect } from './AtcSelect';
 import { useGranularPermissions } from '../lib/useGranularPermissions';
 import { useAuth } from '../context/AuthContext';
 import { modulePermissionKey, actionPermissionKey } from '../lib/granularPermissions';
+import { YearDropdownDateInput } from './ui/YearDropdownDateInput';
 
 
 // Embedded mode lets the Expense History page open the Invoiced / Other
@@ -176,7 +177,7 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
   const [bankName, setBankName] = useState('');
   const [checkNumber, setCheckNumber] = useState('');
   const [invoiceNo, setInvoiceNo] = useState('');
-  const transactionDateRef = useRef<HTMLInputElement>(null);
+  const transactionDateRef = useRef<HTMLSelectElement>(null);
   // Embedded-edit bookkeeping: the record's real id (viewIndex is not a
   // context index in embedded mode) and its original storage-backed
   // attachment so it is not wiped out when the user saves without re-uploading.
@@ -827,14 +828,13 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
         <div className="lg:col-span-3 pb-2 mb-2 border-b border-slate-200 dark:border-slate-700 flex flex-col md:flex-row gap-4 justify-between">
             <div className="w-full md:w-1/3">
               <label className="form-label text-red-500">Transaction Date *</label>
-              <input 
+              <YearDropdownDateInput
                 ref={transactionDateRef}
-                type="date" 
-                value={date} 
-                onChange={e => setDate(e.target.value)} 
+                value={date}
+                onChange={value => setDate(value)}
                 min={currentDat ? `${currentDat.year}-${String(currentDat.month).padStart(2, '0')}-01` : undefined}
                 max={currentDat ? `${currentDat.year}-${String(currentDat.month).padStart(2, '0')}-${String(new Date(currentDat.year, currentDat.month, 0).getDate()).padStart(2, '0')}` : undefined}
-                className="form-input" 
+                className="form-input"
               />
               {dateWarning && <p className="text-xs text-amber-600 bg-amber-100 p-2 mt-1 rounded-lg">{dateWarning}</p>}
             </div>
@@ -1129,7 +1129,7 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
                         <tr key={row.id} className="border-t border-slate-100 dark:border-slate-800">
                           <td className="px-2 py-1.5 text-slate-400 font-bold">{idx + 1}</td>
                           <td className="px-2 py-1.5">
-                            <input type="date" value={row.date} onChange={e => updateMultiRow(row.id, 'date', e.target.value)} className="form-input !py-1 !text-xs !px-2" />
+                            <YearDropdownDateInput value={row.date} onChange={value => updateMultiRow(row.id, 'date', value)} className="form-input !py-1 !text-xs !px-2" />
                           </td>
                           <td className="px-2 py-1.5">
                             <input type="text" value={row.supplierName} onChange={e => updateMultiRow(row.id, 'supplierName', e.target.value)} placeholder="Supplier name" className="form-input !py-1 !text-xs !px-2" />
