@@ -2,6 +2,11 @@ import type { Client, Purchase } from '../types';
 import { ALPHALIST_ATC_BY_MODULE, type AlphalistAtcEntry } from './alphalistAtc';
 import { MONTHS, parseDateToISO } from './utils';
 
+export interface MonthlyAlphalistSourcePurchase {
+  id: string;
+  sourceMonth: string; // YYYY-MM, based on the purchase date / fallback period
+}
+
 export interface MonthlyAlphalistPayeeRow {
   tin: string;
   name: string;
@@ -10,6 +15,23 @@ export interface MonthlyAlphalistPayeeRow {
   incomePayment: number;
   taxRate: number;
   taxWithheld: number;
+  /** Internal source IDs are used for month transfers and filing snapshots; they are not printed. */
+  purchaseSources: MonthlyAlphalistSourcePurchase[];
+}
+
+export interface MonthlyAlphalistTransfer {
+  fromMonth: string;
+  toMonth: string;
+}
+
+export interface MonthlyAlphalistFiledMonth {
+  filedAt: string;
+  purchaseIds: string[];
+}
+
+export interface MonthlyAlphalistWorkflowState {
+  transfers: Record<string, MonthlyAlphalistTransfer>;
+  filedMonths: Record<string, MonthlyAlphalistFiledMonth>;
 }
 
 const ATC_ENTRIES: AlphalistAtcEntry[] = Object.values(ALPHALIST_ATC_BY_MODULE).flat();
@@ -84,7 +106,7 @@ function asPayeeRow(input: {
   incomePayment?: unknown;
   taxRate?: unknown;
   taxWithheld?: unknown;
-}): MonthlyAlphalistPayeeRow | null {
+}): Omit<MonthlyAlphalistPayeeRow, 'purchaseSources'> | null {
   const incomePayment = Number(input.incomePayment || 0);
   const suppliedWithheld = Number(input.taxWithheld || 0);
   const atcCode = cleanAtcCode(input.atcCode);
@@ -103,21 +125,82 @@ function asPayeeRow(input: {
   };
 }
 
+function nextUnfiledMonthAfter(monthKey: string, filedMonths: Record<string, MonthlyAlphalistFiledMonth>): string | null {
+  const match = monthKey.match(/^(\d{4})-(\d{2})$/);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  for (let nextMonth = month + 1; nextMonth <= 12; nextMonth++) {
+    const candidate = `${year}-${String(nextMonth).padStart(2, '0')}`;
+    if (!filedMonths[candidate]) return candidate;
+  }
+  return null;
+}
+
+function validForwardTransfer(
+  purchaseId: string,
+  sourceMonth: string,
+  transfers: Record<string, MonthlyAlphalistTransfer>,
+): MonthlyAlphalistTransfer | null {
+  const transfer = transfers[purchaseId];
+  if (!transfer || transfer.fromMonth !== sourceMonth) return null;
+  const source = sourceMonth.match(/^(\d{4})-(\d{2})$/);
+  const target = String(transfer.toMonth || '').match(/^(\d{4})-(\d{2})$/);
+  if (!source || !target || source[1] !== target[1] || Number(target[2]) <= Number(source[2]) || Number(target[2]) > 12) return null;
+  return transfer;
+}
+
+function effectivePurchaseMonth(
+  purchaseId: string,
+  sourceMonth: string,
+  workflow: MonthlyAlphalistWorkflowState,
+): string | null {
+  const { transfers, filedMonths } = workflow;
+  const transfer = validForwardTransfer(purchaseId, sourceMonth, transfers);
+
+  // An explicit transfer remains authoritative. If its destination was filed
+  // before this purchase was included in that filing snapshot, continue after
+  // that destination; never put the purchase back into a locked month.
+  if (transfer) {
+    const destinationFiled = filedMonths[transfer.toMonth];
+    if (!destinationFiled || destinationFiled.purchaseIds.includes(purchaseId)) return transfer.toMonth;
+    return nextUnfiledMonthAfter(transfer.toMonth, filedMonths);
+  }
+
+  const sourceFiled = filedMonths[sourceMonth];
+  if (!sourceFiled) return sourceMonth;
+  if (sourceFiled.purchaseIds.includes(purchaseId)) return sourceMonth;
+
+  // A purchase encoded after its source month was filed rolls to the first
+  // later unfiled month, without crossing the calendar-year boundary.
+  return nextUnfiledMonthAfter(sourceMonth, filedMonths);
+}
+
 /**
- * Build the monthly report exclusively from Expense History purchase records
- * that have withholding tax enabled or a saved withholding amount / ATC rate.
- * The report does not read any other accounting journal or voucher source.
+ * Build the monthly report exclusively from Expense History purchases with
+ * withholding. Transfers and filing snapshots affect only the reporting month;
+ * source accounting purchase records are never mutated.
  */
 export function buildMonthlyAlphalistRows(
   client: Pick<Client, 'purchases'> | null | undefined,
   month: number,
   year: number,
+  workflow: Partial<MonthlyAlphalistWorkflowState> = {},
 ): MonthlyAlphalistPayeeRow[] {
   if (!client) return [];
+  const transferMap = workflow.transfers || {};
+  const filedMonthMap = workflow.filedMonths || {};
+  const normalizedWorkflow: MonthlyAlphalistWorkflowState = { transfers: transferMap, filedMonths: filedMonthMap };
+  const targetMonth = `${year}-${String(month).padStart(2, '0')}`;
   const sourceRows: MonthlyAlphalistPayeeRow[] = [];
 
   for (const purchase of (client.purchases || []) as Purchase[]) {
-    if (!belongsToMonth(purchase.date, purchase.datMonthYear, month, year)) continue;
+    const sourceMonth = monthKeyFromValue(purchase.date) || monthKeyFromValue(purchase.datMonthYear);
+    if (!sourceMonth) continue;
+    const purchaseId = String(purchase.id ?? '').trim();
+    if (!purchaseId) continue;
+    if (effectivePurchaseMonth(purchaseId, sourceMonth, normalizedWorkflow) !== targetMonth) continue;
+
     const hasWithholding = purchase.withholdingOption === 'with'
       || Number(purchase.whtAmount || 0) > 0
       || (Boolean(purchase.atcCode) && Number(purchase.whtRate || 0) > 0);
@@ -134,7 +217,7 @@ export function buildMonthlyAlphalistRows(
       taxRate: purchase.whtRate,
       taxWithheld: purchase.whtAmount,
     });
-    if (row) sourceRows.push(row);
+    if (row) sourceRows.push({ ...row, purchaseSources: [{ id: purchaseId, sourceMonth }] });
   }
 
   const grouped = new Map<string, MonthlyAlphalistPayeeRow>();
@@ -144,8 +227,11 @@ export function buildMonthlyAlphalistRows(
     if (current) {
       current.incomePayment = money2(current.incomePayment + row.incomePayment);
       current.taxWithheld = money2(current.taxWithheld + row.taxWithheld);
+      if (!current.purchaseSources.some(source => source.id === row.purchaseSources[0]?.id)) {
+        current.purchaseSources.push(...row.purchaseSources);
+      }
     } else {
-      grouped.set(key, { ...row });
+      grouped.set(key, { ...row, purchaseSources: [...row.purchaseSources] });
     }
   }
   return Array.from(grouped.values()).sort((a, b) => a.name.localeCompare(b.name) || a.atcCode.localeCompare(b.atcCode));
