@@ -20,11 +20,8 @@ export interface YearDropdownDateInputProps {
   ariaLabel?: string;
 }
 
+const MIN_SELECTABLE_YEAR = 2020;
 const EMPTY_PARTS: DateParts = { year: '', month: '', day: '' };
-const MONTHS = Array.from({ length: 12 }, (_, index) => ({
-  value: String(index + 1).padStart(2, '0'),
-  label: String(index + 1).padStart(2, '0'),
-}));
 
 function daysInMonth(year: number, month: number): number {
   return new Date(year, month, 0).getDate();
@@ -56,17 +53,36 @@ function buildIsoDate(parts: DateParts): string {
   return `${parts.year.padStart(4, '0')}-${parts.month.padStart(2, '0')}-${parts.day.padStart(2, '0')}`;
 }
 
+function effectiveMinDate(min?: string): string {
+  const requestedMin = normalizeBound(min);
+  const floor = `${MIN_SELECTABLE_YEAR}-01-01`;
+  return requestedMin && requestedMin > floor ? requestedMin : floor;
+}
+
 function clampDate(isoDate: string, min?: string, max?: string): string {
-  const minDate = normalizeBound(min);
+  const minDate = effectiveMinDate(min);
   const maxDate = normalizeBound(max);
-  if (minDate && isoDate < minDate) return minDate;
+  if (isoDate < minDate) return minDate;
   if (maxDate && isoDate > maxDate) return maxDate;
   return isoDate;
 }
 
+function isValidDateParts(parts: DateParts): boolean {
+  if (!parts.year || !parts.month || !parts.day) return false;
+  const year = Number(parts.year);
+  const month = Number(parts.month);
+  const day = Number(parts.day);
+  return (
+    Number.isInteger(year) && year >= MIN_SELECTABLE_YEAR && year <= 9999 &&
+    Number.isInteger(month) && month >= 1 && month <= 12 &&
+    Number.isInteger(day) && day >= 1 && day <= 31
+  );
+}
+
 /**
- * Date control for entry screens. Month/day remain dropdowns and the year is
- * always selected from a four-digit dropdown; values emitted remain YYYY-MM-DD.
+ * Date control for entry screens. Only the year is a dropdown (four digits,
+ * 2020 onward); month and day are editable numeric text fields. Emitted values
+ * remain YYYY-MM-DD so existing form and database behavior is preserved.
  */
 export const YearDropdownDateInput = forwardRef<HTMLSelectElement, YearDropdownDateInputProps>(
   function YearDropdownDateInput(
@@ -92,54 +108,72 @@ export const YearDropdownDateInput = forwardRef<HTMLSelectElement, YearDropdownD
 
     const yearOptions = useMemo(() => {
       const currentYear = new Date().getFullYear();
-      const selectedYear = Number(parts.year) || 0;
-      const minYear = Number(normalizeBound(min)?.slice(0, 4)) || 1900;
-      const maxYear = Number(normalizeBound(max)?.slice(0, 4)) || Math.max(currentYear + 10, selectedYear);
-      const lower = Math.max(1, Math.min(minYear, selectedYear || minYear));
-      const upper = Math.min(9999, Math.max(maxYear, selectedYear || maxYear));
+      const selectedYear = Number(parts.year) >= MIN_SELECTABLE_YEAR ? Number(parts.year) : 0;
+      const requestedMinYear = Number(normalizeBound(min)?.slice(0, 4)) || MIN_SELECTABLE_YEAR;
+      const requestedMaxYear = Number(normalizeBound(max)?.slice(0, 4)) || currentYear + 10;
+      const minYear = Math.max(MIN_SELECTABLE_YEAR, requestedMinYear);
+      const lower = selectedYear > 0 ? Math.max(MIN_SELECTABLE_YEAR, Math.min(minYear, selectedYear)) : minYear;
+      const upper = Math.max(requestedMaxYear, selectedYear);
       const options: number[] = [];
 
       for (let year = lower; year <= upper; year += 1) {
-        // Keep the selected legacy year visible even when it is outside min/max;
-        // it is disabled and cannot be chosen as a new value.
-        if ((year < minYear || year > maxYear) && year !== selectedYear) continue;
-        options.push(year);
+        if (year < minYear || year > requestedMaxYear) {
+          if (year !== selectedYear) continue;
+        }
+        // The year dropdown must never offer a year earlier than 2020.
+        if (year >= MIN_SELECTABLE_YEAR) options.push(year);
       }
-      if (selectedYear > 0 && !options.includes(selectedYear)) options.push(selectedYear);
       return options.sort((a, b) => a - b);
     }, [parts.year, min, max]);
 
-    const maxDay = parts.month
-      ? daysInMonth(Number(parts.year) || new Date().getFullYear(), Number(parts.month))
-      : 31;
-    const dayOptions = Array.from({ length: maxDay }, (_, index) => String(index + 1).padStart(2, '0'));
+    const updateTextPart = (key: 'month' | 'day', rawValue: string) => {
+      const digitsOnly = rawValue.replace(/\D/g, '').slice(0, 2);
+      setParts(previous => ({ ...previous, [key]: digitsOnly }));
+    };
 
-    const updatePart = (key: keyof DateParts, nextValue: string) => {
-      if (!nextValue) {
-        setParts({ ...EMPTY_PARTS });
-        onChange('');
-        return;
-      }
+    const commitParts = (nextParts: DateParts) => {
+      // Partial values must remain editable while the user moves between fields.
+      // The date is committed only when all three parts form a valid date.
+      if (!isValidDateParts(nextParts)) return;
 
-      const nextParts = { ...parts, [key]: nextValue };
-      if (!nextParts.year || !nextParts.month || !nextParts.day) {
-        setParts(nextParts);
-        return;
-      }
-
-      const yearNumber = Number(nextParts.year);
       const monthNumber = Number(nextParts.month);
-      const dayNumber = Math.min(Number(nextParts.day), daysInMonth(yearNumber, monthNumber));
-      const candidate = buildIsoDate({ ...nextParts, day: String(dayNumber).padStart(2, '0') });
+      const adjustedDay = Math.min(Number(nextParts.day), daysInMonth(Number(nextParts.year), monthNumber));
+      const candidate = buildIsoDate({
+        year: nextParts.year,
+        month: String(monthNumber).padStart(2, '0'),
+        day: String(adjustedDay).padStart(2, '0'),
+      });
+      const minDate = effectiveMinDate(min);
+      const maxDate = normalizeBound(max);
+      if (maxDate && maxDate < minDate) return;
+
       const bounded = clampDate(candidate, min, max);
+      if (Number(bounded.slice(0, 4)) < MIN_SELECTABLE_YEAR) return;
       const normalized = parseParts(bounded);
       setParts(normalized);
       onChange(bounded);
     };
 
+    const handleYearChange = (nextYear: string) => {
+      if (!nextYear) {
+        setParts({ ...EMPTY_PARTS });
+        onChange('');
+        return;
+      }
+      const nextParts = { ...parts, year: nextYear };
+      setParts(nextParts);
+      // Allow users to select the year before completing month/day.
+      commitParts(nextParts);
+    };
+
+    const handleTextBlur = () => {
+      commitParts(parts);
+    };
+
     const selectClassName = 'min-w-0 bg-transparent text-current text-xs font-semibold leading-5 outline-none focus:ring-0 disabled:cursor-not-allowed disabled:opacity-50';
-    const minYear = Number(normalizeBound(min)?.slice(0, 4)) || 0;
-    const maxYear = Number(normalizeBound(max)?.slice(0, 4)) || 0;
+    const inputClassName = 'min-w-0 bg-transparent text-current text-xs font-semibold leading-5 outline-none focus:ring-0 disabled:cursor-not-allowed disabled:opacity-50 placeholder:text-slate-400';
+    const minYear = Math.max(MIN_SELECTABLE_YEAR, Number(normalizeBound(min)?.slice(0, 4)) || MIN_SELECTABLE_YEAR);
+    const maxYear = Number(normalizeBound(max)?.slice(0, 4)) || new Date().getFullYear() + 10;
 
     return (
       <div
@@ -151,41 +185,49 @@ export const YearDropdownDateInput = forwardRef<HTMLSelectElement, YearDropdownD
         role="group"
         aria-label={ariaLabel}
       >
-        <select
+        <input
           aria-label={`${ariaLabel} month`}
+          type="text"
+          inputMode="numeric"
+          pattern="(?:0?[1-9]|1[0-2])"
+          maxLength={2}
+          placeholder="MM"
           value={parts.month}
-          onChange={event => updatePart('month', event.target.value)}
+          onChange={event => updateTextPart('month', event.target.value)}
+          onBlur={handleTextBlur}
           disabled={disabled}
           required={required}
-          className={cn(selectClassName, 'flex-[1.05]')}
-        >
-          <option value="">MM</option>
-          {MONTHS.map(month => <option key={month.value} value={month.value}>{month.label}</option>)}
-        </select>
-        <select
+          className={cn(inputClassName, 'w-8 flex-[1.05] text-center')}
+        />
+        <span aria-hidden="true" className="select-none text-current/50">/</span>
+        <input
           aria-label={`${ariaLabel} day`}
+          type="text"
+          inputMode="numeric"
+          pattern="(?:0?[1-9]|[12][0-9]|3[01])"
+          maxLength={2}
+          placeholder="DD"
           value={parts.day}
-          onChange={event => updatePart('day', event.target.value)}
+          onChange={event => updateTextPart('day', event.target.value)}
+          onBlur={handleTextBlur}
           disabled={disabled}
           required={required}
-          className={cn(selectClassName, 'flex-[0.85]')}
-        >
-          <option value="">DD</option>
-          {dayOptions.map(day => <option key={day} value={day}>{day}</option>)}
-        </select>
+          className={cn(inputClassName, 'w-8 flex-[0.85] text-center')}
+        />
+        <span aria-hidden="true" className="select-none text-current/50">/</span>
         <select
           ref={yearSelectRef}
           aria-label={`${ariaLabel} year`}
           name={name}
-          value={parts.year}
-          onChange={event => updatePart('year', event.target.value)}
+          value={Number(parts.year) >= MIN_SELECTABLE_YEAR ? parts.year : ''}
+          onChange={event => handleYearChange(event.target.value)}
           disabled={disabled}
           required={required}
           className={cn(selectClassName, 'flex-[1.35]')}
         >
           <option value="">YYYY</option>
           {yearOptions.map(year => {
-            const outOfBounds = (minYear > 0 && year < minYear) || (maxYear > 0 && year > maxYear);
+            const outOfBounds = year < minYear || year > maxYear;
             return <option key={year} value={String(year).padStart(4, '0')} disabled={outOfBounds}>{String(year).padStart(4, '0')}</option>;
           })}
         </select>
