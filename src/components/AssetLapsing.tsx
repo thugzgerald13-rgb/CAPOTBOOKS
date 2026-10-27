@@ -5,6 +5,7 @@ import { usePermission } from '../lib/teamPermissions';
 import { Wrench, Plus, Trash2, Calculator, X, Check } from 'lucide-react';
 import { AssetLapsingEntry } from '../types';
 import { accumulatedDepreciation, netBookValue, disposalGainLoss, buildDepreciationJE, DEPRECIATION_METHODS, type DepreciableAsset } from '../lib/depreciation';
+import { YearDropdownDateInput } from './ui/YearDropdownDateInput';
 
 export function AssetLapsing() {
   const canDelete = usePermission('delete_transactions');
@@ -73,7 +74,7 @@ export function AssetLapsing() {
               <Calculator className="w-3.5 h-3.5" /> Auto-JE
             </button>
             <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">As of</label>
-            <input type="date" value={asOfDate} onChange={e => setAsOfDate(e.target.value)} className="text-xs font-bold border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 rounded-lg outline-none" />
+            <YearDropdownDateInput value={asOfDate} onChange={value => setAsOfDate(value)} className="text-xs font-bold border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-1.5 rounded-lg outline-none" />
           </div>
         </div>
 
@@ -126,7 +127,7 @@ export function AssetLapsing() {
                 const gain = disposed ? disposalGainLoss(row as DepreciableAsset, (row as any).disposalDate || asOfDate, (row as any).disposalProceeds || 0) : 0;
                 return (
                   <tr key={row.id} className={`hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors group ${disposed ? 'opacity-50' : ''}`}>
-                    <td className="px-1 py-1"><input type="date" value={row.datePurchased} onChange={e => handleUpdateRow(row.id, 'datePurchased', e.target.value)} className="w-full bg-transparent border border-transparent hover:border-slate-200 dark:hover:border-slate-700 focus:border-blue-500 rounded-lg px-2 py-1.5 outline-none" /></td>
+                    <td className="px-1 py-1"><YearDropdownDateInput value={row.datePurchased} onChange={value => handleUpdateRow(row.id, 'datePurchased', value)} className="w-full bg-transparent border border-transparent hover:border-slate-200 dark:hover:border-slate-700 focus:border-blue-500 rounded-lg px-2 py-1.5 outline-none" /></td>
                     <td className="px-1 py-1"><input type="text" value={row.invoiceNo} onChange={e => handleUpdateRow(row.id, 'invoiceNo', e.target.value)} placeholder="INV-001" className="w-24 bg-transparent border border-transparent hover:border-slate-200 dark:hover:border-slate-700 focus:border-blue-500 rounded-lg px-2 py-1.5 outline-none" /></td>
                     <td className="px-1 py-1"><input type="text" value={row.description} onChange={e => handleUpdateRow(row.id, 'description', e.target.value)} placeholder="Asset description" className="w-48 bg-transparent border border-transparent hover:border-slate-200 dark:hover:border-slate-700 focus:border-blue-500 rounded-lg px-2 py-1.5 outline-none" /></td>
                     <td className="px-1 py-1">

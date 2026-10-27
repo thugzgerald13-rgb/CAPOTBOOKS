@@ -6,6 +6,7 @@ import { DEFAULT_GJ_COLUMNS } from './GeneralJournal';
 import { JournalVoucher as JournalVoucherType, JournalVoucherLine, JournalEntry } from '../types';
 import { addIntervalISO, loadJVTemplates, persistJVTemplates, readJVAttachment, type JVTemplate, type JVAttachment, type RecurrenceFrequency } from '../lib/glPosting';
 import { useGranularPermissions } from '../lib/useGranularPermissions';
+import { YearDropdownDateInput } from './ui/YearDropdownDateInput';
 
 interface DraftLine {
   id: string;
@@ -213,7 +214,7 @@ export function JournalVoucher() {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4 bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-100 dark:border-slate-700">
         <div>
           <label className="form-label">Date</label>
-          <input type="date" value={date} onChange={e => setDate(e.target.value)} className="form-input" />
+          <YearDropdownDateInput value={date} onChange={value => setDate(value)} className="form-input" />
         </div>
         <div>
           <label className="form-label">Reference <span className="text-rose-500">*</span></label>

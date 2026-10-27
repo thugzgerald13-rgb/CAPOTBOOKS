@@ -72,6 +72,7 @@ import {
   PayslipEmailPayload
 } from './services/payslipPdfService';
 import { loadPayrollSnapshot, payrollCloudAvailable, savePayrollSnapshot } from './services/payrollRepository';
+import { YearDropdownDateInput } from '../components/ui/YearDropdownDateInput';
 
 
 export interface PayrollCompany {
@@ -2608,13 +2609,8 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
 
                 <div className="eh-field">
                   <label>Date *</label>
-                  <input
-                    type="date"
-                    value={editingAttendance?.date || new Date().toISOString().slice(0, 10)}
-                    onChange={(e) =>
-                      setEditingAttendance({ ...editingAttendance, date: e.target.value })
-                    }
-                  />
+                  <YearDropdownDateInput value={editingAttendance?.date || new Date().toISOString().slice(0, 10)} onChange={value =>
+                      setEditingAttendance({ ...editingAttendance, date: value })} className="input-base" />
                 </div>
 
                 <div className="eh-field">

@@ -28,6 +28,7 @@ import {
   type EisInvoiceJson, type EisSettings, type EisTransmission,
 } from '../lib/eisTypes';
 import type { BillingInvoice } from '../types';
+import { YearDropdownDateInput } from './ui/YearDropdownDateInput';
 
 type Tab = 'transmit' | 'builder' | 'settings';
 
@@ -207,7 +208,7 @@ function SettingsTab({ settings, onSaved }: { settings: EisSettings; onSaved: ()
             <Input value={form.permitToIssueNumber || ''} onChange={e => set({ permitToIssueNumber: e.target.value })} placeholder="PTI number" />
           </Field>
           <Field label="PTI issue date (6-month certification clock)">
-            <Input type="date" value={form.permitToIssueDate || ''} onChange={e => set({ permitToIssueDate: e.target.value })} />
+            <YearDropdownDateInput value={form.permitToIssueDate || ''} onChange={value => set({ permitToIssueDate: value })} className="input-base" />
           </Field>
         </div>
         <div className="grid grid-cols-2 gap-3">

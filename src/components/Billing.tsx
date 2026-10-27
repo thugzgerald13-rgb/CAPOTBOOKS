@@ -18,6 +18,7 @@ import { useMemo } from 'react';
 import type { InvoiceTemplate } from '../types';
 import { Pencil } from 'lucide-react';
 import { useGranularPermissions } from '../lib/useGranularPermissions';
+import { YearDropdownDateInput } from './ui/YearDropdownDateInput';
 
 const CASH_RECEIPT_PAYMENT_TYPES = ['Cash', 'Check', 'E-Payment', 'Bank Transfer'];
 
@@ -313,11 +314,11 @@ export function Billing() {
       {canBillingAction('add') && <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-100 dark:border-slate-700">
         <div>
           <label className="form-label">Date</label>
-          <input type="date" value={date} onChange={e => setDate(e.target.value)} className="form-input" />
+          <YearDropdownDateInput value={date} onChange={value => setDate(value)} className="form-input" />
         </div>
         <div>
           <label className="form-label">Due Date</label>
-          <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="form-input" />
+          <YearDropdownDateInput value={dueDate} onChange={value => setDueDate(value)} className="form-input" />
         </div>
         <div>
           <label className="form-label">Invoice # <span className="text-rose-500">*</span></label>

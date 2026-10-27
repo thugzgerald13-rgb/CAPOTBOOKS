@@ -9,6 +9,7 @@ import { supabase } from '../lib/supabase';
 import { crossFootValidation, exportJournalToExcel } from '../lib/specialJournals';
 
 import { DEFAULT_SJ_COLUMNS } from '../lib/journalDefaults';
+import { YearDropdownDateInput } from './ui/YearDropdownDateInput';
 export { DEFAULT_SJ_COLUMNS };
 
 export function SalesJournal() {
@@ -265,19 +266,9 @@ export function SalesJournal() {
               <Calendar className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
               <span className="text-xs font-bold uppercase tracking-wider">Period</span>
             </div>
-            <input
-              type="date"
-              value={periodFrom}
-              onChange={e => setPeriodFrom(e.target.value)}
-              className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 text-xs outline-none focus:border-cyan-500 text-slate-900 dark:text-white"
-            />
+            <YearDropdownDateInput value={periodFrom} onChange={value => setPeriodFrom(value)} className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 text-xs outline-none focus:border-cyan-500 text-slate-900 dark:text-white" />
             <span className="text-slate-400 text-xs font-semibold">to</span>
-            <input
-              type="date"
-              value={periodTo}
-              onChange={e => setPeriodTo(e.target.value)}
-              className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 text-xs outline-none focus:border-cyan-500 text-slate-900 dark:text-white"
-            />
+            <YearDropdownDateInput value={periodTo} onChange={value => setPeriodTo(value)} className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 text-xs outline-none focus:border-cyan-500 text-slate-900 dark:text-white" />
             <div className="flex flex-wrap gap-1.5">
               {(['this-month', 'last-month', 'this-quarter', 'this-year'] as const).map(p => (
                 <button

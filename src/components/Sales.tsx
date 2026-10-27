@@ -8,6 +8,7 @@ import { supabase } from '../lib/supabase';
 import { useGranularPermissions } from '../lib/useGranularPermissions';
 import { ATC_SCHEDULE } from '../lib/atcSchedule';
 import { AtcSelect } from './AtcSelect';
+import { YearDropdownDateInput } from './ui/YearDropdownDateInput';
 
 const CASH_RECEIPT_PAYMENT_TYPES = ['Cash', 'Check', 'E-Payment', 'Bank Transfer'];
 const SALES_JOURNAL_PAYMENT_TYPES = ['Credit Card', 'On Account'];
@@ -307,12 +308,7 @@ export function Sales({ embedded = false, editSale = null, onSaved, onClose }: S
       {canSalesAction('add') && <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-100 dark:border-slate-700">
         <div>
           <label className="form-label">Date</label>
-          <input 
-            type="date" 
-            value={date} 
-            onChange={e => setDate(e.target.value)} 
-            className="form-input" 
-          />
+          <YearDropdownDateInput value={date} onChange={value => setDate(value)} className="form-input" />
         </div>
         <div>
           <label className="form-label">Payment Type</label>

@@ -9,6 +9,7 @@ import { listTemplatesFor, getTemplate } from '../lib/invoiceTemplates';
 import { downloadSoaPdf } from '../lib/invoicePdf';
 import { toast } from './ui/Toast';
 import { TemplateEditor } from './TemplateEditor';
+import { YearDropdownDateInput } from './ui/YearDropdownDateInput';
 
 const money = (n: number) => `₱${Math.abs(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -87,8 +88,8 @@ export function SoaTab() {
 
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-5 space-y-4">
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-          <Field label="Period from"><Input type="date" value={periodFrom} onChange={e => setPeriodFrom(e.target.value)} /></Field>
-          <Field label="Period to"><Input type="date" value={periodTo} onChange={e => setPeriodTo(e.target.value)} /></Field>
+          <Field label="Period from"><YearDropdownDateInput value={periodFrom} onChange={value => setPeriodFrom(value)} className="input-base" /></Field>
+          <Field label="Period to"><YearDropdownDateInput value={periodTo} onChange={value => setPeriodTo(value)} className="input-base" /></Field>
           <div className="flex items-end"><Button variant="primary" onClick={generate}>Generate SOA</Button></div>
         </div>
 

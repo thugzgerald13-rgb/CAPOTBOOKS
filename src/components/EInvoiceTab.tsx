@@ -12,6 +12,7 @@ import { TemplateEditor } from './TemplateEditor';
 import { buildEisInvoice, validateEisInvoice } from '../lib/eisBuilder';
 import { createTransmissionRecord, loadEisSettings } from '../lib/eisStore';
 import { useNavigate } from 'react-router-dom';
+import { YearDropdownDateInput } from './ui/YearDropdownDateInput';
 
 const VAT_RATE = 0.12;
 const STORAGE_KEY = (clientId: string) => `capot.einvoices.${clientId}`;
@@ -170,8 +171,8 @@ export function EInvoiceTab() {
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-5 space-y-4">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <Field label="E-Invoice # *"><Input value={invoiceNo} onChange={e => setInvoiceNo(e.target.value)} placeholder="EINV-0001" /></Field>
-            <Field label="Date"><Input type="date" value={date} onChange={e => setDate(e.target.value)} /></Field>
-            <Field label="Due date"><Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} /></Field>
+            <Field label="Date"><YearDropdownDateInput value={date} onChange={value => setDate(value)} className="input-base" /></Field>
+            <Field label="Due date"><YearDropdownDateInput value={dueDate} onChange={value => setDueDate(value)} className="input-base" /></Field>
             <Field label="Delivery method (RMC 98-2026)">
               <Select value={deliveryMethod} onChange={e => setDeliveryMethod(e.target.value)}>
                 <option value="email">Email</option><option value="online_viewing">Online viewing</option>

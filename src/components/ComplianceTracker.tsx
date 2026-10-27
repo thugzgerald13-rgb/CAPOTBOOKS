@@ -11,6 +11,7 @@ import { getComplianceStatusInfo, estimateBirPenalty, computeComplianceRiskScore
 import { resolveBusinessWorkflow, computeBusinessTax, computeIncomeTaxByRegime } from '../lib/taxEngine';
 import { generateStandardDeadlines } from './BIRForms';
 import { supabase } from '../lib/supabase';
+import { YearDropdownDateInput } from './ui/YearDropdownDateInput';
 
 export function ComplianceTracker() {
   const { canAction: canComplianceAction, canDropdownOption: canComplianceDropdown } = useGranularPermissions('compliance_tracker');
@@ -724,12 +725,7 @@ export function ComplianceTracker() {
                                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-3.5">
                                   <div>
                                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 block mb-1">Date Filed</label>
-                                    <input
-                                      type="date"
-                                      value={filingDate}
-                                      onChange={e => setFilingDate(e.target.value)}
-                                      className="w-full text-xs font-bold border border-slate-200 dark:border-slate-850 bg-white dark:bg-slate-900 p-2.5 rounded-xl outline-none"
-                                    />
+                                    <YearDropdownDateInput value={filingDate} onChange={value => setFilingDate(value)} className="w-full text-xs font-bold border border-slate-200 dark:border-slate-850 bg-white dark:bg-slate-900 p-2.5 rounded-xl outline-none" />
                                   </div>
                                   <div>
                                     <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 block mb-1">Amount Paid (₱)</label>
@@ -778,12 +774,7 @@ export function ComplianceTracker() {
                                   {filingTaxStatus === 'With Payable' && (
                                     <div className="sm:col-span-2">
                                       <label className="text-[10px] font-black uppercase tracking-widest text-slate-500 block mb-1">Date Paid (optional, if already settled)</label>
-                                      <input
-                                        type="date"
-                                        value={filingDatePaid}
-                                        onChange={e => setFilingDatePaid(e.target.value)}
-                                        className="w-full text-xs font-bold border border-slate-200 dark:border-slate-850 bg-white dark:bg-slate-900 p-2.5 rounded-xl outline-none"
-                                      />
+                                      <YearDropdownDateInput value={filingDatePaid} onChange={value => setFilingDatePaid(value)} className="w-full text-xs font-bold border border-slate-200 dark:border-slate-850 bg-white dark:bg-slate-900 p-2.5 rounded-xl outline-none" />
                                     </div>
                                   )}
                                 </div>
