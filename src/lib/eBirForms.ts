@@ -1,9 +1,9 @@
-// eBirForms.ts — CAPOTBOOKS draft export for the offline eBIRForms workflow.
-// Reference data (ATC codes, form list) is based on the supplied offline package.
-// XML field compatibility is reverse-engineered and must be validated in the
-// exact installed BIR package before the generated return is used for filing.
+// eBirForms.ts — eBIRForms (Offline Package v7.9.6.2) integration.
+// Reference data (ATC codes, form list) extracted from the Offline eBIRForms
+// Package XML resources. Generates an eBIRForms-compatible XML data file
+// (importable into the offline eBIRForms app) and a printable BIR form, both
+// populated from the active client's ledger (sales / purchases / EWT).
 import type { Client } from '../types';
-import { EBIR_1702RT_FIELD_DEFAULTS } from './official1702RTSchema';
 import {
   resolveBusinessWorkflow,
   computeIncomeTaxByRegime,
@@ -281,13 +281,18 @@ function is8PercentFlat(profile: { incomeTaxRegime?: string; deductionMethod?: s
   return profile?.incomeTaxRegime === '8_percent_flat' || profile?.deductionMethod === 'none_8_percent';
 }
 
-function isIndividual(profile: { taxpayerClassification?: string } | null | undefined): boolean {
-  return (profile?.taxpayerClassification || '').toString().toLowerCase().startsWith('individual');
+function isIndividual(profile: { taxpayerClassification?: string; taxpayerSubClassification?: string } | null | undefined): boolean {
+  const c = (profile?.taxpayerClassification || '').toString().trim().toLowerCase();
+  if (c) return c.startsWith('individual') && !c.startsWith('non-individual');
+  // Fall back to the subtype only when classification has not been entered.
+  return ['sole_proprietor', 'professional', 'mixed_income'].includes(String(profile?.taxpayerSubClassification || '').toLowerCase());
 }
 
-function isCorporation(profile: { taxpayerClassification?: string } | null | undefined): boolean {
-  const c = (profile?.taxpayerClassification || '').toString().toLowerCase();
-  return c.startsWith('non-individual') || c.startsWith('corporation') || c.includes('corp') || c.includes('partnership');
+function isCorporation(profile: { taxpayerClassification?: string; taxpayerSubClassification?: string } | null | undefined): boolean {
+  const c = (profile?.taxpayerClassification || '').toString().trim().toLowerCase();
+  if (c) return c.startsWith('non-individual') || c.startsWith('corporation') || c.includes('corp') || c.includes('partnership');
+  // Fall back to the subtype only when classification has not been entered.
+  return ['corporation_regular', 'corporation_msme', 'domestic_corp', 'msme_corp', 'opc', 'partnership', 'gpp', 'cooperative'].includes(String(profile?.taxpayerSubClassification || '').toLowerCase());
 }
 
 const EXCISE_INDUSTRIES = ['alcohol', 'tobacco', 'cigarette', 'petroleum', 'fuel', 'mining', 'mineral', 'automobile', 'car', 'sweetened', 'beverage', 'excise', 'distillery', 'brewery'];
@@ -317,13 +322,14 @@ export function getApplicableEBirForms(
     vatRegistrationType?: string;
     vatType?: string;
     taxpayerClassification?: string;
+    taxpayerSubClassification?: string;
     incomeTaxRegime?: string;
+    deductionMethod?: string;
     taxpayerTier?: string;
     hasEmployees?: boolean;
     isTopWithholdingAgent?: boolean;
     industry?: string;
     additionalBirForms?: string[];
-    deductionMethod?: string;
   } | null | undefined,
   options: { includeAdhoc?: boolean } = {}
 ): ApplicableFormsResult {
@@ -337,7 +343,18 @@ export function getApplicableEBirForms(
   const excise = isExciseIndustry(profile);
   // Withholding forms: routinely required for Top WTAs, corporations, or any business with employees.
   const requiresWithholding = topWTA || corporation || hasEmployees;
-  const regime = profile?.incomeTaxRegime || '';
+  const subClass = String(profile?.taxpayerSubClassification || '').toLowerCase();
+  // Use the classification choices from Client/Business Information as a
+  // fallback when the more detailed regime field has not been selected yet.
+  const inferredRegimeBySubClass: Record<string, string> = {
+    corporation_msme: 'corp_20_msme',
+    msme_corp: 'corp_20_msme',
+    corporation_regular: 'corp_25_regular',
+    domestic_corp: 'corp_25_regular',
+    gpp: 'corp_gpp_exempt',
+    cooperative: 'corp_gpp_exempt',
+  };
+  const regime = profile?.incomeTaxRegime || inferredRegimeBySubClass[subClass] || '';
 
   const routine: EBirFormOption[] = [];
   const adhoc: EBirFormOption[] = [];
@@ -370,6 +387,31 @@ export function getApplicableEBirForms(
   const order: Record<string, number> = { income: 0, vat: 1, percentage: 2, withholding: 3, payment: 4, excise: 5, capital: 6, transfer: 7 };
   routine.sort((a, b) => (order[a.category] ?? 9) - (order[b.category] ?? 9) || a.id.localeCompare(b.id));
   adhoc.sort((a, b) => (order[a.category] ?? 9) - (order[b.category] ?? 9) || a.id.localeCompare(b.id));
+
+  // Choose the individual annual income-tax return using the saved client
+  // classification and deduction/tax regime instead of showing both 1701 and
+  // 1701A as if they were interchangeable. If the profile is incomplete, keep
+  // both available rather than silently hiding a potentially needed return.
+  if (individual) {
+    const pureBusinessOrProfession = ['sole_proprietor', 'professional'].includes(subClass);
+    const mixedIncome = subClass === 'mixed_income';
+    const deductionMethod = String(profile?.deductionMethod || '').toLowerCase();
+    const usesOsdOrEightPercent = ['graduated_osd', '8_percent_flat'].includes(regime)
+      || ['osd', 'osd_40', 'none_8_percent'].includes(deductionMethod);
+    const hasIndividualReturnClues = Boolean(subClass || regime || deductionMethod);
+    if (hasIndividualReturnClues) {
+      const keep1701A = pureBusinessOrProfession ? usesOsdOrEightPercent
+        : mixedIncome ? false
+        : usesOsdOrEightPercent;
+      const keep1701 = mixedIncome ? true
+        : pureBusinessOrProfession ? !usesOsdOrEightPercent
+        : !usesOsdOrEightPercent;
+      for (let i = routine.length - 1; i >= 0; i--) {
+        if (routine[i].id === '1701A' && !keep1701A) routine.splice(i, 1);
+        if (routine[i].id === '1701' && !keep1701) routine.splice(i, 1);
+      }
+    }
+  }
 
   // User-added additional BIR forms (from Client / Business Information page)
   // always appear as applicable — even if the eligibility filter would hide them.
@@ -439,7 +481,6 @@ export function computeEBirFormValues(
   ledger: EBirLedgerData,
 ): EBirFormValues {
   const wf = resolveBusinessWorkflow(client);
-  const normalizedFormType = formType.toUpperCase().replace(/[^A-Z0-9]/g, '');
   const tin = String(client.tin || '').replace(/\D/g, '').slice(0, 9).padStart(9, '0');
   const lineItems: EBirFormValues['lineItems'] = [];
   let totalTaxPayable = 0;
@@ -484,9 +525,9 @@ export function computeEBirFormValues(
     formType === '1701' ||
     formType === '1701A' ||
     formType === '1702Q' ||
-    normalizedFormType === '1702RT' ||
-    normalizedFormType === '1702EX' ||
-    normalizedFormType === '1702MX'
+    formType === '1702-RT' ||
+    formType === '1702-EX' ||
+    formType === '1702-MX'
   ) {
     const isCorporateForm = formType.startsWith('1702');
     const itr = computeIncomeTaxByRegime({
@@ -495,16 +536,16 @@ export function computeEBirFormValues(
       itemizedOperatingExpenses: ledger.expensesTotal,
       taxpayerClassification: isCorporateForm ? 'Non-Individual' : wf.classification,
       taxpayerSubClassification:
-        normalizedFormType === '1702EX'
+        formType === '1702-EX'
           ? 'gpp'
           : isCorporateForm && wf.classification === 'Individual'
             ? 'corporation_msme'
             : wf.subClassification,
       vatRegistrationType: wf.vatRegistrationType,
       incomeTaxRegime:
-        normalizedFormType === '1702EX'
+        formType === '1702-EX'
           ? 'corp_gpp_exempt'
-          : normalizedFormType === '1702MX'
+          : formType === '1702-MX'
             ? 'corp_special_5'
             : isCorporateForm && !wf.incomeTaxRegime.startsWith('corp_')
               ? wf.deductionMethod === 'osd_40'
@@ -579,198 +620,19 @@ export function taxRateCellsForForm(formId: string) {
 export const EBIR_FORM_VERSIONS: Record<string, string> = {
   '2550Q': 'v2024', '2550M': 'v2024', '2551Q': 'v2018', '0619-E': 'v2018',
   '1601-EQ': 'v2018', '1601-C': 'v2018', '1701Q': 'v2018', '1701': 'v2018', '1701A': 'v2018',
-  '1702Q': 'v2018C', '1702RT': 'v2018C', '1702-RT': 'v2018C', '1702EX': 'v2018C', '1702-EX': 'v2018C', '1702MX': 'v2018C', '1702-MX': 'v2018C', '0605': '',
+  '1702Q': 'v2018C', '1702-RT': 'v2018C', '1702-EX': 'v2018C', '1702-MX': 'v2018C', '0605': '',
 };
 /** Official eBIRForms cell-ID prefix: frm{formLower}{version}, e.g. frm2550qv2024. */
 export function ebirCellPrefix(formType: string): string {
-  // The 1702-RT v2018C save-file uses the legacy case-sensitive field prefix
-  // `frm1702RT` (without the version suffix), as confirmed by the supplied
-  // eBIRForms v7.9.6.2 saved-return samples.
-  const normalized = formType.toUpperCase().replace(/[^A-Z0-9]/g, '');
-  if (normalized === '1702RT') return 'frm1702RT';
-  const v = EBIR_FORM_VERSIONS[formType] || EBIR_FORM_VERSIONS[normalized] || 'v2018';
+  const v = EBIR_FORM_VERSIONS[formType] || 'v2018';
   return 'frm' + formType.toLowerCase().replace(/[^a-z0-9]/g, '') + v;
 }
 
 const urlEnc = (s: any) => encodeURIComponent(String(s ?? '')).replace(/'/g, '%27');
 const numFmt = (n: number) => (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const birWholePeso = (n: number) => Math.round(Number(n) || 0).toLocaleString('en-US');
-const xmlText = (value: string) => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-
-/**
- * Build the first-pass 1702-RT v2018C payload using the exact case-sensitive
- * cell IDs present in the supplied offline eBIRForms v7.9.6.2 sample files.
- * This form is deliberately conservative: aggregate ledger expenses are shown
- * as a review-required "Others" line, while unavailable tax credits/MCIT are
- * left at zero. It is a draft export and must be reconciled in eBIRForms.
- */
-function build1702RTSaveFields(values: EBirFormValues, ledger: EBirLedgerData, currentClient?: any): Array<{ cellId: string; value: string }> {
-  const fields = EBIR_1702RT_FIELD_DEFAULTS.map(field => ({ ...field }));
-  const byId = new Map(fields.map(field => [field.cellId, field]));
-  const set = (cellId: string, value: any) => {
-    const field = byId.get(cellId);
-    if (field) field.value = String(value ?? '');
-  };
-  const clientTin = String(currentClient?.tin || values.tin || '').replace(/\D/g, '');
-  const tin = clientTin.slice(0, 9).padStart(9, '0');
-  const branchCode = (clientTin.length > 9 ? clientTin.slice(9, 12) : String(currentClient?.branchCode || '000')).replace(/\D/g, '').slice(0, 3).padStart(3, '0');
-  const name = String(values.registeredName || '');
-  const address = String(values.address || '');
-  const fiscal = String(currentClient?.accountingType || '').toLowerCase() === 'fiscal';
-  const monthRaw = currentClient?.fiscalYearEndMonth ?? currentClient?.yearEndMonth ?? currentClient?.accountingYearEndMonth ?? 12;
-  const month = Math.min(12, Math.max(1, Number(monthRaw) || 12));
-  const workflow = resolveBusinessWorkflow(currentClient);
-  const isOsd = workflow.deductionMethod === 'osd_40';
-  const sales = Number(ledger.salesTotal) || 0;
-  const cost = Number(ledger.purchasesTotal) || 0;
-  const grossIncome = sales - cost;
-  const otherTaxable = 0;
-  const totalGross = grossIncome + otherTaxable;
-  const bookExpenses = Math.max(0, Number(ledger.expensesTotal) || 0);
-  const itemizedExpenses = isOsd ? 0 : bookExpenses;
-  const specialAllowable = 0;
-  const nolco = 0;
-  const osd = isOsd ? Math.max(0, grossIncome) * 0.4 : 0;
-  const totalDeductions = itemizedExpenses + specialAllowable + nolco + osd;
-  const netTaxable = Math.max(0, totalGross - totalDeductions);
-  const taxDue = Math.max(0, Number(values.totalTaxPayable) || 0);
-  const taxRate = String(workflow.incomeTaxRegime || '').includes('20') ? '20' : '25';
-  const rdo = String(values.rdoCode || currentClient?.rdoCode || '');
-  const phone = String(currentClient?.phone || currentClient?.contactNumber || '');
-  const email = String(currentClient?.email || '');
-  const registrationDate = String(currentClient?.incorporationDate || currentClient?.dateOfRegistration || currentClient?.registrationDate || '');
-
-  // Period and taxpayer identity. TIN is stored in three 3-digit groups plus
-  // the 3-digit branch code, matching the actual saved-file field names.
-  set('frm1702RT:rdoPg1I1Calendar', String(!fiscal));
-  set('frm1702RT:rdoPg1I1Fiscal', String(fiscal));
-  set('frm1702RT:ddlPg1I2Month', String(month));
-  set('frm1702RT:txtPg1I2Year', String(values.year % 100).padStart(2, '0'));
-  set('frm1702RT:rdoPg1I3AmmendYes', 'false');
-  set('frm1702RT:rdoPg1I3AmmendNo', 'true');
-  set('frm1702RT:rdoPg1I4ShortPeriodYes', 'false');
-  set('frm1702RT:rdoPg1I4ShortPeriodNo', 'true');
-  set('frm1702RT:rdoPg1I5Atc', 'true');
-  set('frm1702RT:drpPg1I5AtcOther', String(currentClient?.incomeTaxAtc || currentClient?.atcCode || 'IC010'));
-  set('frm1702RT:rdoPg1I5AtcOther', 'true');
-  set('frm1702RT:txtPg1Pt1I6TIN1', tin.slice(0, 3));
-  set('frm1702RT:txtPg1Pt1I6TIN2', tin.slice(3, 6));
-  set('frm1702RT:txtPg1Pt1I6TIN3', tin.slice(6, 9));
-  set('frm1702RT:txtPg1Pt1I6TIN4', branchCode);
-  set('BranchMaskP1', '00000');
-  set('frm1702RT:txtRDO', rdo);
-  set('frm1702RT:drpPg1Pt1I7RDOCode', rdo);
-  set('frm1702RT:txtPg1Pt1I8Name1', urlEnc(name));
-  set('frm1702RT:txtPg1Pt1I8Name2', '');
-  set('frm1702RT:txtPg1Pt1I8Name3', '');
-  set('frm1702RT:txtPg1Pt1I9Address1', urlEnc(address));
-  set('frm1702RT:txtPg1Pt1I9Address2', '');
-  set('frm1702RT:txtPg1Pt1I9Address3', '');
-  set('frm1702RT:txtZIP', String(currentClient?.zipCode || currentClient?.zip || ''));
-  set('frm1702RT:txtPg1Pt1I10', registrationDate);
-  set('frm1702RT:txtPg1Pt1I11Contact', phone);
-  set('frm1702RT:txtPg1Pt1I12Email', email);
-  set('frm1702RT:rdoPg1Pt1I13ItemizedDeduction', String(!isOsd));
-  set('frm1702RT:rdoPg1Pt1I13OptionalStandard', String(isOsd));
-
-  // Main return totals. Credits, penalties, and carryovers remain zero because
-  // the current CAPOTBOOKS ledger interface does not provide those schedules.
-  set('frm1702RT:txtPg1Pt2I14IncomeTax', birWholePeso(taxDue));
-  set('frm1702RT:txtPg1Pt2I15TotalTaxCredits', '0');
-  set('frm1702RT:txtPg1Pt2I16NetTax', birWholePeso(taxDue));
-  set('frm1702RT:txtPg1Pt2I17Surcharge', '0');
-  set('frm1702RT:txtPg1Pt2I18Interest', '0');
-  set('frm1702RT:txtPg1Pt2I19Compromise', '0');
-  set('frm1702RT:txtPg1Pt2I20TotalPenalties', '0');
-  set('frm1702RT:txtPg1Pt2I21TotalAmount', birWholePeso(taxDue));
-  set('frm1702RT:rdoPg1Pt2I21OverpaymentRefunded', 'false');
-  set('frm1702RT:rdoPg1Pt2I21OverpaymentIssued', 'false');
-  set('frm1702RT:rdoPg1Pt2I21OverpaymentCarried', 'false');
-  set('frm1702RT:txtPg1Pt2PagesFilled', '000');
-  set('frm1702RT:txtPg2TIN1', tin.slice(0, 3));
-  set('frm1702RT:txtPg2TIN2', tin.slice(3, 6));
-  set('frm1702RT:txtPg2TIN3', tin.slice(6, 9));
-  set('frm1702RT:txtPg2TIN4', branchCode);
-  set('txtBranchMaskP2', '00000');
-  set('frm1702RT:txtPg2RegisteredName', name);
-
-  // Income computation. The app's current ledger interface has aggregate
-  // purchases/expenses only, so no unsupported line-item breakdown is invented.
-  set('frm1702RT:txtPg2Pt4I27Sales', birWholePeso(sales));
-  set('frm1702RT:txtPg2Pt4I28LessSales', '0');
-  set('frm1702RT:txtPg2Pt4I29NetSales', birWholePeso(sales));
-  set('frm1702RT:txtPg2Pt4I30LessCost', birWholePeso(cost));
-  set('frm1702RT:txtPg2Pt4I31GrossIncome', birWholePeso(grossIncome));
-  set('frm1702RT:txtPg2Pt4I32AddOtherTaxable', '0');
-  set('frm1702RT:txtPg2Pt4I33TotalGross', birWholePeso(totalGross));
-  set('frm1702RT:txtPg2Pt4I34OrdinaryAllowable', birWholePeso(itemizedExpenses));
-  set('frm1702RT:txtPg2Pt4I35SpecialAllowable', birWholePeso(specialAllowable));
-  set('frm1702RT:txtPg2Pt4I36Nolco', birWholePeso(nolco));
-  set('frm1702RT:txtPg2Pt4I37TotalItemized', birWholePeso(itemizedExpenses + specialAllowable + nolco));
-  set('frm1702RT:txtPg2Pt4I38OptionalStandard', birWholePeso(osd));
-  set('frm1702RT:txtPg2Pt4I39NetTaxable', birWholePeso(netTaxable));
-  set('frm1702RT:Pg2Pt4I40IncomeTaxRate', taxRate);
-  set('frm1702RT:txtPg2Pt4I41IncomeTaxDue', birWholePeso(taxDue));
-  set('frm1702RT:txtPg2Pt4I42MinimumCorporate', '0');
-  set('frm1702RT:txtPg2Pt4I43TotalIncomeTax', birWholePeso(taxDue));
-  for (const id of [
-    'txtPg2Pt4I44ExcessCredits', 'txtPg2Pt4I45IncomeTaxPaymentUnderMCIT',
-    'txtPg2Pt4I46IncomeTaxUnderRegular', 'txtPg2Pt4I47ExcessMCIT',
-    'txtPg2Pt4I48CreditableTaxWithheldFromPrevious', 'txtPg2Pt4I49CreditableTaxWithheldFor4thQuarter',
-    'txtPg2Pt4I50ForeignTaxCredits', 'txtPg2Pt4I51TaxPaidInReturn', 'txtPg2Pt452SpecialTaxCredits',
-    'txtPg2Pt4I53C2', 'txtPg2Pt4I54C2', 'txtPg2Pt4I55TotalTaxCredits'
-  ]) set(`frm1702RT:${id}`, '0');
-  set('frm1702RT:txtPg2Pt4I56NetTax', birWholePeso(taxDue));
-  set('frm1702RT:txtPg2Pt4I54CtrModal', '0');
-  set('frm1702RT:txtPg2Pt4I54Subtotal', '0');
-
-  // Itemized deductions are not categorized in the available ledger summary.
-  // Place the aggregate in a clearly labelled review-required "Others" line.
-  // This preserves totals for reconciliation without pretending to know the
-  // tax category of each expense transaction.
-  set('frm1702RT:txtPg3TIN1', tin.slice(0, 3));
-  set('frm1702RT:txtPg3TIN2', tin.slice(3, 6));
-  set('frm1702RT:txtPg3TIN3', tin.slice(6, 9));
-  set('frm1702RT:txtPg3TIN4', branchCode);
-  set('txtBranchMaskP3', '00000');
-  set('frm1702RT:txtPg3RegisteredName', name);
-  set('frm1702RT:txtPg3Sc1I17iC1', itemizedExpenses > 0 ? 'CAPOTBOOKS EXPENSES - REVIEW CLASSIFICATION' : '');
-  set('frm1702RT:txtPg3Sc1I17iC2', birWholePeso(itemizedExpenses));
-  set('frm1702RT:txtPg3Sc1I17iSubtotal', birWholePeso(itemizedExpenses));
-  set('frm1702RT:txtPg3Sc1I18TotalOrdinaryAllowable', birWholePeso(itemizedExpenses));
-  set('frm1702RT:txtPg3Sc1I17i.1C1', '');
-  set('frm1702RT:txtPg3Sc1I17i.1C2', '0');
-  set('frm1702RT:txtPg3Sc1I17i.2C1', '');
-  set('frm1702RT:txtPg3Sc1I17i.2C2', '0');
-  set('frm1702RT:txtPg3Sc1I17i.3C1', '');
-  set('frm1702RT:txtPg3Sc1I17i.3C2', '0');
-  set('frm1702RT:txtPg3Sc1I17iCtrModal', '0');
-  set('frm1702RT:txtPg3Sc2I5TotalSpecialAllowable', '0');
-
-  set('frm1702RT:txtPg4TIN1', tin.slice(0, 3));
-  set('frm1702RT:txtPg4TIN2', tin.slice(3, 6));
-  set('frm1702RT:txtPg4TIN3', tin.slice(6, 9));
-  set('frm1702RT:txtPg4TIN4', branchCode);
-  set('txtBranchMaskP4', '00000');
-  set('frm1702RT:txtPg4RegisteredName', name);
-  // Leave the NOLCO schedule at neutral defaults: CAPOTBOOKS does not yet
-  // track vintage-by-vintage loss carryovers or the required book/tax bridge.
-  set('frm1702RT:txtPg4Sc5I1NetIncome', birWholePeso(grossIncome - bookExpenses));
-  set('frm1702RT:txtPg4Sc5I4Total', birWholePeso(grossIncome - bookExpenses));
-  set('frm1702RT:txtPg4Sc5I9Total', '0');
-  set('frm1702RT:txtPg4Sc5I10NetTaxableIncome', birWholePeso(netTaxable));
-  set('frm1702RT:txtCurrentPage', '1');
-  set('frm1702RT:txtMaxPage', '4');
-  set('txtFinalFlag', '0');
-  set('txtEnroll', 'N');
-  return fields;
-}
 
 /** Build the official field list (cellId -> value) for a form, in savefile order. */
 export function buildOfficialSaveFields(values: EBirFormValues, ledger: EBirLedgerData, currentClient?: any): Array<{ cellId: string; value: string }> {
-  if (values.formType.toUpperCase().replace(/[^A-Z0-9]/g, '') === '1702RT') {
-    return build1702RTSaveFields(values, ledger, currentClient);
-  }
   const p = ebirCellPrefix(values.formType);
   const tin = values.tin || '000000000';
   const tin1 = tin.slice(0, 3), tin2 = tin.slice(3, 6), tin3 = tin.slice(6, 9);
@@ -909,34 +771,21 @@ export function buildOfficialSaveFields(values: EBirFormValues, ledger: EBirLedg
   return f;
 }
 
-/** Build the observed eBIRForms filename for a form and return period. */
-export function buildEBirFormXmlFilename(values: EBirFormValues, currentClient?: any): string {
-  const ver = EBIR_FORM_VERSIONS[values.formType] || 'v2018';
-  const yearEndMonth = String((values as any).yearEndMonth || currentClient?.fiscalYearEndMonth || currentClient?.yearEndMonth || currentClient?.accountingYearEndMonth || 12).padStart(2, '0');
-  const is1702RT = values.formType.toUpperCase().replace(/[^A-Z0-9]/g, '') === '1702RT';
-  // The observed 1702-RT annual save-file name uses year-end month + 4-digit year.
-  const periodStr = values.quarter
-    ? `${yearEndMonth}${values.year}Q${values.quarter}`
-    : values.month
-      ? `${String(values.month).padStart(2, '0')}${values.year}`
-      : is1702RT
-        ? `${yearEndMonth}${values.year}`
-        : String(values.year);
-  return `${values.tin}-${values.formType}${ver}-${periodStr}.xml`;
-}
-
 /**
- * Generate a CAPOTBOOKS XML draft using a reverse-engineered save-file shape.
- * The exact 1702-RT field IDs are based on the user-supplied v7.9.6.2 samples.
- * Direct import is not confirmed; users must validate the generated file with
- * an anonymized test return before relying on it for any live tax filing.
+ * Generate an official eBIRForms save file (plain XML, savefile/ format).
+ * Format (reverse-engineered from 475 real saved forms in v7.9.6.1):
+ *   <?xml version='1.0'?>
+ *   <div>frm{FORM}:{FIELD}=VALUEfrm{FORM}:{FIELD}=</div>   (one per field, URL-encoded)
+ * The file can be dropped into the official app's savefile/ folder and opened
+ * via File → Open; the app then validates and (on submit) runs Encrypt.exe +
+ * ebfSFTP.exe SFTP upload. Filename convention: {TIN}-{FORM}v{VER}-{PERIOD}#{email}#.xml
  */
 export function downloadEBirFormXml(values: EBirFormValues, ledger?: EBirLedgerData, currentClient?: any) {
   const led: EBirLedgerData = ledger || { salesTotal:0, vatableSales:0, zeroRatedSales:0, exemptSales:0, outputTax:0, purchasesTotal:0, vatablePurchases:0, inputTax:0, capitalGoodsInputTax:0, servicesInputTax:0, goodsInputTax:0, ewtTotal:0, ewtByAtc:[], compensationWithholding:0, expensesTotal:0 };
   const fields = buildOfficialSaveFields(values, led, currentClient);
   const lines: string[] = ["<?xml version='1.0'?>"];
   for (const { cellId, value } of fields) {
-    lines.push(`            <div>${cellId}=${xmlText(value)}${cellId}=</div>`);
+    lines.push(`            <div>${cellId}=${value}${cellId}=</div>`);
   }
   lines.push("        All Rights Reserved BIR 2012.0");
   const xml = lines.join('\n');
@@ -944,7 +793,12 @@ export function downloadEBirFormXml(values: EBirFormValues, ledger?: EBirLedgerD
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = buildEBirFormXmlFilename(values, currentClient);
+  const ver = EBIR_FORM_VERSIONS[values.formType] || 'v2018';
+  // Official filename period segment uses the FISCAL/CALENDAR year-end month
+  // (selectedMonthNo2, default 12 for calendar-year taxpayers) + year + quarter.
+  const yearEndMonth = String((values as any).yearEndMonth || 12).padStart(2, '0');
+  const periodStr = values.quarter ? `${yearEndMonth}${values.year}Q${values.quarter}` : (values.month ? `${String(values.month).padStart(2, '0')}${values.year}` : String(values.year));
+  a.download = `${values.tin}-${values.formType}${ver}-${periodStr}.xml`;
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   return xml;
