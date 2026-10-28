@@ -1022,6 +1022,67 @@ export function downloadEBirFormXml(values: EBirFormValues, ledger?: EBirLedgerD
   return xml;
 }
 
+/**
+ * Generate the eBIRForms taxpayer-profile save file using the exact profile
+ * structure found in the supplied offline eBIRForms sample XML (TIN + "00.xml").
+ * This is separate from a tax-return XML: it stores taxpayer identity/contact
+ * fields and the selected form type for eBIRForms' profile screen.
+ */
+export function buildEBirProfileXml(profile: Partial<Client> | Record<string, any>, formType: string): { xml: string; filename: string } {
+  const source = profile || {};
+  const digits = String(source.tin || '').replace(/\D/g, '');
+  const tin9 = digits.slice(0, 9).padStart(9, '0');
+  const branch = digits.length >= 12 ? digits.slice(9, 12) : '000';
+  const tin12 = `${tin9}${branch}`;
+  const tin1 = tin12.slice(0, 3);
+  const tin2 = tin12.slice(3, 6);
+  const tin3 = tin12.slice(6, 9);
+  const tin4 = tin12.slice(9, 12);
+  const registeredName = String(source.registeredName || source.name || [source.lastName, source.firstName, source.middleName].filter(Boolean).join(', ') || '').trim();
+  const structuredAddress = [source.substreet, source.street, source.barangay, source.district, source.city].map((v: any) => String(v || '').trim()).filter(Boolean).join(', ');
+  const address = String(structuredAddress || source.address || '').trim();
+  const email = String(source.email || '').trim();
+  const rdo = String(source.rdoCode || '').replace(/\D/g, '').trim();
+  const zip = String(source.zipCode || '').trim();
+  const phone = String(source.phone || '').trim();
+  const formCode = String(formType || '').trim();
+  const normalized = formCode.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  const versionKey = Object.keys(EBIR_FORM_VERSIONS).find(key => key.toUpperCase().replace(/[^A-Z0-9]/g, '') === normalized);
+  const version = versionKey ? EBIR_FORM_VERSIONS[versionKey] : '';
+  const profileFormType = `${normalized}${version}`;
+  const encode = (value: any) => encodeURIComponent(String(value ?? '')).replace(/'/g, '%27');
+  const fields: Array<[string, string]> = [
+    ['fn', registeredName],
+    ['tin1', tin1], ['tin2', tin2], ['tin3', tin3], ['tin4', tin4],
+    ['rdo', rdo], ['regAddr', address], ['zip', zip], ['telNo', phone],
+    ['email', email], ['confirmemail', email],
+    ['confirmtin1', tin1], ['confirmtin2', tin2], ['confirmtin3', tin3], ['confirmtin4', tin4],
+    ['formType', profileFormType],
+  ];
+  const lines = ["<?xml version='1.0'?>"];
+  for (const [key, value] of fields) {
+    const encodedValue = key === 'email' || key === 'confirmemail' ? value : encode(value);
+    lines.push(`        <div>${key}=${encodedValue}${key}=</div>`);
+  }
+  lines.push('        All Rights Reserved BIR 2012.');
+  return { xml: lines.join(''), filename: `${tin12}00.xml` };
+}
+
+/** Download the selected client's eBIRForms taxpayer-profile XML. */
+export function downloadEBirProfileXml(profile: Partial<Client> | Record<string, any>, formType: string): string {
+  const { xml, filename } = buildEBirProfileXml(profile, formType);
+  const blob = new Blob([xml], { type: 'application/xml;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return xml;
+}
+
 /** Open a printable BIR form (HTML) in a new window, populated with values. */
 export function printEBirForm(values: EBirFormValues) {
   const period = values.quarter ? `Quarter ${values.quarter} — ${values.year}` : (values.month ? `${String(values.month).padStart(2,'0')} / ${values.year}` : String(values.year));

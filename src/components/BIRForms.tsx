@@ -11,7 +11,7 @@ import { adjustDeadlineForWeekend } from '../lib/complianceUtils';
 import { generateWorkflowDeadlines } from '../lib/taxEngine';
 import { supabase } from '../lib/supabase';
 import { downloadBirFormPdf, validateBirForm } from '../lib/birFormPdf';
-import { EBIR_FORMS, getApplicableEBirForms, computeEBirFormValues, downloadEBirFormXml, printEBirForm } from '../lib/eBirForms';
+import { EBIR_FORMS, getApplicableEBirForms, computeEBirFormValues, downloadEBirFormXml, downloadEBirProfileXml, printEBirForm } from '../lib/eBirForms';
 import { useNavigate } from 'react-router-dom';
 
 // Standard & workflow-aware BIR filing deadlines generator for Philippines
@@ -782,7 +782,8 @@ export function BIRForms() {
                 </div>
               )}
               <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-2">
-                <button type="button" onClick={() => downloadEBirFormXml(values, ledger, currentClient)} className="flex-1 px-3 py-2 text-[11px] font-black uppercase rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm">Download XML</button>
+                <button type="button" onClick={() => downloadEBirFormXml(values, ledger, currentClient)} className="flex-1 px-3 py-2 text-[11px] font-black uppercase rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm">Download Return XML</button>
+                <button type="button" onClick={() => downloadEBirProfileXml((currentClient || businessProfile || {}) as any, ebirForm)} disabled={!((currentClient || businessProfile) as any)?.tin} title="Requires a TIN in the active Business/Client Information profile" className="flex-1 px-3 py-2 text-[11px] font-black uppercase rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm disabled:opacity-50">Download Profile XML</button>
                 <button type="button" onClick={() => printEBirForm(values)} className="flex-1 px-3 py-2 text-[11px] font-black uppercase rounded-xl bg-white dark:bg-slate-800 border border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100">Print Form</button>
                 <a href="capotbooks-ebirforms://open" className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-[11px] font-black uppercase rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-slate-700 dark:hover:bg-slate-600 text-white shadow-sm" title="Requires the optional Windows launcher to be installed">
                   <Monitor className="w-3.5 h-3.5" /> Open eBIRForms <ExternalLink className="w-3 h-3" />
