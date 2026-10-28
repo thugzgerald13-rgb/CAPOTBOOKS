@@ -73,7 +73,7 @@ import {
 } from './services/payslipPdfService';
 import { loadPayrollSnapshot, payrollCloudAvailable, savePayrollSnapshot } from './services/payrollRepository';
 import { YearDropdownDateInput } from '../components/ui/YearDropdownDateInput';
-import { buildEmployeeMatcher, extractDtrFromGrid, gridsFromWorkbook, parseDelimitedText } from './services/dtrImport';
+import { buildEmployeeMatcher, decodeTextFile, extractDtrFromGrid, gridsFromWorkbook, parseDelimitedText } from './services/dtrImport';
 
 
 export interface PayrollCompany {
@@ -1017,7 +1017,10 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
   const handleEmployeeUpload = async (file: File) => {
     try {
       const XLSX = await import('xlsx');
-      const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
+      const isTextFile = /\.(csv|txt|tsv)$/i.test(file.name);
+      const wb = isTextFile
+        ? XLSX.read(decodeTextFile(await file.arrayBuffer()), { type: 'string', cellDates: true })
+        : XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
       const sheet = wb.Sheets[wb.SheetNames[0]];
       if (!sheet) throw new Error('The file has no sheets.');
       const grid = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1, raw: false, dateNF: 'yyyy-mm-dd', defval: '' });
@@ -1176,8 +1179,7 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
         const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: false });
         sheets = gridsFromWorkbook(XLSX, workbook);
       } else {
-        const text = (await file.text()).replace(/^\uFEFF/, '');
-        sheets = [{ sheetName: file.name, grid: parseDelimitedText(text) }];
+        sheets = [{ sheetName: file.name, grid: parseDelimitedText(decodeTextFile(await file.arrayBuffer())) }];
       }
 
       const extractions = sheets.map((s) => extractDtrFromGrid(s.sheetName, s.grid)).filter(Boolean) as ReturnType<typeof extractDtrFromGrid>[];
@@ -1204,9 +1206,19 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
           existingKeys.add(key);
 
           const p = rec.punches;
-          const timeIn = p[0] || '';
-          const timeOut = p.length > 1 ? p[p.length - 1] : '';
-          if (p.length === 1) singlePunch += 1;
+          let timeIn = p[0] || '';
+          let timeOut = p.length > 1 ? p[p.length - 1] : '';
+          if (rec.onlyOut) { timeIn = ''; timeOut = p[0]; }
+          // A "Next day" time is only used as the time out when there is no same-day time out.
+          const useNextDay = Boolean(rec.nextDayOut) && p.length <= 1 && !rec.onlyOut;
+          if (useNextDay) timeOut = rec.nextDayOut;
+          if (p.length + (useNextDay ? 1 : 0) === 1) singlePunch += 1;
+          const notes = [
+            useNextDay ? 'Time out is from the "Next day" column - verify' : '',
+            rec.nextDayOut && !useNextDay ? `Next-day punch ${rec.nextDayOut} was not used - verify` : '',
+            rec.onlyOut ? 'Only a time out was recorded - check time in' : '',
+            !rec.onlyOut && p.length === 1 && !useNextDay ? 'Single punch - check time out' : ''
+          ].filter(Boolean);
           const minutesBetween = (a: string, b: string) => {
             const [ah, am] = a.split(':').map(Number);
             const [bh, bm] = b.split(':').map(Number);
@@ -1229,7 +1241,7 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
             leave: rec.leave || 'None',
             leaveHours: rec.leaveHours,
             approval: 'Pending',
-            remarks: rec.remarks || (p.length === 1 ? `Imported from ${file.name} (single punch - check time out)` : `Imported from ${file.name}`)
+            remarks: [rec.remarks || `Imported from ${file.name}`, ...notes].join('; ')
           });
         });
       });

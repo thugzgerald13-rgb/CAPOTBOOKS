@@ -11,13 +11,17 @@
 
 export type DtrRole =
   | 'name' | 'first' | 'last' | 'middle' | 'id' | 'date' | 'time' | 'in' | 'out'
-  | 'break' | 'ot' | 'nd' | 'holiday' | 'rest' | 'leave' | 'leaveHours' | 'remarks';
+  | 'nextOut' | 'break' | 'ot' | 'nd' | 'holiday' | 'rest' | 'leave' | 'leaveHours' | 'remarks';
 
 export interface DtrDayRecord {
   idRaw: string;
   nameRaw: string;
   date: string; // YYYY-MM-DD
-  punches: string[]; // sorted unique HH:MM
+  punches: string[]; // sorted unique HH:MM (same-day punches)
+  /** Time-out recorded in a "Next day" column (shift ended after midnight / next day), or ''. */
+  nextDayOut: string;
+  /** True when the only punch on this day sits in a time-out column. */
+  onlyOut: boolean;
   breakMin: number | null;
   ot: number;
   nd: number;
@@ -43,6 +47,7 @@ export function classifyDtrHeader(raw: string): DtrRole | null {
   if (/^(firstname|givenname|fname)$/.test(n)) return 'first';
   if (/^(lastname|surname|familyname|lname)$/.test(n)) return 'last';
   if (/^(middlename|middleinitial|mname)$/.test(n)) return 'middle';
+  if (/^(nextday|nextdayout|nextdayouttime|outnextday|nextdaytimeout|timeoutnextday)$/.test(n)) return 'nextOut';
   if (/leave/.test(n) && /(hour|hrs|hr)/.test(n)) return 'leaveHours';
   if (/^leave(type)?$/.test(n)) return 'leave';
   if (/holiday/.test(n)) return 'holiday';
@@ -96,7 +101,23 @@ export function extractTimes(value: string): string[] {
 const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
 
 /** Parses the date portion of a cell. `dayFirst` resolves 01/02/2025 style ambiguity. */
-export function parseDtrDate(value: string, dayFirst: boolean): string {
+export interface DtrPeriod { start: string; end: string }
+
+function resolveYearless(month: number, day: number, period?: DtrPeriod): string {
+  const mmdd = `${pad(month)}-${pad(day)}`;
+  if (!period) return `${new Date().getFullYear()}-${mmdd}`;
+  const sY = Number(period.start.slice(0, 4));
+  const eY = Number(period.end.slice(0, 4));
+  for (let y = sY; y <= eY; y += 1) {
+    const candidate = `${y}-${mmdd}`;
+    if (candidate >= period.start && candidate <= period.end) return candidate;
+  }
+  // outside the stated period: use the year of the closest period boundary
+  const dist = (y: number) => Math.abs(new Date(`${y}-${mmdd}T00:00:00`).getTime() - new Date(`${period.start}T00:00:00`).getTime());
+  return `${dist(sY) <= dist(eY) ? sY : eY}-${mmdd}`;
+}
+
+export function parseDtrDate(value: string, dayFirst: boolean, period?: DtrPeriod): string {
   const raw = String(value ?? '').trim();
   if (!raw) return '';
   if (/^\d{5}(\.\d+)?$/.test(raw) && Number(raw) > 30000 && Number(raw) < 80000) return fromSerial(Number(raw)).date;
@@ -126,6 +147,11 @@ export function parseDtrDate(value: string, dayFirst: boolean): string {
     const y = Number(m[3]) < 100 ? Number(m[3]) + 2000 : Number(m[3]);
     return `${y}-${pad(MONTHS.indexOf(m[1]) + 1)}-${pad(m[2])}`;
   }
+  // no year: "26-Sep", "Sep 26", "26 September" -> year taken from the report period
+  m = text.match(/^(\d{1,2})[\s\-/.,]*([a-z]{3})[a-z]*\.?$/);
+  if (m && MONTHS.includes(m[2])) return resolveYearless(MONTHS.indexOf(m[2]) + 1, Number(m[1]), period);
+  m = text.match(/^([a-z]{3})[a-z]*\.?[\s\-/.,]*(\d{1,2})$/);
+  if (m && MONTHS.includes(m[1])) return resolveYearless(MONTHS.indexOf(m[1]) + 1, Number(m[2]), period);
   return '';
 }
 
@@ -143,6 +169,17 @@ function detectDayFirst(samples: string[]): boolean {
 }
 
 // ---------- reading files into string grids ----------
+
+/** Decodes a text file as UTF-8, falling back to Windows-1252 (Excel "CSV" exports with names like Patiño). */
+export function decodeTextFile(buffer: ArrayBuffer): string {
+  let text: string;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+  } catch {
+    text = new TextDecoder('windows-1252').decode(buffer);
+  }
+  return text.replace(/^\uFEFF/, '');
+}
 
 /** Splits CSV/TSV/semicolon text into a grid of strings (quotes supported). */
 export function parseDelimitedText(input: string): string[][] {
@@ -283,11 +320,23 @@ export function extractDtrFromGrid(sheetName: string, grid: string[][]): DtrExtr
     }
   }
 
+  // report period from title rows above the header ("Start Date 09/26/2026", "End Date 10/10/2026", "Period: ...")
+  let period: DtrPeriod | undefined;
+  if (headerIdx > 0) {
+    const found: string[] = [];
+    rows.slice(0, headerIdx).forEach((r) => r.forEach((cell) => {
+      const matches = cell.match(/\d{4}-\d{1,2}-\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4}/g) || [];
+      matches.forEach((mm) => { const d = parseDtrDate(mm, false); if (d) found.push(d); });
+    }));
+    if (found.length) { found.sort(); period = { start: found[0], end: found[found.length - 1] }; }
+  }
+
   const cols = (role: DtrRole) => colRoles.map((r, i) => (r === role ? i : -1)).filter((i) => i >= 0);
   const dateCols = cols('date');
   const timeCols = cols('time');
   const inCols = cols('in');
   const outCols = cols('out');
+  const nextCols = cols('nextOut');
   if (!dateCols.length && !timeCols.length) return null;
   if (!timeCols.length && !inCols.length && !outCols.length && !cols('leave').length) return null;
 
@@ -303,7 +352,7 @@ export function extractDtrFromGrid(sheetName: string, grid: string[][]): DtrExtr
   };
 
   // 5) read rows, carrying name/ID forward for block-style reports where they are only on the first row
-  const grouped = new Map<string, DtrDayRecord>();
+  const grouped = new Map<string, DtrDayRecord & { _in: Set<string>; _out: Set<string> }>();
   let lastId = '';
   let lastName = '';
   for (let i = dataStart; i < rows.length; i += 1) {
@@ -317,27 +366,34 @@ export function extractDtrFromGrid(sheetName: string, grid: string[][]): DtrExtr
 
     let date = '';
     for (const c of [...dateCols, ...timeCols]) {
-      date = parseDtrDate(r[c] || '', dayFirst);
+      date = parseDtrDate(r[c] || '', dayFirst, period);
       if (date) break;
     }
-    const punches: string[] = [];
-    [...inCols, ...outCols, ...timeCols].sort((a, b) => a - b).forEach((c) => {
-      extractTimes(r[c] || '').forEach((t) => punches.push(t));
-    });
-    // numeric Excel time fractions (e.g. 0.3541) in explicit In/Out columns
-    [...inCols, ...outCols].forEach((c) => {
+    const inP: string[] = [];
+    const outP: string[] = [];
+    const nextP: string[] = [];
+    const readTimes = (c: number, into: string[]) => {
       const v = r[c] || '';
-      if (/^0\.\d+$/.test(v)) punches.push(fromSerial(Number(v)).time);
-    });
+      extractTimes(v).forEach((t) => into.push(t));
+      if (/^0\.\d+$/.test(v)) into.push(fromSerial(Number(v)).time); // Excel time fraction
+    };
+    [...inCols, ...timeCols].forEach((c) => readTimes(c, inP));
+    outCols.forEach((c) => readTimes(c, outP));
+    nextCols.forEach((c) => readTimes(c, nextP));
+    const punches = [...inP, ...outP, ...nextP];
     const leaveRaw = first(r, 'leave');
     const leave = ['none', 'n/a', 'na', '-', '0', 'no'].includes(leaveRaw.toLowerCase()) ? '' : leaveRaw;
     if (!date || (!punches.length && !leave)) continue;
 
     const key = `${(idRaw || norm(nameRaw)).toLowerCase()}|${date}`;
     const rec = grouped.get(key) || {
-      idRaw, nameRaw, date, punches: [], breakMin: null, ot: 0, nd: 0, holiday: '', rest: false, leave: '', leaveHours: 0, remarks: ''
+      idRaw, nameRaw, date, punches: [], nextDayOut: '', onlyOut: false, breakMin: null, ot: 0, nd: 0, holiday: '', rest: false, leave: '', leaveHours: 0, remarks: '',
+      _in: new Set<string>(), _out: new Set<string>()
     };
-    rec.punches.push(...punches);
+    rec.punches.push(...inP, ...outP);
+    inP.forEach((t) => rec._in.add(t));
+    outP.forEach((t) => rec._out.add(t));
+    if (nextP.length) rec.nextDayOut = [rec.nextDayOut, ...nextP].filter(Boolean).sort().pop() || '';
     const brk = first(r, 'break');
     if (brk && rec.breakMin === null) rec.breakMin = num(brk);
     rec.ot = Math.max(rec.ot, num(first(r, 'ot')));
@@ -350,15 +406,15 @@ export function extractDtrFromGrid(sheetName: string, grid: string[][]): DtrExtr
     grouped.set(key, rec);
   }
 
-  const records = Array.from(grouped.values()).map((rec) => ({
-    ...rec,
-    punches: Array.from(new Set(rec.punches)).sort()
-  }));
+  const records: DtrDayRecord[] = Array.from(grouped.values()).map(({ _in, _out, ...rec }) => {
+    const punches = Array.from(new Set(rec.punches)).sort();
+    return { ...rec, punches, onlyOut: punches.length === 1 && !rec.nextDayOut && _out.has(punches[0]) && !_in.has(punches[0]) };
+  });
   if (!records.length) return null;
 
   const roleLabel: Record<string, string> = {
     name: 'Employee name', first: 'First name', last: 'Last name', middle: 'Middle name', id: 'Employee ID', date: 'Date',
-    time: 'Date/Time punches', in: 'Time in', out: 'Time out', break: 'Break', ot: 'OT', nd: 'Night diff',
+    time: 'Date/Time punches', in: 'Time in', out: 'Time out', nextOut: 'Time out (next day)', break: 'Break', ot: 'OT', nd: 'Night diff',
     holiday: 'Holiday', rest: 'Rest day', leave: 'Leave', leaveHours: 'Leave hours', remarks: 'Remarks'
   };
   const detected = colRoles
@@ -370,8 +426,9 @@ export function extractDtrFromGrid(sheetName: string, grid: string[][]): DtrExtr
 
 // ---------- employee matching ----------
 
+const NAME_SUFFIXES = new Set(['jr', 'sr', 'ii', 'iii', 'iv']);
 const nameTokens = (s: string) =>
-  String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').split(/[^a-z]+/).filter((t) => t.length > 1);
+  String(s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').split(/[^a-z]+/).filter((t) => t.length > 1 && !NAME_SUFFIXES.has(t));
 const tokenKey = (s: string) => Array.from(new Set(nameTokens(s))).sort().join(' ');
 const idKey = (s: string) => {
   const v = String(s || '').trim().toLowerCase();
@@ -400,13 +457,22 @@ export function buildEmployeeMatcher<T extends MatchableEmployee>(employees: T[]
     });
   });
   return (idRaw: string, nameRaw: string): T | undefined => {
-    if (idRaw && byId.has(idKey(idRaw))) return byId.get(idKey(idRaw));
-    const k = tokenKey(nameRaw);
-    if (!k) return undefined;
-    if (byFull.has(k)) return byFull.get(k);
-    const wanted = k.split(' ');
-    if (wanted.length < 2) return undefined;
-    const candidates = tokenSets.filter(({ tokens }) => wanted.every((t) => tokens.has(t)));
-    return candidates.length === 1 ? candidates[0].e : undefined;
+    const byName = (): T | undefined => {
+      const k = tokenKey(nameRaw);
+      if (!k) return undefined;
+      if (byFull.has(k)) return byFull.get(k);
+      const wanted = k.split(' ');
+      if (wanted.length < 2) return undefined;
+      const candidates = tokenSets.filter(({ tokens }) => wanted.every((t) => tokens.has(t)));
+      return candidates.length === 1 ? candidates[0].e : undefined;
+    };
+    const idMatch = idRaw ? byId.get(idKey(idRaw)) : undefined;
+    if (idMatch) {
+      // Biometric IDs are often numbered independently of HR IDs, so an ID hit only counts
+      // when the supplied name (if any) shares at least one word with that employee.
+      const shared = nameRaw ? nameTokens(nameRaw).some((t) => tokenSets.find((x) => x.e === idMatch)!.tokens.has(t)) : true;
+      if (shared) return idMatch;
+    }
+    return byName();
   };
 }
