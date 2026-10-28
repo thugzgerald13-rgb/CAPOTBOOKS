@@ -218,23 +218,32 @@ export function BIRForms() {
   const [ebirForm, setEbirForm] = useState('2550Q');
   // eBIRForms dropdown filtered by the active business profile (VAT type,
   // income-tax regime, EOPT tier, employees, Top-WTA status, industry).
-  const ebirTaxProfile = useMemo(() => {
-    // Client Information and Business Information can each contain part of the
-    // tax profile. Merge populated values so a sparse BusinessProfile never
-    // masks the client's classification, VAT type, tax regime, industry, staff,
-    // withholding-agent status, or manually selected additional forms.
-    const profile: Partial<Client & BusinessProfile> = { ...(currentClient || {}) };
-    if (businessProfile) {
-      for (const [key, value] of Object.entries(businessProfile)) {
-        if (value !== undefined && value !== null && value !== '') profile[key] = value;
-      }
-    }
-    return profile;
+  const applicableEbirForms = useMemo(() => {
+    // The selected client is the primary source for client-specific tax status.
+    // BusinessProfile supplies any missing settings (notably for the owner's own
+    // business), but must not override a selected client's Individual/Non-Individual
+    // classification with the account owner's profile.
+    const client = (currentClient as any) || {};
+    const business = (businessProfile as any) || {};
+    const profile = {
+      ...business,
+      ...client,
+      taxpayerClassification: String(client.taxpayerClassification || '').trim()
+        ? client.taxpayerClassification
+        : business.taxpayerClassification,
+      taxpayerSubClassification: client.taxpayerSubClassification || business.taxpayerSubClassification,
+      vatRegistrationType: client.vatRegistrationType || business.vatRegistrationType,
+      vatType: client.vatType || business.vatType,
+      incomeTaxRegime: client.incomeTaxRegime || business.incomeTaxRegime,
+      deductionMethod: client.deductionMethod || business.deductionMethod,
+      taxpayerTier: client.taxpayerTier || business.taxpayerTier,
+      hasEmployees: client.hasEmployees ?? business.hasEmployees,
+      isTopWithholdingAgent: client.isTopWithholdingAgent ?? business.isTopWithholdingAgent,
+      industry: client.industry || business.industry,
+      additionalBirForms: client.additionalBirForms || business.additionalBirForms || [],
+    };
+    return getApplicableEBirForms(profile, { includeAdhoc: false });
   }, [businessProfile, currentClient]);
-  const applicableEbirForms = useMemo(
-    () => getApplicableEBirForms(ebirTaxProfile, { includeAdhoc: false }),
-    [ebirTaxProfile]
-  );
   // Keep the selected form valid when the filter changes (e.g. user switches client).
   useEffect(() => {
     const all = [...applicableEbirForms.routine, ...applicableEbirForms.adhoc];
@@ -741,14 +750,6 @@ export function BIRForms() {
                     ({applicableEbirForms.routine.length} applicable to your business)
                   </span>
                 </label>
-                {!ebirTaxProfile.taxpayerClassification && !ebirTaxProfile.taxpayerSubClassification && (
-                  <p className="mt-1 text-[10px] leading-relaxed text-amber-700 dark:text-amber-300">
-                    Complete Taxpayer Classification in Client/Business Information so CAPOTBOOKS can filter the correct BIR forms.
-                  </p>
-                )}
-                <p className="mt-1 text-[10px] leading-relaxed text-slate-500 dark:text-slate-400">
-                  Based on {String(ebirTaxProfile.taxpayerClassification || ebirTaxProfile.taxpayerSubClassification || 'taxpayer type not set')}, {String(ebirTaxProfile.vatRegistrationType || 'VAT status not set')}, {String(ebirTaxProfile.incomeTaxRegime || ebirTaxProfile.deductionMethod || 'income-tax regime not set')}; {ebirTaxProfile.hasEmployees ? 'employees: yes' : 'employees: no/not specified'}; {ebirTaxProfile.isTopWithholdingAgent ? 'Top Withholding Agent' : 'not marked as Top Withholding Agent'}.
-                </p>
                 <select value={ebirForm} onChange={e => setEbirForm(e.target.value)} className="w-full text-xs font-bold border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 p-2 rounded-xl outline-none">
                   {applicableEbirForms.routine.map(f => (
                     <option key={f.id} value={f.id}>{f.id} — {f.title.split('—')[1]?.trim() || f.title}</option>

@@ -281,18 +281,24 @@ function is8PercentFlat(profile: { incomeTaxRegime?: string; deductionMethod?: s
   return profile?.incomeTaxRegime === '8_percent_flat' || profile?.deductionMethod === 'none_8_percent';
 }
 
+function normalizedTaxpayerClass(profile: { taxpayerClassification?: string } | null | undefined): 'individual' | 'non-individual' | 'unknown' {
+  const c = String(profile?.taxpayerClassification || '').trim().toLowerCase().replace(/[ _]+/g, '-');
+  if (!c) return 'unknown';
+  if (c.startsWith('non-individual') || c.includes('corporation') || c.includes('partnership') || c.includes('cooperative') || c === 'nonindividual') return 'non-individual';
+  if (c === 'individual' || c.startsWith('individual-') || c.startsWith('individual ')) return 'individual';
+  return 'unknown';
+}
+
 function isIndividual(profile: { taxpayerClassification?: string; taxpayerSubClassification?: string } | null | undefined): boolean {
-  const c = (profile?.taxpayerClassification || '').toString().trim().toLowerCase();
-  if (c) return c.startsWith('individual') && !c.startsWith('non-individual');
-  // Fall back to the subtype only when classification has not been entered.
-  return ['sole_proprietor', 'professional', 'mixed_income'].includes(String(profile?.taxpayerSubClassification || '').toLowerCase());
+  const classification = normalizedTaxpayerClass(profile);
+  if (classification !== 'unknown') return classification === 'individual';
+  return ['sole_proprietor', 'professional', 'mixed_income'].includes(String(profile?.taxpayerSubClassification || '').trim().toLowerCase());
 }
 
 function isCorporation(profile: { taxpayerClassification?: string; taxpayerSubClassification?: string } | null | undefined): boolean {
-  const c = (profile?.taxpayerClassification || '').toString().trim().toLowerCase();
-  if (c) return c.startsWith('non-individual') || c.startsWith('corporation') || c.includes('corp') || c.includes('partnership');
-  // Fall back to the subtype only when classification has not been entered.
-  return ['corporation_regular', 'corporation_msme', 'domestic_corp', 'msme_corp', 'opc', 'partnership', 'gpp', 'cooperative'].includes(String(profile?.taxpayerSubClassification || '').toLowerCase());
+  const classification = normalizedTaxpayerClass(profile);
+  if (classification !== 'unknown') return classification === 'non-individual';
+  return ['corporation_regular', 'corporation_msme', 'domestic_corp', 'msme_corp', 'opc', 'partnership', 'gpp', 'cooperative'].includes(String(profile?.taxpayerSubClassification || '').trim().toLowerCase());
 }
 
 const EXCISE_INDUSTRIES = ['alcohol', 'tobacco', 'cigarette', 'petroleum', 'fuel', 'mining', 'mineral', 'automobile', 'car', 'sweetened', 'beverage', 'excise', 'distillery', 'brewery'];
@@ -324,12 +330,12 @@ export function getApplicableEBirForms(
     taxpayerClassification?: string;
     taxpayerSubClassification?: string;
     incomeTaxRegime?: string;
-    deductionMethod?: string;
     taxpayerTier?: string;
     hasEmployees?: boolean;
     isTopWithholdingAgent?: boolean;
     industry?: string;
     additionalBirForms?: string[];
+    deductionMethod?: string;
   } | null | undefined,
   options: { includeAdhoc?: boolean } = {}
 ): ApplicableFormsResult {
@@ -343,9 +349,7 @@ export function getApplicableEBirForms(
   const excise = isExciseIndustry(profile);
   // Withholding forms: routinely required for Top WTAs, corporations, or any business with employees.
   const requiresWithholding = topWTA || corporation || hasEmployees;
-  const subClass = String(profile?.taxpayerSubClassification || '').toLowerCase();
-  // Use the classification choices from Client/Business Information as a
-  // fallback when the more detailed regime field has not been selected yet.
+  const subClass = String(profile?.taxpayerSubClassification || '').trim().toLowerCase();
   const inferredRegimeBySubClass: Record<string, string> = {
     corporation_msme: 'corp_20_msme',
     msme_corp: 'corp_20_msme',
@@ -372,7 +376,7 @@ export function getApplicableEBirForms(
     else if (e.requiresWithholding && !requiresWithholding) reason = form.hiddenReason || 'Required for Top Withholding Agents / corporations';
     else if (e.requiresMicroTier && !microTier) reason = form.hiddenReason || 'EOPT Micro-tier only';
     else if (e.requiresExciseIndustry && !excise) reason = form.hiddenReason || 'Excisable-industry only';
-    else if (e.corporateRegime && e.corporateRegime.length > 0 && !e.corporateRegime.includes(regime)) reason = form.hiddenReason || 'Does not match selected corporate income-tax regime';
+    else if (e.corporateRegime && e.corporateRegime.length > 0 && regime && !e.corporateRegime.includes(regime)) reason = form.hiddenReason || 'Does not match selected corporate income-tax regime';
 
     if (reason) {
       hidden.push({ form, reason });
@@ -388,45 +392,28 @@ export function getApplicableEBirForms(
   routine.sort((a, b) => (order[a.category] ?? 9) - (order[b.category] ?? 9) || a.id.localeCompare(b.id));
   adhoc.sort((a, b) => (order[a.category] ?? 9) - (order[b.category] ?? 9) || a.id.localeCompare(b.id));
 
-  // Choose the individual annual income-tax return using the saved client
-  // classification and deduction/tax regime instead of showing both 1701 and
-  // 1701A as if they were interchangeable. If the profile is incomplete, keep
-  // both available rather than silently hiding a potentially needed return.
-  if (individual) {
-    const pureBusinessOrProfession = ['sole_proprietor', 'professional'].includes(subClass);
-    const mixedIncome = subClass === 'mixed_income';
-    const deductionMethod = String(profile?.deductionMethod || '').toLowerCase();
-    const usesOsdOrEightPercent = ['graduated_osd', '8_percent_flat'].includes(regime)
-      || ['osd', 'osd_40', 'none_8_percent'].includes(deductionMethod);
-    const hasIndividualReturnClues = Boolean(subClass || regime || deductionMethod);
-    if (hasIndividualReturnClues) {
-      const keep1701A = pureBusinessOrProfession ? usesOsdOrEightPercent
-        : mixedIncome ? false
-        : usesOsdOrEightPercent;
-      const keep1701 = mixedIncome ? true
-        : pureBusinessOrProfession ? !usesOsdOrEightPercent
-        : !usesOsdOrEightPercent;
-      for (let i = routine.length - 1; i >= 0; i--) {
-        if (routine[i].id === '1701A' && !keep1701A) routine.splice(i, 1);
-        if (routine[i].id === '1701' && !keep1701) routine.splice(i, 1);
-      }
-    }
-  }
-
   // User-added additional BIR forms (from Client / Business Information page)
   // always appear as applicable — even if the eligibility filter would hide them.
   const extraCodes = (profile?.additionalBirForms || []).map(c => String(c).trim().toUpperCase()).filter(Boolean);
   if (extraCodes.length) {
     const extraSet = new Set(extraCodes);
     const inRoutine = new Set(routine.map(f => f.id.toUpperCase()));
+    const individualOnlyCodes = new Set(['1701', '1701A', '1701Q', '1701MS']);
+    const corporateOnlyCodes = new Set(['1702Q', '1702RT', '1702-RT', '1702EX', '1702-EX', '1702MX', '1702-MX']);
+    const allowedByTaxpayerType = (code: string) => {
+      const normalized = code.toUpperCase();
+      if (individualOnlyCodes.has(normalized) && !individual) return false;
+      if (corporateOnlyCodes.has(normalized) && !corporation) return false;
+      return true;
+    };
     for (const f of EBIR_FORMS) {
-      if (extraSet.has(f.id.toUpperCase()) && !inRoutine.has(f.id.toUpperCase())) {
+      if (extraSet.has(f.id.toUpperCase()) && !inRoutine.has(f.id.toUpperCase()) && allowedByTaxpayerType(f.id)) {
         routine.push(f);
         inRoutine.add(f.id.toUpperCase());
       }
     }
     for (const code of extraCodes) {
-      if (!inRoutine.has(code)) {
+      if (!inRoutine.has(code) && allowedByTaxpayerType(code)) {
         routine.push({ id: code, title: `BIR Form ${code} (user-added)`, period: 'adhoc', category: 'payment' });
         inRoutine.add(code);
       }
