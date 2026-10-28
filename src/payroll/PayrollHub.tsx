@@ -73,6 +73,7 @@ import {
 } from './services/payslipPdfService';
 import { loadPayrollSnapshot, payrollCloudAvailable, savePayrollSnapshot } from './services/payrollRepository';
 import { YearDropdownDateInput } from '../components/ui/YearDropdownDateInput';
+import { buildEmployeeMatcher, extractDtrFromGrid, gridsFromWorkbook, parseDelimitedText } from './services/dtrImport';
 
 
 export interface PayrollCompany {
@@ -1163,75 +1164,100 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
     setEmployeeUploadPreview(null);
   };
 
-  // Import a DTR export from most timekeeping systems. Header aliases are normalized,
-  // dates are retained in ISO format, and imported rows remain Pending for review.
-  const handleDtrUpload = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      try {
-        const text = String(event.target?.result || '').replace(/^\uFEFF/, '');
-        const rows = parseDtrCsv(text);
-        if (rows.length < 2) throw new Error('The file must contain a header row and at least one attendance row.');
-        const headers = rows[0].map((header) => normalizeHeader(header));
-        const findValue = (row: string[], aliases: string[]) => {
-          const normalizedAliases = aliases.map((alias) => normalizeHeader(alias));
-          const index = headers.findIndex((header) => normalizedAliases.includes(header));
-          return index >= 0 ? String(row[index] ?? '').trim() : '';
-        };
-        const imported: AttendanceRow[] = [];
-        let unmatched = 0;
-        rows.slice(1).forEach((row, index) => {
-          if (!row.some((cell) => String(cell || '').trim())) return;
-          const suppliedId = findValue(row, ['employeeid','employee number','employeenumber','id','empid','badgeid']);
-          const suppliedName = findValue(row, ['employeename','name','employee','fullname','staffname']);
-          const normalizedName = suppliedName.toLowerCase().replace(/[^a-z0-9]/g, '');
-          const matched = employees.find((employee) => {
-            const keys = [employee.employeeId, employee.employeeNumber].filter(Boolean).map((v) => v.toLowerCase());
-            if (suppliedId && keys.includes(suppliedId.toLowerCase())) return true;
-            const candidateNames = [employee.fullName, `${employee.firstName} ${employee.lastName}`, `${employee.lastName} ${employee.firstName}`]
-              .map((v) => v.toLowerCase().replace(/[^a-z0-9]/g, ''));
-            return Boolean(suppliedName && candidateNames.includes(normalizedName));
-          });
-          if (!matched && !suppliedId && !suppliedName) return;
-          if (!matched) unmatched += 1;
-          const dateRaw = findValue(row, ['date','workdate','attendancedate','logdate','day']);
-          const date = normalizeDtrDate(dateRaw);
-          if (!date) return;
-          const timeIn = normalizeDtrTime(findValue(row, ['timein','in','clockin','checkin','time in','punchin']));
-          const timeOut = normalizeDtrTime(findValue(row, ['timeout','out','clockout','checkout','time out','punchout']));
-          const num = (aliases: string[], fallback = 0) => {
-            const raw = findValue(row, aliases).replace(/,/g, '');
-            const value = Number(raw);
-            return raw && Number.isFinite(value) ? value : fallback;
+  // Import a DTR / biometrics export (.xlsx, .xls, .csv, .txt, .dat). The header row, employee
+  // name/ID, date and punch columns are detected automatically (see services/dtrImport.ts).
+  // Imported rows remain Pending until reviewed.
+  const handleDtrUpload = async (file: File) => {
+    try {
+      const ext = (file.name.split('.').pop() || '').toLowerCase();
+      let sheets: { sheetName: string; grid: string[][] }[];
+      if (['xlsx', 'xls', 'xlsm', 'xlsb', 'ods'].includes(ext)) {
+        const XLSX = await import('xlsx');
+        const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: false });
+        sheets = gridsFromWorkbook(XLSX, workbook);
+      } else {
+        const text = (await file.text()).replace(/^\uFEFF/, '');
+        sheets = [{ sheetName: file.name, grid: parseDelimitedText(text) }];
+      }
+
+      const extractions = sheets.map((s) => extractDtrFromGrid(s.sheetName, s.grid)).filter(Boolean) as ReturnType<typeof extractDtrFromGrid>[];
+      if (!extractions.length) {
+        throw new Error('No attendance data was recognised. The file needs a Date (or Date/Time) column plus time-in/time-out or punch times, and an employee name or ID.');
+      }
+
+      const matchEmployee = buildEmployeeMatcher(employees);
+      const existingKeys = new Set(attendance.map((a) => `${a.employeeId}|${a.date}`));
+      const imported: AttendanceRow[] = [];
+      const unmatchedNames = new Set<string>();
+      let skippedDuplicates = 0;
+      let singlePunch = 0;
+      let counter = 0;
+
+      extractions.forEach((ex) => {
+        ex!.records.forEach((rec) => {
+          const matched = matchEmployee(rec.idRaw, rec.nameRaw);
+          if (!matched && !rec.idRaw && !rec.nameRaw) return;
+          if (!matched) unmatchedNames.add(rec.nameRaw || rec.idRaw);
+          const employeeId = matched?.employeeId || rec.idRaw || rec.nameRaw;
+          const key = `${employeeId}|${rec.date}`;
+          if (existingKeys.has(key)) { skippedDuplicates += 1; return; }
+          existingKeys.add(key);
+
+          const p = rec.punches;
+          const timeIn = p[0] || '';
+          const timeOut = p.length > 1 ? p[p.length - 1] : '';
+          if (p.length === 1) singlePunch += 1;
+          const minutesBetween = (a: string, b: string) => {
+            const [ah, am] = a.split(':').map(Number);
+            const [bh, bm] = b.split(':').map(Number);
+            return bh * 60 + bm - (ah * 60 + am);
           };
+          // With four punches (AM in/out, PM in/out) the middle gap is the break.
+          const derivedBreak = p.length === 4 ? Math.max(0, minutesBetween(p[1], p[2])) : null;
+          counter += 1;
           imported.push({
-            id: `ATT-IMP-${Date.now()}-${index}`,
-            employeeId: matched?.employeeId || suppliedId || suppliedName,
-            date,
+            id: `ATT-IMP-${Date.now()}-${counter}`,
+            employeeId,
+            date: rec.date,
             in: timeIn,
             out: timeOut,
-            breakMin: num(['breakmin','breakminutes','break','breakmins','lunchminutes'], 60),
-            ot: num(['ot','othours','overtime','overtimehours','overtimehrs']),
-            nd: num(['nd','ndhours','nightdiff','nightdifferential','nightdifferentialhours']),
-            holiday: findValue(row, ['holiday','holidaytype']) || 'None',
-            rest: ['1','true','yes','y','rest'].includes(findValue(row, ['rest','restday','isrestday']).toLowerCase()),
-            leave: findValue(row, ['leave','leavetype']) || 'None',
-            leaveHours: num(['leavehours','paidleavehours']),
+            breakMin: rec.breakMin ?? derivedBreak ?? 60,
+            ot: rec.ot,
+            nd: rec.nd,
+            holiday: rec.holiday || 'None',
+            rest: rec.rest,
+            leave: rec.leave || 'None',
+            leaveHours: rec.leaveHours,
             approval: 'Pending',
-            remarks: findValue(row, ['remarks','remark','notes','comment']) || `Imported from ${file.name}`
+            remarks: rec.remarks || (p.length === 1 ? `Imported from ${file.name} (single punch - check time out)` : `Imported from ${file.name}`)
           });
         });
-        if (!imported.length) throw new Error('No valid attendance records were found. Check that each row has an employee and a valid date.');
-        setAttendance((previous) => [...imported, ...previous]);
-        setAttMonth(imported[0].date.slice(0, 7));
-        logAction('Import DTR CSV', `${file.name} (${imported.length} rows)`);
-        alert(`Imported ${imported.length} attendance row(s).${unmatched ? ` ${unmatched} row(s) had employee IDs/names that did not match the employee master and need review.` : ''} Imported rows are Pending until reviewed.`);
-      } catch (error) {
-        alert(`Could not import DTR: ${error instanceof Error ? error.message : 'Invalid CSV file.'}`);
+      });
+
+      if (!imported.length) {
+        throw new Error(skippedDuplicates
+          ? `All ${skippedDuplicates} attendance day(s) in this file already exist for those employees.`
+          : 'No valid attendance records were found.');
       }
-    };
-    reader.onerror = () => alert('Could not read this DTR file.');
-    reader.readAsText(file);
+      setAttendance((previous) => [...imported, ...previous]);
+      const months = imported.map((r) => r.date.slice(0, 7)).sort();
+      setAttMonth(months[months.length - 1]);
+      logAction('Import DTR', `${file.name} (${imported.length} rows)`);
+
+      const detected = extractions.slice(0, 1)[0]!.detected;
+      const lines = [
+        `Imported ${imported.length} attendance day(s) from ${file.name}. Rows are Pending until reviewed.`,
+        skippedDuplicates ? `${skippedDuplicates} day(s) skipped because attendance already exists for that employee and date.` : '',
+        singlePunch ? `${singlePunch} day(s) have only one punch (no time out).` : '',
+        unmatchedNames.size ? `${unmatchedNames.size} name/ID value(s) did not match the employee master: ${Array.from(unmatchedNames).slice(0, 5).join('; ')}${unmatchedNames.size > 5 ? '; ...' : ''}` : '',
+        '',
+        'Detected columns:',
+        ...detected.map((d) => `  ${d}`)
+      ].filter((l, i, arr) => l !== '' || (i > 0 && arr[i - 1] !== ''));
+      alert(lines.join('\n'));
+    } catch (error) {
+      alert(`Could not import DTR: ${error instanceof Error ? error.message : 'Invalid file.'}`);
+    }
   };
 
   // Download Official PDF Payslip
@@ -1752,20 +1778,20 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
               <div className="eh-panel space-y-3">
                 <div className="eh-toolbar eh-dtr-toolbar">
                   <label className="eh-btn primary small eh-upload-button" htmlFor="capotbooks-dtr-upload">
-                    <UploadIcon className="h-3.5 w-3.5" /> Upload DTR CSV
+                    <UploadIcon className="h-3.5 w-3.5" /> Upload DTR (Excel / CSV)
                   </label>
                   <input
                     id="capotbooks-dtr-upload"
                     type="file"
-                    accept=".csv,.txt,.tsv,text/csv,text/plain"
+                    accept=".xlsx,.xls,.csv,.txt,.tsv,.dat,text/csv,text/plain,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
                     className="hidden"
                     onChange={(event) => {
                       const file = event.target.files?.[0];
-                      if (file) handleDtrUpload(file);
+                      if (file) void handleDtrUpload(file);
                       event.currentTarget.value = '';
                     }}
                   />
-                  <span className="eh-muted eh-dtr-help">CSV columns: Employee ID or Name, Date, Time In, Time Out, Break Minutes, OT Hours, ND Hours, Holiday, Rest Day, Leave, Leave Hours, Remarks. Imported rows stay Pending for review.</span>
+                  <span className="eh-muted eh-dtr-help">Accepts .xlsx, .xls and .csv from most biometric systems. The header row and the name/ID, date and time-in/out (or punch) columns are detected automatically. Imported rows stay Pending for review.</span>
                 </div>
                 <div className="eh-toolbar">
                   <input
