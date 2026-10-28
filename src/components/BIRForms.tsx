@@ -4,7 +4,7 @@ import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
 import { useGranularPermissions } from '../lib/useGranularPermissions';
 import { 
-  FileText, Printer, Sparkles, CheckCircle2, FileDown
+  FileText, Printer, Sparkles, CheckCircle2, FileDown, ExternalLink
 } from 'lucide-react';
 import { TaxDeadline, Client, BusinessProfile } from '../types';
 import { adjustDeadlineForWeekend } from '../lib/complianceUtils';
@@ -713,12 +713,22 @@ export function BIRForms() {
         const values = computeEBirFormValues(ebirForm, periodArg, currentClient || {}, ledger);
         return (
           <div className="mb-4 rounded-2xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50/60 dark:bg-indigo-950/20 p-5">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-indigo-600 text-white text-xs font-black">eB</span>
-              <div>
-                <div className="text-sm font-black text-indigo-900 dark:text-indigo-100 uppercase tracking-wide">eBIRForms Generator</div>
-                <div className="text-[10px] text-indigo-500 dark:text-indigo-400 font-semibold">Offline eBIRForms Package v7.9.6.2 — XML export + printable form, populated from ledger</div>
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
+              <div className="flex items-center gap-2">
+                <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-indigo-600 text-white text-xs font-black">eB</span>
+                <div>
+                  <div className="text-sm font-black text-indigo-900 dark:text-indigo-100 uppercase tracking-wide">eBIRForms Generator</div>
+                  <div className="text-[10px] text-indigo-500 dark:text-indigo-400 font-semibold">Offline eBIRForms Package v7.9.6.2 — XML export + printable form, populated from ledger</div>
+                </div>
               </div>
+              <button
+                type="button"
+                onClick={() => { window.location.href = 'capotbooks-ebirforms://open'; }}
+                className="inline-flex items-center justify-center gap-2 px-3 py-2 text-[11px] font-black uppercase rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm"
+                title="Open the installed Windows eBIRForms application"
+              >
+                <ExternalLink className="w-4 h-4" /> Open Desktop eBIRForms
+              </button>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
               <div>
@@ -764,7 +774,7 @@ export function BIRForms() {
             <div className="text-[11px] text-slate-600 dark:text-slate-300">
               <span className="font-bold">{values.lineItems.length} line items</span> computed from {perSales.length} sales + {perPurchases.length} purchases in period.
               <span className="ml-2 font-bold">Total Tax Payable: ₱{values.totalTaxPayable.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-              <span className="ml-2 text-slate-400">Import the XML into the official eBIRForms offline app (File → Open) for final validation & submission.</span>
+              <span className="ml-2 text-slate-400">Import the XML into the official eBIRForms offline app (File → Open) for final validation & submission. The desktop button requires the one-time Windows protocol setup included with CAPOTBOOKS.</span>
             </div>
           </div>
         );
