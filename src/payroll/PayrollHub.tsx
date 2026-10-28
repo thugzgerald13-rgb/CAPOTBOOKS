@@ -297,10 +297,29 @@ function validateGovIds(e: Partial<EmployeeRecord>): string {
 const CIVIL_STATUSES: EmployeeRecord['civilStatus'][] = ['Single', 'Married', 'Widowed', 'Legally Separated'];
 
 const EMPLOYEE_UPLOAD_COLUMNS = [
-  'Employee ID', 'Last Name', 'First Name', 'Middle Name', 'Suffix', 'Birthdate', 'Marital Status', 'Address',
+  'Employee ID', 'Employee Name (Last, First Middle)', 'Suffix', 'Birthdate', 'Marital Status', 'Address',
   'TIN', 'SSS No', 'HDMF No', 'PhilHealth No', 'Email', 'Contact Number', 'Date Hired', 'Department', 'Position',
   'Pay Type', 'Payroll Frequency', 'Monthly Salary', 'Daily Rate'
 ];
+
+const NAME_ALIASES = ['employeename', 'employeenamelastfirstmiddle', 'name', 'fullname', 'staffname', 'employee'];
+
+/** Splits "Last, First Middle" (or "Last, First, Middle") into parts. The last word after the comma is taken as the middle name/initial. */
+function parseCombinedName(raw: string): { lastName: string; firstName: string; middleName: string } | null {
+  const text = String(raw || '').trim().replace(/\s+/g, ' ');
+  const comma = text.indexOf(',');
+  if (comma < 1) return null;
+  const lastName = text.slice(0, comma).trim();
+  const rest = text.slice(comma + 1).trim();
+  if (!lastName || !rest) return null;
+  if (rest.includes(',')) {
+    const [first, ...mid] = rest.split(',').map((x) => x.trim());
+    return first ? { lastName, firstName: first, middleName: mid.join(' ').trim() } : null;
+  }
+  const words = rest.split(' ');
+  if (words.length === 1) return { lastName, firstName: words[0], middleName: '' };
+  return { lastName, firstName: words.slice(0, -1).join(' '), middleName: words[words.length - 1] };
+}
 
 function normalizeCivilStatus(v: string): EmployeeRecord['civilStatus'] | null {
   const k = String(v || '').trim().toLowerCase();
@@ -979,7 +998,7 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
 
   const downloadEmployeeTemplate = () => {
     const sample = [
-      '', 'Dela Cruz', 'Juan', 'Santos', '', '1990-05-14', 'Married', '123 Rizal St., Brgy. Poblacion, Makati City',
+      '', 'Dela Cruz, Juan Santos', '', '1990-05-14', 'Married', '123 Rizal St., Brgy. Poblacion, Makati City',
       '123-456-789-000', '34-1234567-8', '1234-5678-9012', '12-345678901-2', 'juan@example.com', '09171234567',
       '2020-01-15', 'Operations', 'Supervisor', 'Monthly', 'Semi-Monthly', '25000', ''
     ];
@@ -1009,8 +1028,10 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
         const idx = headers.findIndex((h) => wanted.includes(h));
         return idx >= 0 ? String(row[idx] ?? '').trim() : '';
       };
-      if (!headers.some((h) => ['firstname', 'givenname'].includes(h)) || !headers.some((h) => ['lastname', 'surname', 'familyname'].includes(h))) {
-        throw new Error('Could not find "First Name" and "Last Name" columns. Download the template to see the expected columns.');
+      const hasNameColumn = headers.some((h) => NAME_ALIASES.includes(h));
+      const hasSplitNames = headers.some((h) => ['firstname', 'givenname'].includes(h)) && headers.some((h) => ['lastname', 'surname', 'familyname'].includes(h));
+      if (!hasNameColumn && !hasSplitNames) {
+        throw new Error('Could not find an "Employee Name" column (Last, First Middle). Download the template to see the expected columns.');
       }
 
       const dataRows = grid.slice(1).map((r, i) => ({ r: r.map((c) => String(c ?? '')), line: i + 2 })).filter(({ r }) => r.some((c) => c.trim()));
@@ -1034,11 +1055,18 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
       const hoursPerDay = Number((settings as any).hoursPerDay) || 8;
 
       const rows: EmployeeUploadRow[] = dataRows.map(({ r, line }) => {
-        const firstName = get(r, ['firstname', 'givenname']);
-        const lastName = get(r, ['lastname', 'surname', 'familyname']);
+        let firstName = get(r, ['firstname', 'givenname']);
+        let lastName = get(r, ['lastname', 'surname', 'familyname']);
+        let middleName = get(r, ['middlename', 'middleinitial']);
         const warnings: string[] = [];
         const fail = (error: string): EmployeeUploadRow => ({ line, employee: null, error, warning: '' });
-        if (!firstName || !lastName) return fail('First name and last name are required.');
+        if (!firstName || !lastName) {
+          const combined = get(r, NAME_ALIASES);
+          const parsed = parseCombinedName(combined);
+          if (!parsed) return fail(combined ? 'Name must be in "Last, First Middle" format.' : 'Employee name is required (Last, First Middle).');
+          ({ firstName, lastName } = parsed);
+          middleName = parsed.middleName || middleName;
+        }
 
         const birthRaw = get(r, ['birthdate', 'dateofbirth', 'birthday', 'dob']);
         const dateOfBirth = birthRaw ? normalizeDtrDate(birthRaw) : '';
@@ -1081,7 +1109,6 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
         const dailyGiven = num(get(r, ['dailyrate', 'daily']));
         if (!monthlySalary && dailyGiven) monthlySalary = dailyGiven * daysMonth;
         const dailyRate = dailyGiven || monthlySalary / daysMonth;
-        const middleName = get(r, ['middlename', 'middleinitial']);
 
         const employee: EmployeeRecord = {
           employeeId,
@@ -1603,7 +1630,7 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
                     <option value="INACTIVE">Inactive</option>
                   </select>
                   <span className="eh-muted eh-dtr-help">
-                    Upload existing employees from CSV or Excel (Last/First Name, Birthdate, Marital Status, Address, TIN, SSS, HDMF, PhilHealth, etc.).{' '}
+                    Upload existing employees from CSV or Excel (Name as Last, First Middle; Birthdate, Marital Status, Address, TIN, SSS, HDMF, PhilHealth, etc.).{' '}
                     <button type="button" className="text-blue-600 hover:underline cursor-pointer" onClick={downloadEmployeeTemplate}>Download template</button>
                   </span>
                 </div>
@@ -3086,14 +3113,14 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
                 <div className="eh-table-wrap">
                   <table className="eh-table">
                     <thead>
-                      <tr><th>Row</th><th>Employee ID</th><th>Name</th><th>Birthdate</th><th>Status</th><th>TIN</th><th>SSS</th><th>HDMF</th><th>PhilHealth</th><th>Result</th></tr>
+                      <tr><th>Row</th><th>Employee ID</th><th>Name (Last, First Middle)</th><th>Birthdate</th><th>Status</th><th>TIN</th><th>SSS</th><th>HDMF</th><th>PhilHealth</th><th>Result</th></tr>
                     </thead>
                     <tbody>
                       {rows.map((r) => (
                         <tr key={r.line}>
                           <td>{r.line}</td>
                           <td>{r.employee?.employeeId || '-'}</td>
-                          <td>{r.employee?.fullName || '-'}</td>
+                          <td>{r.employee ? `${r.employee.lastName}, ${r.employee.firstName}${r.employee.middleName ? ' ' + r.employee.middleName : ''}` : '-'}</td>
                           <td>{r.employee?.dateOfBirth ? dateFmt(r.employee.dateOfBirth) : ''}</td>
                           <td>{r.employee?.civilStatus || ''}</td>
                           <td>{r.employee?.tin}</td>
