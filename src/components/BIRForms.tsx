@@ -219,7 +219,32 @@ export function BIRForms() {
   // eBIRForms dropdown filtered by the active business profile (VAT type,
   // income-tax regime, EOPT tier, employees, Top-WTA status, industry).
   const applicableEbirForms = useMemo(() => {
-    const profile = businessProfile || (currentClient as any) || {};
+    // The selected client is the primary source for client-specific tax status.
+    // BusinessProfile supplies missing settings, but must not override a selected
+    // client's Individual/Non-Individual classification with the owner's profile.
+    const client = (currentClient as any) || {};
+    // BusinessProfile belongs to the signed-in account, not necessarily the
+    // selected client. Only use it when no client is selected or the owner
+    // client itself is selected; never mix the owner's tax regime into another client.
+    const useBusinessFallback = !currentClientId || currentClientId === ownerClientId;
+    const business = useBusinessFallback ? ((businessProfile as any) || {}) : {};
+    const profile = {
+      ...business,
+      ...client,
+      taxpayerClassification: String(client.taxpayerClassification || '').trim()
+        ? client.taxpayerClassification
+        : business.taxpayerClassification,
+      taxpayerSubClassification: client.taxpayerSubClassification || business.taxpayerSubClassification,
+      vatRegistrationType: client.vatRegistrationType || business.vatRegistrationType,
+      vatType: client.vatType || business.vatType,
+      incomeTaxRegime: client.incomeTaxRegime || business.incomeTaxRegime,
+      deductionMethod: client.deductionMethod || business.deductionMethod,
+      taxpayerTier: client.taxpayerTier || business.taxpayerTier,
+      hasEmployees: client.hasEmployees ?? business.hasEmployees,
+      isTopWithholdingAgent: client.isTopWithholdingAgent ?? business.isTopWithholdingAgent,
+      industry: client.industry || business.industry,
+      additionalBirForms: client.additionalBirForms || business.additionalBirForms || [],
+    };
     return getApplicableEBirForms(profile, { includeAdhoc: false });
   }, [businessProfile, currentClient]);
   // Keep the selected form valid when the filter changes (e.g. user switches client).
