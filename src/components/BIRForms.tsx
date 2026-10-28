@@ -4,7 +4,7 @@ import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
 import { useGranularPermissions } from '../lib/useGranularPermissions';
 import { 
-  FileText, Printer, Sparkles, CheckCircle2, FileDown
+  FileText, Printer, Sparkles, CheckCircle2, FileDown, ExternalLink, Monitor
 } from 'lucide-react';
 import { TaxDeadline, Client, BusinessProfile } from '../types';
 import { adjustDeadlineForWeekend } from '../lib/complianceUtils';
@@ -219,29 +219,7 @@ export function BIRForms() {
   // eBIRForms dropdown filtered by the active business profile (VAT type,
   // income-tax regime, EOPT tier, employees, Top-WTA status, industry).
   const applicableEbirForms = useMemo(() => {
-    // The selected client is the primary source for client-specific tax status.
-    // BusinessProfile supplies any missing settings (notably for the owner's own
-    // business), but must not override a selected client's Individual/Non-Individual
-    // classification with the account owner's profile.
-    const client = (currentClient as any) || {};
-    const business = (businessProfile as any) || {};
-    const profile = {
-      ...business,
-      ...client,
-      taxpayerClassification: String(client.taxpayerClassification || '').trim()
-        ? client.taxpayerClassification
-        : business.taxpayerClassification,
-      taxpayerSubClassification: client.taxpayerSubClassification || business.taxpayerSubClassification,
-      vatRegistrationType: client.vatRegistrationType || business.vatRegistrationType,
-      vatType: client.vatType || business.vatType,
-      incomeTaxRegime: client.incomeTaxRegime || business.incomeTaxRegime,
-      deductionMethod: client.deductionMethod || business.deductionMethod,
-      taxpayerTier: client.taxpayerTier || business.taxpayerTier,
-      hasEmployees: client.hasEmployees ?? business.hasEmployees,
-      isTopWithholdingAgent: client.isTopWithholdingAgent ?? business.isTopWithholdingAgent,
-      industry: client.industry || business.industry,
-      additionalBirForms: client.additionalBirForms || business.additionalBirForms || [],
-    };
+    const profile = businessProfile || (currentClient as any) || {};
     return getApplicableEBirForms(profile, { includeAdhoc: false });
   }, [businessProfile, currentClient]);
   // Keep the selected form valid when the filter changes (e.g. user switches client).
@@ -739,7 +717,7 @@ export function BIRForms() {
               <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-indigo-600 text-white text-xs font-black">eB</span>
               <div>
                 <div className="text-sm font-black text-indigo-900 dark:text-indigo-100 uppercase tracking-wide">eBIRForms Generator</div>
-                <div className="text-[10px] text-indigo-500 dark:text-indigo-400 font-semibold">Offline eBIRForms Package v7.9.6.2 — XML export + printable form, populated from ledger</div>
+                <div className="text-[10px] text-indigo-500 dark:text-indigo-400 font-semibold">Prepare a return from your ledger, then review it in the official BIR application</div>
               </div>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
@@ -778,15 +756,28 @@ export function BIRForms() {
                   </select>
                 </div>
               )}
-              <div className="flex items-end gap-2">
+              <div className="flex flex-col sm:flex-row items-stretch sm:items-end gap-2">
                 <button type="button" onClick={() => downloadEBirFormXml(values, ledger, currentClient)} className="flex-1 px-3 py-2 text-[11px] font-black uppercase rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm">Download XML</button>
                 <button type="button" onClick={() => printEBirForm(values)} className="flex-1 px-3 py-2 text-[11px] font-black uppercase rounded-xl bg-white dark:bg-slate-800 border border-indigo-300 dark:border-indigo-700 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100">Print Form</button>
+                <a href="capotbooks-ebirforms://open" className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-[11px] font-black uppercase rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-slate-700 dark:hover:bg-slate-600 text-white shadow-sm" title="Requires the optional Windows launcher to be installed">
+                  <Monitor className="w-3.5 h-3.5" /> Open eBIRForms <ExternalLink className="w-3 h-3" />
+                </a>
               </div>
             </div>
             <div className="text-[11px] text-slate-600 dark:text-slate-300">
               <span className="font-bold">{values.lineItems.length} line items</span> computed from {perSales.length} sales + {perPurchases.length} purchases in period.
               <span className="ml-2 font-bold">Total Tax Payable: ₱{values.totalTaxPayable.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
-              <span className="ml-2 text-slate-400">Import the XML into the official eBIRForms offline app (File → Open) for final validation & submission.</span>
+            </div>
+            <div className="mt-3 rounded-xl border border-indigo-200/80 dark:border-indigo-800 bg-white/70 dark:bg-slate-900/40 p-3 text-[11px] leading-relaxed text-slate-600 dark:text-slate-300">
+              <div className="font-bold text-slate-800 dark:text-slate-100 mb-1">Desktop app connection</div>
+              Chrome and Edge cannot launch an installed Windows program directly. Install the optional CAPOTBOOKS Windows launcher once to enable <span className="font-bold">Open eBIRForms</span>; otherwise, open eBIRForms from the Windows Start menu. The launcher only starts the app and does not file returns or send taxpayer data.
+              <div className="mt-1">The downloaded XML is a CAPOTBOOKS-generated save-file export. Compatibility depends on the installed BIR package/form version; always open and verify every field in the official app before filing. The export is not proof of filing.</div>
+              {ebirForm === '1702RT' && (
+                <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 p-2 text-amber-900 dark:text-amber-200">
+                  <span className="font-black">1702-RT test export:</span> This first-pass mapping uses aggregate ledger totals. Itemized expenses are placed in a review-required “Others” line; tax credits, MCIT, and other unsupported schedules are not populated. Do not file this draft until every schedule is reconciled in eBIRForms.
+                </div>
+              )}
+              <a href="https://www.bir.gov.ph/" target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 mt-2 font-bold text-indigo-700 dark:text-indigo-300 hover:underline">Visit official BIR website <ExternalLink className="w-3 h-3" /></a>
             </div>
           </div>
         );
