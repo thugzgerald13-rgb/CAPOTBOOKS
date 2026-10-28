@@ -13,6 +13,11 @@ export interface EmployeeRecord {
   address: string;
   contactNumber: string;
   workEmail: string;
+  /** Government IDs (stored formatted, e.g. TIN 123-456-789-000). Optional for older records. */
+  tin?: string;
+  sssNumber?: string;
+  pagIbigNumber?: string;
+  philHealthNumber?: string;
   dateHired: string;
   dateRegularized: string;
   dateSeparated: string;

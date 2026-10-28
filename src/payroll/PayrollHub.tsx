@@ -214,6 +214,111 @@ function normalizeDtrTime(value: string): string {
   return raw;
 }
 
+// ---------- Employee ID format (employer-configurable, auto-generated) ----------
+export interface EmployeeIdFormat {
+  prefix: string;
+  separator: '-' | '' | '/' | '.' | '_';
+  yearStyle: 'NONE' | 'YYYY' | 'YY';
+  digits: number;
+  startNumber: number;
+}
+
+const DEFAULT_ID_FORMAT: EmployeeIdFormat = { prefix: 'EMP', separator: '-', yearStyle: 'YYYY', digits: 4, startNumber: 1 };
+
+function resolveIdFormat(raw: Partial<EmployeeIdFormat> | undefined): EmployeeIdFormat {
+  const f = { ...DEFAULT_ID_FORMAT, ...(raw || {}) };
+  return {
+    prefix: String(f.prefix ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 10),
+    separator: (['-', '', '/', '.', '_'].includes(f.separator) ? f.separator : '-') as EmployeeIdFormat['separator'],
+    yearStyle: (['NONE', 'YYYY', 'YY'].includes(f.yearStyle) ? f.yearStyle : 'YYYY') as EmployeeIdFormat['yearStyle'],
+    digits: Math.min(8, Math.max(1, Math.floor(Number(f.digits)) || 4)),
+    startNumber: Math.max(1, Math.floor(Number(f.startNumber)) || 1),
+  };
+}
+
+/** Everything in the ID that comes before the running number, e.g. "EMP-2026-". */
+function idBase(format: EmployeeIdFormat, year: number): string {
+  const parts: string[] = [];
+  if (format.prefix) parts.push(format.prefix);
+  if (format.yearStyle === 'YYYY') parts.push(String(year));
+  else if (format.yearStyle === 'YY') parts.push(String(year).slice(-2));
+  return parts.length ? parts.join(format.separator) + format.separator : '';
+}
+
+/** Next unused ID for the given format. `reserved` lets bulk imports avoid handing out the same ID twice. */
+function generateEmployeeId(format: EmployeeIdFormat, existingIds: string[], year = new Date().getFullYear(), reserved: Set<string> = new Set()): string {
+  const base = idBase(format, year);
+  const taken = new Set([...existingIds, ...Array.from(reserved)].map((id) => id.toUpperCase()));
+  let max = format.startNumber - 1;
+  taken.forEach((id) => {
+    if (id.startsWith(base.toUpperCase())) {
+      const rest = id.slice(base.length);
+      if (/^\d+$/.test(rest)) max = Math.max(max, Number(rest));
+    }
+  });
+  let n = max + 1;
+  let candidate = `${base}${String(n).padStart(format.digits, '0')}`;
+  while (taken.has(candidate.toUpperCase())) {
+    n += 1;
+    candidate = `${base}${String(n).padStart(format.digits, '0')}`;
+  }
+  return candidate;
+}
+
+// ---------- Government ID helpers ----------
+const onlyDigits = (v: string) => String(v || '').replace(/\D/g, '');
+function formatTin(v: string): string {
+  const d = onlyDigits(v).slice(0, 12);
+  return [d.slice(0, 3), d.slice(3, 6), d.slice(6, 9), d.slice(9, 12)].filter(Boolean).join('-');
+}
+function formatSss(v: string): string {
+  const d = onlyDigits(v).slice(0, 10);
+  return [d.slice(0, 2), d.slice(2, 9), d.slice(9, 10)].filter(Boolean).join('-');
+}
+function formatPhilHealth(v: string): string {
+  const d = onlyDigits(v).slice(0, 12);
+  return [d.slice(0, 2), d.slice(2, 11), d.slice(11, 12)].filter(Boolean).join('-');
+}
+function formatHdmf(v: string): string {
+  const d = onlyDigits(v).slice(0, 12);
+  return [d.slice(0, 4), d.slice(4, 8), d.slice(8, 12)].filter(Boolean).join('-');
+}
+
+/** Returns an error message for the first malformed government number, or ''. Blank values are allowed. */
+function validateGovIds(e: Partial<EmployeeRecord>): string {
+  const len = (v?: string) => onlyDigits(v || '').length;
+  if (e.tin && ![9, 12].includes(len(e.tin))) return 'TIN must be 9 or 12 digits.';
+  if (e.sssNumber && len(e.sssNumber) !== 10) return 'SSS number must be 10 digits.';
+  if (e.philHealthNumber && len(e.philHealthNumber) !== 12) return 'PhilHealth number must be 12 digits.';
+  if (e.pagIbigNumber && len(e.pagIbigNumber) !== 12) return 'HDMF (Pag-IBIG) number must be 12 digits.';
+  return '';
+}
+
+const CIVIL_STATUSES: EmployeeRecord['civilStatus'][] = ['Single', 'Married', 'Widowed', 'Legally Separated'];
+
+const EMPLOYEE_UPLOAD_COLUMNS = [
+  'Employee ID', 'Last Name', 'First Name', 'Middle Name', 'Suffix', 'Birthdate', 'Marital Status', 'Address',
+  'TIN', 'SSS No', 'HDMF No', 'PhilHealth No', 'Email', 'Contact Number', 'Date Hired', 'Department', 'Position',
+  'Pay Type', 'Payroll Frequency', 'Monthly Salary', 'Daily Rate'
+];
+
+function normalizeCivilStatus(v: string): EmployeeRecord['civilStatus'] | null {
+  const k = String(v || '').trim().toLowerCase();
+  if (!k) return 'Single';
+  if (['single', 's'].includes(k)) return 'Single';
+  if (['married', 'm'].includes(k)) return 'Married';
+  if (['widowed', 'widow', 'widower', 'w'].includes(k)) return 'Widowed';
+  if (['legally separated', 'separated', 'legallyseparated', 'ls'].includes(k)) return 'Legally Separated';
+  return null;
+}
+
+interface EmployeeUploadRow {
+  line: number;
+  employee: EmployeeRecord | null;
+  error: string;
+  warning: string;
+}
+
 function peso(amount: number): string {
   return new Intl.NumberFormat('en-PH', {
     style: 'currency',
@@ -239,6 +344,7 @@ function defaultPayrollSettings(company: PayrollCompany) {
     payrollEmail: company.email || '',
     hoursPerDay: 8,
     daysMonth: 26,
+    employeeIdFormat: { ...DEFAULT_ID_FORMAT },
     periodsMonthly: 1,
     periodsSemi: 2,
     periodsWeekly: 4,
@@ -326,6 +432,9 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
   const [employeeStatusFilter, setEmployeeStatusFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
   const [editingEmployee, setEditingEmployee] = useState<Partial<EmployeeRecord> | null>(null);
   const [showEmployeeModal, setShowEmployeeModal] = useState<boolean>(false);
+  const [showIdFormatModal, setShowIdFormatModal] = useState<boolean>(false);
+  const [idFormatDraft, setIdFormatDraft] = useState<EmployeeIdFormat>({ ...DEFAULT_ID_FORMAT });
+  const [employeeUploadPreview, setEmployeeUploadPreview] = useState<{ fileName: string; rows: EmployeeUploadRow[] } | null>(null);
 
   // Attendance State
   const [attMonth, setAttMonth] = useState<string>(new Date().toISOString().slice(0, 7));
@@ -864,6 +973,169 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
     reader.readAsText(file);
   };
 
+  // ---------- Employee ID format + bulk employee upload ----------
+  const employeeIdFormat = resolveIdFormat((settings as any)?.employeeIdFormat);
+  const nextEmployeeId = generateEmployeeId(employeeIdFormat, employees.map((e) => e.employeeId));
+
+  const downloadEmployeeTemplate = () => {
+    const sample = [
+      '', 'Dela Cruz', 'Juan', 'Santos', '', '1990-05-14', 'Married', '123 Rizal St., Brgy. Poblacion, Makati City',
+      '123-456-789-000', '34-1234567-8', '1234-5678-9012', '12-345678901-2', 'juan@example.com', '09171234567',
+      '2020-01-15', 'Operations', 'Supervisor', 'Monthly', 'Semi-Monthly', '25000', ''
+    ];
+    const esc = (v: string) => `"${String(v).replace(/"/g, '""')}"`;
+    const csv = '﻿' + [EMPLOYEE_UPLOAD_COLUMNS, sample].map((r) => r.map(esc).join(',')).join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'employee_upload_template.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleEmployeeUpload = async (file: File) => {
+    try {
+      const XLSX = await import('xlsx');
+      const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      if (!sheet) throw new Error('The file has no sheets.');
+      const grid = XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1, raw: false, dateNF: 'yyyy-mm-dd', defval: '' });
+      if (grid.length < 2) throw new Error('The file must contain a header row and at least one employee row.');
+
+      const headers = grid[0].map((h) => normalizeHeader(String(h)));
+      const get = (row: string[], aliases: string[]) => {
+        const wanted = aliases.map(normalizeHeader);
+        const idx = headers.findIndex((h) => wanted.includes(h));
+        return idx >= 0 ? String(row[idx] ?? '').trim() : '';
+      };
+      if (!headers.some((h) => ['firstname', 'givenname'].includes(h)) || !headers.some((h) => ['lastname', 'surname', 'familyname'].includes(h))) {
+        throw new Error('Could not find "First Name" and "Last Name" columns. Download the template to see the expected columns.');
+      }
+
+      const dataRows = grid.slice(1).map((r, i) => ({ r: r.map((c) => String(c ?? '')), line: i + 2 })).filter(({ r }) => r.some((c) => c.trim()));
+      if (!dataRows.length) throw new Error('No employee rows were found in the file.');
+
+      // IDs supplied in the file are reserved first so auto-generated IDs never collide with them.
+      const reserved = new Set<string>();
+      dataRows.forEach(({ r }) => {
+        const id = get(r, ['employeeid', 'empid', 'id', 'employee no', 'employee number']).toUpperCase();
+        if (id) reserved.add(id);
+      });
+      const existingIds = new Set(employees.map((e) => e.employeeId.toUpperCase()));
+      const existingTins = new Set(employees.map((e) => onlyDigits(e.tin || '')).filter(Boolean));
+      const seenIds = new Set<string>();
+      const seenTins = new Set<string>();
+      const num = (v: string) => {
+        const n = Number(String(v).replace(/[^0-9.\-]/g, ''));
+        return v && Number.isFinite(n) ? n : 0;
+      };
+      const daysMonth = Number((settings as any).daysMonth) || 26;
+      const hoursPerDay = Number((settings as any).hoursPerDay) || 8;
+
+      const rows: EmployeeUploadRow[] = dataRows.map(({ r, line }) => {
+        const firstName = get(r, ['firstname', 'givenname']);
+        const lastName = get(r, ['lastname', 'surname', 'familyname']);
+        const warnings: string[] = [];
+        const fail = (error: string): EmployeeUploadRow => ({ line, employee: null, error, warning: '' });
+        if (!firstName || !lastName) return fail('First name and last name are required.');
+
+        const birthRaw = get(r, ['birthdate', 'dateofbirth', 'birthday', 'dob']);
+        const dateOfBirth = birthRaw ? normalizeDtrDate(birthRaw) : '';
+        if (birthRaw && !dateOfBirth) warnings.push('Birthdate not recognised (use YYYY-MM-DD) and was left blank.');
+
+        const civilStatus = normalizeCivilStatus(get(r, ['maritalstatus', 'civilstatus', 'status']));
+        if (!civilStatus) return fail('Marital status must be Single, Married, Widowed or Legally Separated.');
+
+        const gov: Partial<EmployeeRecord> = {
+          tin: formatTin(get(r, ['tin', 'tinnumber', 'tinno'])),
+          sssNumber: formatSss(get(r, ['sss', 'sssno', 'sssnumber'])),
+          pagIbigNumber: formatHdmf(get(r, ['hdmf', 'hdmfno', 'pagibig', 'pagibigno', 'pagibigmid', 'hdmfnumber'])),
+          philHealthNumber: formatPhilHealth(get(r, ['philhealth', 'philhealthno', 'philhealthnumber', 'phic'])),
+        };
+        const govError = validateGovIds(gov);
+        if (govError) return fail(govError);
+        const tinKey = onlyDigits(gov.tin || '');
+        if (tinKey && (existingTins.has(tinKey) || seenTins.has(tinKey))) return fail('TIN already exists for another employee.');
+
+        const dateHiredRaw = get(r, ['datehired', 'hiredate', 'datehire', 'dateofhire']);
+        const dateHired = dateHiredRaw ? normalizeDtrDate(dateHiredRaw) : '';
+        if (dateHiredRaw && !dateHired) warnings.push('Date hired not recognised and was left blank.');
+
+        let employeeId = get(r, ['employeeid', 'empid', 'id', 'employee no', 'employee number']).toUpperCase();
+        if (employeeId) {
+          if (existingIds.has(employeeId) || seenIds.has(employeeId)) return fail(`Employee ID ${employeeId} already exists.`);
+        } else {
+          const year = dateHired ? Number(dateHired.slice(0, 4)) : new Date().getFullYear();
+          employeeId = generateEmployeeId(employeeIdFormat, employees.map((e) => e.employeeId), year, reserved);
+        }
+        reserved.add(employeeId);
+        seenIds.add(employeeId);
+        if (tinKey) seenTins.add(tinKey);
+
+        const payTypeRaw = get(r, ['paytype']).toLowerCase();
+        const payType: EmployeeRecord['payType'] = payTypeRaw.startsWith('d') ? 'Daily' : payTypeRaw.startsWith('h') ? 'Hourly' : 'Monthly';
+        const freqRaw = get(r, ['payrollfrequency', 'frequency']).toLowerCase();
+        const payrollFrequency: EmployeeRecord['payrollFrequency'] = freqRaw === 'monthly' ? 'Monthly' : 'Semi-Monthly';
+        let monthlySalary = num(get(r, ['monthlysalary', 'salary', 'monthlyrate', 'basicsalary']));
+        const dailyGiven = num(get(r, ['dailyrate', 'daily']));
+        if (!monthlySalary && dailyGiven) monthlySalary = dailyGiven * daysMonth;
+        const dailyRate = dailyGiven || monthlySalary / daysMonth;
+        const middleName = get(r, ['middlename', 'middleinitial']);
+
+        const employee: EmployeeRecord = {
+          employeeId,
+          employeeNumber: employeeId,
+          firstName,
+          middleName,
+          lastName,
+          suffix: get(r, ['suffix']),
+          fullName: `${firstName} ${lastName}`,
+          preferredName: firstName,
+          dateOfBirth,
+          civilStatus,
+          dependentsCount: 0,
+          address: get(r, ['address', 'homeaddress']),
+          contactNumber: get(r, ['contactnumber', 'mobile', 'phone', 'contactno']),
+          workEmail: get(r, ['email', 'emailaddress', 'workemail']),
+          tin: gov.tin,
+          sssNumber: gov.sssNumber,
+          pagIbigNumber: gov.pagIbigNumber,
+          philHealthNumber: gov.philHealthNumber,
+          dateHired,
+          dateRegularized: '',
+          dateSeparated: '',
+          employmentStatus: 'Regular',
+          employmentCategory: 'Rank & File',
+          department: get(r, ['department', 'dept']),
+          position: get(r, ['position', 'jobtitle', 'designation']),
+          location: '',
+          supervisorId: '',
+          payType,
+          payrollFrequency,
+          monthlySalary,
+          dailyRate,
+          hourlyRate: dailyRate / hoursPerDay,
+          activeStatus: 'ACTIVE',
+          remarks: `Imported from ${file.name}`
+        };
+        return { line, employee, error: '', warning: warnings.join(' ') };
+      });
+      setEmployeeUploadPreview({ fileName: file.name, rows });
+    } catch (error) {
+      alert(`Could not read the employee file: ${error instanceof Error ? error.message : 'Invalid file.'}`);
+    }
+  };
+
+  const confirmEmployeeUpload = () => {
+    if (!employeeUploadPreview) return;
+    const valid = employeeUploadPreview.rows.filter((r) => r.employee).map((r) => r.employee as EmployeeRecord);
+    if (!valid.length) return;
+    setEmployees((prev) => [...prev, ...valid]);
+    logAction('Upload Employees', `${employeeUploadPreview.fileName} (${valid.length} added)`);
+    setEmployeeUploadPreview(null);
+  };
+
   // Import a DTR export from most timekeeping systems. Header aliases are normalized,
   // dates are retained in ISO format, and imported rows remain Pending for review.
   const handleDtrUpload = (file: File) => {
@@ -1274,22 +1546,47 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
                   <h2>Employee Master</h2>
                   <div className="eh-muted">Add, edit, search and manage your company's employee records.</div>
                 </div>
-                <button
-                  className="eh-btn primary"
-                  onClick={() => {
-                    setEditingEmployee(null);
-                    setShowEmployeeModal(true);
-                  }}
-                >
-                  + Add Employee
-                </button>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    className="eh-btn"
+                    onClick={() => {
+                      setIdFormatDraft(employeeIdFormat);
+                      setShowIdFormatModal(true);
+                    }}
+                  >
+                    ID Format
+                  </button>
+                  <label className="eh-btn eh-upload-button" htmlFor="capotbooks-employee-upload" style={{ cursor: 'pointer' }}>
+                    <UploadIcon className="h-3.5 w-3.5 inline-block mr-1" /> Upload Employees
+                  </label>
+                  <input
+                    id="capotbooks-employee-upload"
+                    type="file"
+                    accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
+                    className="hidden"
+                    onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) void handleEmployeeUpload(file);
+                      event.currentTarget.value = '';
+                    }}
+                  />
+                  <button
+                    className="eh-btn primary"
+                    onClick={() => {
+                      setEditingEmployee(null);
+                      setShowEmployeeModal(true);
+                    }}
+                  >
+                    + Add Employee
+                  </button>
+                </div>
               </div>
 
               <div className="eh-panel space-y-3">
                 <div className="eh-toolbar">
                   <input
                     type="text"
-                    placeholder="Search name, ID, department..."
+                    placeholder="Search name, ID, TIN, SSS, department..."
                     value={employeeSearch}
                     onChange={(e) => setEmployeeSearch(e.target.value)}
                     className="eh-field eh-search"
@@ -1305,6 +1602,10 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
                     <option value="ACTIVE">Active</option>
                     <option value="INACTIVE">Inactive</option>
                   </select>
+                  <span className="eh-muted eh-dtr-help">
+                    Upload existing employees from CSV or Excel (Last/First Name, Birthdate, Marital Status, Address, TIN, SSS, HDMF, PhilHealth, etc.).{' '}
+                    <button type="button" className="text-blue-600 hover:underline cursor-pointer" onClick={downloadEmployeeTemplate}>Download template</button>
+                  </span>
                 </div>
 
                 <div className="eh-table-wrap">
@@ -1335,7 +1636,9 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
                             !q ||
                             e.fullName.toLowerCase().includes(q) ||
                             e.employeeId.toLowerCase().includes(q) ||
-                            e.department.toLowerCase().includes(q);
+                            e.department.toLowerCase().includes(q) ||
+                            (e.tin || '').includes(q) ||
+                            (e.sssNumber || '').includes(q);
                           return matchesFilter && matchesSearch;
                         })
                         .map((e) => (
@@ -2384,7 +2687,7 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
           <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
             <div className="p-4 border-b border-slate-200 flex justify-between items-center">
               <h3 className="font-bold text-base text-slate-900">
-                {editingEmployee ? 'Edit Employee' : 'Add Employee'}
+                {editingEmployee?.employeeId ? 'Edit Employee' : 'Add Employee'}
               </h3>
               <button
                 className="text-slate-400 hover:text-slate-700 text-xl font-bold cursor-pointer"
@@ -2397,13 +2700,22 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
             <div className="p-6">
               <div className="eh-formgrid">
                 <div className="eh-field">
-                  <label>Employee ID *</label>
+                  <label>Employee ID (auto)</label>
                   <input
-                    value={editingEmployee?.employeeId || ''}
-                    onChange={(e) =>
-                      setEditingEmployee({ ...editingEmployee, employeeId: e.target.value.toUpperCase() })
-                    }
+                    value={editingEmployee?.employeeId || nextEmployeeId}
+                    readOnly
+                    style={{ background: '#f1f5f9', fontWeight: 700 }}
                   />
+                  <button
+                    type="button"
+                    className="text-[11px] text-blue-600 hover:underline mt-1 cursor-pointer"
+                    onClick={() => {
+                      setIdFormatDraft(employeeIdFormat);
+                      setShowIdFormatModal(true);
+                    }}
+                  >
+                    Change ID format
+                  </button>
                 </div>
 
                 <div className="eh-field">
@@ -2421,6 +2733,14 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
                 </div>
 
                 <div className="eh-field">
+                  <label>Middle Name</label>
+                  <input
+                    value={editingEmployee?.middleName || ''}
+                    onChange={(e) => setEditingEmployee({ ...editingEmployee, middleName: e.target.value })}
+                  />
+                </div>
+
+                <div className="eh-field">
                   <label>Last Name *</label>
                   <input
                     value={editingEmployee?.lastName || ''}
@@ -2430,6 +2750,90 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
                         lastName: e.target.value,
                         fullName: `${editingEmployee?.firstName || ''} ${e.target.value}`
                       })
+                    }
+                  />
+                </div>
+
+                <div className="eh-field">
+                  <label>Birthdate</label>
+                  <input
+                    type="date"
+                    max={todayIso}
+                    value={editingEmployee?.dateOfBirth || ''}
+                    onChange={(e) => setEditingEmployee({ ...editingEmployee, dateOfBirth: e.target.value })}
+                  />
+                </div>
+
+                <div className="eh-field">
+                  <label>Marital Status</label>
+                  <select
+                    value={editingEmployee?.civilStatus || 'Single'}
+                    onChange={(e) =>
+                      setEditingEmployee({ ...editingEmployee, civilStatus: e.target.value as EmployeeRecord['civilStatus'] })
+                    }
+                  >
+                    {CIVIL_STATUSES.map((status) => (
+                      <option key={status} value={status}>{status}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="eh-field eh-full">
+                  <label>Address</label>
+                  <textarea
+                    rows={2}
+                    placeholder="House/Unit No., Street, Barangay, City/Municipality, Province, ZIP"
+                    value={editingEmployee?.address || ''}
+                    onChange={(e) => setEditingEmployee({ ...editingEmployee, address: e.target.value })}
+                  />
+                </div>
+
+                <div className="eh-field">
+                  <label>TIN</label>
+                  <input
+                    inputMode="numeric"
+                    placeholder="000-000-000-000"
+                    value={editingEmployee?.tin || ''}
+                    onChange={(e) => setEditingEmployee({ ...editingEmployee, tin: formatTin(e.target.value) })}
+                  />
+                </div>
+
+                <div className="eh-field">
+                  <label>SSS No.</label>
+                  <input
+                    inputMode="numeric"
+                    placeholder="00-0000000-0"
+                    value={editingEmployee?.sssNumber || ''}
+                    onChange={(e) => setEditingEmployee({ ...editingEmployee, sssNumber: formatSss(e.target.value) })}
+                  />
+                </div>
+
+                <div className="eh-field">
+                  <label>HDMF (Pag-IBIG) No.</label>
+                  <input
+                    inputMode="numeric"
+                    placeholder="0000-0000-0000"
+                    value={editingEmployee?.pagIbigNumber || ''}
+                    onChange={(e) => setEditingEmployee({ ...editingEmployee, pagIbigNumber: formatHdmf(e.target.value) })}
+                  />
+                </div>
+
+                <div className="eh-field">
+                  <label>PhilHealth No.</label>
+                  <input
+                    inputMode="numeric"
+                    placeholder="00-000000000-0"
+                    value={editingEmployee?.philHealthNumber || ''}
+                    onChange={(e) => setEditingEmployee({ ...editingEmployee, philHealthNumber: formatPhilHealth(e.target.value) })}
+                  />
+                </div>
+
+                <div className="eh-field">
+                  <label>Email Address</label>
+                  <input
+                    value={editingEmployee?.workEmail || ''}
+                    onChange={(e) =>
+                      setEditingEmployee({ ...editingEmployee, workEmail: e.target.value })
                     }
                   />
                 </div>
@@ -2496,16 +2900,6 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
                     <option value="Monthly">Monthly</option>
                   </select>
                 </div>
-
-                <div className="eh-field">
-                  <label>Email Address</label>
-                  <input
-                    value={editingEmployee?.workEmail || ''}
-                    onChange={(e) =>
-                      setEditingEmployee({ ...editingEmployee, workEmail: e.target.value })
-                    }
-                  />
-                </div>
               </div>
             </div>
 
@@ -2516,34 +2910,48 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
               <button
                 className="eh-btn primary"
                 onClick={() => {
-                  if (!editingEmployee?.employeeId?.trim() || !editingEmployee?.firstName?.trim() || !editingEmployee?.lastName?.trim()) {
-                    alert('Employee ID, first name and last name are required.');
+                  if (!editingEmployee?.firstName?.trim() || !editingEmployee?.lastName?.trim()) {
+                    alert('First name and last name are required.');
                     return;
                   }
-                  const existingIndex = employees.findIndex(
-                    (e) => e.employeeId === editingEmployee.employeeId
-                  );
+                  const govError = validateGovIds(editingEmployee);
+                  if (govError) {
+                    alert(govError);
+                    return;
+                  }
+                  const tinKey = onlyDigits(editingEmployee.tin || '');
+                  const empId = editingEmployee.employeeId || nextEmployeeId;
+                  if (tinKey && employees.some((x) => x.employeeId !== empId && onlyDigits(x.tin || '') === tinKey)) {
+                    alert('Another employee already has this TIN.');
+                    return;
+                  }
+                  const existingIndex = employees.findIndex((x) => x.employeeId === empId);
                   if (existingIndex >= 0) {
                     const updated = [...employees];
-                    updated[existingIndex] = { ...updated[existingIndex], ...editingEmployee };
+                    updated[existingIndex] = { ...updated[existingIndex], ...editingEmployee, employeeId: empId };
                     setEmployees(updated);
-                    logAction('Update Employee', editingEmployee.employeeId);
+                    logAction('Update Employee', empId);
                   } else {
+                    const monthly = Number(editingEmployee.monthlySalary) || 0;
                     const newEmp: EmployeeRecord = {
-                      employeeId: editingEmployee.employeeId,
-                      employeeNumber: `EMP-${Date.now().toString().slice(-4)}`,
+                      employeeId: empId,
+                      employeeNumber: empId,
                       firstName: editingEmployee.firstName || '',
-                      middleName: '',
+                      middleName: editingEmployee.middleName || '',
                       lastName: editingEmployee.lastName || '',
                       suffix: '',
-                      fullName: editingEmployee.fullName || '',
+                      fullName: editingEmployee.fullName || `${editingEmployee.firstName} ${editingEmployee.lastName}`,
                       preferredName: editingEmployee.firstName || '',
-                      dateOfBirth: '',
-                      civilStatus: 'Single',
+                      dateOfBirth: editingEmployee.dateOfBirth || '',
+                      civilStatus: editingEmployee.civilStatus || 'Single',
                       dependentsCount: 0,
-                      address: '',
+                      address: (editingEmployee.address || '').trim(),
                       contactNumber: '',
                       workEmail: editingEmployee.workEmail || '',
+                      tin: editingEmployee.tin || '',
+                      sssNumber: editingEmployee.sssNumber || '',
+                      pagIbigNumber: editingEmployee.pagIbigNumber || '',
+                      philHealthNumber: editingEmployee.philHealthNumber || '',
                       dateHired: '',
                       dateRegularized: '',
                       dateSeparated: '',
@@ -2555,9 +2963,9 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
                       supervisorId: '',
                       payType: editingEmployee.payType || 'Monthly',
                       payrollFrequency: editingEmployee.payrollFrequency || 'Semi-Monthly',
-                      monthlySalary: Number(editingEmployee.monthlySalary) || 0,
-                      dailyRate: Number(editingEmployee.dailyRate ?? (Number(editingEmployee.monthlySalary) / 26)) || 0,
-                      hourlyRate: Number(editingEmployee.hourlyRate ?? (Number(editingEmployee.monthlySalary) / 26 / 8)) || 0,
+                      monthlySalary: monthly,
+                      dailyRate: Number(editingEmployee.dailyRate ?? (monthly / 26)) || 0,
+                      hourlyRate: Number(editingEmployee.hourlyRate ?? (monthly / 26 / 8)) || 0,
                       activeStatus: 'ACTIVE',
                       remarks: ''
                     };
@@ -2573,6 +2981,147 @@ export const PayrollHub: React.FC<EnterpriseHubProps> = ({ company, initialPage 
           </div>
         </div>
       )}
+
+      {/* ================= EMPLOYEE ID FORMAT MODAL ================= */}
+      {showIdFormatModal && (() => {
+        const draft = resolveIdFormat(idFormatDraft);
+        const preview = [0, 1, 2].map((i) => `${idBase(draft, new Date().getFullYear())}${String(draft.startNumber + i).padStart(draft.digits, '0')}`);
+        return (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+              <div className="p-4 border-b border-slate-200 flex justify-between items-center">
+                <h3 className="font-bold text-base text-slate-900">Employee ID Format</h3>
+                <button className="text-slate-400 hover:text-slate-700 text-xl font-bold cursor-pointer" onClick={() => setShowIdFormatModal(false)}>&times;</button>
+              </div>
+              <div className="p-6 space-y-4">
+                <div className="eh-formgrid" style={{ gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' }}>
+                  <div className="eh-field">
+                    <label>Prefix</label>
+                    <input
+                      maxLength={10}
+                      placeholder="EMP"
+                      value={idFormatDraft.prefix}
+                      onChange={(e) => setIdFormatDraft({ ...idFormatDraft, prefix: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '') })}
+                    />
+                  </div>
+                  <div className="eh-field">
+                    <label>Separator</label>
+                    <select value={idFormatDraft.separator} onChange={(e) => setIdFormatDraft({ ...idFormatDraft, separator: e.target.value as EmployeeIdFormat['separator'] })}>
+                      <option value="-">Dash ( - )</option>
+                      <option value="/">Slash ( / )</option>
+                      <option value=".">Dot ( . )</option>
+                      <option value="_">Underscore ( _ )</option>
+                      <option value="">None</option>
+                    </select>
+                  </div>
+                  <div className="eh-field">
+                    <label>Year</label>
+                    <select value={idFormatDraft.yearStyle} onChange={(e) => setIdFormatDraft({ ...idFormatDraft, yearStyle: e.target.value as EmployeeIdFormat['yearStyle'] })}>
+                      <option value="YYYY">4-digit (2026)</option>
+                      <option value="YY">2-digit (26)</option>
+                      <option value="NONE">Don't include</option>
+                    </select>
+                  </div>
+                  <div className="eh-field">
+                    <label>Number length</label>
+                    <select value={idFormatDraft.digits} onChange={(e) => setIdFormatDraft({ ...idFormatDraft, digits: Number(e.target.value) })}>
+                      {[3, 4, 5, 6].map((n) => <option key={n} value={n}>{n} digits</option>)}
+                    </select>
+                  </div>
+                  <div className="eh-field">
+                    <label>Start numbering at</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={idFormatDraft.startNumber}
+                      onChange={(e) => setIdFormatDraft({ ...idFormatDraft, startNumber: Number(e.target.value) })}
+                    />
+                  </div>
+                </div>
+                <div className="rounded-lg bg-slate-50 border border-slate-200 p-3 text-sm">
+                  <div className="text-[11px] font-bold text-slate-500 mb-1">PREVIEW</div>
+                  <b>{preview.join('  \u2022  ')}</b>
+                  <div className="eh-muted mt-2">Applies to new employees only. Existing IDs are never changed, and numbering continues from the highest existing number that uses the same prefix and year.</div>
+                </div>
+              </div>
+              <div className="p-4 border-t border-slate-200 flex justify-end gap-2 bg-slate-50">
+                <button className="eh-btn" onClick={() => setShowIdFormatModal(false)}>Cancel</button>
+                <button
+                  className="eh-btn primary"
+                  onClick={() => {
+                    setSettings((prev: any) => ({ ...prev, employeeIdFormat: draft }));
+                    logAction('Update Employee ID Format', `${preview[0]}`);
+                    setShowIdFormatModal(false);
+                  }}
+                >
+                  Save Format
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* ================= EMPLOYEE UPLOAD PREVIEW MODAL ================= */}
+      {employeeUploadPreview && (() => {
+        const rows = employeeUploadPreview.rows;
+        const okCount = rows.filter((r) => r.employee).length;
+        const badCount = rows.length - okCount;
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/60 backdrop-blur-xs">
+            <div className="bg-white rounded-2xl shadow-2xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+              <div className="p-4 border-b border-slate-200 flex justify-between items-center">
+                <div>
+                  <h3 className="font-bold text-base text-slate-900">Upload Employees &mdash; Review</h3>
+                  <div className="eh-muted">{employeeUploadPreview.fileName}</div>
+                </div>
+                <button className="text-slate-400 hover:text-slate-700 text-xl font-bold cursor-pointer" onClick={() => setEmployeeUploadPreview(null)}>&times;</button>
+              </div>
+              <div className="p-4 overflow-y-auto space-y-3">
+                <div className="flex flex-wrap gap-2 items-center">
+                  <span className="eh-tag ok">{okCount} ready to import</span>
+                  {badCount > 0 && <span className="eh-tag warn">{badCount} will be skipped</span>}
+                  <span className="eh-muted">Rows without an Employee ID get one automatically using your ID format.</span>
+                </div>
+                <div className="eh-table-wrap">
+                  <table className="eh-table">
+                    <thead>
+                      <tr><th>Row</th><th>Employee ID</th><th>Name</th><th>Birthdate</th><th>Status</th><th>TIN</th><th>SSS</th><th>HDMF</th><th>PhilHealth</th><th>Result</th></tr>
+                    </thead>
+                    <tbody>
+                      {rows.map((r) => (
+                        <tr key={r.line}>
+                          <td>{r.line}</td>
+                          <td>{r.employee?.employeeId || '-'}</td>
+                          <td>{r.employee?.fullName || '-'}</td>
+                          <td>{r.employee?.dateOfBirth ? dateFmt(r.employee.dateOfBirth) : ''}</td>
+                          <td>{r.employee?.civilStatus || ''}</td>
+                          <td>{r.employee?.tin}</td>
+                          <td>{r.employee?.sssNumber}</td>
+                          <td>{r.employee?.pagIbigNumber}</td>
+                          <td>{r.employee?.philHealthNumber}</td>
+                          <td>
+                            {r.error ? <span className="eh-tag warn">{r.error}</span> : r.warning ? <span className="eh-tag warn">{r.warning}</span> : <span className="eh-tag ok">OK</span>}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+              <div className="p-4 border-t border-slate-200 flex justify-between items-center gap-2 bg-slate-50">
+                <button className="eh-btn" onClick={downloadEmployeeTemplate}>Download Template</button>
+                <div className="flex gap-2">
+                  <button className="eh-btn" onClick={() => setEmployeeUploadPreview(null)}>Cancel</button>
+                  <button className="eh-btn primary" disabled={okCount === 0} onClick={confirmEmployeeUpload}>
+                    Import {okCount} Employee{okCount === 1 ? '' : 's'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ================= ATTENDANCE MODAL (MATCHING ATTACHED HTML) ================= */}
       {showAttendanceModal && (
