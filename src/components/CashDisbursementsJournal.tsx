@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { printReportPage } from '../lib/reportPrint';
 import { Wallet, Plus, Trash2, Settings, X, Check, Calendar, Printer } from 'lucide-react';
 import { EmptyState } from './ui/EmptyState';
 import { PageHeader } from './ui/PageHeader';
@@ -8,7 +9,6 @@ import { JournalColumn, JournalEntry, CoaAccount } from '../types';
 import { cn, parseDateToISO, periodPreset } from '../lib/utils';
 
 import { CDJ_CASH_ON_HAND_BANK_ID, CDJ_SUNDRY_ACCOUNT_TITLE_ID, CDJ_SUNDRY_AMOUNT_ID, DEFAULT_CDJ_COLUMNS } from '../lib/journalDefaults';
-import { YearDropdownDateInput } from './ui/YearDropdownDateInput';
 export { CDJ_CASH_ON_HAND_BANK_ID, CDJ_SUNDRY_ACCOUNT_TITLE_ID, CDJ_SUNDRY_AMOUNT_ID, DEFAULT_CDJ_COLUMNS };
 
 const MAX_CDJ_ACCOUNT_COLUMNS = 10; // user-selectable COA columns; Input Tax is a fixed default column
@@ -505,7 +505,7 @@ export function CashDisbursementsJournal() {
   return (
     <div className="w-full flex flex-col print-area">
       <PageHeader title="Cash Disbursements Journal" icon={<Wallet />} actions={
-        <button type="button" onClick={() => window.print()} className="no-print inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-xs font-bold hover:opacity-90 transition-opacity" title="Print Cash Disbursements Journal">
+        <button type="button" onClick={() => printReportPage('Cash Disbursements Journal')} className="no-print inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-xs font-bold hover:opacity-90 transition-opacity" title="Print Cash Disbursements Journal">
           <Printer className="w-4 h-4" /> Print
         </button>
       } />
@@ -516,9 +516,19 @@ export function CashDisbursementsJournal() {
             <Calendar className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
             <span className="text-xs font-bold uppercase tracking-wider">Period</span>
           </div>
-          <YearDropdownDateInput value={periodFrom} onChange={value => setPeriodFrom(value)} className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 text-xs outline-none focus:border-cyan-500 text-slate-900 dark:text-white" />
+          <input
+            type="date"
+            value={periodFrom}
+            onChange={e => setPeriodFrom(e.target.value)}
+            className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 text-xs outline-none focus:border-cyan-500 text-slate-900 dark:text-white"
+          />
           <span className="text-slate-400 text-xs font-semibold">to</span>
-          <YearDropdownDateInput value={periodTo} onChange={value => setPeriodTo(value)} className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 text-xs outline-none focus:border-cyan-500 text-slate-900 dark:text-white" />
+          <input
+            type="date"
+            value={periodTo}
+            onChange={e => setPeriodTo(e.target.value)}
+            className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 text-xs outline-none focus:border-cyan-500 text-slate-900 dark:text-white"
+          />
           <div className="flex flex-wrap gap-1.5">
             {(['this-month', 'last-month', 'this-quarter', 'this-year'] as const).map(p => (
               <button

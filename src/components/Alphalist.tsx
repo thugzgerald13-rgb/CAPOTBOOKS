@@ -1,13 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { PageHeader } from './ui/PageHeader';
+import { printReportPage } from '../lib/reportPrint';
 import { useAccounting } from '../context/AccountingContext';
 import { supabase } from '../lib/supabase';
 import { MONTHS, formatTIN } from '../lib/utils';
-import { buildMonthlyAlphalistPrintHtml, buildMonthlyAlphalistRows, type MonthlyAlphalistPayeeRow, type MonthlyAlphalistWorkflowState } from '../lib/monthlyAlphalist';
-import { printHtml } from '../lib/reliefInquiry';
 import { ALPHALIST_ATC_BY_MODULE, type AlphalistAtcEntry } from '../lib/alphalistAtc';
 import { usePermission } from '../lib/teamPermissions';
-import { FileSpreadsheet, Plus, Trash2, ShieldCheck, Save, Users, Receipt, Landmark, X, Printer, Lock, Unlock, ArrowRightLeft } from 'lucide-react';
+import { FileSpreadsheet, Plus, Trash2, ShieldCheck, Save, Users, Receipt, Landmark, X, Printer } from 'lucide-react';
 
 /**
  * BIR Alphalist Data Entry & Validation Module — reverse-engineered from
@@ -85,14 +84,13 @@ function fmt202(n: number): string {
 }
 
 export function Alphalist() {
-  const { currentClient, currentClientId, showToast } = useAccounting();
+  const { currentClientId, showToast } = useAccounting();
   const canAdd = usePermission('edit_transactions');
   const canDelete = usePermission('delete_transactions');
   const canExport = usePermission('export_data');
-  const canPrint = usePermission('view_reports');
 
   const [module, setModule] = useState<AlphaModule>('1601E');
-  const [view, setView] = useState<'entry' | 'annual' | 'monthly-payees'>('entry');
+  const [view, setView] = useState<'entry' | 'annual'>('entry');
   const now = new Date();
   const [month, setMonth] = useState(now.getMonth() + 1);
   const [year, setYear] = useState(now.getFullYear());
@@ -117,234 +115,7 @@ export function Alphalist() {
   const [saving, setSaving] = useState(false);
   const [validationResults, setValidationResults] = useState<{ id: string; seq: number; name: string; errors: string[] }[] | null>(null);
 
-  // Monthly Alphalist month assignment and filing state is persisted per client
-  // in relief_records, matching the RELIEF page's cross-session workflow.
-  const [monthlyWorkflow, setMonthlyWorkflow] = useState<MonthlyAlphalistWorkflowState>({ transfers: {}, filedMonths: {} });
-  const [monthlyWorkflowStatus, setMonthlyWorkflowStatus] = useState<'idle' | 'loading' | 'ready' | 'saving' | 'error'>('idle');
-  const [monthlyWorkflowClientId, setMonthlyWorkflowClientId] = useState<string | null>(null);
-
   const returnPeriod = `${year}-${String(month).padStart(2, '0')}-01`;
-  const monthlyPayeeMonthKey = `${year}-${String(month).padStart(2, '0')}`;
-  const monthlyWorkflowReady = !!currentClientId && monthlyWorkflowClientId === currentClientId && monthlyWorkflowStatus === 'ready';
-  const isMonthlyPayeeMonthFiled = !!monthlyWorkflow.filedMonths[monthlyPayeeMonthKey];
-  const monthlyPayeeRows = useMemo(
-    () => buildMonthlyAlphalistRows(currentClient, month, year, monthlyWorkflow),
-    [currentClient, month, year, monthlyWorkflow],
-  );
-  const monthlyPayeeTotals = useMemo(() => ({
-    income: monthlyPayeeRows.reduce((sum, row) => sum + row.incomePayment, 0),
-    withheld: monthlyPayeeRows.reduce((sum, row) => sum + row.taxWithheld, 0),
-  }), [monthlyPayeeRows]);
-  const reportCompanyName = currentClient?.tradeName?.trim() || currentClient?.registeredName?.trim() || currentClient?.name || '';
-  const reportAddress = currentClient?.address?.trim() || [currentClient?.substreet, currentClient?.street, currentClient?.barangay, currentClient?.district, currentClient?.city, currentClient?.zipCode].filter(Boolean).join(', ');
-  const reportOwnerName = currentClient?.proprietor?.trim() || [currentClient?.firstName, currentClient?.middleName, currentClient?.lastName].filter(Boolean).join(' ') || currentClient?.name || '';
-
-  useEffect(() => {
-    if (!currentClientId) {
-      setMonthlyWorkflow({ transfers: {}, filedMonths: {} });
-      setMonthlyWorkflowClientId(null);
-      setMonthlyWorkflowStatus('idle');
-      return;
-    }
-
-    let cancelled = false;
-    setMonthlyWorkflowStatus('loading');
-    setMonthlyWorkflowClientId(null);
-    (async () => {
-      const { data, error } = await supabase
-        .from('relief_records')
-        .select('record_type,record_id,data')
-        .eq('client_id', currentClientId)
-        .in('record_type', ['alphalist_transfer', 'alphalist_filed']);
-      if (cancelled) return;
-      if (error) {
-        console.warn('[Alphalist] month workflow load failed:', error.message);
-        setMonthlyWorkflowStatus('error');
-        showToast(`Monthly Alphalist month controls could not load: ${error.message}. Apply scripts/alphalist_monthly_workflow.sql in Supabase.`);
-        return;
-      }
-
-      const next: MonthlyAlphalistWorkflowState = { transfers: {}, filedMonths: {} };
-      for (const record of data || []) {
-        const recordId = String((record as any).record_id || '');
-        const payload = ((record as any).data || {}) as Record<string, any>;
-        if ((record as any).record_type === 'alphalist_transfer' && recordId && payload.fromMonth && payload.toMonth) {
-          next.transfers[recordId] = { fromMonth: String(payload.fromMonth), toMonth: String(payload.toMonth) };
-        } else if ((record as any).record_type === 'alphalist_filed' && /^\d{4}-\d{2}$/.test(recordId)) {
-          next.filedMonths[recordId] = {
-            filedAt: String(payload.filedAt || ''),
-            purchaseIds: Array.isArray(payload.purchaseIds) ? payload.purchaseIds.map(String) : [],
-          };
-        }
-      }
-      setMonthlyWorkflow(next);
-      setMonthlyWorkflowClientId(currentClientId);
-      setMonthlyWorkflowStatus('ready');
-    })().catch((error: any) => {
-      if (cancelled) return;
-      console.error('[Alphalist] month workflow load failed:', error);
-      setMonthlyWorkflowStatus('error');
-      showToast(`Monthly Alphalist month controls could not load: ${error?.message || 'Unexpected error'}. Check the Supabase migration and permissions.`);
-    });
-
-    return () => { cancelled = true; };
-  // AccountingContext recreates showToast on each render; reload only when the active profile changes.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentClientId]);
-
-  const handlePrintMonthlyPayees = () => {
-    if (!canPrint) { showToast('You do not have permission to print reports.'); return; }
-    printHtml(buildMonthlyAlphalistPrintHtml(currentClient, month, year, monthlyPayeeRows));
-  };
-
-  const handleMonthlyPayeeTransfer = async (row: MonthlyAlphalistPayeeRow, targetMonth: string) => {
-    if (!currentClientId) { showToast('Select a business profile before transferring Alphalist data.'); return; }
-    if (!canAdd) { showToast('You do not have permission to transfer Monthly Alphalist data.'); return; }
-    if (!monthlyWorkflowReady) { showToast('Monthly Alphalist cloud data is still loading. Please retry.'); return; }
-    if (isMonthlyPayeeMonthFiled) { showToast('This Alphalist month is FILED and locked. Click Amend before transferring data.'); return; }
-    if (targetMonth === monthlyPayeeMonthKey) return;
-
-    if (targetMonth === '__reset__') {
-      const idsToReset = row.purchaseSources.map(source => source.id).filter(id => !!monthlyWorkflow.transfers[id]);
-      if (!idsToReset.length) return;
-      setMonthlyWorkflowStatus('saving');
-      const { error } = await supabase.from('relief_records').delete()
-        .eq('client_id', currentClientId).eq('record_type', 'alphalist_transfer').in('record_id', idsToReset);
-      if (error) {
-        setMonthlyWorkflowStatus('ready');
-        showToast(`Could not reset Alphalist month transfer: ${error.message}`);
-        return;
-      }
-      setMonthlyWorkflow(prev => {
-        const transfers = { ...prev.transfers };
-        idsToReset.forEach(id => { delete transfers[id]; });
-        return { ...prev, transfers };
-      });
-      setMonthlyWorkflowStatus('ready');
-      showToast('Alphalist month transfer reset. The entries returned to their original or automatically assigned unfiled month.');
-      return;
-    }
-
-    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(targetMonth) || targetMonth.slice(0, 4) !== String(year)
-      || targetMonth <= monthlyPayeeMonthKey || monthlyWorkflow.filedMonths[targetMonth]) {
-      showToast('Transfers are allowed only to a succeeding, unfiled month in the same calendar year.');
-      return;
-    }
-    if (row.purchaseSources.some(source => source.sourceMonth.slice(0, 4) !== String(year) || targetMonth <= source.sourceMonth)) {
-      showToast('Every purchase must move forward to a later month within its original calendar year.');
-      return;
-    }
-
-    const changedAt = new Date().toISOString();
-    const records = row.purchaseSources.map(source => ({
-      client_id: currentClientId,
-      record_type: 'alphalist_transfer',
-      record_id: source.id,
-      data: { purchaseId: source.id, fromMonth: source.sourceMonth, toMonth: targetMonth, changedAt },
-    }));
-    setMonthlyWorkflowStatus('saving');
-    const { error } = await supabase.from('relief_records').upsert(records, { onConflict: 'client_id,record_type,record_id' });
-    if (error) {
-      setMonthlyWorkflowStatus('ready');
-      showToast(`Could not save Alphalist month transfer: ${error.message}. Confirm scripts/alphalist_monthly_workflow.sql was applied.`);
-      return;
-    }
-    setMonthlyWorkflow(prev => ({
-      ...prev,
-      transfers: {
-        ...prev.transfers,
-        ...Object.fromEntries(row.purchaseSources.map(source => [source.id, { fromMonth: source.sourceMonth, toMonth: targetMonth }])),
-      },
-    }));
-    setMonthlyWorkflowStatus('ready');
-    showToast(`Transferred ${row.purchaseSources.length} purchase record(s) to ${MONTHS[Number(targetMonth.slice(5, 7)) - 1]} ${year}.`);
-  };
-
-  const handleFileMonthlyPayees = async () => {
-    if (!currentClientId) { showToast('Select a business profile before filing the Monthly Alphalist.'); return; }
-    if (!canAdd) { showToast('You do not have permission to file the Monthly Alphalist.'); return; }
-    if (!monthlyWorkflowReady) { showToast('Monthly Alphalist cloud data is still loading. Please retry.'); return; }
-    if (isMonthlyPayeeMonthFiled) return;
-
-    const purchaseSources = Array.from(new Map(monthlyPayeeRows.flatMap(row => row.purchaseSources).map(source => [source.id, source])).values());
-    const purchaseIds = purchaseSources.map(source => source.id);
-    const filedAt = new Date().toISOString();
-    // Materialize any automatic rollover into a stable month assignment before filing.
-    // This mirrors RELIEF: entries already assigned to another period stay there if amended later.
-    const assignmentsToPersist = purchaseSources
-      .filter(source => source.sourceMonth !== monthlyPayeeMonthKey && monthlyWorkflow.transfers[source.id]?.toMonth !== monthlyPayeeMonthKey)
-      .map(source => ({
-        client_id: currentClientId,
-        record_type: 'alphalist_transfer',
-        record_id: source.id,
-        data: { purchaseId: source.id, fromMonth: source.sourceMonth, toMonth: monthlyPayeeMonthKey, changedAt: filedAt, autoRolloverLockedAtFile: true },
-      }));
-
-    setMonthlyWorkflowStatus('saving');
-    if (assignmentsToPersist.length) {
-      const { error: transferError } = await supabase.from('relief_records').upsert(assignmentsToPersist, { onConflict: 'client_id,record_type,record_id' });
-      if (transferError) {
-        setMonthlyWorkflowStatus('ready');
-        showToast(`Could not lock Alphalist month assignments: ${transferError.message}`);
-        return;
-      }
-      setMonthlyWorkflow(prev => ({
-        ...prev,
-        transfers: {
-          ...prev.transfers,
-          ...Object.fromEntries(assignmentsToPersist.map(record => [record.record_id, {
-            fromMonth: String((record.data as any).fromMonth), toMonth: String((record.data as any).toMonth),
-          }])),
-        },
-      }));
-    }
-
-    const { error } = await supabase.from('relief_records').insert({
-      client_id: currentClientId,
-      record_type: 'alphalist_filed',
-      record_id: monthlyPayeeMonthKey,
-      data: { monthKey: monthlyPayeeMonthKey, filedAt, purchaseIds, rowCount: monthlyPayeeRows.length },
-    }, { onConflict: 'client_id,record_type,record_id' });
-    if (error) {
-      setMonthlyWorkflowStatus('ready');
-      showToast(`Monthly Alphalist filing failed: ${error.message}`);
-      return;
-    }
-    setMonthlyWorkflow(prev => ({
-      ...prev,
-      filedMonths: { ...prev.filedMonths, [monthlyPayeeMonthKey]: { filedAt, purchaseIds } },
-    }));
-    setMonthlyWorkflowStatus('ready');
-    showToast(`Monthly Alphalist for ${MONTHS[month - 1]} ${year} is now FILED and locked. New purchases in this period will roll to the next unfiled month in the same year.`);
-  };
-
-  const handleAmendMonthlyPayees = async () => {
-    if (!currentClientId || !isMonthlyPayeeMonthFiled) return;
-    if (!canAdd) { showToast('You do not have permission to amend the Monthly Alphalist.'); return; }
-    if (!monthlyWorkflowReady) { showToast('Monthly Alphalist cloud data is still loading. Please retry.'); return; }
-    setMonthlyWorkflowStatus('saving');
-    const { data, error } = await supabase.rpc('amend_alphalist_month', {
-      p_client_id: currentClientId,
-      p_month_key: monthlyPayeeMonthKey,
-    });
-    if (error) {
-      setMonthlyWorkflowStatus('ready');
-      showToast(`Monthly Alphalist amend failed: ${error.message}`);
-      return;
-    }
-    if (!data) {
-      setMonthlyWorkflowStatus('ready');
-      showToast('The filed month was already amended or could not be found. Refresh the month status.');
-      return;
-    }
-    setMonthlyWorkflow(prev => {
-      const filedMonths = { ...prev.filedMonths };
-      delete filedMonths[monthlyPayeeMonthKey];
-      return { ...prev, filedMonths };
-    });
-    setMonthlyWorkflowStatus('ready');
-    showToast(`Monthly Alphalist for ${MONTHS[month - 1]} ${year} is now AMENDED and unlocked. Existing transfers to other months remain in place.`);
-  };
 
   const selectedAtc = atcList.find(a => a.code === atcCode);
   const taxRate = selectedAtc?.rate ?? 0;
@@ -491,33 +262,23 @@ export function Alphalist() {
 
   return (
     <div className="w-full flex flex-col">
-      <PageHeader title={view === 'monthly-payees' ? 'Monthly Alphalist of Payees' : 'Alphalist Data Entry & Validation'} icon={<Users className="w-5 h-5 text-indigo-500" />} actions={view === 'monthly-payees' ? (
-        <button type="button" onClick={handlePrintMonthlyPayees} disabled={!canPrint} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-xs font-bold hover:opacity-90 disabled:opacity-40" title="Print Monthly Alphalist of Payees">
-          <Printer className="w-4 h-4" /> Print
-        </button>
-      ) : undefined} />
+      <PageHeader title="Alphalist Data Entry & Validation" icon={<Users className="w-5 h-5 text-indigo-500" />} actions={<button type="button" onClick={() => printReportPage('Alphalist')} className="no-print inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white hover:opacity-90"><Printer className="h-4 w-4" />Print</button>} />
       <div className="p-4 md:p-6 flex-1 flex flex-col gap-5">
-        {/* Alphalist pages and withholding report */}
+        {/* Module tabs */}
         <div className="flex flex-wrap gap-2">
-          {view !== 'monthly-payees' && MODULES.map(m => (
+          {MODULES.map(m => (
             <button key={m.id} onClick={() => { setModule(m.id); setValidationResults(null); }}
               className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all border ${module === m.id ? 'bg-indigo-600 text-white border-indigo-600 shadow-md' : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-indigo-300'}`}>
               {m.icon}<span>{m.label}</span>
             </button>
           ))}
           <div className="flex-1" />
-          {view !== 'monthly-payees' && (
-            <button onClick={() => setView(view === 'entry' ? 'annual' : 'entry')}
-              className="px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 border border-slate-200 dark:border-slate-700">
-              {view === 'entry' ? 'Annual 1604 Summary →' : '← Monthly Data Entry'}
-            </button>
-          )}
-          <button onClick={() => setView(view === 'monthly-payees' ? 'entry' : 'monthly-payees')}
-            className={`px-4 py-2.5 rounded-xl text-xs font-bold border ${view === 'monthly-payees' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white dark:bg-slate-800 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/20'}`}>
-            {view === 'monthly-payees' ? '← Back to Alphalist' : 'Monthly Alphalist of Payees →'}
+          <button onClick={() => setView(view === 'entry' ? 'annual' : 'entry')}
+            className="px-4 py-2.5 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 border border-slate-200 dark:border-slate-700">
+            {view === 'entry' ? 'Annual 1604 Summary →' : '← Monthly Data Entry'}
           </button>
         </div>
-        {view !== 'monthly-payees' && <p className="text-xs text-slate-500 -mt-3">{mod.sub} · {mod.form}</p>}
+        <p className="text-xs text-slate-500 -mt-3">{mod.sub} · {mod.form}</p>
 
         {view === 'entry' ? (
           <>
@@ -675,7 +436,7 @@ export function Alphalist() {
               )}
             </div>
           </>
-        ) : view === 'annual' ? (
+        ) : (
           /* Annual 1604 summary (aggregation by ATC) */
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl overflow-hidden">
             <div className="p-4 border-b border-slate-100 dark:border-slate-800">
@@ -709,99 +470,6 @@ export function Alphalist() {
                 </table>
               </div>
             )}
-          </div>
-        ) : (
-          /* One-page Monthly Alphalist of Payees, sourced only from Expense History purchases with withholding. */
-          <div className="flex flex-col gap-4">
-            <div className="no-print flex flex-wrap items-center gap-3 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-700">
-              <span className="text-xs font-bold text-slate-500 dark:text-slate-400 uppercase">For the month of:</span>
-              <select value={month} onChange={e => setMonth(parseInt(e.target.value))} className="text-xs font-bold bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2">
-                {MONTHS.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
-              </select>
-              <select value={year} onChange={e => setYear(parseInt(e.target.value))} className="text-xs font-bold bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2">
-                {years.map(y => <option key={y} value={y}>{y}</option>)}
-              </select>
-              <span className="text-[11px] text-slate-500 dark:text-slate-400">Automatic from Expense History purchases with withholding tax.</span>
-              <div className="flex-1" />
-              {isMonthlyPayeeMonthFiled ? (
-                <button type="button" onClick={() => void handleAmendMonthlyPayees()} disabled={!canAdd || !monthlyWorkflowReady}
-                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-orange-300 dark:border-orange-700 text-orange-700 dark:text-orange-300 text-xs font-bold hover:bg-orange-50 dark:hover:bg-orange-950/30 disabled:opacity-40">
-                  <Unlock className="w-4 h-4" /> Amend
-                </button>
-              ) : (
-                <button type="button" onClick={() => void handleFileMonthlyPayees()} disabled={!canAdd || !monthlyWorkflowReady}
-                  className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300 text-xs font-bold hover:bg-emerald-50 dark:hover:bg-emerald-950/30 disabled:opacity-40">
-                  <Lock className="w-4 h-4" /> Mark as Filed
-                </button>
-              )}
-              <span className={`inline-flex items-center gap-1 text-[11px] font-bold ${monthlyWorkflowStatus === 'error' ? 'text-red-600 dark:text-red-400' : isMonthlyPayeeMonthFiled ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-500 dark:text-slate-400'}`}>
-                {monthlyWorkflowStatus === 'loading' ? 'Loading month status…' : monthlyWorkflowStatus === 'saving' ? 'Saving…' : monthlyWorkflowStatus === 'error' ? 'Sync error' : isMonthlyPayeeMonthFiled ? 'FILED · LOCKED' : 'UNFILED'}
-              </span>
-            </div>
-
-            <div className="no-print flex flex-col gap-2 rounded-xl border border-slate-200 dark:border-slate-700 bg-white/70 dark:bg-slate-900/60 p-3 text-xs text-slate-600 dark:text-slate-300 sm:flex-row sm:items-center sm:justify-between">
-              <span className="flex items-center gap-2"><ArrowRightLeft className="h-4 w-4 text-indigo-500" /> Transfer payee rows forward to a later, unfiled month in the same calendar year. Transfers do not change Expense History purchases.</span>
-              {isMonthlyPayeeMonthFiled && <span className="font-bold text-emerald-700 dark:text-emerald-300">This month is locked. Amend it before changing transfers.</span>}
-            </div>
-
-            <div className="monthly-alphalist-paper bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 border border-slate-300 dark:border-slate-700 rounded-xl shadow-sm p-5 md:p-8">
-              <header className="text-center mb-6">
-                <h2 className="text-base md:text-lg font-black uppercase tracking-wide">{reportCompanyName || 'BUSINESS NAME'}</h2>
-                {currentClient?.tin && <p className="text-sm font-semibold mt-1">{currentClient.tin}</p>}
-                {reportAddress && <p className="text-xs mt-1">{reportAddress}</p>}
-                <h3 className="text-base md:text-lg font-black mt-5 tracking-wide">MONTHLY ALPHALIST OF PAYEES</h3>
-                <p className="text-sm mt-1">For the month of {MONTHS[month - 1]} {year}</p>
-              </header>
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs border-collapse">
-                  <thead><tr className="text-[10px] uppercase tracking-wide">
-                    {['#', 'Taxpayer Identification Number', 'Name of Payees', 'ATC Code', 'Nature of Payment', 'Amount of Income Payment', 'Tax Rate', 'Amount of Tax Withheld'].map(label => <th key={label} className="border border-slate-500 dark:border-slate-600 px-2 py-2 text-center font-black align-middle">{label}</th>)}
-                    <th className="no-print border border-slate-500 dark:border-slate-600 px-2 py-2 text-center font-black align-middle">Claim Month</th>
-                  </tr></thead>
-                  <tbody>
-                    {monthlyPayeeRows.length === 0 ? <tr><td colSpan={9} className="border border-slate-500 dark:border-slate-600 px-3 py-8 text-center text-slate-500 dark:text-slate-400">No withholding purchase records found for {MONTHS[month - 1]} {year}.</td></tr> : monthlyPayeeRows.map((row, index) => {
-                      const latestSourceMonth = row.purchaseSources.reduce((latest, source) => source.sourceMonth > latest ? source.sourceMonth : latest, '0000-00');
-                      const minimumFutureMonth = latestSourceMonth > monthlyPayeeMonthKey ? latestSourceMonth : monthlyPayeeMonthKey;
-                      const hasSavedTransfer = row.purchaseSources.some(source => !!monthlyWorkflow.transfers[source.id]);
-                      return (
-                      <tr key={`${row.tin}-${row.name}-${row.atcCode}-${row.natureOfPayment}-${row.taxRate}-${index}`} className="hover:bg-slate-50 dark:hover:bg-slate-800/40">
-                        <td className="border border-slate-500 dark:border-slate-600 px-2 py-2 text-center">{index + 1}</td>
-                        <td className="border border-slate-500 dark:border-slate-600 px-2 py-2 font-mono">{row.tin || '—'}</td>
-                        <td className="border border-slate-500 dark:border-slate-600 px-2 py-2 font-semibold">{row.name}</td>
-                        <td className="border border-slate-500 dark:border-slate-600 px-2 py-2 font-mono font-bold">{row.atcCode || '—'}</td>
-                        <td className="border border-slate-500 dark:border-slate-600 px-2 py-2">{row.natureOfPayment}</td>
-                        <td className="border border-slate-500 dark:border-slate-600 px-2 py-2 text-right whitespace-nowrap">{row.incomePayment.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                        <td className="border border-slate-500 dark:border-slate-600 px-2 py-2 text-right whitespace-nowrap">{(row.taxRate * 100).toLocaleString(undefined, { maximumFractionDigits: 4 })}%</td>
-                        <td className="border border-slate-500 dark:border-slate-600 px-2 py-2 text-right whitespace-nowrap">{row.taxWithheld.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                        <td className="no-print border border-slate-500 dark:border-slate-600 px-2 py-2 min-w-[180px]">
-                          <select value={monthlyPayeeMonthKey} onChange={e => void handleMonthlyPayeeTransfer(row, e.target.value)} disabled={!canAdd || !monthlyWorkflowReady || isMonthlyPayeeMonthFiled}
-                            className="w-full rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 px-2 py-1.5 text-[11px] disabled:opacity-50" aria-label={`Transfer ${row.name} to another month`}>
-                            <option value={monthlyPayeeMonthKey}>{MONTHS[month - 1]} {year} (current)</option>
-                            {MONTHS.map((targetName, targetIndex) => {
-                              const targetKey = `${year}-${String(targetIndex + 1).padStart(2, '0')}`;
-                              return targetKey > minimumFutureMonth && !monthlyWorkflow.filedMonths[targetKey]
-                                ? <option key={targetKey} value={targetKey}>{targetName} {year}</option> : null;
-                            })}
-                            {hasSavedTransfer && <option value="__reset__">Reset transfer</option>}
-                          </select>
-                        </td>
-                      </tr>
-                    )})}
-                  </tbody>
-                  <tfoot><tr className="font-black">
-                    <td colSpan={5} className="border border-slate-500 dark:border-slate-600 px-2 py-2 text-right tracking-widest">T O T A L</td>
-                    <td className="border border-slate-500 dark:border-slate-600 px-2 py-2 text-right whitespace-nowrap">{monthlyPayeeTotals.income.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    <td className="border border-slate-500 dark:border-slate-600 px-2 py-2"></td>
-                    <td className="border border-slate-500 dark:border-slate-600 px-2 py-2 text-right whitespace-nowrap">{monthlyPayeeTotals.withheld.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
-                    <td className="no-print border border-slate-500 dark:border-slate-600 px-2 py-2"></td>
-                  </tr></tfoot>
-                </table>
-              </div>
-              <div className="mt-14 w-72 max-w-full text-center">
-                <div className="border-b border-slate-700 dark:border-slate-300 pb-1 text-sm font-black uppercase">{reportOwnerName || 'Owner'}</div>
-                <p className="text-xs mt-1">Owner</p>
-              </div>
-            </div>
           </div>
         )}
       </div>

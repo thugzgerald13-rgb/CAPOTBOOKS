@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Landmark, FileDown } from 'lucide-react';
+import { Landmark, FileDown, Printer } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
+import { printReportPage } from '../lib/reportPrint';
 import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
 import { formatAccountAmount, getCurrentYear, getAccountBalances } from '../lib/accountingBalances';
@@ -193,7 +194,7 @@ export function BalanceSheet() {
 
   return (
     <div className="w-full flex flex-col">
-      <PageHeader title="Balance Sheet" icon={<Landmark className="text-blue-500" />} centered />
+      <PageHeader title="Balance Sheet" icon={<Landmark className="text-blue-500" />} centered actions={<button type="button" onClick={() => printReportPage('Balance Sheet')} className="no-print inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white hover:opacity-90"><Printer className="h-4 w-4" />Print</button>} />
 
       <div className="no-print px-4 md:px-6 flex flex-wrap items-center gap-3 mb-2">
         <ReportYearSelect year={year} glYear={glYear} importedYears={imported.years} onChange={setReportYear} />

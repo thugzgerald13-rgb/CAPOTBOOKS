@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { printReportPage } from '../lib/reportPrint';
 import { BookText, Plus, Trash2, Settings, X, Check, Calendar, Printer, Search, FileDown } from 'lucide-react';
 import { EmptyState } from './ui/EmptyState';
 import { PageHeader } from './ui/PageHeader';
@@ -6,7 +7,6 @@ import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
 import { JournalColumn, JournalEntry } from '../types';
 import { cn, parseDateToISO, periodPreset, generateCSV } from '../lib/utils';
-import { YearDropdownDateInput } from './ui/YearDropdownDateInput';
 
 export const DEFAULT_GJ_COLUMNS: JournalColumn[] = [
   { id: 'date', name: 'DATE', type: 'text', category: 'None', isSystem: true },
@@ -286,7 +286,7 @@ export function GeneralJournal() {
           <button type="button" onClick={() => generateCSV('general-journal.csv', [['Date','Ref','Particulars','Debit','Credit'], ...filteredEntries.map(e => [e.values?.date || '', e.values?.ref_no || '', e.values?.particulars || '', e.values?.debit || '', e.values?.credit || ''])])} disabled={!canExport} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed" title={canExport ? 'Export to CSV' : 'Export Data permission not granted'}>
             <FileDown className="w-4 h-4" /> Export
           </button>
-          <button type="button" onClick={() => window.print()} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-xs font-bold hover:opacity-90 transition-opacity" title="Print General Journal">
+          <button type="button" onClick={() => printReportPage('General Journal')} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-xs font-bold hover:opacity-90 transition-opacity" title="Print General Journal">
             <Printer className="w-4 h-4" /> Print
           </button>
         </div>
@@ -298,9 +298,19 @@ export function GeneralJournal() {
             <Calendar className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
             <span className="text-xs font-bold uppercase tracking-wider">Period</span>
           </div>
-          <YearDropdownDateInput value={periodFrom} onChange={value => setPeriodFrom(value)} className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 text-xs outline-none focus:border-cyan-500 text-slate-900 dark:text-white" />
+          <input
+            type="date"
+            value={periodFrom}
+            onChange={e => setPeriodFrom(e.target.value)}
+            className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 text-xs outline-none focus:border-cyan-500 text-slate-900 dark:text-white"
+          />
           <span className="text-slate-400 text-xs font-semibold">to</span>
-          <YearDropdownDateInput value={periodTo} onChange={value => setPeriodTo(value)} className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 text-xs outline-none focus:border-cyan-500 text-slate-900 dark:text-white" />
+          <input
+            type="date"
+            value={periodTo}
+            onChange={e => setPeriodTo(e.target.value)}
+            className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 text-xs outline-none focus:border-cyan-500 text-slate-900 dark:text-white"
+          />
           <div className="relative flex-1 min-w-[160px]">
             <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
             <input

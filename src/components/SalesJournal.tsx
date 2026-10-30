@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { printReportPage } from '../lib/reportPrint';
 import { Receipt, Plus, Trash2, Settings, X, Check, Calendar, Printer, FileDown, AlertTriangle } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
@@ -9,7 +10,6 @@ import { supabase } from '../lib/supabase';
 import { crossFootValidation, exportJournalToExcel } from '../lib/specialJournals';
 
 import { DEFAULT_SJ_COLUMNS } from '../lib/journalDefaults';
-import { YearDropdownDateInput } from './ui/YearDropdownDateInput';
 export { DEFAULT_SJ_COLUMNS };
 
 export function SalesJournal() {
@@ -243,7 +243,7 @@ export function SalesJournal() {
           <button type="button" onClick={() => exportJournalToExcel(filteredEntries, columns, 'sales-journal.xlsx')} disabled={!canExport} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-xs font-bold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors disabled:opacity-40 disabled:grayscale disabled:cursor-not-allowed" title={canExport ? 'Export to Excel' : 'Export Data permission not granted'}>
             <FileDown className="w-4 h-4" /> Excel
           </button>
-          <button type="button" onClick={() => window.print()} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-xs font-bold hover:opacity-90 transition-opacity" title="Print Subsidiary Sales Journal">
+          <button type="button" onClick={() => printReportPage('Sales Journal')} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-xs font-bold hover:opacity-90 transition-opacity" title="Print Subsidiary Sales Journal">
             <Printer className="w-4 h-4" /> Print
           </button>
         </div>
@@ -266,9 +266,19 @@ export function SalesJournal() {
               <Calendar className="w-4 h-4 text-cyan-600 dark:text-cyan-400" />
               <span className="text-xs font-bold uppercase tracking-wider">Period</span>
             </div>
-            <YearDropdownDateInput value={periodFrom} onChange={value => setPeriodFrom(value)} className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 text-xs outline-none focus:border-cyan-500 text-slate-900 dark:text-white" />
+            <input
+              type="date"
+              value={periodFrom}
+              onChange={e => setPeriodFrom(e.target.value)}
+              className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 text-xs outline-none focus:border-cyan-500 text-slate-900 dark:text-white"
+            />
             <span className="text-slate-400 text-xs font-semibold">to</span>
-            <YearDropdownDateInput value={periodTo} onChange={value => setPeriodTo(value)} className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 text-xs outline-none focus:border-cyan-500 text-slate-900 dark:text-white" />
+            <input
+              type="date"
+              value={periodTo}
+              onChange={e => setPeriodTo(e.target.value)}
+              className="bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-600 rounded-lg px-2 py-1.5 text-xs outline-none focus:border-cyan-500 text-slate-900 dark:text-white"
+            />
             <div className="flex flex-wrap gap-1.5">
               {(['this-month', 'last-month', 'this-quarter', 'this-year'] as const).map(p => (
                 <button

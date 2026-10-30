@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Activity, Loader2 } from 'lucide-react';
+import { Activity, Loader2, Printer } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
+import { printReportPage } from '../lib/reportPrint';
 import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
 import { formatAccountAmount } from '../lib/accountingBalances';
@@ -77,7 +78,7 @@ export function CashFlow() {
 
   return (
     <div className="w-full flex flex-col">
-      <PageHeader title="Cash Flow" icon={<Activity className="text-cyan-500" />} centered />
+      <PageHeader title="Cash Flow" icon={<Activity className="text-cyan-500" />} centered actions={<button type="button" onClick={() => printReportPage('Cash Flow')} className="no-print inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white hover:opacity-90"><Printer className="h-4 w-4" />Print</button>} />
       <div className="p-4 md:p-6 flex-1">
         <div className="p-8 text-sm">
           <div className="text-center mb-8">

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { TrendingUp } from 'lucide-react';
+import { TrendingUp, Printer } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
+import { printReportPage } from '../lib/reportPrint';
 import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
 import { formatAccountAmount, getCurrentYear, getProfitAndLossTotals } from '../lib/accountingBalances';
@@ -112,7 +113,7 @@ export function ProfitAndLoss() {
 
   return (
     <div className="w-full flex flex-col">
-      <PageHeader title="Profit & Loss" icon={<TrendingUp className="text-emerald-500" />} centered />
+      <PageHeader title="Profit & Loss" icon={<TrendingUp className="text-emerald-500" />} centered actions={<button type="button" onClick={() => printReportPage('Profit and Loss')} className="no-print inline-flex items-center gap-2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white hover:opacity-90"><Printer className="h-4 w-4" />Print</button>} />
       <div className="p-4 md:p-6 flex-1">
         <div className="p-8 text-sm">
           <div className="text-center mb-8">
