@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { ShieldAlert, Download, Users, RefreshCw, Mail, Calendar, LineChart, CheckCircle2, XCircle, Copy, Check, Ban, Trash2 } from 'lucide-react';
+import { ShieldAlert, Download, Users, RefreshCw, Mail, Calendar, LineChart, CheckCircle2, XCircle, Copy, Check, Ban, Trash2, FlaskConical, Play, AlertTriangle } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { getEgressMetrics } from '../db/localDb';
@@ -11,6 +11,8 @@ import { FEATURE_FLAGS, getFlags, setFeatureFlag, buildBackup, parseBackup } fro
 import { supabase } from '../lib/supabase';
 import packageJson from '../../package.json';
 import { AccountHealthMonitor } from './AccountHealthMonitor';
+import { computeBusinessTax, computeIncomeTaxByRegime, resolveBusinessWorkflow } from '../lib/taxEngine';
+import { getDefaultAccountsForIndustry } from '../lib/journalDefaults';
 
 interface UserProfile {
   uid: string;
@@ -41,6 +43,259 @@ const TAXPAYER_FIELDS = [
   { key: 'taxpayer_tier', label: 'Taxpayer tier', options: [['micro','Micro'],['small','Small'],['medium','Medium'],['large','Large']] },
   { key: 'industry', label: 'Industry type', options: [['retail','Retail / Trading'],['general-services','General Services'],['manufacturing','Manufacturing'],['construction','Construction']] },
 ] as const;
+
+type TaxpayerTestInputs = {
+  grossSales: number;
+  grossPurchases: number;
+  operatingExpenses: number;
+  totalAssets: number;
+  yearsOfOperation: number;
+};
+
+type TaxpayerTestResult = {
+  category: string;
+  option: string;
+  passed: boolean;
+  explanation: string;
+  classification: string;
+  subClassification: string;
+  vat: string;
+  incomeRegime: string;
+  deductionMethod: string;
+  tier: string;
+  businessTax: number;
+  businessTaxForm: string;
+  incomeTax: number;
+  incomeTaxForm: string;
+  costSection: string;
+  coaAccounts: number;
+  withholdingDefaults: string;
+  requiredForms: string;
+};
+
+const TAXPAYER_TEST_DIMENSIONS: Array<{ key: string; label: string; options: ReadonlyArray<readonly [string, string]> }> = [
+  { key: 'taxpayer_classification', label: 'Taxpayer classification', options: [['Individual', 'Individual'], ['Non-Individual', 'Non-Individual']] },
+  { key: 'taxpayer_sub_classification', label: 'Taxpayer sub-classification', options: [...TAXPAYER_FIELDS[1].options] },
+  { key: 'vat_registration_type', label: 'VAT / business tax registration', options: [...TAXPAYER_FIELDS[2].options] },
+  { key: 'income_tax_regime', label: 'Income tax rate / regime', options: [...TAXPAYER_FIELDS[3].options] },
+  { key: 'deduction_method', label: 'Deduction method', options: [...TAXPAYER_FIELDS[4].options] },
+  { key: 'percentage_tax_rate', label: 'Percentage tax rate', options: [['0', '0%'], ['0.01', '1%'], ['0.02', '2%'], ['0.03', '3%'], ['0.05', '5%']] },
+  { key: 'taxpayer_tier', label: 'Taxpayer tier', options: [...TAXPAYER_FIELDS[5].options] },
+  { key: 'industry', label: 'Industry type', options: [...TAXPAYER_FIELDS[6].options] },
+  { key: 'category', label: 'Business / customer category', options: [['private', 'Private'], ['government', 'Government']] },
+  { key: 'has_employees', label: 'Has employees', options: [['true', 'With employees'], ['false', 'Without employees']] },
+  { key: 'is_top_withholding_agent', label: 'Top withholding agent status', options: [['true', 'Top withholding agent'], ['false', 'Not a top withholding agent']] },
+];
+
+const TEST_CATEGORY_OPTIONS = [
+  { value: 'all', label: 'All categories' },
+  ...TAXPAYER_TEST_DIMENSIONS.map(dimension => ({ value: dimension.key, label: dimension.label })),
+];
+
+function buildTaxpayerTestCandidate(base: TaxpayerProfile, fieldKey: string, value: string, inputs: TaxpayerTestInputs): Record<string, any> {
+  const candidate: Record<string, any> = {
+    taxpayerClassification: base.taxpayer_classification || 'Individual',
+    taxpayerSubClassification: base.taxpayer_sub_classification || 'sole_proprietor',
+    vatRegistrationType: base.vat_registration_type || 'non-vat',
+    incomeTaxRegime: base.income_tax_regime || 'graduated_itemized',
+    deductionMethod: base.deduction_method || 'itemized',
+    percentageTaxRate: base.percentage_tax_rate ?? 0.03,
+    taxpayerTier: base.taxpayer_tier || 'micro',
+    industry: base.industry || 'general-services',
+    category: 'private',
+    hasEmployees: false,
+    totalAssetsExcludingLand: inputs.totalAssets,
+    yearsOfOperation: inputs.yearsOfOperation,
+    sales: [{ amount: inputs.grossSales }],
+  };
+
+  const individualSubClasses = ['sole_proprietor', 'professional', 'mixed_income'];
+  const corporateSubClasses = ['corporation_regular', 'corporation_msme', 'domestic_corp', 'msme_corp', 'opc', 'partnership', 'gpp', 'cooperative'];
+
+  switch (fieldKey) {
+    case 'taxpayer_classification':
+      candidate.taxpayerClassification = value;
+      candidate.taxpayerSubClassification = value === 'Individual' ? 'sole_proprietor' : 'corporation_msme';
+      candidate.incomeTaxRegime = value === 'Individual' ? 'graduated_itemized' : 'corp_20_msme';
+      break;
+    case 'taxpayer_sub_classification':
+      candidate.taxpayerSubClassification = value;
+      candidate.taxpayerClassification = individualSubClasses.includes(value) ? 'Individual' : 'Non-Individual';
+      candidate.incomeTaxRegime = individualSubClasses.includes(value)
+        ? 'graduated_itemized'
+        : value === 'gpp' || value === 'cooperative'
+          ? 'corp_gpp_exempt'
+          : value === 'corporation_regular'
+            ? 'corp_25_regular'
+            : 'corp_20_msme';
+      break;
+    case 'vat_registration_type':
+      candidate.vatRegistrationType = value;
+      if (value === 'vat' && candidate.incomeTaxRegime === '8_percent_flat') candidate.incomeTaxRegime = 'graduated_itemized';
+      break;
+    case 'income_tax_regime':
+      candidate.incomeTaxRegime = value;
+      if (value.startsWith('corp_')) {
+        candidate.taxpayerClassification = 'Non-Individual';
+        candidate.taxpayerSubClassification = value === 'corp_gpp_exempt'
+          ? 'gpp'
+          : value.startsWith('corp_25')
+            ? 'corporation_regular'
+            : 'corporation_msme';
+      } else {
+        candidate.taxpayerClassification = 'Individual';
+        candidate.taxpayerSubClassification = 'sole_proprietor';
+        if (value === '8_percent_flat') candidate.vatRegistrationType = 'non-vat';
+      }
+      break;
+    case 'deduction_method':
+      // Test the method independently. The production resolver derives the
+      // regime from the method only when no explicit regime is supplied.
+      delete candidate.incomeTaxRegime;
+      candidate.deductionMethod = value;
+      if (candidate.taxpayerClassification === 'Individual' && value === 'none_8_percent') {
+        candidate.vatRegistrationType = 'non-vat';
+      }
+      if (!individualSubClasses.includes(candidate.taxpayerSubClassification) && !corporateSubClasses.includes(candidate.taxpayerSubClassification)) {
+        candidate.taxpayerSubClassification = candidate.taxpayerClassification === 'Individual' ? 'sole_proprietor' : 'corporation_msme';
+      }
+      break;
+    case 'percentage_tax_rate':
+      // A percentage-tax scenario must be Non-VAT and not using a regime that
+      // legally suppresses the percentage-tax workflow in this app.
+      candidate.taxpayerClassification = 'Individual';
+      candidate.taxpayerSubClassification = 'sole_proprietor';
+      candidate.vatRegistrationType = 'non-vat';
+      candidate.incomeTaxRegime = 'graduated_itemized';
+      candidate.deductionMethod = 'itemized';
+      candidate.percentageTaxRate = Number(value);
+      break;
+    case 'taxpayer_tier':
+      candidate.taxpayerTier = value;
+      break;
+    case 'industry':
+      candidate.industry = value;
+      break;
+    case 'category':
+      candidate.category = value;
+      break;
+    case 'has_employees':
+      candidate.hasEmployees = value === 'true';
+      break;
+    case 'is_top_withholding_agent':
+      candidate.isTopWithholdingAgent = value === 'true';
+      break;
+  }
+
+  return candidate;
+}
+
+function runTaxpayerCategoryTest(
+  base: TaxpayerProfile,
+  fieldKey: string,
+  categoryLabel: string,
+  optionValue: string,
+  optionLabel: string,
+  inputs: TaxpayerTestInputs,
+): TaxpayerTestResult {
+  const entity = buildTaxpayerTestCandidate(base, fieldKey, optionValue, inputs);
+  const workflow = resolveBusinessWorkflow(entity);
+  const businessTax = computeBusinessTax({
+    grossSales: inputs.grossSales,
+    grossPurchases: inputs.grossPurchases,
+    vatRegistrationType: workflow.vatRegistrationType,
+    incomeTaxRegime: workflow.incomeTaxRegime,
+    percentageTaxRate: workflow.percentageTaxRate,
+  });
+  const incomeTax = computeIncomeTaxByRegime({
+    grossSalesOrReceipts: inputs.grossSales,
+    costOfSalesOrServices: inputs.grossPurchases,
+    itemizedOperatingExpenses: inputs.operatingExpenses,
+    taxpayerClassification: workflow.classification,
+    taxpayerSubClassification: workflow.subClassification,
+    vatRegistrationType: workflow.vatRegistrationType,
+    incomeTaxRegime: workflow.incomeTaxRegime,
+    deductionMethod: workflow.deductionMethod,
+    totalAssetsExcludingLand: inputs.totalAssets,
+    yearsOfOperation: inputs.yearsOfOperation,
+  });
+  const coaAccounts = getDefaultAccountsForIndustry(workflow.industry, 'numeric');
+
+  let passed = true;
+  let explanation = 'The selected option flowed through the workflow and computation engines.';
+  switch (fieldKey) {
+    case 'taxpayer_classification':
+      passed = workflow.classification === optionValue && incomeTax.classification === optionValue;
+      break;
+    case 'taxpayer_sub_classification':
+      passed = workflow.subClassification === optionValue && incomeTax.subClassification === optionValue;
+      if (!passed) explanation = `The workflow resolved ${workflow.subClassification}, while the income-tax engine resolved ${incomeTax.subClassification}.`;
+      break;
+    case 'vat_registration_type':
+      passed = workflow.vatRegistrationType === optionValue && businessTax.vatRegistrationType === optionValue;
+      break;
+    case 'income_tax_regime':
+      passed = workflow.incomeTaxRegime === optionValue && incomeTax.regime === optionValue;
+      if (!passed) explanation = `Requested ${optionValue}; effective workflow is ${workflow.incomeTaxRegime} and income-tax engine is ${incomeTax.regime}.`;
+      break;
+    case 'deduction_method': {
+      const expectedMethod = optionValue === 'none_8_percent' ? 'none_8_percent' : optionValue === 'osd_40' ? 'osd_40' : 'itemized';
+      passed = workflow.deductionMethod === expectedMethod && incomeTax.deductionMethod === expectedMethod;
+      if (!passed || (optionValue === 'osd' || optionValue === 'none')) {
+        passed = false;
+        explanation = `The engine applies ${workflow.deductionMethod}; the selected value “${optionValue}” is not handled as a distinct method by the workflow resolver.`;
+      }
+      break;
+    }
+    case 'percentage_tax_rate':
+      passed = Math.abs(workflow.percentageTaxRate - Number(optionValue)) < 0.000001
+        && Math.abs(businessTax.percentageTaxRate - Number(optionValue)) < 0.000001;
+      if (!passed) explanation = `Requested ${(Number(optionValue) * 100).toFixed(2)}%, but effective percentage tax is ${(workflow.percentageTaxRate * 100).toFixed(2)}%.`;
+      break;
+    case 'taxpayer_tier':
+      passed = workflow.sizeTier === optionValue;
+      break;
+    case 'industry':
+      passed = workflow.industry === optionValue && coaAccounts.length > 0 && Boolean(workflow.costSectionLabel);
+      break;
+    case 'category':
+      passed = workflow.category === optionValue
+        && (optionValue === 'government' ? workflow.requiredForms.includes('1600-VT') : !workflow.requiredForms.includes('1600-VT'));
+      break;
+    case 'has_employees':
+      passed = workflow.hasEmployees === (optionValue === 'true')
+        && workflow.requiredForms.includes('1601-C') === (optionValue === 'true');
+      break;
+    case 'is_top_withholding_agent':
+      passed = workflow.isTopWithholdingAgent === (optionValue === 'true');
+      break;
+  }
+
+  return {
+    category: categoryLabel,
+    option: optionLabel,
+    passed,
+    explanation,
+    classification: incomeTax.classification,
+    subClassification: incomeTax.subClassification,
+    vat: workflow.vatLabel,
+    incomeRegime: incomeTax.regime,
+    deductionMethod: incomeTax.deductionMethod,
+    tier: workflow.sizeTier,
+    businessTax: businessTax.totalBusinessTaxPayable,
+    businessTaxForm: businessTax.applicableForm,
+    incomeTax: incomeTax.netIncomeTaxPayable,
+    incomeTaxForm: incomeTax.applicableAnnualForm,
+    costSection: workflow.costSectionLabel,
+    coaAccounts: coaAccounts.length,
+    withholdingDefaults: `${workflow.defaultPurchaseWhtAtc} / ${workflow.defaultServiceWhtAtc}${workflow.isTopWithholdingAgent ? ' · TWA' : ''}`,
+    requiredForms: workflow.requiredForms.join(', '),
+  };
+}
+
+function formatTestCurrency(value: number): string {
+  return new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', maximumFractionDigits: 2 }).format(value || 0);
+}
 
 // Masks a Supabase project URL down to just the host, e.g.
 // "https://abcdefgh.supabase.co" -> "abcdefgh.supabase.co", so nothing
@@ -287,6 +542,162 @@ function DiagnosticsTab() {
         <DiagRow label="Online" value={navigator.onLine ? 'Yes' : 'No'} />
       </DiagSection>
     </div>
+  );
+}
+
+function TaxpayerTestBench({ profile }: { profile: TaxpayerProfile | null }) {
+  const [selectedCategory, setSelectedCategory] = useState('all');
+  const [inputs, setInputs] = useState<TaxpayerTestInputs>({
+    grossSales: 2400000,
+    grossPurchases: 900000,
+    operatingExpenses: 450000,
+    totalAssets: 50000000,
+    yearsOfOperation: 5,
+  });
+  const [results, setResults] = useState<TaxpayerTestResult[]>([]);
+  const [testedAt, setTestedAt] = useState<Date | null>(null);
+  const [testError, setTestError] = useState('');
+
+  const runTests = () => {
+    if (!profile) {
+      setTestError('Select a taxpayer workspace before running the tests.');
+      return;
+    }
+
+    setTestError('');
+    const dimensions = selectedCategory === 'all'
+      ? TAXPAYER_TEST_DIMENSIONS
+      : TAXPAYER_TEST_DIMENSIONS.filter(dimension => dimension.key === selectedCategory);
+    const nextResults: TaxpayerTestResult[] = [];
+
+    dimensions.forEach(dimension => {
+      dimension.options.forEach(([value, label]) => {
+        try {
+          nextResults.push(runTaxpayerCategoryTest(profile, dimension.key, dimension.label, value, label, inputs));
+        } catch (error) {
+          nextResults.push({
+            category: dimension.label,
+            option: label,
+            passed: false,
+            explanation: error instanceof Error ? error.message : String(error),
+            classification: '—',
+            subClassification: '—',
+            vat: '—',
+            incomeRegime: '—',
+            deductionMethod: '—',
+            tier: '—',
+            businessTax: 0,
+            businessTaxForm: 'ERROR',
+            incomeTax: 0,
+            incomeTaxForm: 'ERROR',
+            costSection: '—',
+            coaAccounts: 0,
+            withholdingDefaults: '—',
+            requiredForms: '—',
+          });
+        }
+      });
+    });
+
+    setResults(nextResults);
+    setTestedAt(new Date());
+  };
+
+  const passedCount = results.filter(result => result.passed).length;
+  const failedCount = results.length - passedCount;
+  const totalAllOptions = TAXPAYER_TEST_DIMENSIONS.reduce((sum, dimension) => sum + dimension.options.length, 0);
+
+  return (
+    <section className="mb-8 rounded-2xl border border-cyan-200 dark:border-cyan-900 bg-white dark:bg-slate-900 p-4 md:p-5">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+        <div className="flex items-start gap-3">
+          <div className="rounded-xl bg-cyan-50 dark:bg-cyan-950/50 p-2 text-cyan-700 dark:text-cyan-300"><FlaskConical className="w-5 h-5" /></div>
+          <div>
+            <h4 className="font-bold text-slate-800 dark:text-slate-100">Taxpayer Category Test Bench</h4>
+            <p className="text-xs text-slate-500 mt-1">Test every option against the live tax workflow and computation functions using sample transactions. Tests never save or modify a client workspace.</p>
+          </div>
+        </div>
+        <span className="text-[10px] rounded-full px-2.5 py-1 bg-cyan-50 dark:bg-cyan-950 text-cyan-700 dark:text-cyan-300 font-bold">{totalAllOptions} available option tests</span>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
+        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Category to test
+          <select className="form-input w-full mt-1" value={selectedCategory} onChange={event => setSelectedCategory(event.target.value)}>
+            {TEST_CATEGORY_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        </label>
+        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Sample gross sales / receipts (₱)
+          <input className="form-input w-full mt-1" type="number" min="0" step="1000" value={inputs.grossSales} onChange={event => setInputs(current => ({ ...current, grossSales: Math.max(0, Number(event.target.value) || 0) }))} />
+        </label>
+        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Sample gross purchases / cost (₱)
+          <input className="form-input w-full mt-1" type="number" min="0" step="1000" value={inputs.grossPurchases} onChange={event => setInputs(current => ({ ...current, grossPurchases: Math.max(0, Number(event.target.value) || 0) }))} />
+        </label>
+        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Sample operating expenses (₱)
+          <input className="form-input w-full mt-1" type="number" min="0" step="1000" value={inputs.operatingExpenses} onChange={event => setInputs(current => ({ ...current, operatingExpenses: Math.max(0, Number(event.target.value) || 0) }))} />
+        </label>
+        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Sample assets excluding land (₱)
+          <input className="form-input w-full mt-1" type="number" min="0" step="100000" value={inputs.totalAssets} onChange={event => setInputs(current => ({ ...current, totalAssets: Math.max(0, Number(event.target.value) || 0) }))} />
+        </label>
+        <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Years of operation
+          <input className="form-input w-full mt-1" type="number" min="1" step="1" value={inputs.yearsOfOperation} onChange={event => setInputs(current => ({ ...current, yearsOfOperation: Math.max(1, Number(event.target.value) || 1) }))} />
+        </label>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <button type="button" onClick={runTests} disabled={!profile} className="inline-flex items-center gap-2 rounded-lg bg-cyan-700 hover:bg-cyan-800 text-white px-4 py-2.5 text-xs font-bold disabled:opacity-50">
+          <Play className="w-3.5 h-3.5" /> Run {selectedCategory === 'all' ? `all ${totalAllOptions} tests` : 'category tests'}
+        </button>
+        <button type="button" onClick={() => { setResults([]); setTestedAt(null); setTestError(''); }} disabled={!results.length} className="rounded-lg border border-slate-300 dark:border-slate-700 px-3 py-2.5 text-xs font-semibold text-slate-600 dark:text-slate-300 disabled:opacity-40">Clear results</button>
+        {testedAt && <span className="text-[10px] text-slate-400">Last run: {testedAt.toLocaleString()}</span>}
+      </div>
+
+      {testError && <div className="mb-3 rounded-lg bg-rose-50 dark:bg-rose-950/30 border border-rose-200 dark:border-rose-900 p-3 text-xs text-rose-700 dark:text-rose-300">{testError}</div>}
+
+      {results.length > 0 && <>
+        <div className="flex flex-wrap items-center gap-3 mb-3 text-xs">
+          <span className="font-bold text-slate-700 dark:text-slate-200">{results.length} scenarios executed</span>
+          <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400"><CheckCircle2 className="w-3.5 h-3.5" /> {passedCount} passed</span>
+          <span className="inline-flex items-center gap-1 text-amber-700 dark:text-amber-400"><AlertTriangle className="w-3.5 h-3.5" /> {failedCount} need review</span>
+        </div>
+        <div className="max-h-[560px] overflow-auto rounded-xl border border-slate-200 dark:border-slate-700">
+          <table className="min-w-[1120px] w-full text-[11px]">
+            <thead className="sticky top-0 z-10 bg-slate-50 dark:bg-slate-800 text-slate-500 dark:text-slate-300">
+              <tr>
+                <th className="text-left p-2.5">Category / option</th>
+                <th className="text-left p-2.5">Result</th>
+                <th className="text-left p-2.5">Effective taxpayer</th>
+                <th className="text-left p-2.5">VAT / income tax</th>
+                <th className="text-right p-2.5">Business tax</th>
+                <th className="text-right p-2.5">Income tax payable</th>
+                <th className="text-left p-2.5">BIR forms</th>
+                <th className="text-left p-2.5">Industry / COA</th>
+                <th className="text-left p-2.5">Withholding defaults</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+              {results.map((result, index) => <tr key={`${result.category}-${result.option}-${index}`} className="align-top hover:bg-slate-50/70 dark:hover:bg-slate-800/40">
+                <td className="p-2.5"><div className="font-bold text-slate-700 dark:text-slate-200">{result.category}</div><div className="text-slate-500 mt-0.5">{result.option}</div></td>
+                <td className="p-2.5">
+                  <span className={`inline-flex items-center gap-1 font-bold ${result.passed ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}`}>
+                    {result.passed ? <CheckCircle2 className="w-3.5 h-3.5" /> : <AlertTriangle className="w-3.5 h-3.5" />}{result.passed ? 'PASS' : 'REVIEW'}
+                  </span>
+                  {!result.passed && <div className="max-w-[230px] whitespace-normal text-[10px] text-amber-700 dark:text-amber-300 mt-1">{result.explanation}</div>}
+                </td>
+                <td className="p-2.5"><div>{result.classification}</div><div className="text-slate-500">{result.subClassification}</div><div className="text-slate-500">Tier: {result.tier}</div></td>
+                <td className="p-2.5"><div>{result.vat}</div><div className="text-slate-500">{result.incomeRegime}</div><div className="text-slate-500">Deduction: {result.deductionMethod}</div></td>
+                <td className="p-2.5 text-right tabular-nums">{formatTestCurrency(result.businessTax)}<div className="text-slate-500">{result.businessTaxForm}</div></td>
+                <td className="p-2.5 text-right tabular-nums">{formatTestCurrency(result.incomeTax)}<div className="text-slate-500">{result.incomeTaxForm}</div></td>
+                <td className="p-2.5"><div>{result.businessTaxForm}</div><div className="text-slate-500">{result.incomeTaxForm}</div><div className="max-w-[220px] whitespace-normal text-slate-400 mt-1">{result.requiredForms}</div></td>
+                <td className="p-2.5"><div>{result.costSection}</div><div className="text-slate-500">{result.coaAccounts} default accounts</div></td>
+                <td className="p-2.5">{result.withholdingDefaults}</td>
+              </tr>)}
+            </tbody>
+          </table>
+        </div>
+        <p className="mt-2 text-[10px] text-slate-400">PASS means the selected value is reflected in the tested workflow and calculation output. REVIEW means the option is normalized, unsupported, or behaves differently across engines; inspect the explanation before using it.</p>
+      </>}
+      {!results.length && <div className="rounded-xl border border-dashed border-slate-300 dark:border-slate-700 p-5 text-center text-xs text-slate-400">Choose a category or “All categories,” adjust the sample amounts, then run the tests to see how each option affects tax calculations, BIR forms, and industry account presets.</div>}
+    </section>
   );
 }
 
@@ -593,6 +1004,8 @@ export function AdminSettings() {
             </div>
           </> : <p className="text-sm text-slate-400 py-4">{taxpayerLoading ? 'Loading workspaces…' : 'No client workspaces found.'}</p>}
         </section>
+
+        <TaxpayerTestBench profile={taxpayerDraft} />
 
         {/* User List Table */}
         <div className="mb-8">
