@@ -25,6 +25,23 @@ interface UserProfile {
 
 type AdminTab = 'users' | 'diagnostics';
 
+type TaxpayerProfile = {
+  id: string; user_id: string; owner_email: string | null; owner_name: string | null; name: string;
+  taxpayer_classification: string; taxpayer_sub_classification: string | null;
+  vat_registration_type: string; income_tax_regime: string | null; deduction_method: string | null;
+  percentage_tax_rate: number | null; taxpayer_tier: string; industry: string;
+};
+
+const TAXPAYER_FIELDS = [
+  { key: 'taxpayer_classification', label: 'Taxpayer classification', options: [['Individual','Individual'],['Non-Individual','Non-Individual']] },
+  { key: 'taxpayer_sub_classification', label: 'Sub-classification', options: [['sole_proprietor','Sole Proprietor'],['professional','Professional'],['mixed_income','Mixed Income'],['corporation_regular','Regular Corporation'],['corporation_msme','MSME Corporation'],['domestic_corp','Domestic Corporation'],['msme_corp','MSME Corporation'],['opc','One Person Corporation'],['partnership','Partnership'],['gpp','General Professional Partnership'],['cooperative','Cooperative']] },
+  { key: 'vat_registration_type', label: 'VAT / business tax registration', options: [['vat','VAT Registered'],['non-vat','Non-VAT'],['exempt','VAT Exempt'],['zero-rated','Zero-Rated']] },
+  { key: 'income_tax_regime', label: 'Income tax rate / regime', options: [['8_percent_flat','8% Flat Rate'],['graduated_itemized','Graduated – Itemized'],['graduated_osd','Graduated – 40% OSD'],['corp_20_msme','20% Corporate – MSME'],['corp_20_osd','20% Corporate – MSME OSD'],['corp_25_regular','25% Regular Corporate'],['corp_25_osd','25% Corporate – OSD'],['corp_gpp_exempt','GPP / Cooperative Exempt'],['corp_special_5','5% Special GIE']] },
+  { key: 'deduction_method', label: 'Deduction method', options: [['itemized','Itemized'],['osd','OSD'],['osd_40','40% OSD'],['none','None'],['none_8_percent','None – 8% Flat']] },
+  { key: 'taxpayer_tier', label: 'Taxpayer tier', options: [['micro','Micro'],['small','Small'],['medium','Medium'],['large','Large']] },
+  { key: 'industry', label: 'Industry type', options: [['retail','Retail / Trading'],['general-services','General Services'],['manufacturing','Manufacturing'],['construction','Construction']] },
+] as const;
+
 // Masks a Supabase project URL down to just the host, e.g.
 // "https://abcdefgh.supabase.co" -> "abcdefgh.supabase.co", so nothing
 // beyond what's already visible in network requests gets shown/copied.
@@ -278,6 +295,11 @@ export function AdminSettings() {
   const { isAdmin, userRole, setUserRole } = useAuth();
   const navigate = useNavigate();
   const [users, setUsers] = useState<UserProfile[]>([]);
+  const [taxpayerProfiles, setTaxpayerProfiles] = useState<TaxpayerProfile[]>([]);
+  const [selectedTaxpayerId, setSelectedTaxpayerId] = useState('');
+  const [taxpayerDraft, setTaxpayerDraft] = useState<TaxpayerProfile | null>(null);
+  const [taxpayerLoading, setTaxpayerLoading] = useState(false);
+  const [taxpayerSaving, setTaxpayerSaving] = useState(false);
   // ---- T025: feature flags state ----
   const [flags, setFlags] = useState<Record<string, boolean>>(() => getFlags());
   const toggleFlag = (key: string) => { const v = !flags[key]; setFeatureFlag(key, v); setFlags(getFlags()); };
@@ -341,6 +363,54 @@ export function AdminSettings() {
       fetchUsers();
     }
   }, [isAdmin]);
+
+  const fetchTaxpayerProfiles = async () => {
+    setTaxpayerLoading(true);
+    try {
+      const { data, error } = await supabase.rpc('developer_list_taxpayer_profiles');
+      if (error) throw error;
+      const rows = (Array.isArray(data) ? data : []) as TaxpayerProfile[];
+      setTaxpayerProfiles(rows);
+      setSelectedTaxpayerId(current => current && rows.some(row => row.id === current) ? current : (rows[0]?.id || ''));
+      setTaxpayerDraft(current => {
+        const selected = rows.find(row => row.id === selectedTaxpayerId) || rows[0];
+        return selected ? { ...selected } : current;
+      });
+    } catch (err) {
+      console.error('Unable to load taxpayer profiles:', err);
+      alert(`Unable to load taxpayer profiles. Apply scripts/developer_taxpayer_controls.sql first. ${err instanceof Error ? err.message : String(err)}`);
+    } finally { setTaxpayerLoading(false); }
+  };
+
+  useEffect(() => { if (isAdmin) fetchTaxpayerProfiles(); }, [isAdmin]);
+  useEffect(() => {
+    const selected = taxpayerProfiles.find(row => row.id === selectedTaxpayerId);
+    setTaxpayerDraft(selected ? { ...selected } : null);
+  }, [selectedTaxpayerId, taxpayerProfiles]);
+
+  const saveTaxpayerProfile = async () => {
+    if (!taxpayerDraft) return;
+    setTaxpayerSaving(true);
+    try {
+      const { error } = await supabase.rpc('developer_update_taxpayer_profile', {
+        p_client_id: taxpayerDraft.id,
+        p_taxpayer_classification: taxpayerDraft.taxpayer_classification,
+        p_taxpayer_sub_classification: taxpayerDraft.taxpayer_sub_classification || '',
+        p_vat_registration_type: taxpayerDraft.vat_registration_type,
+        p_income_tax_regime: taxpayerDraft.income_tax_regime || '',
+        p_deduction_method: taxpayerDraft.deduction_method || '',
+        p_percentage_tax_rate: taxpayerDraft.percentage_tax_rate,
+        p_taxpayer_tier: taxpayerDraft.taxpayer_tier,
+        p_industry: taxpayerDraft.industry,
+      });
+      if (error) throw error;
+      alert('Taxpayer profile updated successfully.');
+      await fetchTaxpayerProfiles();
+    } catch (err) {
+      console.error('Taxpayer profile update failed:', err);
+      alert(`Failed to update taxpayer profile: ${err instanceof Error ? err.message : String(err)}`);
+    } finally { setTaxpayerSaving(false); }
+  };
 
   const handleBackup = () => {
     const dataStr = JSON.stringify(users, null, 2);
@@ -486,6 +556,43 @@ export function AdminSettings() {
             </select>
           </div>
         </div>
+
+        {/* Developer-only cross-account taxpayer configuration */}
+        <section className="mb-8 rounded-2xl border border-violet-200 dark:border-violet-900 bg-white dark:bg-slate-900 p-4 md:p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+            <div>
+              <h4 className="font-bold text-slate-800 dark:text-slate-100">Taxpayer Profile Manager</h4>
+              <p className="text-xs text-slate-500 mt-1">Change the tax setup of any owner's client workspace. Changes are saved to Supabase.</p>
+            </div>
+            <button onClick={fetchTaxpayerProfiles} disabled={taxpayerLoading} className="px-3 py-2 rounded-lg text-xs font-bold border border-slate-300 dark:border-slate-700 disabled:opacity-50">
+              <RefreshCw className={`inline w-3.5 h-3.5 mr-1 ${taxpayerLoading ? 'animate-spin' : ''}`} /> Refresh workspaces
+            </button>
+          </div>
+          <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 mb-1">Owner / taxpayer workspace</label>
+          <select value={selectedTaxpayerId} onChange={e => setSelectedTaxpayerId(e.target.value)} className="form-input w-full mb-4" disabled={taxpayerLoading || !taxpayerProfiles.length}>
+            {taxpayerProfiles.map(profile => <option key={profile.id} value={profile.id}>{profile.owner_email || profile.owner_name || profile.user_id} — {profile.name} ({profile.id})</option>)}
+          </select>
+          {taxpayerDraft ? <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {TAXPAYER_FIELDS.map(field => <label key={field.key} className="block text-xs font-semibold text-slate-600 dark:text-slate-300">
+                {field.label}
+                <select className="form-input w-full mt-1" value={String((taxpayerDraft as any)[field.key] || '')} onChange={e => setTaxpayerDraft(current => current ? { ...current, [field.key]: e.target.value } : current)}>
+                  <option value="">Not specified</option>
+                  {field.options.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </label>)}
+              <label className="block text-xs font-semibold text-slate-600 dark:text-slate-300">Percentage tax rate
+                <select className="form-input w-full mt-1" value={taxpayerDraft.percentage_tax_rate == null ? '' : String(taxpayerDraft.percentage_tax_rate)} onChange={e => setTaxpayerDraft(current => current ? { ...current, percentage_tax_rate: e.target.value === '' ? null : Number(e.target.value) } : current)}>
+                  <option value="">Not specified</option><option value="0">0% (Exempt)</option><option value="0.01">1%</option><option value="0.02">2%</option><option value="0.03">3%</option><option value="0.05">5%</option>
+                </select>
+              </label>
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-3 mt-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+              <span className="text-[11px] text-slate-400">Owner: {taxpayerDraft.owner_email || 'Unknown'} · Workspace: {taxpayerDraft.name}</span>
+              <button onClick={saveTaxpayerProfile} disabled={taxpayerSaving} className="px-5 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-xs font-bold disabled:opacity-50">{taxpayerSaving ? 'Saving…' : 'Save taxpayer configuration'}</button>
+            </div>
+          </> : <p className="text-sm text-slate-400 py-4">{taxpayerLoading ? 'Loading workspaces…' : 'No client workspaces found.'}</p>}
+        </section>
 
         {/* User List Table */}
         <div className="mb-8">
