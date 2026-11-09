@@ -986,6 +986,10 @@ export function AccountingProvider({
     setSyncError(null);
 
     let isTimedOut = false;
+    // React StrictMode and account/owner changes can clean up this effect while
+    // its async initial load is still running. Never create a channel from a
+    // stale initialization after that cleanup has happened.
+    let isCancelled = false;
     let clientsChannel: RealtimeChannel | null = null;
     let bizChannel: RealtimeChannel | null = null;
 
@@ -1019,6 +1023,7 @@ export function AccountingProvider({
 
         clearTimeout(timeout);
         const permittedRows = await filterPermittedClientRows(data || []);
+        if (isCancelled || isTimedOut) return;
         const cloudEntries = await Promise.all(permittedRows.map(async (row: any) => {
           const normalized = await loadNormalizedClient(row.id);
           const client = { id: row.id, name: row.name || 'Client',
@@ -1038,6 +1043,7 @@ export function AccountingProvider({
             tinLibrary: normalized.tinLibrary ?? {customers:[], suppliers:[]}, sales: normalized.sales ?? [], purchases: normalized.purchases ?? [], expenses: purchasesToExpenses(normalized.purchases ?? []), ...(normalized as any) } as Client;
           return [row.id, client] as const;
         }));
+        if (isCancelled || isTimedOut) return;
         const cloudClients: Record<string, Client> = Object.fromEntries(cloudEntries);
         mergeCloudClients(cloudClients);
         setIsSyncing(false);
@@ -1272,7 +1278,7 @@ export function AccountingProvider({
         clientsChannel.subscribe();
       } catch (error) {
         clearTimeout(timeout);
-        if (isTimedOut) return;
+        if (isCancelled || isTimedOut) return;
 
         console.error('Sync error:', error);
         let msg = formatSupabaseError(error);
@@ -1296,6 +1302,7 @@ export function AccountingProvider({
         .eq('user_id', dataOwnerId)
         .maybeSingle();
 
+      if (isCancelled) return;
       if (!error && data) {
         setBusinessProfile(data.data as BusinessProfile);
       } else {
@@ -1312,6 +1319,7 @@ export function AccountingProvider({
           });
       }
 
+      if (isCancelled) return;
       bizChannel = supabase
         .channel(`biz-profile-${dataOwnerId}`)
         .on(
@@ -1341,6 +1349,7 @@ export function AccountingProvider({
     })();
 
     return () => {
+      isCancelled = true;
       clearTimeout(timeout);
       if (clientsChannel) supabase.removeChannel(clientsChannel);
       if (bizChannel) supabase.removeChannel(bizChannel);
