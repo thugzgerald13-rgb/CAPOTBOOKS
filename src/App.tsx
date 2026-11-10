@@ -21,6 +21,7 @@ import { PageSkeleton, EmptyState, Button } from './components/ui';
 import { Wallet, KeyRound, ShieldCheck } from 'lucide-react';
 import { moduleIdForRoute, moduleIdsForRoute, modulePermissionKey, actionPermissionKey } from './lib/granularPermissions';
 import { supabase } from './lib/supabase';
+import { useFeatureVisibility } from './lib/featureVisibility';
 
 const Sales = lazy(() => import('./components/Sales').then(m => ({ default: m.Sales })));
 const Billing = lazy(() => import('./components/Billing').then(m => ({ default: m.Billing })));
@@ -65,6 +66,7 @@ const PayrollHub = lazy(() => import('./payroll/PayrollHub').then(m => ({ defaul
  * the Dashboard ("/") and writes an audit-log entry.
  */
 function RequirePermission({ children }: { children: React.ReactNode }) {
+  useFeatureVisibility();
   const { hasPermission, isAdmin, user } = useAuth();
   const ent = useEntitlements();
   const location = useLocation();

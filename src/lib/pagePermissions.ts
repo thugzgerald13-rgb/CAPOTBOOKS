@@ -1,3 +1,4 @@
+import { isFeatureVisible } from './featureVisibility';
 /**
  * pagePermissions.ts — Route-level access control (Goal A).
  *
@@ -192,10 +193,16 @@ export function featureAllows(pageIdOrPath: string | null): boolean {
   if (pageIdOrPath == null) return true;
   const norm = String(pageIdOrPath).trim().replace(/^\/+/, '').split(/[?#]/)[0];
   if (norm === '') return true; // dashboard
-  if (norm === 'purchases' || norm.startsWith('purchases/')) return true;
-  if (norm === 'files' || norm.startsWith('files/')) return true;
-  if (norm === 'bir-forms' || norm.startsWith('bir-')) return true;
-  return FEATURE_ALLOWED_PAGE_IDS.has(norm);
+  const featureId = norm === 'purchases' || norm.startsWith('purchases/') || norm === 'ap-workspace'
+    ? 'purchases'
+    : norm === 'files' || norm.startsWith('files/')
+      ? 'files'
+      : norm === 'payroll/settings'
+        ? 'payroll'
+      : norm.startsWith('bir-') && !FEATURE_ALLOWED_PAGE_IDS.has(norm)
+        ? 'bir-forms'
+        : norm;
+  return FEATURE_ALLOWED_PAGE_IDS.has(featureId) && isFeatureVisible(featureId);
 }
 
 /** True if `pathname` is outside the feature allowlist (blocked for non-devs). */

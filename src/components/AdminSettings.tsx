@@ -8,6 +8,7 @@ import { Client } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { loadAuditLog, ALL_PERMISSIONS, ROLES, can } from '../lib/accessControl';
 import { FEATURE_FLAGS, getFlags, setFeatureFlag, buildBackup, parseBackup } from '../lib/featureFlags';
+import { FEATURE_VISIBILITY_ITEMS, loadFeatureVisibility, saveFeatureVisibility, useFeatureVisibility } from '../lib/featureVisibility';
 import { supabase } from '../lib/supabase';
 import packageJson from '../../package.json';
 import { AccountHealthMonitor } from './AccountHealthMonitor';
@@ -712,6 +713,24 @@ export function AdminSettings() {
   const [taxpayerLoading, setTaxpayerLoading] = useState(false);
   const [taxpayerSaving, setTaxpayerSaving] = useState(false);
   // ---- T025: feature flags state ----
+  useFeatureVisibility();
+  const [featureVisibility, setFeatureVisibility] = useState<Record<string, boolean>>({});
+  const [featureVisibilitySaving, setFeatureVisibilitySaving] = useState(false);
+  useEffect(() => {
+    let active = true;
+    loadFeatureVisibility(true).then(() => {
+      if (!active) return;
+      try { setFeatureVisibility(JSON.parse(localStorage.getItem('capot.developerFeatureVisibility') || '{}')); } catch { setFeatureVisibility({}); }
+    });
+    return () => { active = false; };
+  }, []);
+  const toggleVisibleFeature = async (id: string) => {
+    const next = { ...featureVisibility, [id]: featureVisibility[id] === false };
+    setFeatureVisibilitySaving(true);
+    try { await saveFeatureVisibility(next); setFeatureVisibility(next); }
+    catch (error) { alert(`Could not save feature visibility: ${error instanceof Error ? error.message : String(error)}`); }
+    finally { setFeatureVisibilitySaving(false); }
+  };
   const [flags, setFlags] = useState<Record<string, boolean>>(() => getFlags());
   const toggleFlag = (key: string) => { const v = !flags[key]; setFeatureFlag(key, v); setFlags(getFlags()); };
   const handleFullBackup = () => {
@@ -1068,6 +1087,32 @@ export function AdminSettings() {
                   Account Health Monitor is configured for thugz.gerald13@gmail.com. Refresh the user directory and confirm that the profile is available to enable account-scoped checks.
                 </div>
               )}
+            </div>
+
+            {/* Developer-controlled global feature visibility */}
+            <div className="rounded-xl border border-violet-200 dark:border-violet-900 bg-white dark:bg-slate-900 p-4 mb-6">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                <div>
+                  <div className="text-xs font-black uppercase tracking-wider text-violet-700 dark:text-violet-300">User Feature Visibility</div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Choose which pages and functions are visible to regular users. Changes apply across user accounts; the developer can still access hidden pages.</p>
+                </div>
+                <span className="text-[10px] text-slate-400">{featureVisibilitySaving ? 'Saving…' : 'Saved to Supabase'}</span>
+              </div>
+              <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4 mt-4">
+                {[...new Set(FEATURE_VISIBILITY_ITEMS.map(item => item.group))].map(group => (
+                  <div key={group} className="rounded-lg border border-slate-100 dark:border-slate-800 p-3">
+                    <div className="text-[10px] font-black uppercase tracking-wider text-slate-500 mb-2">{group}</div>
+                    <div className="space-y-2">
+                      {FEATURE_VISIBILITY_ITEMS.filter(item => item.group === group).map(item => (
+                        <label key={item.id} className="flex items-center justify-between gap-2 text-xs cursor-pointer">
+                          <span className="text-slate-700 dark:text-slate-200">{item.label}</span>
+                          <input type="checkbox" checked={featureVisibility[item.id] !== false} disabled={featureVisibilitySaving} onChange={() => void toggleVisibleFeature(item.id)} className="w-4 h-4 accent-violet-600 shrink-0" />
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
 
             {/* T025: feature flags + full backup */}

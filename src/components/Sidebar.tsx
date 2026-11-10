@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { useEntitlements, isTrialActive, trialDaysLeft, hasTrialEnded } from '../lib/subscription';
 import type { Permission } from '../lib/accessControl';
 import { featureAllows } from '../lib/pagePermissions';
+import { useFeatureVisibility } from '../lib/featureVisibility';
 import { dropdownPermissionKey, moduleIdForSidebarPage, modulePermissionKey } from '../lib/granularPermissions';
 import { supabase } from '../lib/supabase';
 import { 
@@ -26,6 +27,7 @@ interface SidebarProps {
 const ADMIN_ONLY_PAGES = new Set<string>();
 
 export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
+  useFeatureVisibility();
   const {
     navigateToPage,
     setHistoryTab,
@@ -270,6 +272,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   };
 
   const canUsePage = (pageId: string | null): boolean => {
+    if (!isAdmin && !featureAllows(pageId)) return false;
     const permission = pagePermission(pageId);
     if (permission && !canUse(permission)) return false;
     const moduleId = moduleIdForSidebarPage(pageId);
