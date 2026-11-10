@@ -45,6 +45,7 @@ export interface Purchase {
 
 export interface Sale {
   id: number;
+  createdAt?: string;
   datMonthYear?: string;
   date: string;
   ref: string;
@@ -58,6 +59,16 @@ export interface Sale {
   outputTax: number;
   incomeType: string;
   desc?: string;
+  attachment?: {
+    name: string;
+    type: string;
+    originalType?: string;
+    size: number;
+    originalSize?: number;
+    compression?: 'none' | 'gzip' | string;
+    content?: string;
+    storagePath?: string;
+  };
   // BIR E-Invoicing (EIS) status — denormalized for fast UI badges.
   eisUniqueId?: string;
   eisDocType?: 'SI' | 'OR' | 'DR' | 'CR';
@@ -94,14 +105,6 @@ export interface CoaAccount {
   [key: string]: any;
 }
 
-export interface BillingInvoiceLineItem {
-  id?: string;
-  description: string;
-  qty: number;
-  unitPrice: number;
-  amount?: number;
-}
-
 export interface BillingInvoice {
   id: string;
   date: string;
@@ -110,10 +113,7 @@ export interface BillingInvoice {
   customerTin: string;
   customerName: string;
   customerAddress: string;
-  customerEmail?: string;
   vatType: string;
-  lineItems?: BillingInvoiceLineItem[];
-  discountPercent?: number;
   amount: number;
   netOfVat: number;
   outputTax: number;
@@ -496,9 +496,6 @@ export interface GeneralLedgerEntry {
   // Human-readable label for where an auto-posted entry came from, e.g.
   // "Cash Receipts Journal". Undefined for manually-entered entries.
   autoSource?: string;
-  // Party metadata used by customer/supplier subsidiary ledgers and aging reports.
-  partyType?: 'customer' | 'supplier';
-  partyName?: string;
 }
 
 export interface GeneralLedgerAccount {
@@ -850,9 +847,4 @@ export interface SoaRecord {
   closingBalance: number;
   templateId?: string;
   generatedAt: string;
-  statementType?: 'invoice' | 'activity';
-  statementDate?: string;
-  financeChargeRate?: number;
-  financeCharges?: number;
-  zeroBalanceCustomers?: string[];
 }

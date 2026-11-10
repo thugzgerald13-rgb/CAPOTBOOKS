@@ -171,11 +171,19 @@ create table if not exists public.sales (
   output_tax numeric(18,2),
   income_type text,
   description text,
+  attachment_name text,
+  attachment_type text,
+  attachment_original_type text,
+  attachment_size bigint,
+  attachment_original_size bigint,
+  attachment_compression text,
+  attachment_storage_path text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
 
 create index if not exists idx_sales_client_id on public.sales(client_id);
+create index if not exists idx_sales_attachment_storage_path on public.sales(attachment_storage_path) where attachment_storage_path is not null;
 
 drop trigger if exists trg_sales_updated_at on public.sales;
 create trigger trg_sales_updated_at
@@ -568,11 +576,7 @@ create table if not exists public.billing_invoices (
   customer_tin text,
   customer_name text,
   customer_address text,
-  customer_email text,
   vat_type text,
-  line_items jsonb not null default '[]'::jsonb,
-  discount_percent numeric(9,4) not null default 0,
-  template_id text,
   amount numeric(18,2),
   net_of_vat numeric(18,2),
   output_tax numeric(18,2),

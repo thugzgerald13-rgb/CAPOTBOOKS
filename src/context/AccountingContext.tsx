@@ -254,7 +254,7 @@ const purchasesToExpenses = (purchases: any[] = []) => purchases.map((p:any) => 
 // egress. Each list below is exactly the set of columns actually consumed
 // further down in this function.
 const PURCHASES_COLUMNS = 'id,dat_month_year,date,payment_method,check_number,bank_name,invoice_no,supplier_name,supplier_address,supplier_tin,amount,vat_type,account_title,transaction_details,input_tax,exempt_amount,zero_rated_amount,attachment_name,attachment_type,attachment_original_type,attachment_size,attachment_original_size,attachment_compression,attachment_storage_path,withholding_option,atc_code,wht_rate,wht_amount,created_at';
-const SALES_COLUMNS = 'id,dat_month_year,date,ref,payment_type,buyer_tin,buyer_name,buyer_address,vat_type,amount,net_of_vat,output_tax,income_type,description';
+const SALES_COLUMNS = 'id,dat_month_year,date,ref,payment_type,buyer_tin,buyer_name,buyer_address,vat_type,amount,net_of_vat,output_tax,income_type,description,attachment_name,attachment_type,attachment_original_type,attachment_size,attachment_original_size,attachment_compression,attachment_storage_path';
 const COA_COLUMNS_COLUMNS = 'id,name,is_system';
 const COA_ACCOUNTS_COLUMNS = 'id,name,type,normal_side,parent_id,hidden,opening_balance,custom_values';
 const JOURNAL_COLUMNS_COLUMNS = 'id,journal_type,name,type,category,is_system';
@@ -270,7 +270,7 @@ const TIN_ENTRIES_COLUMNS = 'id,party_type,tin,name,address';
 const TAX_DEADLINES_COLUMNS = 'id,form_type,title,period,due_date,status,tax_status,amount_due,date_filed,date_paid,reference_no,confirmation_no,notes';
 const BANK_ACCOUNTS_COLUMNS = 'id,bank_name,account_number,balance';
 const ASSET_LAPSING_COLUMNS = 'id,date_purchased,invoice_no,description,cost,useful_life_years,salvage_value';
-const BILLING_INVOICES_COLUMNS = 'id,date,due_date,invoice_no,customer_tin,customer_name,customer_address,customer_email,vat_type,line_items,discount_percent,template_id,amount,net_of_vat,output_tax,description,status,payment_type,date_paid,is_recurring,recurrence_frequency,next_billing_date,parent_invoice_id';
+const BILLING_INVOICES_COLUMNS = 'id,date,due_date,invoice_no,customer_tin,customer_name,customer_address,vat_type,amount,net_of_vat,output_tax,description,status,payment_type,date_paid,is_recurring,recurrence_frequency,next_billing_date,parent_invoice_id';
 const SNAPSHOTS_COLUMNS = 'report_type,data';
 
 // The `clients` table also carries a legacy `data` jsonb blob plus `address`,
@@ -522,7 +522,7 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
 
   const result: Partial<Client> = {
     purchases: pRows.map((r:any) => ({ id:Number(r.id) || r.id, createdAt:r.created_at||undefined, datMonthYear:r.dat_month_year||'', date:rowDate(r.date), paymentMethod:r.payment_method||'', checkNumber:r.check_number, bankName:r.bank_name, invoiceNo:r.invoice_no||'', supplierName:r.supplier_name||'', supplierAddress:r.supplier_address||'', supplierTin:r.supplier_tin||'', amount:Number(r.amount||0), vatType:r.vat_type||'', accountTitle:r.account_title||'', transactionDetails:r.transaction_details, inputTax:Number(r.input_tax||0), exemptAmount:Number(r.exempt_amount||0), zeroRatedAmount:Number(r.zero_rated_amount||0), attachment:r.attachment_name ? { name:r.attachment_name, type:r.attachment_type||'', originalType:r.attachment_original_type||r.attachment_type||'', size:Number(r.attachment_size||0), originalSize:Number(r.attachment_original_size||r.attachment_size||0), compression:r.attachment_compression as any, content:'', storagePath:r.attachment_storage_path } : undefined, withholdingOption:r.withholding_option as any, atcCode:r.atc_code, whtRate:r.wht_rate == null ? null : Number(r.wht_rate), whtAmount:r.wht_amount == null ? undefined : Number(r.wht_amount) })),
-    sales: sRows.map((r:any) => ({ id:Number(r.id)||r.id, datMonthYear:r.dat_month_year||'', date:rowDate(r.date), ref:r.ref||'', paymentType:r.payment_type||'', buyerTin:r.buyer_tin||'', buyerName:r.buyer_name||'', buyerAddress:r.buyer_address||'', vatType:r.vat_type||'', amount:Number(r.amount||0), netOfVat:Number(r.net_of_vat||0), outputTax:Number(r.output_tax||0), incomeType:r.income_type||'', desc:r.description||'' })),
+    sales: sRows.map((r:any) => ({ id:Number(r.id)||r.id, datMonthYear:r.dat_month_year||'', date:rowDate(r.date), ref:r.ref||'', paymentType:r.payment_type||'', buyerTin:r.buyer_tin||'', buyerName:r.buyer_name||'', buyerAddress:r.buyer_address||'', vatType:r.vat_type||'', amount:Number(r.amount||0), netOfVat:Number(r.net_of_vat||0), outputTax:Number(r.output_tax||0), incomeType:r.income_type||'', desc:r.description||'', attachment:r.attachment_name ? { name:r.attachment_name, type:r.attachment_type||'', originalType:r.attachment_original_type||r.attachment_type||'', size:Number(r.attachment_size||0), originalSize:Number(r.attachment_original_size||r.attachment_size||0), compression:r.attachment_compression||null, content:'', storagePath:r.attachment_storage_path } : undefined })),
      expenses: purchasesToExpenses(pRows),
     coaColumns: ccRows.map((r:any) => ({ id:strId(r.id), name:r.name, isSystem:!!r.is_system })),
     accounts: sortAccountsChronologically(caRows.map((r:any) => ({ id:strId(r.id), name:r.name, type:r.type, normalSide:r.normal_side, parentId:r.parent_id, hidden:!!r.hidden, openingBalance:Number(r.opening_balance||0), ...(r.custom_values||{}) }))),
@@ -546,7 +546,7 @@ const loadNormalizedClient = async (clientId: string): Promise<Partial<Client>> 
     taxDeadlines: tdRows.map((r:any)=>({id:strId(r.id),formType:r.form_type,title:r.title,period:r.period,dueDate:rowDate(r.due_date),status:r.status,taxStatus:r.tax_status||undefined,amountDue:r.amount_due==null?undefined:Number(r.amount_due),dateFiled:rowDate(r.date_filed)||undefined,datePaid:rowDate(r.date_paid)||undefined,referenceNo:r.reference_no||undefined,confirmationNo:r.confirmation_no||undefined,notes:r.notes||undefined})),
     bankAccounts: baRows.map((r:any)=>({id:strId(r.id),bankName:r.bank_name,accountNumber:r.account_number,balance:Number(r.balance||0)})),
     assetLapsingSchedule: alsRows.map((r:any)=>({id:strId(r.id),datePurchased:rowDate(r.date_purchased),invoiceNo:r.invoice_no||'',description:r.description,cost:Number(r.cost||0),usefulLifeYears:Number(r.useful_life_years||0),salvageValue:Number(r.salvage_value||0)})),
-    billingInvoices: biRows.map((r:any)=>({id:strId(r.id),date:rowDate(r.date),dueDate:rowDate(r.due_date),invoiceNo:r.invoice_no,customerTin:r.customer_tin||'',customerName:r.customer_name||'',customerAddress:r.customer_address||'',customerEmail:r.customer_email||undefined,vatType:r.vat_type||'',lineItems:Array.isArray(r.line_items)?r.line_items:[],discountPercent:Number(r.discount_percent||0),templateId:r.template_id||undefined,amount:Number(r.amount||0),netOfVat:Number(r.net_of_vat||0),outputTax:Number(r.output_tax||0),description:r.description||undefined,status:r.status,paymentType:r.payment_type||undefined,datePaid:rowDate(r.date_paid)||undefined,isRecurring:!!r.is_recurring,recurrenceFrequency:r.recurrence_frequency||undefined,nextBillingDate:rowDate(r.next_billing_date)||undefined,parentInvoiceId:r.parent_invoice_id||undefined})),
+    billingInvoices: biRows.map((r:any)=>({id:strId(r.id),date:rowDate(r.date),dueDate:rowDate(r.due_date),invoiceNo:r.invoice_no,customerTin:r.customer_tin||'',customerName:r.customer_name||'',customerAddress:r.customer_address||'',vatType:r.vat_type||'',amount:Number(r.amount||0),netOfVat:Number(r.net_of_vat||0),outputTax:Number(r.output_tax||0),description:r.description||undefined,status:r.status,paymentType:r.payment_type||undefined,datePaid:rowDate(r.date_paid)||undefined,isRecurring:!!r.is_recurring,recurrenceFrequency:r.recurrence_frequency||undefined,nextBillingDate:rowDate(r.next_billing_date)||undefined,parentInvoiceId:r.parent_invoice_id||undefined})),
   };
 
   snapshotRows.forEach((r:any)=>{
@@ -639,7 +639,7 @@ const persistNormalizedClient = async (client: Client, userId: string, options: 
     }
   };
   await syncMany('purchases',(client.purchases||[]).map((p:any)=>({id:strId(p.id),dat_month_year:p.datMonthYear||null,date:p.date,payment_method:p.paymentMethod||'',check_number:p.checkNumber||null,bank_name:p.bankName||null,invoice_no:p.invoiceNo||null,supplier_name:p.supplierName||'',supplier_address:p.supplierAddress||null,supplier_tin:p.supplierTin||null,amount:Number(p.amount||0),vat_type:p.vatType||null,account_title:p.accountTitle||null,transaction_details:p.transactionDetails||null,input_tax:Number(p.inputTax||0),attachment_name:p.attachment?.name||null,attachment_type:p.attachment?.type||null,attachment_original_type:p.attachment?.originalType||null,attachment_size:p.attachment?.size||null,attachment_original_size:p.attachment?.originalSize||null,attachment_compression:p.attachment?.compression||null,attachment_storage_path:p.attachment?.storagePath||null,withholding_option:p.withholdingOption||null,atc_code:p.atcCode||null,wht_rate:p.whtRate??null,wht_amount:p.whtAmount??null})));
-  await syncMany('sales',(client.sales||[]).map((s:any)=>({id:strId(s.id),dat_month_year:s.datMonthYear||null,date:s.date,ref:s.ref||null,payment_type:s.paymentType||null,buyer_tin:s.buyerTin||null,buyer_name:s.buyerName||null,buyer_address:s.buyerAddress||null,vat_type:s.vatType||null,amount:Number(s.amount||0),net_of_vat:Number(s.netOfVat||0),output_tax:Number(s.outputTax||0),income_type:s.incomeType||null,description:s.desc||null})));
+  await syncMany('sales',(client.sales||[]).map((s:any)=>({id:strId(s.id),dat_month_year:s.datMonthYear||null,date:s.date,ref:s.ref||null,payment_type:s.paymentType||null,buyer_tin:s.buyerTin||null,buyer_name:s.buyerName||null,buyer_address:s.buyerAddress||null,vat_type:s.vatType||null,amount:Number(s.amount||0),net_of_vat:Number(s.netOfVat||0),output_tax:Number(s.outputTax||0),income_type:s.incomeType||null,description:s.desc||null,attachment_name:s.attachment?.name||null,attachment_type:s.attachment?.type||null,attachment_original_type:s.attachment?.originalType||s.attachment?.type||null,attachment_size:s.attachment?.size||null,attachment_original_size:s.attachment?.originalSize||s.attachment?.size||null,attachment_compression:s.attachment?.encoding === 'gzip' ? 'gzip' : (s.attachment?.compression||null),attachment_storage_path:s.attachment?.storagePath||null})));
   await syncMany('coa_columns',(client.coaColumns||[]).map((c:any)=>({id:strId(c.id),name:c.name,is_system:!!c.isSystem})));
   await syncMany('coa_accounts',(client.accounts||[]).map((a:any)=>{const {id,name,type,normalSide,parentId,hidden,openingBalance,...custom}=a;return {id:strId(id),name:name||'',type:type||'',normal_side:normalSide||null,parent_id:parentId||null,hidden:!!hidden,opening_balance:Number(openingBalance||0),custom_values:custom};}));
   const journalTypes:[string,string,string][]=[['CRJ','crjColumns','crjEntries'],['CDJ','cdjColumns','cdjEntries'],['PJ','pjColumns','pjEntries'],['SJ','sjColumns','sjEntries'],['GJ','gjColumns','gjEntries']];
@@ -679,7 +679,7 @@ const persistNormalizedClient = async (client: Client, userId: string, options: 
   await syncMany('tax_deadlines',(client.taxDeadlines||[]).map((t:any)=>({id:strId(t.id),form_type:t.formType,title:t.title,period:t.period,due_date:t.dueDate,status:t.status,tax_status:t.taxStatus||null,amount_due:t.amountDue??null,date_filed:t.dateFiled||null,date_paid:t.datePaid||null,reference_no:t.referenceNo||null,confirmation_no:t.confirmationNo||null,notes:t.notes||null})));
   await syncMany('bank_accounts',(client.bankAccounts||[]).map((b:any)=>({id:strId(b.id),bank_name:b.bankName,account_number:b.accountNumber,balance:Number(b.balance||0)})));
   await syncMany('asset_lapsing_schedule',(client.assetLapsingSchedule||[]).map((a:any)=>({id:strId(a.id),date_purchased:a.datePurchased,invoice_no:a.invoiceNo||null,description:a.description,cost:Number(a.cost||0),useful_life_years:Number(a.usefulLifeYears||0),salvage_value:Number(a.salvageValue||0)})));
-  await syncMany('billing_invoices',(client.billingInvoices||[]).map((b:any)=>({id:strId(b.id),date:b.date,due_date:b.dueDate,invoice_no:b.invoiceNo,customer_tin:b.customerTin||null,customer_name:b.customerName||null,customer_address:b.customerAddress||null,customer_email:b.customerEmail||null,vat_type:b.vatType||null,line_items:Array.isArray(b.lineItems)?b.lineItems:[],discount_percent:Number(b.discountPercent||0),template_id:b.templateId||null,amount:Number(b.amount||0),net_of_vat:Number(b.netOfVat||0),output_tax:Number(b.outputTax||0),description:b.description||null,status:b.status,payment_type:b.paymentType||null,date_paid:b.datePaid||null,is_recurring:!!b.isRecurring,recurrence_frequency:b.recurrenceFrequency||null,next_billing_date:b.nextBillingDate||null,parent_invoice_id:b.parentInvoiceId||null})));
+  await syncMany('billing_invoices',(client.billingInvoices||[]).map((b:any)=>({id:strId(b.id),date:b.date,due_date:b.dueDate,invoice_no:b.invoiceNo,customer_tin:b.customerTin||null,customer_name:b.customerName||null,customer_address:b.customerAddress||null,vat_type:b.vatType||null,amount:Number(b.amount||0),net_of_vat:Number(b.netOfVat||0),output_tax:Number(b.outputTax||0),description:b.description||null,status:b.status,payment_type:b.paymentType||null,date_paid:b.datePaid||null,is_recurring:!!b.isRecurring,recurrence_frequency:b.recurrenceFrequency||null,next_billing_date:b.nextBillingDate||null,parent_invoice_id:b.parentInvoiceId||null})));
   const snaps:any[]=[]; if(client.plData) snaps.push({id:`${clientId}:pl`,report_type:'P&L',period_key:client.plData.period||'current',data:client.plData}); if(client.bsData) snaps.push({id:`${clientId}:bs`,report_type:'Balance Sheet',period_key:client.bsData.asOfDate||'current',data:client.bsData}); if(client.cfData) snaps.push({id:`${clientId}:cf`,report_type:'Cash Flow',period_key:client.cfData.period||'current',data:client.cfData}); await syncMany('financial_report_snapshots',snaps);
 };
 
@@ -1169,7 +1169,8 @@ export function AccountingProvider({
                 id: Number(row.id) || row.id, datMonthYear: row.dat_month_year || '', date: rowDate(row.date), ref: row.ref || '',
                 paymentType: row.payment_type || '', buyerTin: row.buyer_tin || '', buyerName: row.buyer_name || '', buyerAddress: row.buyer_address || '',
                 vatType: row.vat_type || '', amount: Number(row.amount || 0), netOfVat: Number(row.net_of_vat || 0),
-                outputTax: Number(row.output_tax || 0), incomeType: row.income_type || '', desc: row.description || ''
+                outputTax: Number(row.output_tax || 0), incomeType: row.income_type || '', desc: row.description || '',
+                attachment: row.attachment_name ? { name: row.attachment_name, type: row.attachment_type || '', originalType: row.attachment_original_type || row.attachment_type || '', size: Number(row.attachment_size || 0), originalSize: Number(row.attachment_original_size || row.attachment_size || 0), compression: row.attachment_compression || null, content: '', storagePath: row.attachment_storage_path } : undefined
               });
             } else if (table === 'coa_accounts') {
               replaceRow('accounts', eventType === 'DELETE' ? null : {
@@ -1449,8 +1450,40 @@ export function AccountingProvider({
     };
   };
 
+  const uploadSaleAttachment = async (clientId: string, saleId: string, attachment: any) => {
+    if (!attachment?.data) return attachment?.storagePath || null;
+    const safeName = String(attachment.name || 'attachment').replace(/[^a-zA-Z0-9._-]/g, '_');
+    const storagePath = `${clientId}/sales/${saleId}/${safeName}`;
+    const data = String(attachment.data);
+    let blob: Blob;
+    if (attachment.encoding === 'gzip') {
+      blob = new Blob([base64ToUint8Array(data)], { type: 'application/gzip' });
+    } else {
+      const comma = data.indexOf(',');
+      const encoded = comma >= 0 ? data.slice(comma + 1) : data;
+      blob = new Blob([base64ToUint8Array(encoded)], { type: attachment.type || 'application/octet-stream' });
+    }
+    const { error } = await supabase.storage.from('client-files').upload(storagePath, blob, {
+      contentType: attachment.encoding === 'gzip' ? 'application/gzip' : (attachment.type || 'application/octet-stream'),
+      upsert: true,
+    });
+    if (error) throw error;
+    return storagePath;
+  };
+
   const saveSale = async (id: string, sale: any) => {
     if (!user || !currentClientId) return;
+    const existingSale = (clients[currentClientId]?.sales || []).find((s: any) => String(s.id) === String(id));
+    const previousStoragePath = existingSale?.attachment?.storagePath || sale?._previousAttachmentStoragePath || null;
+    let storagePath = sale?.attachment?.storagePath || null;
+    if (sale?.attachment?.data) {
+      storagePath = await uploadSaleAttachment(currentClientId, id, sale.attachment);
+    }
+    if (previousStoragePath && previousStoragePath !== storagePath) {
+      const { error: cleanupError } = await supabase.storage.from('client-files').remove([previousStoragePath]);
+      if (cleanupError) console.warn('Previous income attachment cleanup failed', cleanupError);
+    }
+
     const row = {
       id: String(id), client_id: currentClientId, dat_month_year: sale.datMonthYear || null,
       date: sale.date || null, ref: sale.ref || null, payment_type: sale.paymentType || null,
@@ -1462,6 +1495,13 @@ export function AccountingProvider({
       exempt_amount: Number(sale.exemptAmount || 0), zero_rated_amount: Number(sale.zeroRatedAmount || 0),
       withholding_option: sale.withholdingOption || null, atc_code: sale.atcCode || null,
       wht_rate: sale.whtRate ?? null, wht_amount: Number(sale.whtAmount || 0),
+      attachment_name: sale.attachment?.name || null,
+      attachment_type: sale.attachment?.type || null,
+      attachment_original_type: sale.attachment?.originalType || sale.attachment?.type || null,
+      attachment_size: sale.attachment?.size || null,
+      attachment_original_size: sale.attachment?.originalSize || sale.attachment?.size || null,
+      attachment_compression: sale.attachment?.encoding === 'gzip' ? 'gzip' : (sale.attachment?.compression || null),
+      attachment_storage_path: storagePath,
     };
     await withOfflineQueue('sales', currentClientId, 'put', row, async () => {
       const { error } = await supabase.from('sales').upsert(row, { onConflict: 'id' });
@@ -1470,11 +1510,7 @@ export function AccountingProvider({
     invalidateQueries('sales', currentClientId).catch(() => {});
     await recordNormalizedMutation('sales', currentClientId, 'put', row);
 
-    // ======================================================================
     // AUTO-ADD CUSTOMER TO TIN LIBRARY (mirrors supplier auto-add in savePurchase).
-    // Always upsert (idempotent by stable id) so a stale-closure "existing"
-    // check can never skip it; wrapped in try/catch so it can never block saving.
-    // ======================================================================
     try {
       const tinRaw = String(sale.buyerTin || sale.buyer_tin || '').trim();
       const name = String(sale.buyerName || sale.buyer_name || '').trim();
@@ -1486,16 +1522,30 @@ export function AccountingProvider({
     } catch (e) {
       console.warn('Customer TIN library auto-add skipped:', e);
     }
-    // ======================================================================
 
-    const next = [...(clients[currentClientId]?.sales || []).filter((x: any) => String(x.id) !== String(id)), sale];
+    const hydrated = {
+      ...sale,
+      createdAt: existingSale?.createdAt || sale?.createdAt || new Date().toISOString(),
+      attachment: sale.attachment ? { ...sale.attachment, storagePath, data: undefined } : undefined,
+    };
+    const next = [...(clients[currentClientId]?.sales || []).filter((x: any) => String(x.id) !== String(id)), hydrated];
     updateClientState(currentClientId, { sales: next });
   };
 
   const deleteSale = async (id: string) => {
     if (!user || !currentClientId) return;
+    const existing = (clients[currentClientId]?.sales || []).find((s: any) => String(s.id) === String(id));
+    let storagePath = existing?.attachment?.storagePath || null;
+    if (!storagePath) {
+      const { data: existingRow } = await supabase.from('sales').select('attachment_storage_path').eq('client_id', currentClientId).eq('id', String(id)).maybeSingle();
+      storagePath = existingRow?.attachment_storage_path || null;
+    }
     const { error } = await supabase.from('sales').delete().eq('client_id', currentClientId).eq('id', String(id));
     if (error) throw error;
+    if (storagePath) {
+      const { error: storageError } = await supabase.storage.from('client-files').remove([storagePath]);
+      if (storageError) console.warn('Income attachment cleanup failed', storageError);
+    }
     await recordNormalizedMutation('sales', currentClientId, 'delete', { id: String(id) });
     invalidateQueries('sales', currentClientId).catch(() => {});
     updateClientState(currentClientId, {
@@ -1821,7 +1871,7 @@ export function AccountingProvider({
 
   const saveBillingInvoice = async (id: string, invoice: any) => {
     if (!user || !currentClientId) return;
-    const row = { id: String(id), client_id: currentClientId, date: invoice.date || null, due_date: invoice.dueDate || null, invoice_no: invoice.invoiceNo || '', customer_tin: invoice.customerTin || null, customer_name: invoice.customerName || null, customer_address: invoice.customerAddress || null, customer_email: invoice.customerEmail || null, vat_type: invoice.vatType || null, line_items: Array.isArray(invoice.lineItems) ? invoice.lineItems : [], discount_percent: Number(invoice.discountPercent || 0), template_id: invoice.templateId || null, amount: Number(invoice.amount || 0), net_of_vat: Number(invoice.netOfVat || 0), output_tax: Number(invoice.outputTax || 0), description: invoice.description || null, status: invoice.status || 'Outstanding', payment_type: invoice.paymentType || null, date_paid: invoice.datePaid || null, is_recurring: !!invoice.isRecurring, recurrence_frequency: invoice.recurrenceFrequency || null, next_billing_date: invoice.nextBillingDate || null, parent_invoice_id: invoice.parentInvoiceId || null };
+    const row = { id: String(id), client_id: currentClientId, date: invoice.date || null, due_date: invoice.dueDate || null, invoice_no: invoice.invoiceNo || '', customer_tin: invoice.customerTin || null, customer_name: invoice.customerName || null, customer_address: invoice.customerAddress || null, vat_type: invoice.vatType || null, amount: Number(invoice.amount || 0), net_of_vat: Number(invoice.netOfVat || 0), output_tax: Number(invoice.outputTax || 0), description: invoice.description || null, status: invoice.status || 'Outstanding', payment_type: invoice.paymentType || null, date_paid: invoice.datePaid || null, is_recurring: !!invoice.isRecurring, recurrence_frequency: invoice.recurrenceFrequency || null, next_billing_date: invoice.nextBillingDate || null, parent_invoice_id: invoice.parentInvoiceId || null };
     const { error } = await supabase.from('billing_invoices').upsert(row, { onConflict: 'id' });
     if (error) throw error;
     const next = [...((clients[currentClientId]?.billingInvoices || []) as any[]).filter(i => String(i.id) !== String(id)), invoice];

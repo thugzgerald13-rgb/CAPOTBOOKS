@@ -23,7 +23,7 @@ export const HISTORY_PURCHASE_COLS =
   'id,client_id,date,payment_method,check_number,bank_name,invoice_no,supplier_name,supplier_address,supplier_tin,amount,vat_type,account_title,transaction_details,input_tax,attachment_name,attachment_type,attachment_original_type,attachment_size,attachment_original_size,attachment_compression,attachment_storage_path,withholding_option,atc_code,wht_rate,wht_amount,exempt_amount,zero_rated_amount,entry_source,created_at';
 
 export const HISTORY_SALE_COLS =
-  'id,client_id,date,ref,payment_type,buyer_tin,buyer_name,buyer_address,vat_type,amount,net_of_vat,output_tax,income_type,description,exempt_amount,zero_rated_amount,withholding_option,atc_code,wht_rate,wht_amount';
+  'id,client_id,date,ref,payment_type,buyer_tin,buyer_name,buyer_address,vat_type,amount,net_of_vat,output_tax,income_type,description,exempt_amount,zero_rated_amount,withholding_option,atc_code,wht_rate,wht_amount,attachment_name,attachment_type,attachment_original_type,attachment_size,attachment_original_size,attachment_compression,attachment_storage_path';
 
 /** Map a raw purchases row to the Expense History record shape. */
 export function mapPurchaseHistoryRow(p: any) {
@@ -84,6 +84,15 @@ export function mapSaleHistoryRow(s: any) {
     atcCode: s.atc_code,
     whtRate: s.wht_rate == null ? undefined : Number(s.wht_rate),
     whtAmount: Number(s.wht_amount || 0),
+    attachment: s.attachment_storage_path ? {
+      storagePath: s.attachment_storage_path,
+      name: s.attachment_name || 'Attachment',
+      type: s.attachment_type || '',
+      originalType: s.attachment_original_type || s.attachment_type || '',
+      compression: s.attachment_compression || undefined,
+      size: Number(s.attachment_size || 0),
+      originalSize: Number(s.attachment_original_size || s.attachment_size || 0),
+    } : undefined,
   };
 }
 
@@ -113,7 +122,8 @@ export async function fetchHistoryMonthRecords(
   const endDateString = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}-01`;
 
   const purCacheKey = `purchases:${clientId}:month:${periodKey}`;
-  const salCacheKey = `sales:${clientId}:month:${periodKey}`;
+  // Version the sales cache key so pre-attachment cached records are not reused.
+  const salCacheKey = `sales-attachments-v1:${clientId}:month:${periodKey}`;
 
   const [purCached, salCached] = await Promise.all([
     getCachedQuery<any[]>(purCacheKey),

@@ -2,13 +2,88 @@ import { useState, useEffect, useMemo } from 'react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { formatTIN, MONTHS, getMonthName } from '../lib/utils';
-import { Receipt, Plus, RotateCcw } from 'lucide-react';
+import { Receipt, Plus, RotateCcw, Paperclip, Upload, X, FileText, Image as ImageIcon } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 
 import { useGranularPermissions } from '../lib/useGranularPermissions';
 import { ATC_SCHEDULE } from '../lib/atcSchedule';
 import { AtcSelect } from './AtcSelect';
 import { YearDropdownDateInput } from './ui/YearDropdownDateInput';
+
+type SaleAttachment = {
+  name: string;
+  type: string;
+  originalType?: string;
+  size: number;
+  compressedSize: number;
+  encoding: 'optimized-image' | 'gzip' | 'raw';
+  compression?: string;
+  data?: string;
+  storagePath?: string;
+};
+
+const bytesToBase64 = (bytes: Uint8Array) => {
+  let binary = '';
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  return btoa(binary);
+};
+
+const blobToDataUrl = (blob: Blob) => new Promise<string>((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onload = () => resolve(String(reader.result));
+  reader.onerror = reject;
+  reader.readAsDataURL(blob);
+});
+
+const gzipBytes = async (bytes: Uint8Array) => {
+  if (!('CompressionStream' in window)) return null;
+  const stream = new Blob([bytes as BlobPart]).stream().pipeThrough(new CompressionStream('gzip'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+};
+
+const optimizeImage = async (file: File): Promise<Blob | null> => {
+  if (!/^image\/(jpeg|png|webp)$/i.test(file.type)) return null;
+  const url = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    image.src = url;
+    await image.decode();
+    const scale = Math.min(1, 1920 / Math.max(image.naturalWidth, image.naturalHeight));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+    ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+    return await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, file.type.toLowerCase(), file.type.toLowerCase() === 'image/png' ? undefined : 0.82));
+  } finally { URL.revokeObjectURL(url); }
+};
+
+const prepareSaleAttachment = async (file: File): Promise<SaleAttachment> => {
+  const originalBytes = new Uint8Array(await file.arrayBuffer());
+  const optimized = await optimizeImage(file);
+  if (optimized && optimized.size < file.size) {
+    return { name: file.name, type: file.type, originalType: file.type, size: file.size, compressedSize: optimized.size, encoding: 'optimized-image', data: await blobToDataUrl(optimized) };
+  }
+  const gzipped = await gzipBytes(originalBytes);
+  if (gzipped && gzipped.length < originalBytes.length) {
+    return { name: file.name, type: file.type, originalType: file.type, size: file.size, compressedSize: gzipped.length, encoding: 'gzip', data: bytesToBase64(gzipped) };
+  }
+  return { name: file.name, type: file.type, originalType: file.type, size: file.size, compressedSize: file.size, encoding: 'raw', data: await blobToDataUrl(file) };
+};
+
+const saleAttachmentFromStored = (value: unknown): SaleAttachment | null => {
+  if (!value || typeof value !== 'object') return null;
+  const v = value as Partial<SaleAttachment> & { originalSize?: number };
+  if (!v.name || !v.type) return null;
+  return {
+    name: v.name, type: v.type, originalType: v.originalType || v.type,
+    size: Number(v.size || v.originalSize || 0), compressedSize: Number(v.compressedSize || v.size || 0),
+    encoding: v.encoding || (v.compression === 'gzip' ? 'gzip' : 'raw'),
+    compression: v.compression, data: v.data, storagePath: v.storagePath,
+  };
+};
 
 const CASH_RECEIPT_PAYMENT_TYPES = ['Cash', 'Check', 'E-Payment', 'Bank Transfer'];
 const SALES_JOURNAL_PAYMENT_TYPES = ['Credit Card', 'On Account'];
@@ -55,14 +130,14 @@ export function Sales({ embedded = false, editSale = null, onSaved, onClose }: S
       const to = from + PAGE_SIZE - 1;
       const { data, count, error } = await supabase
         .from('sales')
-        .select('id,dat_month_year,date,ref,payment_type,buyer_tin,buyer_name,buyer_address,vat_type,amount,net_of_vat,output_tax,income_type,description,exempt_amount,zero_rated_amount,withholding_option,atc_code,wht_rate,wht_amount', { count: 'planned' })
+        .select('id,dat_month_year,date,ref,payment_type,buyer_tin,buyer_name,buyer_address,vat_type,amount,net_of_vat,output_tax,income_type,description,exempt_amount,zero_rated_amount,withholding_option,atc_code,wht_rate,wht_amount,attachment_name,attachment_type,attachment_original_type,attachment_size,attachment_original_size,attachment_compression,attachment_storage_path', { count: 'planned' })
         .eq('client_id', currentClientId)
         .order('date', { ascending: false })
         .order('created_at', { ascending: false })
         .range(from, to);
       if (cancelled) return;
       if (error) { setSalesError(error.message); setSalesRows([]); }
-      else { setSalesRows((data || []).map((r:any) => ({ id:Number(r.id)||r.id, datMonthYear:r.dat_month_year||'', date:r.date ? String(r.date).slice(0,10) : '', ref:r.ref||'', paymentType:r.payment_type||'', buyerTin:r.buyer_tin||'', buyerName:r.buyer_name||'', buyerAddress:r.buyer_address||'', vatType:r.vat_type||'', amount:Number(r.amount||0), netOfVat:Number(r.net_of_vat||0), outputTax:Number(r.output_tax||0), incomeType:r.income_type||'', desc:r.description||'', exemptAmount:Number(r.exempt_amount||0), zeroRatedAmount:Number(r.zero_rated_amount||0), withholdingOption:r.withholding_option||'', atcCode:r.atc_code||'', whtRate:r.wht_rate==null?null:Number(r.wht_rate), whtAmount:Number(r.wht_amount||0) }))); setSalesTotal(count || 0); }
+      else { setSalesRows((data || []).map((r:any) => ({ id:Number(r.id)||r.id, datMonthYear:r.dat_month_year||'', date:r.date ? String(r.date).slice(0,10) : '', ref:r.ref||'', paymentType:r.payment_type||'', buyerTin:r.buyer_tin||'', buyerName:r.buyer_name||'', buyerAddress:r.buyer_address||'', vatType:r.vat_type||'', amount:Number(r.amount||0), netOfVat:Number(r.net_of_vat||0), outputTax:Number(r.output_tax||0), incomeType:r.income_type||'', desc:r.description||'', exemptAmount:Number(r.exempt_amount||0), zeroRatedAmount:Number(r.zero_rated_amount||0), withholdingOption:r.withholding_option||'', atcCode:r.atc_code||'', whtRate:r.wht_rate==null?null:Number(r.wht_rate), whtAmount:Number(r.wht_amount||0), attachment:r.attachment_storage_path ? { name:r.attachment_name||'', type:r.attachment_type||'', originalType:r.attachment_original_type||r.attachment_type||'', size:Number(r.attachment_size||0), originalSize:Number(r.attachment_original_size||r.attachment_size||0), compression:r.attachment_compression||null, storagePath:r.attachment_storage_path } : undefined }))); setSalesTotal(count || 0); }
       setSalesLoading(false);
     };
     loadSales();
@@ -92,6 +167,8 @@ export function Sales({ embedded = false, editSale = null, onSaved, onClose }: S
   const [withholdingOption, setWithholdingOption] = useState<'w/o' | 'with'>('w/o');
   const [atcCode, setAtcCode] = useState('');
   const [whtAmount, setWhtAmount] = useState(0);
+  const [attachment, setAttachment] = useState<SaleAttachment | null>(null);
+  const [attachmentBusy, setAttachmentBusy] = useState(false);
   // Embedded edit mode: pre-fill the form from the income row being edited.
   useEffect(() => {
     if (embedded && editSale) {
@@ -114,6 +191,7 @@ export function Sales({ embedded = false, editSale = null, onSaved, onClose }: S
       setWithholdingOption(s.withholdingOption || 'w/o');
       setAtcCode(s.atcCode || '');
       setWhtAmount(Number(s.whtAmount || 0));
+      setAttachment(saleAttachmentFromStored(s.attachment));
     }
   }, [embedded, editSale]);
 
@@ -219,6 +297,8 @@ export function Sales({ embedded = false, editSale = null, onSaved, onClose }: S
       atcCode: withholdingOption === 'with' ? atcCode : null,
       whtRate: withholdingOption === 'with' ? (ATC_SCHEDULE.find(e => e.code === atcCode)?.rate ?? null) : null,
       whtAmount: withholdingOption === 'with' ? whtAmount : 0,
+      attachment,
+      _previousAttachmentStoragePath: embedded && editSale?.attachment?.storagePath ? editSale.attachment.storagePath : null,
     };
 
     const persistSale = async () => {
@@ -286,6 +366,7 @@ export function Sales({ embedded = false, editSale = null, onSaved, onClose }: S
         setBuyerAddress('');
         setAmount('');
         setDesc('');
+        setAttachment(null);
         setCreditNote(false);
         setExemptAmount('');
         setZeroRatedAmount('');
@@ -408,6 +489,27 @@ export function Sales({ embedded = false, editSale = null, onSaved, onClose }: S
           <label className="form-label">Description</label>
           <input type="text" value={desc} onChange={e => setDesc(e.target.value)} placeholder="Optional notes about this transaction" className="form-input" />
         </div>
+        <div className="lg:col-span-4">
+          <label className="form-label flex items-center gap-1"><Paperclip className="w-3.5 h-3.5" /> Attachment</label>
+          <div className="flex items-center gap-2">
+            <label className={`flex-1 cursor-pointer form-input flex items-center gap-2 ${attachmentBusy ? 'opacity-60 pointer-events-none' : ''}`}>
+              {attachmentBusy ? <Upload className="w-4 h-4 animate-pulse" /> : attachment?.type.startsWith('image/') ? <ImageIcon className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
+              <span className="truncate text-xs">{attachmentBusy ? 'Optimizing...' : attachment ? attachment.name : 'Upload image or PDF'}</span>
+              <input type="file" accept="image/*,application/pdf" className="hidden" disabled={attachmentBusy} onChange={async e => {
+                const file = e.target.files?.[0];
+                e.currentTarget.value = '';
+                if (!file) return;
+                if (!file.type.startsWith('image/') && file.type !== 'application/pdf') { alert('Please upload an image or PDF file.'); return; }
+                setAttachmentBusy(true);
+                try { setAttachment(await prepareSaleAttachment(file)); showToast('Attachment optimized and ready to save with the income entry.'); }
+                catch { alert('The attachment could not be processed. Please try another file.'); }
+                finally { setAttachmentBusy(false); }
+              }} />
+            </label>
+            {attachment && <button type="button" onClick={() => setAttachment(null)} className="p-2 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20" title="Remove attachment"><X className="w-4 h-4" /></button>}
+          </div>
+          {attachment && <p className="text-[10px] text-slate-400 mt-1">{(attachment.compressedSize / 1024).toFixed(1)} KB stored · original {(attachment.size / 1024).toFixed(1)} KB</p>}
+        </div>
         <div className="lg:col-span-4 flex items-center gap-2">
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" className="w-4 h-4 rounded accent-rose-500" checked={creditNote} onChange={e => setCreditNote(e.target.checked)} />
@@ -415,7 +517,7 @@ export function Sales({ embedded = false, editSale = null, onSaved, onClose }: S
           </label>
         </div>
         <div className="lg:col-span-4 mt-2 flex gap-3">
-          <button onClick={handleAddSale} className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 rounded-xl transition-colors shadow-sm shadow-emerald-500/20 flex justify-center items-center gap-2">
+          <button onClick={handleAddSale} disabled={attachmentBusy} className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-white font-bold py-3 rounded-xl transition-colors shadow-sm shadow-emerald-500/20 flex justify-center items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
             {embedded ? 'Update Entry' : (<><Plus className="w-5 h-5" /> Add Income Entry</>)}
           </button>
           {embedded && (
