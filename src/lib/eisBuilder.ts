@@ -144,9 +144,8 @@ export function buildBuyer(inv: BillingInvoiceLike): EisBuyer {
 }
 
 // ---------------------------------------------------------------------------
-// Line items — CAPOT invoices are single-line today; preserve the gross amount
-// as one line and tag it with the correct TaxType. Multi-line is supported
-// when `inv.lineItems` is present (future Billing enhancement).
+// Line items — service invoices may contain multiple stored lines. Apply the
+// invoice-level discount proportionally so EIS totals reconcile to Billing.
 // ---------------------------------------------------------------------------
 
 function taxTypeFor(vatType: string): EisTaxType {
@@ -158,17 +157,37 @@ function taxTypeFor(vatType: string): EisTaxType {
 
 export function buildLineItems(inv: BillingInvoiceLike): EisLineItem[] {
   if (Array.isArray((inv as any).lineItems) && (inv as any).lineItems.length > 0) {
-    return (inv as any).lineItems.map((l: any, i: number) => ({
-      NBSeq: i + 1,
-      ItemCode: l.itemCode,
-      ItemDesc: l.description || l.itemDesc || '',
-      Qty: Number(l.qty) || 1,
-      UnitOfMeasure: l.unitOfMeasure,
-      UnitCost: Number(l.unitPrice) || Number(l.unitCost) || 0,
-      Amount: Number(l.amount) || (Number(l.qty) || 1) * (Number(l.unitPrice) || 0),
-      TaxType: taxTypeFor(l.vatType || inv.vatType),
-      TaxRate: taxTypeFor(l.vatType || inv.vatType) === 'V' ? EIS_VAT_RATE : 0,
-    }));
+    const discountPercent = Math.max(0, Math.min(100, Number((inv as any).discountPercent) || 0));
+    const discountFactor = 1 - discountPercent / 100;
+    const lines = (inv as any).lineItems.map((l: any, i: number) => {
+      const qty = Number(l.qty) || 1;
+      const unitPrice = Number(l.unitPrice) || Number(l.unitCost) || 0;
+      const undiscountedAmount = l.amount == null ? qty * unitPrice : Number(l.amount) || 0;
+      return {
+        NBSeq: i + 1,
+        ItemCode: l.itemCode,
+        ItemDesc: l.description || l.itemDesc || '',
+        Qty: qty,
+        UnitOfMeasure: l.unitOfMeasure,
+        UnitCost: Math.round(unitPrice * discountFactor * 100) / 100,
+        Amount: Math.round(undiscountedAmount * discountFactor * 100) / 100,
+        TaxType: taxTypeFor(l.vatType || inv.vatType),
+        TaxRate: taxTypeFor(l.vatType || inv.vatType) === 'V' ? EIS_VAT_RATE : 0,
+      };
+    });
+    // Keep the EIS line total exactly aligned with Billing's saved invoice amount
+    // after per-line cent rounding, which can otherwise create a 0.01 variance.
+    if (lines.length && Number.isFinite(Number((inv as any).amount))) {
+      const target = Math.round(Number((inv as any).amount) * 100) / 100;
+      const current = Math.round(lines.reduce((sum: number, line: any) => sum + line.Amount, 0) * 100) / 100;
+      const adjustment = Math.round((target - current) * 100) / 100;
+      if (adjustment !== 0) {
+        const last = lines[lines.length - 1];
+        last.Amount = Math.round((last.Amount + adjustment) * 100) / 100;
+        if (last.Qty) last.UnitCost = Math.round((last.Amount / last.Qty) * 100) / 100;
+      }
+    }
+    return lines;
   }
   const taxType = taxTypeFor(inv.vatType);
   const gross = Number(inv.amount) || 0;

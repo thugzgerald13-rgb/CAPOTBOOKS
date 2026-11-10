@@ -233,53 +233,117 @@ function drawFooter(doc: jsPDF, tpl: InvoiceTemplate, profile: BusinessProfile |
   if (tpl.footerNote) { doc.setFontSize(8); doc.setTextColor(148, 163, 184); doc.text(tpl.footerNote, margin, y); }
 }
 
-/** Template-aware billing invoice PDF. */
+/** Template-aware billing invoice PDF with service lines, discount and VAT breakdown. */
 export function downloadTemplatedInvoicePdf(inv: BillingInvoice, profile: BusinessProfile | undefined, tpl: InvoiceTemplate) {
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   const pageW = doc.internal.pageSize.getWidth();
+  const pageH = doc.internal.pageSize.getHeight();
   const margin = 48;
-  const bandH = drawHeader(doc, tpl, profile, pageW, margin);
-  let y = bandH + 22;
-  drawDocTitleMeta(doc, tpl, tpl.documentTitle || 'INVOICE', [`Invoice #: ${inv.invoiceNo}`, `Date: ${inv.date}    Due: ${inv.dueDate}`], pageW, margin, y);
+  const tableX = margin;
+  const tableW = pageW - margin * 2;
+  const right = tableX + tableW - 8;
+  const sourceLines = Array.isArray(inv.lineItems) && inv.lineItems.length
+    ? inv.lineItems
+    : [{ description: inv.description || 'Services rendered', qty: 1, unitPrice: Number(inv.amount) || 0, amount: Number(inv.amount) || 0 }];
+  const lineAmount = (line: any) => line.amount == null ? (Number(line.qty) || 0) * (Number(line.unitPrice) || 0) : Number(line.amount) || 0;
+  const subtotal = sourceLines.reduce((sum, line) => sum + lineAmount(line), 0);
+  const discountPercent = Math.max(0, Number(inv.discountPercent) || 0);
+  const discountAmount = Math.max(0, subtotal - Number(inv.amount || 0));
+  let y = drawHeader(doc, tpl, profile, pageW, margin) + 22;
+  const titleBottom = drawDocTitleMeta(doc, tpl, tpl.documentTitle || 'INVOICE', [`Invoice #: ${inv.invoiceNo}`, `Date: ${inv.date}    Due: ${inv.dueDate}`], pageW, margin, y + 2);
+
+  // Buyer block shares the title row horizontally, then content continues below both.
+  let buyerY = y + 2;
   doc.setTextColor(30, 41, 59);
   doc.setFontSize(10); doc.setFont(tpl.fontFamily || 'helvetica', 'bold');
-  doc.text('BILL TO', margin, y);
-  doc.setFont(tpl.fontFamily || 'helvetica', 'normal'); doc.setFontSize(11); y += 16;
-  doc.text(inv.customerName, margin, y); y += 14;
-  if (tpl.showBuyerTin) { doc.text(`TIN: ${inv.customerTin}`, margin, y); y += 14; }
-  if (tpl.showBuyerAddress) { doc.text(inv.customerAddress, margin, y, { maxWidth: pageW - margin * 2 }); y += 24; }
+  doc.text('BILL TO', margin, buyerY); buyerY += 16;
+  doc.setFont(tpl.fontFamily || 'helvetica', 'normal'); doc.setFontSize(10.5);
+  doc.text(inv.customerName || '', margin, buyerY); buyerY += 13;
+  if (tpl.showBuyerTin && inv.customerTin) { doc.text(`TIN: ${inv.customerTin}`, margin, buyerY); buyerY += 13; }
+  if (tpl.showBuyerAddress && inv.customerAddress) {
+    const addressLines = doc.splitTextToSize(inv.customerAddress, tableW * 0.55);
+    doc.text(addressLines, margin, buyerY);
+    buyerY += addressLines.length * 12 + 3;
+  }
+  if (inv.customerEmail) { doc.text(inv.customerEmail, margin, buyerY); buyerY += 13; }
+  y = Math.max(titleBottom, buyerY) + 16;
 
-  const tableX = margin, tableW = pageW - margin * 2;
-  doc.setFillColor(241, 245, 249); doc.rect(tableX, y, tableW, 22, 'F');
-  doc.setFontSize(9); doc.setFont(tpl.fontFamily || 'helvetica', 'bold'); doc.setTextColor(71, 85, 105);
-  doc.text('DESCRIPTION', tableX + 10, y + 14); doc.text('AMOUNT', tableX + tableW - 10, y + 14, { align: 'right' });
-  y += 22;
-  doc.setFont(tpl.fontFamily || 'helvetica', 'normal'); doc.setFontSize(10); doc.setTextColor(30, 41, 59);
-  doc.text(inv.description || 'Services rendered', tableX + 10, y + 16);
-  doc.text(money(inv.amount), tableX + tableW - 10, y + 16, { align: 'right' });
-  y += 30;
-  doc.setDrawColor(226, 232, 240); doc.line(tableX, y, tableX + tableW, y); y += 16;
+  const drawTableHeader = () => {
+    doc.setFillColor(241, 245, 249); doc.rect(tableX, y, tableW, 22, 'F');
+    doc.setFontSize(8); doc.setFont(tpl.fontFamily || 'helvetica', 'bold'); doc.setTextColor(71, 85, 105);
+    doc.text('DESCRIPTION', tableX + 8, y + 14);
+    doc.text('QTY', tableX + tableW - 190, y + 14, { align: 'right' });
+    doc.text('UNIT PRICE', tableX + tableW - 95, y + 14, { align: 'right' });
+    doc.text('AMOUNT', right, y + 14, { align: 'right' });
+    y += 22;
+  };
+  drawTableHeader();
+  doc.setFont(tpl.fontFamily || 'helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(30, 41, 59);
+  for (const line of sourceLines) {
+    const description = String(line.description || '—');
+    const wrapped = doc.splitTextToSize(description, tableW - 245);
+    const rowH = Math.max(20, wrapped.length * 11 + 8);
+    if (y + rowH > pageH - 110) {
+      doc.addPage();
+      y = 52;
+      drawTableHeader();
+      doc.setFont(tpl.fontFamily || 'helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(30, 41, 59);
+    }
+    doc.text(wrapped, tableX + 8, y + 13);
+    doc.text(String(Number(line.qty) || 0), tableX + tableW - 190, y + 13, { align: 'right' });
+    doc.text(money(Number(line.unitPrice) || 0), tableX + tableW - 95, y + 13, { align: 'right' });
+    const amount = line.amount == null ? (Number(line.qty) || 0) * (Number(line.unitPrice) || 0) : Number(line.amount) || 0;
+    doc.text(money(amount), right, y + 13, { align: 'right' });
+    y += rowH;
+    doc.setDrawColor(226, 232, 240); doc.line(tableX, y, tableX + tableW, y);
+  }
+  y += 18;
 
-  const right = tableX + tableW - 10;
-  doc.setFontSize(10);
+  const totals = (label: string, value: number, bold = false) => {
+    if (y > pageH - 130) { doc.addPage(); y = 60; }
+    doc.setFont(tpl.fontFamily || 'helvetica', bold ? 'bold' : 'normal');
+    doc.setFontSize(9.5); doc.setTextColor(51, 65, 85);
+    doc.text(label, right - 155, y, { align: 'right' });
+    doc.text(value < 0 ? `-${money(value)}` : money(value), right, y, { align: 'right' });
+    y += 15;
+  };
   if (tpl.showVatBreakdown !== false) {
-    doc.text(`Subtotal (${inv.vatType})`, right - 140, y, { align: 'right' });
-    doc.text(money(inv.netOfVat ?? inv.amount), right, y, { align: 'right' }); y += 16;
+    totals('Subtotal (VAT-inclusive)', subtotal);
+    if (discountAmount > 0) totals(`Discount (${discountPercent.toFixed(2).replace(/\.00$/, '')}%)`, -discountAmount);
     if (inv.vatType === 'VATable') {
-      doc.text('Output VAT (12%)', right - 140, y, { align: 'right' });
-      doc.text(money(inv.outputTax ?? 0), right, y, { align: 'right' }); y += 16;
+      totals('Net of VAT', Number(inv.netOfVat) || 0);
+      totals('Output VAT (12%)', Number(inv.outputTax) || 0);
+    } else {
+      totals(inv.vatType === 'Zero-Rated' ? 'Zero-rated sales' : 'VAT-exempt sales', Number(inv.amount) || 0);
     }
   }
   const [sr, sg, sb] = hexToRgb(tpl.secondaryColor);
-  doc.setFillColor(sr, sg, sb); doc.rect(tableX, y - 10, tableW, 26, 'F');
-  doc.setFont(tpl.fontFamily || 'helvetica', 'bold'); doc.setFontSize(12);
-  const [pr, pg, pb] = hexToRgb(tpl.primaryColor); doc.setTextColor(pr, pg, pb);
-  doc.text('TOTAL DUE', right - 140, y + 7, { align: 'right' });
+  doc.setFillColor(sr, sg, sb); doc.rect(tableX, y - 10, tableW, 27, 'F');
+  const [pr, pg, pb] = hexToRgb(tpl.primaryColor);
+  doc.setFont(tpl.fontFamily || 'helvetica', 'bold'); doc.setFontSize(12); doc.setTextColor(pr, pg, pb);
+  doc.text('TOTAL DUE', right - 155, y + 7, { align: 'right' });
   doc.text(money(inv.amount), right, y + 7, { align: 'right' });
   y += 40;
-
   drawFooter(doc, tpl, profile, y, margin, pageW);
   doc.save(`invoice-${String(inv.invoiceNo || inv.id).replace(/[^a-z0-9-_]+/gi, '-')}.pdf`);
+}
+
+const htmlEscape = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char] || char));
+
+/** Opens a real browser print dialog for the service invoice. */
+export function printTemplatedInvoice(inv: BillingInvoice, profile: BusinessProfile | undefined, tpl: InvoiceTemplate) {
+  const win = window.open('', '_blank', 'width=1000,height=800');
+  if (!win) throw new Error('The print window was blocked. Allow pop-ups and try again.');
+  const company = tpl.companyNameOverride || profileField(profile, 'tradeName') || profileField(profile, 'registeredName') || profileField(profile, 'name') || 'CAPOT Books';
+  const address = sellerAddress(profile);
+  const contact = sellerContact(profile);
+  const lines = Array.isArray(inv.lineItems) && inv.lineItems.length ? inv.lineItems : [{ description: inv.description || 'Services rendered', qty: 1, unitPrice: Number(inv.amount) || 0 }];
+  const subtotal = lines.reduce((sum, line: any) => sum + (line.amount == null ? (Number(line.qty) || 0) * (Number(line.unitPrice) || 0) : Number(line.amount) || 0), 0);
+  const discount = Math.max(0, subtotal - Number(inv.amount || 0));
+  const lineRows = lines.map((line: any) => { const amount = line.amount == null ? (Number(line.qty) || 0) * (Number(line.unitPrice) || 0) : Number(line.amount) || 0; return `<tr><td>${htmlEscape(line.description || '—')}</td><td class="num">${Number(line.qty) || 0}</td><td class="num">${money(Number(line.unitPrice) || 0)}</td><td class="num">${money(amount)}</td></tr>`; }).join('');
+  const totalRows = `<tr><td colspan="3">Subtotal (VAT-inclusive)</td><td class="num">${money(subtotal)}</td></tr>${discount > 0 ? `<tr><td colspan="3">Discount (${Number(inv.discountPercent || 0)}%)</td><td class="num">-${money(discount)}</td></tr>` : ''}${inv.vatType === 'VATable' ? `<tr><td colspan="3">Net of VAT</td><td class="num">${money(inv.netOfVat)}</td></tr><tr><td colspan="3">Output VAT (12%)</td><td class="num">${money(inv.outputTax)}</td></tr>` : ''}<tr class="grand"><td colspan="3">TOTAL DUE</td><td class="num">${money(inv.amount)}</td></tr>`;
+  win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${htmlEscape(inv.invoiceNo)}</title><style>body{font:12px Arial,sans-serif;color:#1f2937;margin:28px}header{border-bottom:3px double #334155;padding-bottom:14px;margin-bottom:18px;display:flex;justify-content:space-between;gap:20px}.company{font-size:18px;font-weight:bold}.doc{text-align:right}.doc h1{font-size:20px;margin:0 0 8px}.meta{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:18px 0}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{padding:8px;border-bottom:1px solid #d1d5db;text-align:left}th{background:#f1f5f9;text-transform:uppercase;font-size:10px}.num{text-align:right;white-space:nowrap}.totals{width:55%;margin-left:auto}.totals td{border:0}.grand{font-weight:bold;border-top:2px solid #334155}.terms{margin-top:24px;color:#64748b;font-size:10px}@media print{body{margin:12mm}}</style></head><body><header><div><div class="company">${htmlEscape(company)}</div><div>${htmlEscape(address)}</div><div>${htmlEscape(contact)}</div><div>${tpl.showSellerTin !== false ? `TIN: ${htmlEscape(profileField(profile, 'tin'))}` : ''}</div></div><div class="doc"><h1>${htmlEscape(tpl.documentTitle || 'INVOICE')}</h1><div>Invoice #: ${htmlEscape(inv.invoiceNo)}</div><div>Date: ${htmlEscape(inv.date)} · Due: ${htmlEscape(inv.dueDate)}</div></div></header><section class="meta"><div><strong>Bill To</strong><br>${htmlEscape(inv.customerName)}<br>${tpl.showBuyerTin ? `TIN: ${htmlEscape(inv.customerTin)}<br>` : ''}${tpl.showBuyerAddress ? `${htmlEscape(inv.customerAddress)}<br>` : ''}${htmlEscape(inv.customerEmail || '')}</div><div><strong>VAT Type</strong><br>${htmlEscape(inv.vatType)}</div></section><table><thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Unit Price</th><th class="num">Amount</th></tr></thead><tbody>${lineRows}</tbody></table><table class="totals"><tbody>${totalRows}</tbody></table>${tpl.termsAndConditions ? `<div class="terms"><strong>TERMS &amp; CONDITIONS</strong><br>${htmlEscape(tpl.termsAndConditions).replace(/\n/g, '<br>')}</div>` : ''}${tpl.footerNote ? `<div class="terms">${htmlEscape(tpl.footerNote)}</div>` : ''}<script>window.onload=function(){window.focus();window.print();};</script></body></html>`);
+  win.document.close();
 }
 
 /** Structured e-invoice PDF (line items, VAT breakdown, withholding, QR placeholder). */

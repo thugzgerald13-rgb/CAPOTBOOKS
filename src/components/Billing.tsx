@@ -3,12 +3,12 @@ import { useNavigate } from 'react-router-dom';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { formatTIN } from '../lib/utils';
-import { CreditCard, Plus, Trash2, RefreshCw, CheckCircle2, FileDown, Link2, Bell, FileSignature } from 'lucide-react';
+import { CreditCard, Plus, Trash2, RefreshCw, CheckCircle2, FileDown, Link2, Bell, FileSignature, Printer, Mail, ArrowLeft, ArrowRight, Save, Eye, ListChecks } from 'lucide-react';
 import { getTransmissionByInvoice } from '../lib/eisStore';
 import { EmptyState } from './ui/EmptyState';
 import { DEFAULT_CRJ_COLUMNS } from './CashReceiptsJournal';
-import { BillingInvoice, JournalEntry } from '../types';
-import { downloadInvoicePdf, copyPaymentMessage, openPaymentReminderEmail, downloadTemplatedInvoicePdf } from '../lib/invoicePdf';
+import { BillingInvoice, BillingInvoiceLineItem, JournalEntry } from '../types';
+import { copyPaymentMessage, openPaymentReminderEmail, downloadTemplatedInvoicePdf, printTemplatedInvoice } from '../lib/invoicePdf';
 import { toast } from './ui/Toast';
 import { SoaTab } from './SoaTab';
 import { TemplateEditor } from './TemplateEditor';
@@ -28,6 +28,17 @@ function addInterval(dateStr: string, frequency: 'Monthly' | 'Quarterly' | 'Annu
   else d.setFullYear(d.getFullYear() + 1);
   return d.toISOString().split('T')[0];
 }
+
+function addDays(dateStr: string, days: number): string {
+  const d = new Date(`${dateStr}T00:00:00`);
+  d.setDate(d.getDate() + days);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+const money = (value: number) => `₱${(Number(value) || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export function Billing() {
   const { currentClient, currentClientId, saveBillingInvoice, deleteBillingInvoice, saveSale, saveJournalEntry, showToast, businessProfile } = useAccounting();
@@ -62,17 +73,23 @@ export function Billing() {
 
   const today = new Date().toISOString().split('T')[0];
 
-  // Form state
+  // Service invoice workbench state. Invoice line amounts follow the existing
+  // CAPOTBOOKS convention: entered unit prices are VAT-inclusive for VATable invoices.
+  const [invoiceStep, setInvoiceStep] = useState<1 | 2 | 3 | 4>(1);
   const [date, setDate] = useState(today);
-  const [dueDate, setDueDate] = useState(today);
+  const [dueDate, setDueDate] = useState(addDays(today, 14));
   const [invoiceNo, setInvoiceNo] = useState('');
   const [customerTin, setCustomerTin] = useState('');
   const [customerName, setCustomerName] = useState('');
   const [customerAddress, setCustomerAddress] = useState('');
+  const [customerEmail, setCustomerEmail] = useState('');
   const [vatType, setVatType] = useState('VATable');
-  const [amount, setAmount] = useState('');
+  const [lineItems, setLineItems] = useState<BillingInvoiceLineItem[]>([{ id: crypto.randomUUID(), description: '', qty: 1, unitPrice: 0 }]);
+  const [discountPercent, setDiscountPercent] = useState('0');
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurrenceFrequency, setRecurrenceFrequency] = useState<'Monthly' | 'Quarterly' | 'Annually'>('Monthly');
+  const [recordedInvoice, setRecordedInvoice] = useState<BillingInvoice | null>(null);
+  const [isSavingInvoice, setIsSavingInvoice] = useState(false);
 
   const [statusFilter, setStatusFilter] = useState<'All' | 'Outstanding' | 'Overdue' | 'Paid'>('All');
   const [payingId, setPayingId] = useState<string | null>(null);
@@ -89,10 +106,20 @@ export function Billing() {
 
   const invoices = currentClient.billingInvoices || [];
 
-  const grossAmount = parseFloat(amount) || 0;
+  const cleanLineItems = lineItems.map(item => ({
+    ...item,
+    description: item.description.trim(),
+    qty: Math.max(0, Number(item.qty) || 0),
+    unitPrice: Math.max(0, Number(item.unitPrice) || 0),
+  }));
+  const subtotal = cleanLineItems.reduce((sum, item) => sum + Math.round(item.qty * item.unitPrice * 100) / 100, 0);
+  const discountRate = Math.min(100, Math.max(0, Number(discountPercent) || 0));
+  const discountAmount = subtotal * discountRate / 100;
+  const grossAmount = Math.max(0, subtotal - discountAmount);
   const isVatable = vatType === 'VATable';
   const netOfVat = isVatable ? grossAmount / 1.12 : grossAmount;
   const outputTax = isVatable ? grossAmount - netOfVat : 0;
+  const customerDirectory = currentClient?.tinLibrary?.customers || [];
 
   const getStatus = (inv: BillingInvoice): 'Outstanding' | 'Overdue' | 'Paid' => {
     if (inv.status === 'Paid') return 'Paid';
@@ -104,45 +131,152 @@ export function Billing() {
     return getStatus(inv) === statusFilter;
   }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
-  const handleAddInvoice = () => {
+  const handleAddInvoice = async () => {
+    if (isSavingInvoice || recordedInvoice) return;
     if (!canBillingAction('add')) { showToast('Your profile does not have permission to create invoices.'); return; }
     if (!canInvoiceTab) { showToast('Invoice creation is not enabled for your profile.'); return; }
     if (!invoiceNo.trim() || !customerTin.trim() || !customerName.trim() || !customerAddress.trim()) {
-      alert('Invoice #, Customer TIN, Customer Name, and Customer Address are all required.');
+      showToast('Invoice number, customer TIN, name, and address are required.');
+      setInvoiceStep(1);
       return;
     }
-    if (!date || !dueDate || !amount) {
-      alert('Enter date, due date, and amount.');
+    if (!date || !dueDate || dueDate < date) {
+      showToast('Enter valid invoice and due dates. The due date cannot be earlier than the invoice date.');
+      setInvoiceStep(1);
+      return;
+    }
+    if (invoices.some(inv => inv.invoiceNo.trim().toLowerCase() === invoiceNo.trim().toLowerCase())) {
+      showToast('That invoice number already exists. Enter a unique invoice number.');
+      setInvoiceStep(1);
+      return;
+    }
+    const validLines = cleanLineItems.filter(item => item.description && item.qty > 0 && item.unitPrice >= 0);
+    if (!validLines.length || validLines.every(item => item.qty * item.unitPrice <= 0)) {
+      showToast('Add at least one service line with a description, quantity, and unit price greater than zero.');
+      setInvoiceStep(2);
+      return;
+    }
+    if (customerEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail.trim())) {
+      showToast('Enter a valid customer email address or leave it blank.');
+      setInvoiceStep(1);
       return;
     }
 
+    const normalizedLines = validLines.map(item => ({
+      id: item.id || crypto.randomUUID(),
+      description: item.description,
+      qty: item.qty,
+      unitPrice: item.unitPrice,
+      amount: Math.round(item.qty * item.unitPrice * 100) / 100,
+    }));
     const newInvoice: BillingInvoice = {
       id: crypto.randomUUID(),
       date,
       dueDate,
-      invoiceNo,
-      customerTin,
-      customerName,
-      customerAddress,
+      invoiceNo: invoiceNo.trim(),
+      customerTin: customerTin.trim(),
+      customerName: customerName.trim(),
+      customerAddress: customerAddress.trim(),
+      customerEmail: customerEmail.trim() || undefined,
       vatType,
-      amount: grossAmount,
-      netOfVat,
-      outputTax,
+      lineItems: normalizedLines,
+      discountPercent: discountRate,
+      description: normalizedLines.map(item => item.description).join('; '),
+      amount: Math.round(grossAmount * 100) / 100,
+      netOfVat: Math.round(netOfVat * 100) / 100,
+      outputTax: Math.round(outputTax * 100) / 100,
       status: 'Outstanding',
       isRecurring,
-      ...(isRecurring ? { recurrenceFrequency, nextBillingDate: addInterval(date, recurrenceFrequency) } : {})
+      ...(isRecurring ? { recurrenceFrequency, nextBillingDate: addInterval(date, recurrenceFrequency) } : {}),
+      templateId,
     };
 
-    saveBillingInvoice(newInvoice.id, newInvoice).catch((e) => { console.error(e); showToast('Failed to create invoice'); });
+    setIsSavingInvoice(true);
+    try {
+      await saveBillingInvoice(newInvoice.id, newInvoice);
+      setRecordedInvoice(newInvoice);
+      showToast(isRecurring ? 'Recurring service invoice recorded' : 'Service invoice recorded');
+    } catch (error) {
+      console.error(error);
+      showToast('Failed to record service invoice');
+    } finally {
+      setIsSavingInvoice(false);
+    }
+  };
 
-    showToast(isRecurring ? 'Recurring invoice created' : 'Invoice created');
+  const advanceInvoiceStep = () => {
+    if (invoiceStep === 1) {
+      if (!invoiceNo.trim() || !customerTin.trim() || !customerName.trim() || !customerAddress.trim()) {
+        showToast('Complete the invoice number, customer TIN, name, and address first.'); return;
+      }
+      if (!date || !dueDate || dueDate < date) { showToast('Check the invoice date and due date.'); return; }
+      if (customerEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail.trim())) { showToast('Enter a valid customer email address or leave it blank.'); return; }
+      if (invoices.some(inv => inv.invoiceNo.trim().toLowerCase() === invoiceNo.trim().toLowerCase())) { showToast('That invoice number already exists.'); return; }
+      setInvoiceStep(2); return;
+    }
+    if (invoiceStep === 2) {
+      const validLines = cleanLineItems.filter(item => item.description && item.qty > 0 && item.unitPrice >= 0 && item.qty * item.unitPrice > 0);
+      if (!validLines.length) { showToast('Add at least one service line with a description, quantity, and unit price greater than zero.'); return; }
+      setInvoiceStep(3); return;
+    }
+    if (invoiceStep === 3) setInvoiceStep(4);
+  };
 
+  const resetInvoiceForm = () => {
+    const nextToday = new Date().toISOString().split('T')[0];
+    setInvoiceStep(1);
+    setDate(nextToday);
+    setDueDate(addDays(nextToday, 14));
     setInvoiceNo('');
     setCustomerTin('');
     setCustomerName('');
     setCustomerAddress('');
-    setAmount('');
+    setCustomerEmail('');
+    setVatType('VATable');
+    setLineItems([{ id: crypto.randomUUID(), description: '', qty: 1, unitPrice: 0 }]);
+    setDiscountPercent('0');
     setIsRecurring(false);
+    setRecurrenceFrequency('Monthly');
+    setRecordedInvoice(null);
+  };
+
+  const handlePrintNewInvoice = (inv: BillingInvoice) => {
+    if (!canBillingAction('print')) { showToast('Your profile does not have permission to print invoices.'); return; }
+    try { const tpl = inv.templateId && currentClientId ? getTemplate(currentClientId, inv.templateId) : selectedTemplate; printTemplatedInvoice(inv, businessProfile, tpl); }
+    catch (error) { console.error(error); showToast(error instanceof Error ? error.message : 'Could not open the print window'); }
+  };
+
+  const handleEmailNewInvoice = (inv: BillingInvoice) => {
+    if (!canBillingAction('print')) { showToast('Your profile does not have permission to generate invoice PDFs.'); return; }
+    if (!canBillingAction('edit')) { showToast('Your profile does not have permission to email invoices.'); return; }
+    if (!inv.customerEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(inv.customerEmail)) {
+      showToast('Enter and save a valid customer email address before preparing the email.');
+      return;
+    }
+    try {
+      const tpl = inv.templateId && currentClientId ? getTemplate(currentClientId, inv.templateId) : selectedTemplate;
+      downloadTemplatedInvoicePdf(inv, businessProfile, tpl);
+      const subject = encodeURIComponent(`Invoice ${inv.invoiceNo} from ${businessProfile?.tradeName || businessProfile?.registeredName || businessProfile?.name || 'CAPOTBOOKS'}`);
+      const body = encodeURIComponent(`Dear ${inv.customerName},\n\nPlease find the invoice PDF downloaded from CAPOTBOOKS. Attach the downloaded file to this email before sending.\n\nInvoice: ${inv.invoiceNo}\nInvoice date: ${inv.date}\nDue date: ${inv.dueDate}\nAmount due: ${money(inv.amount)}\n\nThank you.`);
+      window.location.href = `mailto:${encodeURIComponent(inv.customerEmail)}?subject=${subject}&body=${body}`;
+      showToast('Invoice PDF downloaded and email draft prepared. Attach the PDF before sending.');
+    } catch (error) { console.error(error); showToast('Failed to prepare invoice email'); }
+  };
+
+  const handleSaveInvoiceEmail = async () => {
+    if (!recordedInvoice) return;
+    if (!customerEmail.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail.trim())) {
+      showToast('Enter a valid customer email address.'); return;
+    }
+    const updated = { ...recordedInvoice, customerEmail: customerEmail.trim() };
+    try {
+      await saveBillingInvoice(updated.id, updated);
+      setRecordedInvoice(updated);
+      showToast('Customer email saved to the invoice');
+    } catch (error) {
+      console.error(error);
+      showToast('Could not save the customer email');
+    }
   };
 
   const handleGenerateNext = (template: BillingInvoice) => {
@@ -243,7 +377,7 @@ export function Billing() {
   // Run 007 / T007 — PDF export, payment link copy, email reminder
   const handleDownloadPdf = (inv: BillingInvoice) => {
     if (!canBillingAction('print')) { showToast('Your profile does not have permission to print invoices.'); return; }
-    try { downloadTemplatedInvoicePdf(inv, businessProfile, selectedTemplate); showToast('Invoice PDF downloaded'); }
+    try { const tpl = inv.templateId && currentClientId ? getTemplate(currentClientId, inv.templateId) : selectedTemplate; downloadTemplatedInvoicePdf(inv, businessProfile, tpl); showToast('Invoice PDF downloaded'); }
     catch { showToast('Failed to generate PDF'); }
   };
   const handleCopyPaymentLink = async (inv: BillingInvoice) => {
@@ -293,70 +427,132 @@ export function Billing() {
 
       {activeTab === 'soa' && canSoaTab && <SoaTab />}
       {activeTab === 'billing' && canInvoiceTab && (<>
-      {canBillingAction('add') && <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-100 dark:border-slate-700">
-        <div>
-          <label className="form-label">Date</label>
-          <YearDropdownDateInput value={date} onChange={value => setDate(value)} className="form-input" />
+      {canBillingAction('add') && <section className="mb-6 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900/30 overflow-hidden">
+        <div className="p-4 md:p-5 border-b border-slate-100 dark:border-slate-800">
+          <div className="flex items-start justify-between gap-3 flex-wrap">
+            <div>
+              <h2 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2"><ListChecks className="w-5 h-5 text-indigo-500" /> Service Invoice Workbench</h2>
+              <p className="text-xs text-slate-500 mt-1">Create a multi-line service invoice, review its totals, then record and deliver it.</p>
+            </div>
+            {recordedInvoice && <span className="text-[10px] font-black uppercase tracking-wider rounded-full px-3 py-1 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">Recorded · {recordedInvoice.invoiceNo}</span>}
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 mt-4">
+            {([
+              [1, 'Customer & Dates'], [2, 'Services Billed'], [3, 'Preview'], [4, 'Record & Send'],
+            ] as const).map(([step, label]) => (
+              <button key={step} type="button" onClick={() => { if (step <= invoiceStep) setInvoiceStep(step as 1 | 2 | 3 | 4); }} disabled={step > invoiceStep}
+                className={`rounded-xl px-3 py-2 text-left border transition ${invoiceStep === step ? 'bg-indigo-600 text-white border-indigo-600' : invoiceStep > step ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-300 dark:border-emerald-900' : 'bg-slate-50 text-slate-400 border-slate-200 dark:bg-slate-800 dark:border-slate-700'} disabled:opacity-60`}>
+                <span className="block text-[9px] font-black uppercase tracking-widest opacity-75">Step {step}</span>
+                <span className="block text-[11px] font-extrabold mt-0.5">{label}</span>
+              </button>
+            ))}
+          </div>
         </div>
-        <div>
-          <label className="form-label">Due Date</label>
-          <YearDropdownDateInput value={dueDate} onChange={value => setDueDate(value)} className="form-input" />
+
+        <div className="p-4 md:p-5">
+          {invoiceStep === 1 && <>
+            <h3 className="text-sm font-black text-slate-800 dark:text-white mb-1">Customer & invoice details</h3>
+            <p className="text-[11px] text-slate-500 mb-4">Choose a saved customer from the TIN Library or enter the buyer details manually.</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div>
+                <label className="form-label">Saved customer</label>
+                <select value={customerDirectory.some(c => c.tin === customerTin) ? customerTin : ''} onChange={e => {
+                  const customer = customerDirectory.find(c => c.tin === e.target.value);
+                  if (customer) { setCustomerTin(formatTIN(customer.tin)); setCustomerName(customer.name); setCustomerAddress(customer.address || ''); }
+                }} className="form-input">
+                  <option value="">Select from TIN Library (optional)</option>
+                  {customerDirectory.map(customer => <option key={customer.id} value={customer.tin}>{customer.name} · {customer.tin}</option>)}
+                </select>
+              </div>
+              <div><label className="form-label">Invoice number <span className="text-rose-500">*</span></label><input type="text" value={invoiceNo} onChange={e => setInvoiceNo(e.target.value)} placeholder="INV-001" className="form-input" /></div>
+              <div><label className="form-label">Invoice date <span className="text-rose-500">*</span></label><YearDropdownDateInput value={date} onChange={setDate} className="form-input" /></div>
+              <div><label className="form-label">Due date <span className="text-rose-500">*</span></label><YearDropdownDateInput value={dueDate} onChange={setDueDate} className="form-input" /></div>
+              <div><label className="form-label">Customer TIN <span className="text-rose-500">*</span></label><input type="text" value={customerTin} onChange={e => setCustomerTin(formatTIN(e.target.value))} placeholder="000-000-000" maxLength={11} className="form-input font-mono" /></div>
+              <div><label className="form-label">Customer name <span className="text-rose-500">*</span></label><input type="text" value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Company / Full Name" className="form-input" /></div>
+              <div className="md:col-span-2"><label className="form-label">Customer address <span className="text-rose-500">*</span></label><input type="text" value={customerAddress} onChange={e => setCustomerAddress(e.target.value)} placeholder="Business / Residential Address" className="form-input" /></div>
+              <div><label className="form-label">Customer email (optional)</label><input type="email" value={customerEmail} onChange={e => setCustomerEmail(e.target.value)} placeholder="customer@example.com" className="form-input" /></div>
+              <div><label className="form-label">VAT classification</label><select value={vatType} onChange={e => setVatType(e.target.value)} className="form-input"><option value="VATable">VATable (12% VAT-inclusive)</option><option value="VAT Exempt">VAT Exempt</option><option value="Zero-Rated">Zero-Rated</option></select></div>
+            </div>
+            <div className="mt-4 rounded-xl bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/50 p-3 text-[11px] text-indigo-800 dark:text-indigo-200">
+              Unit prices entered in the next step are treated as VAT-inclusive for VATable invoices, matching CAPOTBOOKS' existing billing and sales VAT calculations. VAT Exempt and Zero-Rated invoices do not calculate output VAT.
+            </div>
+          </>}
+
+          {invoiceStep === 2 && <>
+            <div className="flex items-start justify-between gap-3 flex-wrap mb-3">
+              <div><h3 className="text-sm font-black text-slate-800 dark:text-white">Services & items billed</h3><p className="text-[11px] text-slate-500 mt-1">Enter a description, quantity, and unit price for each service line.</p></div>
+              <button type="button" onClick={() => setLineItems(items => [...items, { id: crypto.randomUUID(), description: '', qty: 1, unitPrice: 0 }])} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900 px-3 py-2 text-xs font-bold text-emerald-700 dark:text-emerald-300"><Plus className="w-3.5 h-3.5" /> Add service line</button>
+            </div>
+            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
+              <table className="w-full min-w-[650px] text-xs">
+                <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 uppercase tracking-wider text-[9px]"><tr><th className="text-left p-3">Description</th><th className="text-right p-3 w-24">Qty</th><th className="text-right p-3 w-36">Unit price (₱)</th><th className="text-right p-3 w-36">Amount (₱)</th><th className="w-12 p-3"></th></tr></thead>
+                <tbody>{lineItems.map((item, index) => <tr key={item.id || index} className="border-t border-slate-100 dark:border-slate-800">
+                  <td className="p-2"><input aria-label={`Service description ${index + 1}`} value={item.description} onChange={e => setLineItems(items => items.map((row, i) => i === index ? { ...row, description: e.target.value } : row))} placeholder="Service performed / item supplied" className="form-input" /></td>
+                  <td className="p-2"><input aria-label={`Quantity ${index + 1}`} type="number" min="0.01" step="0.01" value={item.qty} onChange={e => setLineItems(items => items.map((row, i) => i === index ? { ...row, qty: Number(e.target.value) } : row))} className="form-input text-right" /></td>
+                  <td className="p-2"><input aria-label={`Unit price ${index + 1}`} type="number" min="0" step="0.01" value={item.unitPrice} onChange={e => setLineItems(items => items.map((row, i) => i === index ? { ...row, unitPrice: Number(e.target.value) } : row))} className="form-input text-right" /></td>
+                  <td className="p-3 text-right font-bold text-slate-800 dark:text-white">{money((Number(item.qty) || 0) * (Number(item.unitPrice) || 0))}</td>
+                  <td className="p-2"><button type="button" disabled={lineItems.length === 1} onClick={() => setLineItems(items => items.filter((_, i) => i !== index))} className="p-2 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 disabled:opacity-30" title="Remove line"><Trash2 className="w-4 h-4" /></button></td>
+                </tr>)}</tbody>
+              </table>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              <div className="space-y-3">
+                <div><label className="form-label">Discount (%)</label><input type="number" min="0" max="100" step="0.01" value={discountPercent} onChange={e => setDiscountPercent(String(Math.min(100, Math.max(0, Number(e.target.value) || 0))))} className="form-input max-w-xs" /></div>
+                <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-600 dark:text-slate-300"><input type="checkbox" className="w-4 h-4 rounded" checked={isRecurring} onChange={e => setIsRecurring(e.target.checked)} /> Recurring billing</label>
+                {isRecurring && <div><label className="form-label">Recurrence frequency</label><select value={recurrenceFrequency} onChange={e => setRecurrenceFrequency(e.target.value as 'Monthly' | 'Quarterly' | 'Annually')} className="form-input max-w-xs"><option value="Monthly">Monthly</option><option value="Quarterly">Quarterly</option><option value="Annually">Annually</option></select></div>}
+              </div>
+              <div className="rounded-xl bg-slate-50 dark:bg-slate-800/70 p-4 space-y-2 text-xs">
+                <div className="flex justify-between"><span className="text-slate-500">Subtotal (VAT-inclusive)</span><strong>{money(subtotal)}</strong></div>
+                <div className="flex justify-between"><span className="text-slate-500">Discount ({discountRate.toFixed(2)}%)</span><strong>- {money(discountAmount)}</strong></div>
+                {isVatable ? <><div className="flex justify-between"><span className="text-slate-500">Net of VAT</span><strong>{money(netOfVat)}</strong></div><div className="flex justify-between"><span className="text-slate-500">Output VAT (12%)</span><strong>{money(outputTax)}</strong></div></> : <div className="text-slate-500">{vatType} · No output VAT</div>}
+                <div className="border-t border-slate-200 dark:border-slate-700 pt-3 flex justify-between text-sm"><strong className="text-slate-800 dark:text-white">TOTAL DUE</strong><strong className="text-indigo-600 dark:text-indigo-300">{money(grossAmount)}</strong></div>
+              </div>
+            </div>
+          </>}
+
+          {invoiceStep === 3 && <>
+            <h3 className="text-sm font-black text-slate-800 dark:text-white mb-1">Invoice preview</h3>
+            <p className="text-[11px] text-slate-500 mb-4">Review the actual customer and service details before recording the invoice.</p>
+            <div className="max-w-4xl mx-auto rounded-xl border border-slate-200 bg-white text-slate-800 p-5 md:p-7 shadow-sm">
+              <div className="flex justify-between gap-5 flex-wrap border-b-2 border-double border-slate-400 pb-4">
+                <div><h4 className="font-black text-lg">{businessProfile?.tradeName || businessProfile?.registeredName || businessProfile?.name || 'CAPOTBOOKS Business'}</h4><p className="text-[10px] text-slate-500">{businessProfile?.address || [businessProfile?.street, businessProfile?.barangay, businessProfile?.city].filter(Boolean).join(', ')}</p><p className="text-[10px] text-slate-500">{businessProfile?.tin ? `TIN: ${businessProfile.tin}` : ''}</p></div>
+                <div className="text-right"><h4 className="font-black text-xl tracking-widest">{selectedTemplate?.documentTitle || 'INVOICE'}</h4><p className="text-xs">{invoiceNo || 'Invoice number not entered'}</p><p className="text-[10px] text-slate-500">Date: {date} · Due: {dueDate}</p></div>
+              </div>
+              <div className="grid grid-cols-2 gap-4 my-5 text-xs"><div><p className="font-black text-[9px] uppercase tracking-widest text-slate-400 mb-1">Bill to</p><p className="font-bold">{customerName || 'Customer name not entered'}</p><p>{customerTin}</p><p>{customerAddress}</p><p>{customerEmail}</p></div><div><p className="font-black text-[9px] uppercase tracking-widest text-slate-400 mb-1">VAT classification</p><p>{vatType}{isVatable ? ' · 12% VAT-inclusive' : ''}</p></div></div>
+              <div className="overflow-x-auto"><table className="w-full text-xs"><thead className="bg-slate-100"><tr><th className="text-left p-2">Description</th><th className="text-right p-2">Qty</th><th className="text-right p-2">Unit price</th><th className="text-right p-2">Amount</th></tr></thead><tbody>{cleanLineItems.filter(item => item.description || item.qty || item.unitPrice).map((item, index) => <tr key={item.id || index} className="border-b border-slate-200"><td className="p-2">{item.description || '—'}</td><td className="p-2 text-right">{item.qty}</td><td className="p-2 text-right">{money(item.unitPrice)}</td><td className="p-2 text-right">{money(item.qty * item.unitPrice)}</td></tr>)}</tbody></table></div>
+              <div className="max-w-xs ml-auto mt-4 space-y-1.5 text-xs"><div className="flex justify-between"><span>Subtotal</span><strong>{money(subtotal)}</strong></div><div className="flex justify-between"><span>Discount ({discountRate.toFixed(2)}%)</span><strong>- {money(discountAmount)}</strong></div>{isVatable && <><div className="flex justify-between"><span>Net of VAT</span><strong>{money(netOfVat)}</strong></div><div className="flex justify-between"><span>Output VAT (12%)</span><strong>{money(outputTax)}</strong></div></>}<div className="border-t-2 border-slate-800 pt-2 flex justify-between text-sm font-black"><span>TOTAL DUE</span><span>{money(grossAmount)}</span></div></div>
+              <p className="text-center text-[9px] text-slate-400 mt-7 border-t border-slate-200 pt-3">Generated from CAPOTBOOKS billing records. This document is not proof of payment.</p>
+            </div>
+            <div className="mt-3 text-[10px] text-slate-500">Template: {selectedTemplate?.name || 'Standard'} · Terms and conditions follow the selected invoice template. No separate invoice note field is shown.</div>
+          </>}
+
+          {invoiceStep === 4 && <>
+            <h3 className="text-sm font-black text-slate-800 dark:text-white mb-1">Record & deliver invoice</h3>
+            <p className="text-[11px] text-slate-500 mb-4">Record the invoice first. Then download the PDF, open the browser print dialog, or prepare an email draft.</p>
+            {!recordedInvoice ? <div className="rounded-xl border border-indigo-200 dark:border-indigo-900 bg-indigo-50 dark:bg-indigo-950/20 p-4">
+              <div className="text-xs text-indigo-800 dark:text-indigo-200 mb-3"><strong>Ready to record:</strong> {invoiceNo || 'Invoice number pending'} · {customerName || 'Customer pending'} · {money(grossAmount)} total due.</div>
+              <button type="button" onClick={handleAddInvoice} disabled={isSavingInvoice} className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 text-xs font-black disabled:opacity-60"><Save className="w-4 h-4" /> {isSavingInvoice ? 'Recording…' : 'Record invoice'}</button>
+            </div> : <>
+              <div className="rounded-xl border border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/20 p-4 mb-4"><div className="font-black text-sm text-emerald-800 dark:text-emerald-200">Invoice {recordedInvoice.invoiceNo} recorded</div><div className="text-xs text-emerald-700 dark:text-emerald-300 mt-1">{recordedInvoice.customerName} · {money(recordedInvoice.amount)} · Due {recordedInvoice.dueDate}</div></div>
+              <div className="flex flex-col sm:flex-row sm:items-end gap-2 mb-4">
+                <div className="flex-1"><label className="form-label">Customer email for delivery</label><input type="email" value={customerEmail || recordedInvoice.customerEmail || ''} onChange={e => setCustomerEmail(e.target.value)} placeholder="customer@example.com" className="form-input" /></div>
+                <button type="button" onClick={handleSaveInvoiceEmail} className="rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">Save recipient</button>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <button type="button" onClick={() => handleDownloadPdf(recordedInvoice)} className="rounded-xl border border-indigo-200 dark:border-indigo-900 bg-indigo-50 dark:bg-indigo-950/20 p-4 text-left hover:border-indigo-400"><FileDown className="w-5 h-5 text-indigo-600 mb-2" /><span className="block text-xs font-black">Save as PDF</span><span className="block text-[10px] text-slate-500 mt-1">Download customer invoice</span></button>
+                <button type="button" onClick={() => handlePrintNewInvoice(recordedInvoice)} className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 p-4 text-left hover:border-slate-400"><Printer className="w-5 h-5 text-slate-600 dark:text-slate-300 mb-2" /><span className="block text-xs font-black">Print</span><span className="block text-[10px] text-slate-500 mt-1">Open browser print dialog</span></button>
+                <button type="button" onClick={() => handleEmailNewInvoice(recordedInvoice)} className="rounded-xl border border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/20 p-4 text-left hover:border-emerald-400"><Mail className="w-5 h-5 text-emerald-600 mb-2" /><span className="block text-xs font-black">Email customer</span><span className="block text-[10px] text-slate-500 mt-1">Prepare email with PDF download</span></button>
+              </div>
+              <button type="button" onClick={resetInvoiceForm} className="mt-4 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 text-xs font-black">Create another invoice</button>
+            </>}
+          </>}
+
+          <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3">
+            <button type="button" onClick={() => setInvoiceStep(step => Math.max(1, step - 1) as 1 | 2 | 3 | 4)} disabled={invoiceStep === 1 || !!recordedInvoice} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2 text-xs font-bold text-slate-600 dark:text-slate-300 disabled:opacity-30"><ArrowLeft className="w-3.5 h-3.5" /> Back</button>
+            {invoiceStep < 4 && <button type="button" onClick={advanceInvoiceStep} className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 text-xs font-black">{invoiceStep === 2 ? 'Preview invoice' : invoiceStep === 3 ? 'Record & send' : 'Next'} <ArrowRight className="w-3.5 h-3.5" /></button>}
+          </div>
         </div>
-        <div>
-          <label className="form-label">Invoice # <span className="text-rose-500">*</span></label>
-          <input type="text" value={invoiceNo} onChange={e => setInvoiceNo(e.target.value)} placeholder="INV-001" required className="form-input" />
-        </div>
-        <div>
-          <label className="form-label">Customer TIN <span className="text-rose-500">*</span></label>
-          <input type="text" value={customerTin} onChange={e => setCustomerTin(formatTIN(e.target.value))} placeholder="000-000-000" required className="form-input font-mono" maxLength={11} />
-        </div>
-        <div className="lg:col-span-2">
-          <label className="form-label">Customer Name <span className="text-rose-500">*</span></label>
-          <input type="text" value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Company / Full Name" required className="form-input" />
-        </div>
-        <div className="lg:col-span-2">
-          <label className="form-label">Customer Address <span className="text-rose-500">*</span></label>
-          <input type="text" value={customerAddress} onChange={e => setCustomerAddress(e.target.value)} placeholder="Business / Residential Address" required className="form-input" />
-        </div>
-        <div>
-          <label className="form-label">VAT / Exempt / 0-Rated</label>
-          <select value={vatType} onChange={e => setVatType(e.target.value)} className="form-input">
-            <option value="VATable">VATable</option>
-            <option value="VAT Exempt">VAT Exempt</option>
-            <option value="Zero-Rated">Zero-Rated</option>
-          </select>
-        </div>
-        <div>
-          <label className="form-label">Amount (₱)</label>
-          <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" className="form-input" />
-        </div>
-        <div>
-          <label className="form-label">Net of VAT</label>
-          <input type="text" readOnly value={netOfVat.toLocaleString(undefined, { minimumFractionDigits: 2 })} className="form-input bg-slate-100 dark:bg-slate-900/60 text-slate-500 cursor-not-allowed" />
-        </div>
-        <div>
-          <label className="form-label">VAT</label>
-          <input type="text" readOnly value={outputTax.toLocaleString(undefined, { minimumFractionDigits: 2 })} className="form-input bg-slate-100 dark:bg-slate-900/60 text-slate-500 cursor-not-allowed" />
-        </div>
-        <div className="lg:col-span-2 flex items-end gap-3">
-          <label className="flex items-center gap-2 cursor-pointer mb-2.5">
-            <input type="checkbox" className="w-4 h-4 rounded" checked={isRecurring} onChange={e => setIsRecurring(e.target.checked)} />
-            <span className="text-xs font-bold text-slate-600 dark:text-slate-400">Recurring billing</span>
-          </label>
-          {isRecurring && (
-            <select value={recurrenceFrequency} onChange={e => setRecurrenceFrequency(e.target.value as any)} className="form-input">
-              <option value="Monthly">Monthly</option>
-              <option value="Quarterly">Quarterly</option>
-              <option value="Annually">Annually</option>
-            </select>
-          )}
-        </div>
-        <div className="lg:col-span-4 mt-2">
-          <button onClick={handleAddInvoice} className="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-3 rounded-xl transition-colors shadow-sm shadow-indigo-500/20 flex justify-center items-center gap-2">
-            <Plus className="w-5 h-5" /> Create Invoice
-          </button>
-        </div>
-      </div>}
+      </section>}
 
       <div className="flex items-center gap-2 mb-4">
         <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Filter:</label>
@@ -423,6 +619,7 @@ export function Billing() {
                   {canBillingAction('print') && <button onClick={() => handleDownloadPdf(inv)} className="text-xs text-slate-600 dark:text-slate-300 font-bold border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 transition flex items-center gap-1.5">
                     <FileDown className="w-3.5 h-3.5" /> PDF
                   </button>}
+                  {inv.customerEmail && canBillingAction('edit') && canBillingAction('print') && <button onClick={() => handleEmailNewInvoice(inv)} className="text-xs text-emerald-700 dark:text-emerald-400 font-bold border border-emerald-200 dark:border-emerald-800 rounded-lg px-3 py-1.5 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 transition flex items-center gap-1.5"><Mail className="w-3.5 h-3.5" /> Email</button>}
                   {canEInvoiceTab && <button onClick={() => navigate('/eis-center')} className="text-xs text-violet-700 dark:text-violet-400 font-bold border border-violet-200 dark:border-violet-800 rounded-lg px-3 py-1.5 hover:bg-violet-50 dark:hover:bg-violet-950/20 transition flex items-center gap-1.5" title="Build & transmit this invoice as a BIR e-invoice (EIS)">
                     <FileSignature className="w-3.5 h-3.5" /> EIS
                   </button>}

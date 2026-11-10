@@ -94,6 +94,14 @@ export interface CoaAccount {
   [key: string]: any;
 }
 
+export interface BillingInvoiceLineItem {
+  id?: string;
+  description: string;
+  qty: number;
+  unitPrice: number;
+  amount?: number;
+}
+
 export interface BillingInvoice {
   id: string;
   date: string;
@@ -102,7 +110,10 @@ export interface BillingInvoice {
   customerTin: string;
   customerName: string;
   customerAddress: string;
+  customerEmail?: string;
   vatType: string;
+  lineItems?: BillingInvoiceLineItem[];
+  discountPercent?: number;
   amount: number;
   netOfVat: number;
   outputTax: number;
@@ -485,6 +496,9 @@ export interface GeneralLedgerEntry {
   // Human-readable label for where an auto-posted entry came from, e.g.
   // "Cash Receipts Journal". Undefined for manually-entered entries.
   autoSource?: string;
+  // Party metadata used by customer/supplier subsidiary ledgers and aging reports.
+  partyType?: 'customer' | 'supplier';
+  partyName?: string;
 }
 
 export interface GeneralLedgerAccount {
