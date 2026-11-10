@@ -28,7 +28,7 @@ export const PAID_MODULES: ModuleDef[] = [
     id: 'accounting_books',
     label: 'Accounting Books & Ledgers',
     tagline: 'Formal books, journals and ledger balances',
-    includes: ['General Journal', 'General Ledger', 'Trial Balance', 'Journal Vouchers', 'Sales, purchase and cash journals', 'Accounting-book exports'],
+    includes: ['General Journal', 'General Ledger', 'Subsidiary General Ledger', 'Trial Balance', 'Journal Vouchers', 'Sales, purchase and cash journals', 'Accounting-book exports'],
     monthly: 349,
   },
   {

@@ -185,6 +185,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   const bookItems = [
     { id: 'journal', label: 'General Journal', icon: BookText },
     { id: 'ledger', label: 'General Ledger', icon: LineChart },
+    { id: 'subsidiary-ledger', label: 'Subsidiary General Ledger', icon: Users },
     { id: 'sales-journal', label: 'Sales Journal', icon: Receipt },
     { id: 'purchase-journal', label: 'Purchase Journal', icon: ShoppingCart },
     { id: 'cash-disbursement', label: 'Cash Disbursement Book', icon: CreditCard },
@@ -211,6 +212,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     { label: 'Cash Flow', pageId: 'cashflow', icon: Wallet, keywords: 'cash flow statement' },
     { label: 'General Journal', pageId: 'journal', icon: BookText, keywords: 'general journal gj book' },
     { label: 'General Ledger', pageId: 'ledger', icon: LineChart, keywords: 'general ledger gl book' },
+    { label: 'Subsidiary General Ledger', pageId: 'subsidiary-ledger', icon: Users, keywords: 'subsidiary ledger customer supplier accounts receivable payable sl' },
     { label: 'Sales Journal', pageId: 'sales-journal', icon: Receipt, keywords: 'sales journal book' },
     { label: 'Purchase Journal', pageId: 'purchase-journal', icon: ShoppingCart, keywords: 'purchase journal book' },
     { label: 'Cash Disbursement Book', pageId: 'cash-disbursement', icon: CreditCard, keywords: 'cash disbursement cdb book' },
@@ -262,6 +264,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
       case 'books':
       case 'journal':
       case 'ledger':
+      case 'subsidiary-ledger':
       case 'afs-financial-position':
       case 'afs-income-statements':
       case 'afs-equity-retained-earnings':
@@ -822,7 +825,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               title={isCollapsed ? "Books" : undefined}
               className={cn(
                 "flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl transition-all w-full text-left group",
-                (isBooksOpen || ['journal','ledger','sales-journal','purchase-journal','cash-disbursement','cash-receipt'].includes(activePage)) ? "bg-cyan-50 text-cyan-700 dark:bg-cyan-900/20 dark:text-cyan-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
+                (isBooksOpen || ['journal','ledger','subsidiary-ledger','sales-journal','purchase-journal','cash-disbursement','cash-receipt'].includes(activePage)) ? "bg-cyan-50 text-cyan-700 dark:bg-cyan-900/20 dark:text-cyan-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
                 !canAny('view_reports', 'edit_transactions') && 'hidden',
                 isCollapsed && "md:justify-center md:px-2"
               )}

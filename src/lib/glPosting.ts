@@ -194,7 +194,8 @@ function makeLeg(
   date: string,
   particulars: string,
   ref: string,
-  sourceLabel: string
+  sourceLabel: string,
+  party?: { name: string; type: 'customer' | 'supplier' }
 ): GeneralLedgerEntry {
   return {
     id: key,
@@ -208,6 +209,7 @@ function makeLeg(
     credit: side === 'credit' ? fmt(amount) : '',
     auto: true,
     autoSource: sourceLabel,
+    ...(party?.name?.trim() ? { partyName: party.name.trim(), partyType: party.type } : {}),
   };
 }
 
@@ -262,9 +264,21 @@ function postColumnarJournal(
 
       const side: 'debit' | 'credit' = col.category === 'Dr' ? 'debit' : 'credit';
       const key = `${opts.prefix}:${entry.id}:${col.id}`;
+      const accountLabel = String(account.name || '').toLowerCase();
+      const partyName = [
+        values.customer_name, values.customerName, values.buyer_name, values.buyerName,
+        values.supplier_name, values.supplierName, values.payor, values.payee,
+        values.payee_name, values.payeeName,
+      ].map(value => String(value ?? '').trim()).find(Boolean) || '';
+      const partyType = /receivable|debtors?/.test(accountLabel)
+        ? 'customer' as const
+        : /payable|creditors?/.test(accountLabel)
+          ? 'supplier' as const
+          : undefined;
+      const party = partyType && partyName ? { name: partyName, type: partyType } : undefined;
       postings.push({
         accountId: account.id,
-        entry: makeLeg(key, side, amount, date, particulars, ref, opts.sourceLabel),
+        entry: makeLeg(key, side, amount, date, particulars, ref, opts.sourceLabel, party),
       });
     });
   });
@@ -302,9 +316,13 @@ function postCdjSundry(entries: JournalEntry[], accounts: CoaAccount[]): Posting
     if (!account) return;
 
     const side: 'debit' | 'credit' = amount > 0 ? 'debit' : 'credit';
+    const accountLabel = String(account.name || '').toLowerCase();
+    const party = /payable|creditors?/.test(accountLabel) && particulars
+      ? { name: particulars, type: 'supplier' as const }
+      : undefined;
     postings.push({
       accountId: account.id,
-      entry: makeLeg(`cdj:${entry.id}:sundry`, side, Math.abs(amount), date, particulars, '', 'Cash Disbursements Journal'),
+      entry: makeLeg(`cdj:${entry.id}:sundry`, side, Math.abs(amount), date, particulars, '', 'Cash Disbursements Journal', party),
     });
   });
 
@@ -652,7 +670,8 @@ function postPurchases(client: Client, accounts: CoaAccount[]): Posting[] {
       if (creditAcct) {
         postings.push({
           accountId: creditAcct.id,
-          entry: makeLeg(`purchase:${p.id}:credit`, 'credit', cashDue, p.date, particulars, ref, 'Purchases'),
+          entry: makeLeg(`purchase:${p.id}:credit`, 'credit', cashDue, p.date, particulars, ref, 'Purchases',
+            isOnAccount && p.supplierName ? { name: p.supplierName, type: 'supplier' } : undefined),
         });
       }
     }
@@ -697,7 +716,8 @@ function postCheckVouchers(client: Client, accounts: CoaAccount[]): Posting[] {
       if (debitAcct) {
         postings.push({
           accountId: debitAcct.id,
-          entry: makeLeg(`check-voucher:${v.id}:dr`, 'debit', amount, v.date, particulars, ref, 'Check Voucher'),
+          entry: makeLeg(`check-voucher:${v.id}:dr`, 'debit', amount, v.date, particulars, ref, 'Check Voucher',
+            v.paymentType === 'Invoice Clearance' && particulars ? { name: particulars, type: 'supplier' } : undefined),
         });
       }
       if (cashAccount) {
@@ -837,7 +857,8 @@ function postManualPurchasesJournal(entries: JournalEntry[], columns: JournalCol
       if (apAcct) {
         postings.push({
           accountId: apAcct.id,
-          entry: makeLeg(`pj:${entry.id}:ap`, 'credit', ap, date, particulars, ref, 'Purchases Journal'),
+          entry: makeLeg(`pj:${entry.id}:ap`, 'credit', ap, date, particulars, ref, 'Purchases Journal',
+            v.supplier_name ? { name: String(v.supplier_name), type: 'supplier' } : undefined),
         });
       }
     }
@@ -1184,7 +1205,8 @@ export function computeAutoPostings(client: Client): Posting[] {
       if (acct) {
         sjPostings.push({
           accountId: acct.id,
-          entry: makeLeg(`sj:${entry.id}:ar`, 'debit', ar, date, particulars, ref, 'Sales Journal'),
+          entry: makeLeg(`sj:${entry.id}:ar`, 'debit', ar, date, particulars, ref, 'Sales Journal',
+            v.customer_name ? { name: String(v.customer_name), type: 'customer' } : undefined),
         });
       }
     }

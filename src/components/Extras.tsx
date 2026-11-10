@@ -1743,6 +1743,22 @@ export function Extras() {
              <span className="text-indigo-600 opacity-0 group-hover:opacity-100 transition-opacity">Open →</span>
            </button>
            <button 
+             onClick={() => navigateToPage('subsidiary-ledger')}
+             className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:border-violet-500 transition-all group"
+           >
+             <div className="flex items-center gap-4">
+               <div className="p-2 bg-violet-50 dark:bg-violet-900/30 rounded-lg">
+                 <Users className="text-violet-600 w-5 h-5" />
+               </div>
+               <div className="text-left">
+                 <div className="font-bold text-slate-800 dark:text-slate-200">Subsidiary General Ledger</div>
+                 <div className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Customer Receivables &amp; Supplier Payables</div>
+               </div>
+             </div>
+             <span className="text-violet-600 opacity-0 group-hover:opacity-100 transition-opacity">Open →</span>
+           </button>
+
+           <button 
              onClick={() => navigateToPage('sales-journal')}
              className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:border-emerald-500 transition-all group"
            >
@@ -1806,10 +1822,6 @@ export function Extras() {
              <span className="text-rose-600 opacity-0 group-hover:opacity-100 transition-opacity">Open →</span>
            </button>
 
-           <div className="p-6 text-center bg-slate-50 dark:bg-slate-800/30 rounded-2xl border-2 border-dashed border-slate-200 dark:border-slate-700">
-             <BookOpen className="w-8 h-8 mx-auto mb-2 text-slate-300" />
-             <p className="text-xs text-slate-500 font-medium italic">Subsidiary ledgers (e.g. Accounts Receivable, Accounts Payable) will appear here as you expand your accounting system.</p>
-           </div>
          </div>
       </div>
         </div>

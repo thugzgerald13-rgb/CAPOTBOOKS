@@ -485,6 +485,10 @@ export interface GeneralLedgerEntry {
   // Human-readable label for where an auto-posted entry came from, e.g.
   // "Cash Receipts Journal". Undefined for manually-entered entries.
   autoSource?: string;
+  // Optional party reference for customer/supplier subsidiary ledgers. These
+  // are regenerated from the source journals together with auto postings.
+  partyName?: string;
+  partyType?: 'customer' | 'supplier';
 }
 
 export interface GeneralLedgerAccount {
