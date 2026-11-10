@@ -361,7 +361,11 @@ export function downloadSoaPdf(soa: SoaRecord, profile: BusinessProfile | undefi
   const margin = 48;
   const bandH = drawHeader(doc, tpl, profile, pageW, margin);
   let y = bandH + 22;
-  drawDocTitleMeta(doc, tpl, tpl.documentTitle || 'STATEMENT OF ACCOUNT', [`Period: ${soa.periodFrom} to ${soa.periodTo}`, `Generated: ${soa.generatedAt.slice(0, 10)}`], pageW, margin, y);
+  const statementTitle = soa.statementType === 'activity' ? 'ACCOUNT ACTIVITY STATEMENT' : soa.statementType === 'invoice' ? 'INVOICE STATEMENT' : (tpl.documentTitle || 'STATEMENT OF ACCOUNT');
+  const statementMeta = soa.statementType === 'activity'
+    ? [`Period: ${soa.periodFrom} to ${soa.periodTo}`, `Generated: ${soa.generatedAt.slice(0, 10)}`]
+    : [`Statement date: ${soa.statementDate || soa.periodTo}`, `Generated: ${soa.generatedAt.slice(0, 10)}`];
+  drawDocTitleMeta(doc, tpl, statementTitle, statementMeta, pageW, margin, y);
   doc.setTextColor(30, 41, 59);
   doc.setFontSize(10); doc.setFont(tpl.fontFamily || 'helvetica', 'bold');
   doc.text('CLIENT', margin, y);
@@ -381,10 +385,12 @@ export function downloadSoaPdf(soa: SoaRecord, profile: BusinessProfile | undefi
   doc.text('BALANCE', tableX + tableW - 8, y + 14, { align: 'right' });
   y += 22;
   doc.setFont(tpl.fontFamily || 'helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(30, 41, 59);
-  doc.setFont(tpl.fontFamily || 'helvetica', 'italic');
-  doc.text('Opening balance', tableX + 8, y + 14);
-  doc.text(money(soa.openingBalance), tableX + tableW - 8, y + 14, { align: 'right' });
-  y += 20;
+  if (soa.statementType === 'activity' || soa.openingBalance !== 0) {
+    doc.setFont(tpl.fontFamily || 'helvetica', 'italic');
+    doc.text('Opening balance', tableX + 8, y + 14);
+    doc.text(money(soa.openingBalance), tableX + tableW - 8, y + 14, { align: 'right' });
+    y += 20;
+  }
   doc.setFont(tpl.fontFamily || 'helvetica', 'normal');
   for (const l of soa.lines) {
     doc.text(l.date, tableX + 8, y + 14);
@@ -404,6 +410,19 @@ export function downloadSoaPdf(soa: SoaRecord, profile: BusinessProfile | undefi
   doc.text('CLOSING BALANCE', tableX + tableW - 130, y + 7, { align: 'right' });
   doc.text(money(soa.closingBalance), tableX + tableW - 8, y + 7, { align: 'right' });
   y += 40;
+
+  if ((soa.financeCharges || 0) > 0) {
+    doc.setFont(tpl.fontFamily || 'helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(71, 85, 105);
+    doc.text(`Finance charges: ${money(soa.financeCharges || 0)}${soa.financeChargeRate ? ` (${soa.financeChargeRate}% one-time statement calculation)` : ''}. Not posted to the General Ledger.`, margin, y, { maxWidth: pageW - margin * 2 });
+    y += 18;
+  }
+  if (soa.zeroBalanceCustomers?.length) {
+    doc.setFont(tpl.fontFamily || 'helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(71, 85, 105);
+    doc.text('ZERO-BALANCE CUSTOMERS', margin, y); y += 11;
+    doc.setFont(tpl.fontFamily || 'helvetica', 'normal');
+    const zeroLines = doc.splitTextToSize(soa.zeroBalanceCustomers.join(', '), pageW - margin * 2);
+    doc.text(zeroLines, margin, y); y += zeroLines.length * 10 + 6;
+  }
 
   drawFooter(doc, tpl, profile, y, margin, pageW);
   doc.save(`soa-${soa.clientName.replace(/[^a-z0-9]+/gi, '-')}-${soa.periodFrom}.pdf`);
