@@ -18,6 +18,8 @@ import type { InvoiceTemplate } from '../types';
 import { Pencil } from 'lucide-react';
 import { useGranularPermissions } from '../lib/useGranularPermissions';
 import { YearDropdownDateInput } from './ui/YearDropdownDateInput';
+import { Modal } from './ui/Modal';
+import { UserPlus } from 'lucide-react';
 
 const CASH_RECEIPT_PAYMENT_TYPES = ['Cash', 'Check', 'E-Payment', 'Bank Transfer'];
 
@@ -41,10 +43,11 @@ function addDays(dateStr: string, days: number): string {
 const money = (value: number) => `₱${(Number(value) || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export function Billing() {
-  const { currentClient, currentClientId, saveBillingInvoice, deleteBillingInvoice, saveSale, saveJournalEntry, showToast, businessProfile } = useAccounting();
+  const { currentClient, currentClientId, saveBillingInvoice, deleteBillingInvoice, saveSale, saveJournalEntry, saveTinEntry, showToast, businessProfile } = useAccounting();
   const navigate = useNavigate();
   const { canAction: canBillingAction, canDropdownOption: canBillingDropdown } = useGranularPermissions('billing');
   const { canAction: canEisAction } = useGranularPermissions('eis_center');
+  const { canAction: canTinLibraryAction } = useGranularPermissions('tinlibrary');
   const billingPaymentOptions = [
     { value: 'Cash', label: 'Cash', permission: 'cash' },
     { value: 'Check', label: 'Check', permission: 'check' },
@@ -90,6 +93,12 @@ export function Billing() {
   const [recurrenceFrequency, setRecurrenceFrequency] = useState<'Monthly' | 'Quarterly' | 'Annually'>('Monthly');
   const [recordedInvoice, setRecordedInvoice] = useState<BillingInvoice | null>(null);
   const [isSavingInvoice, setIsSavingInvoice] = useState(false);
+  const [newCustomerOpen, setNewCustomerOpen] = useState(false);
+  const [newCustomerTin, setNewCustomerTin] = useState('');
+  const [newCustomerName, setNewCustomerName] = useState('');
+  const [newCustomerAddress, setNewCustomerAddress] = useState('');
+  const [newCustomerEmail, setNewCustomerEmail] = useState('');
+  const [isSavingNewCustomer, setIsSavingNewCustomer] = useState(false);
 
   const [statusFilter, setStatusFilter] = useState<'All' | 'Outstanding' | 'Overdue' | 'Paid'>('All');
   const [payingId, setPayingId] = useState<string | null>(null);
@@ -130,6 +139,79 @@ export function Billing() {
     if (statusFilter === 'All') return true;
     return getStatus(inv) === statusFilter;
   }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+  const openNewCustomer = () => {
+    if (!canTinLibraryAction('add')) {
+      showToast('Your profile does not have permission to add customers to the TIN Library.');
+      return;
+    }
+    setNewCustomerTin('');
+    setNewCustomerName('');
+    setNewCustomerAddress('');
+    setNewCustomerEmail('');
+    setNewCustomerOpen(true);
+  };
+
+  const handleCreateCustomer = async () => {
+    if (isSavingNewCustomer) return;
+    if (!canTinLibraryAction('add')) {
+      showToast('Your profile does not have permission to add customers to the TIN Library.');
+      return;
+    }
+    const formattedTin = formatTIN(newCustomerTin);
+    const tinDigits = formattedTin.replace(/\D/g, '');
+    const name = newCustomerName.trim();
+    const address = newCustomerAddress.trim();
+    const email = newCustomerEmail.trim();
+
+    if (tinDigits.length !== 9) {
+      showToast('Enter a valid 9-digit customer TIN.');
+      return;
+    }
+    if (!name || !address) {
+      showToast('Customer name and address are required.');
+      return;
+    }
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      showToast('Enter a valid customer email address or leave it blank.');
+      return;
+    }
+
+    const existingCustomer = customerDirectory.find(customer => String(customer.tin || '').replace(/\D/g, '') === tinDigits);
+    if (existingCustomer) {
+      setCustomerTin(formatTIN(existingCustomer.tin));
+      setCustomerName(existingCustomer.name);
+      setCustomerAddress(existingCustomer.address || '');
+      setCustomerEmail(email);
+      setNewCustomerOpen(false);
+      showToast('This customer is already in the TIN Library and has been selected.');
+      return;
+    }
+
+    const customerEntry = {
+      // Stable TIN-based ID prevents duplicate customer master records on retry.
+      id: `tin_customer_${tinDigits}`,
+      tin: formattedTin,
+      name,
+      address,
+    };
+
+    setIsSavingNewCustomer(true);
+    try {
+      await saveTinEntry(customerEntry, 'customer');
+      setCustomerTin(formattedTin);
+      setCustomerName(name);
+      setCustomerAddress(address);
+      setCustomerEmail(email);
+      setNewCustomerOpen(false);
+      showToast('New customer saved to TIN Library and selected for this invoice.');
+    } catch (error) {
+      console.error('Could not save new billing customer to TIN Library:', error);
+      showToast('Unable to save the new customer. Check your TIN Library permissions and connection.');
+    } finally {
+      setIsSavingNewCustomer(false);
+    }
+  };
 
   const handleAddInvoice = async () => {
     if (isSavingInvoice || recordedInvoice) return;
@@ -456,13 +538,24 @@ export function Billing() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               <div>
                 <label className="form-label">Saved customer</label>
-                <select value={customerDirectory.some(c => c.tin === customerTin) ? customerTin : ''} onChange={e => {
-                  const customer = customerDirectory.find(c => c.tin === e.target.value);
-                  if (customer) { setCustomerTin(formatTIN(customer.tin)); setCustomerName(customer.name); setCustomerAddress(customer.address || ''); }
-                }} className="form-input">
-                  <option value="">Select from TIN Library (optional)</option>
-                  {customerDirectory.map(customer => <option key={customer.id} value={customer.tin}>{customer.name} · {customer.tin}</option>)}
-                </select>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <select value={customerDirectory.some(c => c.tin === customerTin) ? customerTin : ''} onChange={e => {
+                    const customer = customerDirectory.find(c => c.tin === e.target.value);
+                    if (customer) {
+                      setCustomerTin(formatTIN(customer.tin));
+                      setCustomerName(customer.name);
+                      setCustomerAddress(customer.address || '');
+                      setCustomerEmail('');
+                    }
+                  }} className="form-input min-w-0 flex-1">
+                    <option value="">Select from TIN Library (optional)</option>
+                    {customerDirectory.map(customer => <option key={customer.id} value={customer.tin}>{customer.name} · {customer.tin}</option>)}
+                  </select>
+                  {canTinLibraryAction('add') && <button type="button" onClick={openNewCustomer} className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/30 px-3 py-2 text-xs font-bold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-950/50 transition">
+                    <UserPlus className="w-3.5 h-3.5" /> Add New Customer
+                  </button>}
+                </div>
+                <p className="mt-1.5 text-[10px] text-slate-500">New customers are saved to TIN Library and selected automatically for this invoice.</p>
               </div>
               <div><label className="form-label">Invoice number <span className="text-rose-500">*</span></label><input type="text" value={invoiceNo} onChange={e => setInvoiceNo(e.target.value)} placeholder="INV-001" className="form-input" /></div>
               <div><label className="form-label">Invoice date <span className="text-rose-500">*</span></label><YearDropdownDateInput value={date} onChange={setDate} className="form-input" /></div>
@@ -648,6 +741,44 @@ export function Billing() {
         })}
       </div>
       </>)}
+      <Modal
+        open={newCustomerOpen}
+        onClose={() => { if (!isSavingNewCustomer) setNewCustomerOpen(false); }}
+        title="Add new customer"
+        description="Register the customer in the TIN Library and use the details on this invoice."
+        size="lg"
+        closeOnBackdrop={!isSavingNewCustomer}
+        closeOnEscape={!isSavingNewCustomer}
+        footer={(
+          <>
+            <button type="button" onClick={() => setNewCustomerOpen(false)} disabled={isSavingNewCustomer} className="rounded-lg border border-slate-300 dark:border-slate-600 px-4 py-2 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 disabled:opacity-50">Cancel</button>
+            <button type="button" onClick={handleCreateCustomer} disabled={isSavingNewCustomer} className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-xs font-bold text-white hover:bg-indigo-700 disabled:opacity-50">
+              {isSavingNewCustomer ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <UserPlus className="w-3.5 h-3.5" />}
+              {isSavingNewCustomer ? 'Saving customer…' : 'Save & Select Customer'}
+            </button>
+          </>
+        )}
+      >
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label className="form-label">Customer TIN <span className="text-rose-500">*</span></label>
+            <input type="text" value={newCustomerTin} onChange={e => setNewCustomerTin(formatTIN(e.target.value))} placeholder="000-000-000" maxLength={11} autoFocus className="form-input font-mono" />
+          </div>
+          <div>
+            <label className="form-label">Customer name <span className="text-rose-500">*</span></label>
+            <input type="text" value={newCustomerName} onChange={e => setNewCustomerName(e.target.value)} placeholder="Registered customer / business name" className="form-input" />
+          </div>
+          <div className="md:col-span-2">
+            <label className="form-label">Customer address <span className="text-rose-500">*</span></label>
+            <input type="text" value={newCustomerAddress} onChange={e => setNewCustomerAddress(e.target.value)} placeholder="Complete registered address" className="form-input" />
+          </div>
+          <div className="md:col-span-2">
+            <label className="form-label">Customer email (optional)</label>
+            <input type="email" value={newCustomerEmail} onChange={e => setNewCustomerEmail(e.target.value)} placeholder="customer@example.com" className="form-input" />
+            <p className="mt-1 text-[10px] text-slate-500">Email will be saved on this invoice. TIN Library stores the customer's TIN, name, and address.</p>
+          </div>
+        </div>
+      </Modal>
       <TemplateEditor open={editorOpen} onClose={() => setEditorOpen(false)} clientId={currentClientId!} docType="billing"
         editing={editingTpl}
         onSave={(tpl) => { if (!canBillingAction('edit')) { showToast('Your profile does not have permission to edit billing templates.'); return; } import('../lib/invoiceTemplates').then(m => { m.saveTemplate(currentClientId!, tpl); setTemplateId(tpl.id); showToast('Template saved'); }); }}
