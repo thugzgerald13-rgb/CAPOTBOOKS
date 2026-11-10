@@ -71,6 +71,7 @@ export const ROUTE_PERMISSIONS: Record<string, Permission> = {
   '/journal': 'view_reports',        // General Journal — posted entries, read-only view
   '/ledger': 'view_reports',         // General Ledger — read-only register
   '/subsidiary-ledger': 'view_reports', // Subsidiary General Ledger — read-only register
+  '/aging-reports': 'view_reports', // Accounts Receivable / Payable aging — read-only report
   '/history': 'view_reports',
   '/trialbalance': 'view_reports',
   '/balancesheet': 'view_reports',
@@ -154,6 +155,7 @@ const FEATURE_ALLOWED_PAGE_IDS: ReadonlySet<string> = new Set([
   'journal',
   'ledger',
   'subsidiary-ledger',
+  'aging-reports',
   'trialbalance',
   'sales-journal',
   'purchase-journal',

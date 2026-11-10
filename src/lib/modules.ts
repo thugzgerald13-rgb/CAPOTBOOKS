@@ -28,7 +28,7 @@ export const PAID_MODULES: ModuleDef[] = [
     id: 'accounting_books',
     label: 'Accounting Books & Ledgers',
     tagline: 'Formal books, journals and ledger balances',
-    includes: ['General Journal', 'General Ledger', 'Subsidiary General Ledger', 'Trial Balance', 'Journal Vouchers', 'Sales, purchase and cash journals', 'Accounting-book exports'],
+    includes: ['General Journal', 'General Ledger', 'Subsidiary General Ledger', 'A/R & A/P Aging Reports', 'Trial Balance', 'Journal Vouchers', 'Sales, purchase and cash journals', 'Accounting-book exports'],
     monthly: 349,
   },
   {
@@ -213,7 +213,7 @@ export function orderFromSelection(selection: ModuleId[], cycle: BillingCycle): 
 // Route -> module. Anything not listed here is Core (never locked).
 // ---------------------------------------------------------------------------
 const ROUTE_MODULES: [RegExp, ModuleId][] = [
-  [/^\/(journal-voucher|journal|ledger|trialbalance|sales-journal|purchase-journal|cash-receipt|cash-disbursement|books)$/, 'accounting_books'],
+  [/^\/(journal-voucher|journal|ledger|aging-reports|trialbalance|sales-journal|purchase-journal|cash-receipt|cash-disbursement|books)$/, 'accounting_books'],
   [/^\/(pl|balancesheet|cashflow|assetlapsing|reports)$/, 'reports'],
   [/^\/afs-(financial-position|income-statements|equity-retained-earnings|ppe)$/, 'reports'],
   [/^\/billing$/, 'billing'],

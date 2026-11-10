@@ -37,6 +37,7 @@ const SalesJournal = lazy(() => import('./components/SalesJournal').then(m => ({
 const GeneralJournal = lazy(() => import('./components/GeneralJournal').then(m => ({ default: m.GeneralJournal })));
 const GeneralLedger = lazy(() => import('./components/GeneralLedger').then(m => ({ default: m.GeneralLedger })));
 const SubsidiaryGeneralLedger = lazy(() => import('./components/SubsidiaryGeneralLedger').then(m => ({ default: m.SubsidiaryGeneralLedger })));
+const AgingReports = lazy(() => import('./components/AgingReports').then(m => ({ default: m.AgingReports })));
 const ProfitAndLoss = lazy(() => import('./components/ProfitAndLoss').then(m => ({ default: m.ProfitAndLoss })));
 const BalanceSheet = lazy(() => import('./components/BalanceSheet').then(m => ({ default: m.BalanceSheet })));
 const CashFlow = lazy(() => import('./components/CashFlow').then(m => ({ default: m.CashFlow })));
@@ -234,6 +235,7 @@ function AppLayout() {
             <Route path="/journal" element={<GeneralJournal />} />
             <Route path="/ledger" element={<GeneralLedger />} />
             <Route path="/subsidiary-ledger" element={<SubsidiaryGeneralLedger />} />
+            <Route path="/aging-reports" element={<AgingReports />} />
             <Route path="/pl" element={<ProfitAndLoss />} />
             {/* AFS Draft entries currently use the existing report components.
                 Explicit routes prevent navigation to these sidebar entries from

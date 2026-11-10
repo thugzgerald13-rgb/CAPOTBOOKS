@@ -3,7 +3,7 @@ import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { usePermission } from '../lib/teamPermissions';
 import { useAuth } from '../context/AuthContext';
-import { Users, TrendingUp, Key, Lightbulb, BookOpen, BookText, LineChart, Scale, Plus, Building2, Save, X, RotateCcw, Library, FileText, Receipt, ShoppingCart, Banknote, Wallet, CreditCard, Trash2, Pencil, Upload, Loader2, CheckCircle2, AlertTriangle, FileImage } from 'lucide-react';
+import { Users, TrendingUp, Key, Lightbulb, BookOpen, BookText, LineChart, Scale, Plus, Building2, Save, X, RotateCcw, Library, FileText, Receipt, ShoppingCart, Banknote, Wallet, CreditCard, Trash2, Pencil, Upload, Loader2, CheckCircle2, AlertTriangle, FileImage, Clock3 } from 'lucide-react';
 import { Client, BusinessProfile, ClientIndustry, VatRegistrationType, TaxpayerSubClassification, TaxpayerSizeTier, IncomeTaxRegime, DeductionMethod } from '../types';
 import { RDO_CODES } from '../lib/utils';
 import { resolveBusinessWorkflow, computeBusinessTax, computeIncomeTaxByRegime } from '../lib/taxEngine';
@@ -14,8 +14,10 @@ import { findAccountByLabel, syncGeneralLedger } from '../lib/glPosting';
 import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide } from './ChartOfAccounts';
 import { DEFAULT_INDUSTRY, INDUSTRY_OPTIONS, getDefaultAccountsForIndustry, isNominalAccountType, glOpeningBalance } from '../lib/journalDefaults';
 import { parseBirCorDocument, BirCorExtractionResult } from '../lib/birCorParser';
+import { isFeatureVisible, useFeatureVisibility } from '../lib/featureVisibility';
 
 export function Extras() {
+  useFeatureVisibility();
   const canManageSettings = usePermission('manage_settings');
 
   const { 
@@ -34,7 +36,7 @@ export function Extras() {
     saveFile,
     saveFolder,
   } = useAccounting();
-  const { userRole, isSubuser } = useAuth();
+  const { userRole, isSubuser, isAdmin } = useAuth();
   // Standalone Accountant/Bookkeeper accounts own their workspace and must be
   // able to maintain the Business Owner client profile created by an accepted
   // professional invitation. Team subusers remain subject to their granted
@@ -1757,6 +1759,22 @@ export function Extras() {
              </div>
              <span className="text-violet-600 opacity-0 group-hover:opacity-100 transition-opacity">Open →</span>
            </button>
+
+           {(isAdmin || isFeatureVisible('aging-reports')) && <button 
+             onClick={() => navigateToPage('aging-reports')}
+             className="flex items-center justify-between p-4 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl hover:border-cyan-500 transition-all group"
+           >
+             <div className="flex items-center gap-4">
+               <div className="p-2 bg-cyan-50 dark:bg-cyan-900/30 rounded-lg">
+                 <Clock3 className="text-cyan-600 w-5 h-5" />
+               </div>
+               <div className="text-left">
+                 <div className="font-bold text-slate-800 dark:text-slate-200">A/R &amp; A/P Aging Reports</div>
+                 <div className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Current, 31–60, 61–90 &amp; 90+ days</div>
+               </div>
+             </div>
+             <span className="text-cyan-600 opacity-0 group-hover:opacity-100 transition-opacity">Open →</span>
+           </button>}
 
            <button 
              onClick={() => navigateToPage('sales-journal')}

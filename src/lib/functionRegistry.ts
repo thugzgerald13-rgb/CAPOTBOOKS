@@ -34,6 +34,7 @@ export const FUNCTIONS: AppFunction[] = [
   { id: 'journal', label: 'General Journal', description: 'General journal book', group: 'Books', pageIds: ['journal'] },
   { id: 'ledger', label: 'General Ledger', description: 'General ledger by account', group: 'Books', pageIds: ['ledger'] },
   { id: 'subsidiary-ledger', label: 'Subsidiary General Ledger', description: 'Customer receivable and supplier payable subsidiary ledger', group: 'Books', pageIds: ['subsidiary-ledger'] },
+  { id: 'aging-reports', label: 'A/R & A/P Aging Reports', description: 'Age unpaid customer receivables and supplier payables', group: 'Books', pageIds: ['aging-reports'] },
   { id: 'sales-journal', label: 'Sales Journal', description: 'Sales journal book', group: 'Books', pageIds: ['sales-journal'] },
   { id: 'purchase-journal', label: 'Purchase Journal', description: 'Purchase journal book', group: 'Books', pageIds: ['purchase-journal'] },
   { id: 'cash-disbursement', label: 'Cash Disbursement Book', description: 'Cash disbursements journal', group: 'Books', pageIds: ['cash-disbursement'] },
