@@ -1,9 +1,9 @@
 // SoaTab.tsx — Statement of Account. Generated from billing invoices + payments.
-// NOT for BIR EIS. Only the E-Invoice tab feeds EIS.
+// SOA is a client-facing statement; EIS transmission remains separate.
 import { useMemo, useState } from 'react';
 import { useAccounting } from '../context/AccountingContext';
 import { Field, Input, Select, Button, EmptyState } from './ui';
-import { FileDown, Pencil, FileText } from 'lucide-react';
+import { FileDown, Pencil } from 'lucide-react';
 import type { SoaRecord, SoaLine, InvoiceTemplate, BillingInvoice } from '../types';
 import { listTemplatesFor, getTemplate } from '../lib/invoiceTemplates';
 import { downloadSoaPdf } from '../lib/invoicePdf';
@@ -79,11 +79,6 @@ export function SoaTab() {
             </div>
           </Field>
         </div>
-      </div>
-
-      <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-950/30 dark:border-amber-800 p-3 text-xs text-amber-900 dark:text-amber-200 flex items-start gap-2">
-        <FileText className="w-4 h-4 mt-0.5 shrink-0" />
-        <div><strong>Statement of Account is not transmitted to BIR.</strong> It is a client-facing summary of outstanding balances for a period. Only structured E-Invoices feed the EIS.</div>
       </div>
 
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-2xl p-5 space-y-4">

@@ -10,7 +10,6 @@ import { DEFAULT_CRJ_COLUMNS } from './CashReceiptsJournal';
 import { BillingInvoice, JournalEntry } from '../types';
 import { downloadInvoicePdf, copyPaymentMessage, openPaymentReminderEmail, downloadTemplatedInvoicePdf } from '../lib/invoicePdf';
 import { toast } from './ui/Toast';
-import { EInvoiceTab } from './EInvoiceTab';
 import { SoaTab } from './SoaTab';
 import { TemplateEditor } from './TemplateEditor';
 import { listTemplatesFor, getTemplate } from '../lib/invoiceTemplates';
@@ -72,15 +71,14 @@ export function Billing() {
   const [customerAddress, setCustomerAddress] = useState('');
   const [vatType, setVatType] = useState('VATable');
   const [amount, setAmount] = useState('');
-  const [description, setDescription] = useState('');
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurrenceFrequency, setRecurrenceFrequency] = useState<'Monthly' | 'Quarterly' | 'Annually'>('Monthly');
 
   const [statusFilter, setStatusFilter] = useState<'All' | 'Outstanding' | 'Overdue' | 'Paid'>('All');
   const [payingId, setPayingId] = useState<string | null>(null);
   const [payPaymentType, setPayPaymentType] = useState('Cash');
-  // Tabs: billing invoice (NOT for EIS) / e-invoice (feeds EIS) / SOA (NOT for EIS)
-  const [activeTab, setActiveTab] = useState<'billing' | 'e-invoice' | 'soa'>('billing');
+  // The E-Invoice tab is intentionally hidden; EIS actions remain available where permitted.
+  const [activeTab, setActiveTab] = useState<'billing' | 'soa'>('billing');
   const [templateId, setTemplateId] = useState<string>('builtin-standard-blue');
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingTpl, setEditingTpl] = useState<InvoiceTemplate | null>(null);
@@ -130,7 +128,6 @@ export function Billing() {
       amount: grossAmount,
       netOfVat,
       outputTax,
-      description,
       status: 'Outstanding',
       isRecurring,
       ...(isRecurring ? { recurrenceFrequency, nextBillingDate: addInterval(date, recurrenceFrequency) } : {})
@@ -145,7 +142,6 @@ export function Billing() {
     setCustomerName('');
     setCustomerAddress('');
     setAmount('');
-    setDescription('');
     setIsRecurring(false);
   };
 
@@ -267,23 +263,19 @@ export function Billing() {
     return 'text-amber-700 bg-amber-50 border-amber-200 dark:text-amber-300 dark:bg-amber-950/30 dark:border-amber-900';
   };
 
-  const outstandingTotal = invoices.filter(i => getStatus(i) !== 'Paid').reduce((s, i) => s + i.amount, 0);
-
   return (
     <div className="w-full flex flex-col">
       <PageHeader title="Billing" icon={<CreditCard className="w-5 h-5 text-indigo-500" />} />
       <div className="p-4 md:p-6 flex-1">
-      {/* Tab navigation — only E-Invoice feeds BIR EIS */}
+      {/* Billing and SOA tabs */}
       <div className="flex items-center justify-between gap-3 flex-wrap mb-5">
         <div className="flex gap-1 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
           {([
-            ['billing', 'Billing Invoice', false, canInvoiceTab],
-            ['e-invoice', 'E-Invoice (EIS)', true, canEInvoiceTab],
-            ['soa', 'SOA', false, canSoaTab],
-          ] as const).filter(([, , , allowed]) => allowed).map(([key, label, isEis]) => (
-            <button key={key} onClick={() => setActiveTab(key)} className={`px-4 py-2 rounded-lg text-xs font-bold transition flex items-center gap-1.5 ${activeTab === key ? (isEis ? 'bg-emerald-600 text-white shadow' : 'bg-indigo-600 text-white shadow') : 'text-slate-600 dark:text-slate-300 hover:text-indigo-600'}`}>
+            ['billing', 'Billing Invoice', canInvoiceTab],
+            ['soa', 'SOA', canSoaTab],
+          ] as const).filter(([, , allowed]) => allowed).map(([key, label]) => (
+            <button key={key} onClick={() => setActiveTab(key)} className={`px-4 py-2 rounded-lg text-xs font-bold transition ${activeTab === key ? 'bg-indigo-600 text-white shadow' : 'text-slate-600 dark:text-slate-300 hover:text-indigo-600'}`}>
               {label}
-              {isEis && <span className={`text-[8px] px-1.5 py-0.5 rounded-full font-black ${activeTab === key ? 'bg-white/20 text-white' : 'bg-emerald-100 text-emerald-700'}`}>EIS</span>}
             </button>
           ))}
         </div>
@@ -299,18 +291,8 @@ export function Billing() {
         )}
       </div>
 
-      {activeTab === 'e-invoice' && canEInvoiceTab && <EInvoiceTab />}
       {activeTab === 'soa' && canSoaTab && <SoaTab />}
       {activeTab === 'billing' && canInvoiceTab && (<>
-      <div className="bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded-2xl mb-6 border border-indigo-100 dark:border-indigo-800 flex justify-between items-center">
-        <span className="font-bold text-indigo-700 dark:text-indigo-400">Total Outstanding (incl. Overdue)</span>
-        <span className="text-xl font-extrabold text-indigo-600 dark:text-indigo-400">₱{outstandingTotal.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-      </div>
-      <div className="rounded-lg border border-slate-200 bg-slate-50 dark:bg-slate-800/50 dark:border-slate-700 p-3 mb-4 text-xs text-slate-600 dark:text-slate-300 flex items-start gap-2">
-        <span className="font-bold shrink-0">Note:</span>
-        <span>Billing invoices are demand-for-payment documents and are <strong>not</strong> transmitted to BIR. For BIR E-Invoicing (EIS), use the <strong className="text-emerald-600">E-Invoice (EIS)</strong> tab — only structured e-invoices qualify under RMC 98-2026.</span>
-      </div>
-
       {canBillingAction('add') && <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-100 dark:border-slate-700">
         <div>
           <label className="form-label">Date</label>
@@ -369,10 +351,6 @@ export function Billing() {
             </select>
           )}
         </div>
-        <div className="lg:col-span-4">
-          <label className="form-label">Description</label>
-          <input type="text" value={description} onChange={e => setDescription(e.target.value)} placeholder="Optional notes about this invoice" className="form-input" />
-        </div>
         <div className="lg:col-span-4 mt-2">
           <button onClick={handleAddInvoice} className="w-full bg-indigo-500 hover:bg-indigo-600 text-white font-bold py-3 rounded-xl transition-colors shadow-sm shadow-indigo-500/20 flex justify-center items-center gap-2">
             <Plus className="w-5 h-5" /> Create Invoice
@@ -419,7 +397,6 @@ export function Billing() {
                     <div className="text-[10px] text-slate-500 mt-1">
                       Issued {inv.date} · Due {inv.dueDate} · TIN {inv.customerTin}
                     </div>
-                    {inv.description && <div className="text-[10px] text-slate-400 italic mt-0.5">"{inv.description}"</div>}
                   </div>
                 </div>
                 <div className="text-right shrink-0">
