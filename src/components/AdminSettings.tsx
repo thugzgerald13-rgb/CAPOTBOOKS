@@ -8,7 +8,7 @@ import { Client } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { loadAuditLog, ALL_PERMISSIONS, ROLES, can } from '../lib/accessControl';
 import { FEATURE_FLAGS, getFlags, setFeatureFlag, buildBackup, parseBackup } from '../lib/featureFlags';
-import { FEATURE_VISIBILITY_ITEMS, loadFeatureVisibility, saveFeatureVisibility, useFeatureVisibility } from '../lib/featureVisibility';
+import { FEATURE_VISIBILITY_ITEMS, loadGlobalFeatureVisibility, saveFeatureVisibility, useFeatureVisibility, loadDeveloperFeatureRules, saveDeveloperFeatureRule, type FeatureAccessRule, type FeatureRuleScope } from '../lib/featureVisibility';
 import { supabase } from '../lib/supabase';
 import packageJson from '../../package.json';
 import { AccountHealthMonitor } from './AccountHealthMonitor';
@@ -24,6 +24,7 @@ interface UserProfile {
   updatedAt?: any;
   approved?: boolean;
   blocked?: boolean;
+  subscriptionPlan?: string;
 }
 
 type AdminTab = 'users' | 'diagnostics';
@@ -716,12 +717,18 @@ export function AdminSettings() {
   useFeatureVisibility();
   const [featureVisibility, setFeatureVisibility] = useState<Record<string, boolean>>({});
   const [featureVisibilitySaving, setFeatureVisibilitySaving] = useState(false);
+  const [featureAccessRules, setFeatureAccessRules] = useState<FeatureAccessRule[]>([]);
+  const [featureAccessRulesLoading, setFeatureAccessRulesLoading] = useState(false);
+  const [featureAccessRulesSaving, setFeatureAccessRulesSaving] = useState(false);
+  const [featureAccessRulesError, setFeatureAccessRulesError] = useState('');
+  const [featureRuleScope, setFeatureRuleScope] = useState<FeatureRuleScope>('plan');
+  const [selectedFeaturePlan, setSelectedFeaturePlan] = useState('free');
+  const [selectedFeatureUser, setSelectedFeatureUser] = useState('');
   useEffect(() => {
     let active = true;
-    loadFeatureVisibility(true).then(() => {
-      if (!active) return;
-      try { setFeatureVisibility(JSON.parse(localStorage.getItem('capot.developerFeatureVisibility') || '{}')); } catch { setFeatureVisibility({}); }
-    });
+    loadGlobalFeatureVisibility()
+      .then(settings => { if (active) setFeatureVisibility(settings); })
+      .catch(error => console.warn('[Feature visibility] Could not load global settings:', error));
     return () => { active = false; };
   }, []);
   const toggleVisibleFeature = async (id: string) => {
@@ -730,6 +737,56 @@ export function AdminSettings() {
     try { await saveFeatureVisibility(next); setFeatureVisibility(next); }
     catch (error) { alert(`Could not save feature visibility: ${error instanceof Error ? error.message : String(error)}`); }
     finally { setFeatureVisibilitySaving(false); }
+  };
+  useEffect(() => {
+    if (!isAdmin) return;
+    let active = true;
+    setFeatureAccessRulesLoading(true);
+    loadDeveloperFeatureRules()
+      .then(rows => { if (active) { setFeatureAccessRules(rows); setFeatureAccessRulesError(''); } })
+      .catch(error => { if (active) setFeatureAccessRulesError(error instanceof Error ? error.message : String(error)); })
+      .finally(() => { if (active) setFeatureAccessRulesLoading(false); });
+    return () => { active = false; };
+  }, [isAdmin]);
+
+  const featurePlanOptions = useMemo(() => {
+    const labels: Record<string, string> = {
+      free: 'Free / Trial', starter: 'Starter', pro: 'Pro', enterprise: 'Enterprise',
+      essentials: 'Business Essentials', retail: 'Retail & Trading', practice: 'Accountant Practice',
+    };
+    const keys = new Set(['free', 'starter', 'pro', 'enterprise']);
+    users.forEach(user => { if (user.subscriptionPlan) keys.add(user.subscriptionPlan.trim().toLowerCase()); });
+    return [...keys].filter(Boolean).sort((a, b) => a === 'free' ? -1 : b === 'free' ? 1 : a.localeCompare(b)).map(value => ({
+      value,
+      label: labels[value] || value.replace(/[-_]/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase()),
+    }));
+  }, [users]);
+
+  const selectedFeatureTarget = featureRuleScope === 'plan'
+    ? selectedFeaturePlan
+    : selectedFeatureUser;
+  const selectedFeatureUserProfile = users.find(user => user.uid === selectedFeatureUser);
+  const getFeatureRule = (scope: FeatureRuleScope, key: string, featureId: string) =>
+    featureAccessRules.find(rule => rule.scope_type === scope && rule.scope_key === key && rule.feature_id === featureId);
+
+  const changeTargetedFeatureRule = async (featureId: string, value: string) => {
+    if (!selectedFeatureTarget) return;
+    const enabled = value === 'inherit' ? null : value === 'enabled';
+    setFeatureAccessRulesSaving(true);
+    setFeatureAccessRulesError('');
+    try {
+      await saveDeveloperFeatureRule(featureRuleScope, selectedFeatureTarget, featureId, enabled);
+      setFeatureAccessRules(current => [
+        ...current.filter(rule => !(rule.scope_type === featureRuleScope && rule.scope_key === selectedFeatureTarget && rule.feature_id === featureId)),
+        ...(enabled === null ? [] : [{ scope_type: featureRuleScope, scope_key: selectedFeatureTarget, feature_id: featureId, enabled } as FeatureAccessRule]),
+      ]);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setFeatureAccessRulesError(message);
+      alert(`Could not save targeted feature access: ${message}`);
+    } finally {
+      setFeatureAccessRulesSaving(false);
+    }
   };
   const [flags, setFlags] = useState<Record<string, boolean>>(() => getFlags());
   const toggleFlag = (key: string) => { const v = !flags[key]; setFeatureFlag(key, v); setFlags(getFlags()); };
@@ -767,7 +824,7 @@ export function AdminSettings() {
     try {
       const { data, error } = await supabase
         .from('profiles')
-        .select('id, email, display_name, user_role, last_login, updated_at, approved, blocked')
+        .select('id, email, display_name, user_role, last_login, updated_at, approved, blocked, subscription_plan')
         .order('updated_at', { ascending: false });
       if (error) throw error;
       const userList = (data || []).map((row) => ({
@@ -779,8 +836,10 @@ export function AdminSettings() {
         updatedAt: row.updated_at,
         approved: !!row.approved,
         blocked: !!row.blocked,
+        subscriptionPlan: row.subscription_plan || 'free',
       })) as UserProfile[];
       setUsers(userList);
+      setSelectedFeatureUser(current => current || userList[0]?.uid || '');
     } catch (err) {
       console.error("Error fetching users:", err);
     } finally {
@@ -1114,6 +1173,85 @@ export function AdminSettings() {
                 ))}
               </div>
             </div>
+
+            {/* Plan-level and per-user developer feature rules */}
+            <section className="rounded-xl border border-indigo-200 dark:border-indigo-900 bg-white dark:bg-slate-900 p-4 mb-6">
+              <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+                <div>
+                  <div className="text-xs font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-300">Targeted Feature Controls</div>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Enable or disable individual pages for a subscription plan or a specific account. User rules override plan rules. A feature hidden globally remains hidden for everyone except the developer.</p>
+                </div>
+                <span className="text-[10px] text-slate-400">{featureAccessRulesLoading ? 'Loading rules…' : featureAccessRulesSaving ? 'Saving rule…' : `${featureAccessRules.length} targeted rules`}</span>
+              </div>
+
+              <div className="grid sm:grid-cols-3 gap-3 mb-4">
+                <label className="block text-xs font-bold text-slate-600 dark:text-slate-300">
+                  Apply rules to
+                  <select className="form-input w-full mt-1" value={featureRuleScope} onChange={event => setFeatureRuleScope(event.target.value as FeatureRuleScope)} disabled={featureAccessRulesSaving}>
+                    <option value="plan">Subscription plan</option>
+                    <option value="user">Specific user</option>
+                  </select>
+                </label>
+                {featureRuleScope === 'plan' ? (
+                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 sm:col-span-2">
+                    Subscription plan
+                    <select className="form-input w-full mt-1" value={selectedFeaturePlan} onChange={event => setSelectedFeaturePlan(event.target.value)} disabled={featureAccessRulesSaving}>
+                      {featurePlanOptions.map(plan => <option key={plan.value} value={plan.value}>{plan.label}</option>)}
+                    </select>
+                  </label>
+                ) : (
+                  <label className="block text-xs font-bold text-slate-600 dark:text-slate-300 sm:col-span-2">
+                    User account
+                    <select className="form-input w-full mt-1" value={selectedFeatureUser} onChange={event => setSelectedFeatureUser(event.target.value)} disabled={featureAccessRulesSaving || !users.length}>
+                      <option value="">Select a registered user</option>
+                      {users.map(user => <option key={user.uid} value={user.uid}>{user.email} · {user.subscriptionPlan || 'free'}</option>)}
+                    </select>
+                  </label>
+                )}
+              </div>
+
+              {featureRuleScope === 'user' && selectedFeatureUserProfile && (
+                <div className="text-[10px] text-slate-500 dark:text-slate-400 mb-3">Account plan: <strong>{selectedFeatureUserProfile.subscriptionPlan || 'free'}</strong>. Features not overridden for this user inherit the plan rule, then the global setting.</div>
+              )}
+
+              {featureAccessRulesError && <div className="rounded-lg bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900 text-amber-800 dark:text-amber-300 text-[11px] p-3 mb-3">{featureAccessRulesError}. Run <code>scripts/developer_feature_access_rules.sql</code> in Supabase SQL Editor, then refresh this page.</div>}
+
+              <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                {[...new Set(FEATURE_VISIBILITY_ITEMS.map(item => item.group))].map(group => (
+                  <div key={group} className="rounded-lg border border-slate-100 dark:border-slate-800 p-3">
+                    <div className="text-[10px] font-black uppercase tracking-wider text-slate-500 mb-2">{group}</div>
+                    <div className="space-y-2">
+                      {FEATURE_VISIBILITY_ITEMS.filter(item => item.group === group).map(item => {
+                        const directRule = getFeatureRule(featureRuleScope, selectedFeatureTarget, item.id);
+                        const planKey = featureRuleScope === 'user' ? (selectedFeatureUserProfile?.subscriptionPlan || 'free').toLowerCase() : selectedFeaturePlan;
+                        const planRule = featureRuleScope === 'user' ? getFeatureRule('plan', planKey, item.id) : undefined;
+                        const globalAllowed = featureVisibility[item.id] !== false;
+                        const effectiveAllowed = globalAllowed && (directRule?.enabled ?? planRule?.enabled ?? true);
+                        const source = !globalAllowed ? 'Global lock' : directRule ? (featureRuleScope === 'user' ? 'User override' : 'Plan rule') : planRule ? 'Plan rule' : 'Global default';
+                        const selectedValue = directRule ? (directRule.enabled ? 'enabled' : 'disabled') : 'inherit';
+                        return (
+                          <div key={item.id} className="rounded-md border border-slate-100 dark:border-slate-800 px-2 py-2">
+                            <div className="flex items-center justify-between gap-2 mb-1">
+                              <span className="text-[11px] font-semibold text-slate-700 dark:text-slate-200">{item.label}</span>
+                              <span className={`text-[9px] font-bold ${effectiveAllowed ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'}`}>{effectiveAllowed ? 'ENABLED' : 'DISABLED'}</span>
+                            </div>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[9px] text-slate-400">{source}</span>
+                              <select aria-label={`${item.label} targeted access`} className="form-input !py-1 !px-2 !text-[10px] max-w-[150px]" value={selectedValue} onChange={event => void changeTargetedFeatureRule(item.id, event.target.value)} disabled={featureAccessRulesLoading || featureAccessRulesSaving || !selectedFeatureTarget}>
+                                <option value="inherit">Inherit</option>
+                                <option value="enabled">Enable</option>
+                                <option value="disabled">Disable</option>
+                              </select>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[10px] text-slate-400 mt-3">Inherit removes the selected override. For user rules, inheritance resolves as user → subscription plan → global visibility. These settings control app navigation and page access; existing Supabase data policies and transaction permissions remain in force.</p>
+            </section>
 
             {/* T025: feature flags + full backup */}
             <div className="grid md:grid-cols-2 gap-4 mb-6">
