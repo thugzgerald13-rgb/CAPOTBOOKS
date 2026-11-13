@@ -251,6 +251,9 @@ export interface Client {
   fiscalMonthEnd?: number;
   coaFormat?: 'numeric' | 'alphanumeric';
   industry?: ClientIndustry;
+  /** Company-wide default liability account used by all new Billing lines marked Advances. */
+  defaultAdvanceAccountId?: string;
+  defaultAdvanceAccountTitle?: string;
   // BIR VAT registration type — drives whether the RELIEF (SLSP) module is available.
   vatRegistrationType?: VatRegistrationType;
   tinLibrary: {

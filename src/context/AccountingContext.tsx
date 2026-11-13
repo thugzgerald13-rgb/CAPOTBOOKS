@@ -171,6 +171,8 @@ const buildMatchingClient = (profileData: BusinessProfile, existing: Client | un
     fiscalMonthEnd: profileData.fiscalMonthEnd || 12,
     vatRegistrationType: profileData.vatRegistrationType || existing?.vatRegistrationType || 'vat',
     industry: profileData.industry || existing?.industry || 'general-services',
+    defaultAdvanceAccountId: existing?.defaultAdvanceAccountId,
+    defaultAdvanceAccountTitle: existing?.defaultAdvanceAccountTitle,
     tinLibrary: existing?.tinLibrary || { customers: [], suppliers: [] },
     sales: existing?.sales || [],
     purchases: existing?.purchases || [],
@@ -277,7 +279,7 @@ const SNAPSHOTS_COLUMNS = 'report_type,data';
 // `tax_id`, `created_at`, and `updated_at` columns that nothing here reads.
 // select('*') was shipping all of that on every client-list load and on
 // every single realtime row refresh. Project only what's mapped below.
-const CLIENTS_LIST_COLUMNS = 'id,name,tin,taxpayer_classification,registered_name,last_name,first_name,middle_name,trade_name,substreet,street,barangay,district,city,zip_code,rdo_code,phone,email,category,has_multiple_business_lines,accounting_type,fiscal_month_end,coa_format,industry,vat_registration_type,taxpayer_sub_classification,taxpayer_tier,income_tax_regime,deduction_method,percentage_tax_rate,additional_bir_forms';
+const CLIENTS_LIST_COLUMNS = 'id,name,tin,taxpayer_classification,registered_name,last_name,first_name,middle_name,trade_name,substreet,street,barangay,district,city,zip_code,rdo_code,phone,email,category,has_multiple_business_lines,accounting_type,fiscal_month_end,coa_format,industry,default_advance_account_id,default_advance_account_title,vat_registration_type,taxpayer_sub_classification,taxpayer_tier,income_tax_regime,deduction_method,percentage_tax_rate,additional_bir_forms';
 
 // ---------------------------------------------------------------------------
 // Incremental ("delta") sync for the highest-volume, most-frequently-edited
@@ -569,7 +571,7 @@ const persistNormalizedClient = async (client: Client, userId: string, options: 
     zip_code:client.zipCode||null,rdo_code:client.rdoCode||null,phone:client.phone||null,email:client.email||null,
     category:client.category||'private',has_multiple_business_lines:!!client.hasMultipleBusinessLines,
     accounting_type:client.accountingType||'Calendar',fiscal_month_end:client.fiscalMonthEnd||12,
-    coa_format:client.coaFormat||'numeric',industry:client.industry||'general-services',vat_registration_type:client.vatRegistrationType||null,taxpayer_sub_classification:client.taxpayerSubClassification||null,taxpayer_tier:client.taxpayerTier||null,income_tax_regime:client.incomeTaxRegime||null,deduction_method:client.deductionMethod||null,percentage_tax_rate:client.percentageTaxRate??null,additional_bir_forms:client.additionalBirForms||[],updated_at:new Date().toISOString()
+    coa_format:client.coaFormat||'numeric',industry:client.industry||'general-services',default_advance_account_id:client.defaultAdvanceAccountId||null,default_advance_account_title:client.defaultAdvanceAccountTitle||null,vat_registration_type:client.vatRegistrationType||null,taxpayer_sub_classification:client.taxpayerSubClassification||null,taxpayer_tier:client.taxpayerTier||null,income_tax_regime:client.incomeTaxRegime||null,deduction_method:client.deductionMethod||null,percentage_tax_rate:client.percentageTaxRate??null,additional_bir_forms:client.additionalBirForms||[],updated_at:new Date().toISOString()
   };
   const { error: parentError } = await supabase.from('clients').upsert(parent,{onConflict:'id'});
   if (parentError) throw parentError;
@@ -791,6 +793,7 @@ export function AccountingProvider({
           zipCode: row.zip_code, rdoCode: row.rdo_code, phone: row.phone, email: row.email, category: row.category,
           hasMultipleBusinessLines: row.has_multiple_business_lines, accountingType: row.accounting_type,
           fiscalMonthEnd: row.fiscal_month_end, coaFormat: row.coa_format, industry: row.industry || 'general-services',
+          defaultAdvanceAccountId: row.default_advance_account_id || undefined, defaultAdvanceAccountTitle: row.default_advance_account_title || undefined,
           vatRegistrationType: row.vat_registration_type || 'vat',
           taxpayerSubClassification: row.taxpayer_sub_classification || undefined,
           taxpayerTier: row.taxpayer_tier || undefined,
@@ -1033,6 +1036,7 @@ export function AccountingProvider({
             zipCode: row.zip_code, rdoCode: row.rdo_code, phone: row.phone, email: row.email, category: row.category,
             hasMultipleBusinessLines: row.has_multiple_business_lines, accountingType: row.accounting_type,
             fiscalMonthEnd: row.fiscal_month_end, coaFormat: row.coa_format, industry: row.industry || 'general-services',
+            defaultAdvanceAccountId: row.default_advance_account_id || undefined, defaultAdvanceAccountTitle: row.default_advance_account_title || undefined,
             vatRegistrationType: row.vat_registration_type || 'vat',
             taxpayerSubClassification: row.taxpayer_sub_classification || undefined,
             taxpayerTier: row.taxpayer_tier || undefined,
@@ -1247,6 +1251,8 @@ export function AccountingProvider({
                       zipCode: row.zip_code, rdoCode: row.rdo_code, phone: row.phone, email: row.email, category: row.category,
                       hasMultipleBusinessLines: row.has_multiple_business_lines, accountingType: row.accounting_type,
                       fiscalMonthEnd: row.fiscal_month_end, coaFormat: row.coa_format,
+                      defaultAdvanceAccountId: row.default_advance_account_id || undefined,
+                      defaultAdvanceAccountTitle: row.default_advance_account_title || undefined,
                       vatRegistrationType: row.vat_registration_type || 'vat',
                       taxpayerSubClassification: row.taxpayer_sub_classification || undefined,
                       taxpayerTier: row.taxpayer_tier || undefined,
@@ -1897,6 +1903,8 @@ export function AccountingProvider({
       category: clientData.category || 'private', has_multiple_business_lines: !!clientData.hasMultipleBusinessLines,
       accounting_type: clientData.accountingType || 'Calendar', fiscal_month_end: clientData.fiscalMonthEnd || 12,
       coa_format: clientData.coaFormat || 'numeric', industry: clientData.industry || 'general-services',
+      default_advance_account_id: clientData.defaultAdvanceAccountId || null,
+      default_advance_account_title: clientData.defaultAdvanceAccountTitle || null,
       vat_registration_type: clientData.vatRegistrationType || null,
       taxpayer_sub_classification: clientData.taxpayerSubClassification || null,
       taxpayer_tier: clientData.taxpayerTier || null,

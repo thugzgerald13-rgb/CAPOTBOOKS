@@ -49,7 +49,7 @@ function daysBetween(startDate: string, endDate: string): number {
 const money = (value: number) => `₱${(Number(value) || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export function Billing() {
-  const { currentClient, currentClientId, saveBillingInvoice, deleteBillingInvoice, saveSale, deleteSale, saveJournalEntry, saveTinEntry, showToast, businessProfile } = useAccounting();
+  const { currentClient, currentClientId, saveClient, saveBillingInvoice, deleteBillingInvoice, saveSale, deleteSale, saveJournalEntry, saveTinEntry, showToast, businessProfile } = useAccounting();
   const navigate = useNavigate();
   const { canAction: canBillingAction, canDropdownOption: canBillingDropdown } = useGranularPermissions('billing');
   const { canAction: canEisAction } = useGranularPermissions('eis_center');
@@ -97,6 +97,7 @@ export function Billing() {
   const [recurrenceFrequency, setRecurrenceFrequency] = useState<'Monthly' | 'Quarterly' | 'Annually'>('Monthly');
   const [recordedInvoice, setRecordedInvoice] = useState<BillingInvoice | null>(null);
   const [isSavingInvoice, setIsSavingInvoice] = useState(false);
+  const [isSavingAdvanceAccount, setIsSavingAdvanceAccount] = useState(false);
   const [generatingRecurringId, setGeneratingRecurringId] = useState<string | null>(null);
   const generatingRecurringRef = useRef(false);
   const [newCustomerOpen, setNewCustomerOpen] = useState(false);
@@ -127,6 +128,9 @@ export function Billing() {
   const postableAccounts = useMemo(() => getPostableCoaAccounts(coaAccounts), [coaAccounts]);
   const advanceAccountOptions = useMemo(() => postableAccounts
     .filter(account => /liabilit/i.test(String(account.type || '')) && account.normalSide !== 'debit'), [postableAccounts]);
+  const defaultAdvanceAccount = advanceAccountOptions.find(account => String(account.id) === String(currentClient?.defaultAdvanceAccountId || ''));
+  const defaultAdvanceAccountId = defaultAdvanceAccount ? String(defaultAdvanceAccount.id) : '';
+  const defaultAdvanceAccountTitle = defaultAdvanceAccount?.name || '';
   const defaultIncomeAccount = useMemo(() => postableAccounts
     .find(account => /revenue|income|sales/i.test(String(account.type || '')) && account.normalSide !== 'debit'), [postableAccounts]);
   const defaultIncomeAccountTitle = defaultIncomeAccount?.name || '';
@@ -142,8 +146,8 @@ export function Billing() {
       ...item,
       description: item.description.trim(),
       natureBilling: item.natureBilling === 'Advances' ? 'Advances' : 'Income',
-      advanceAccountId: String(item.advanceAccountId || '').trim(),
-      advanceAccountTitle: String(item.advanceAccountTitle || '').trim(),
+      advanceAccountId: item.natureBilling === 'Advances' ? (defaultAdvanceAccountId || String(item.advanceAccountId || '').trim()) : '',
+      advanceAccountTitle: item.natureBilling === 'Advances' ? (defaultAdvanceAccountTitle || String(item.advanceAccountTitle || '').trim()) : '',
       postingAccountTitle: String(item.postingAccountTitle || (item.natureBilling === 'Advances' ? '' : defaultIncomeAccountTitle)).trim(),
       qty: Math.max(0, Number(item.qty) || 0),
       unitPrice: Math.max(0, Number(item.unitPrice) || 0),
@@ -243,10 +247,10 @@ export function Billing() {
     const validLines = enteredLines.filter(item => item.description && Number(item.amount) > 0 && (
       item.natureBilling === 'Income'
         ? Boolean(item.postingAccountTitle || defaultIncomeAccountTitle)
-        : Boolean(item.advanceAccountId && item.advanceAccountTitle && advanceAccountOptions.some(account => String(account.id) === item.advanceAccountId))
+        : Boolean(defaultAdvanceAccountId && defaultAdvanceAccountTitle)
     ));
     if (!validLines.length || validLines.length !== enteredLines.length) {
-      showToast('Complete each bill line with a description, choose Income or Advances, link a liability account for Advances, and enter an amount greater than zero.');
+      showToast('Complete each bill line with a description, choose Income or Advances, set the company default Advance Account in Step 2, and enter an amount greater than zero.');
       return false;
     }
     if (!defaultIncomeAccountTitle && validLines.some(item => item.natureBilling === 'Income')) {
@@ -254,6 +258,28 @@ export function Billing() {
       return false;
     }
     return true;
+  };
+
+  const handleSaveDefaultAdvanceAccount = async (accountId: string) => {
+    if (!canBillingAction('edit')) {
+      showToast('Your profile does not have permission to change the company default Advance Account.');
+      return;
+    }
+    const selected = advanceAccountOptions.find(account => String(account.id) === accountId);
+    setIsSavingAdvanceAccount(true);
+    try {
+      await saveClient(currentClientId, {
+        ...currentClient,
+        defaultAdvanceAccountId: selected ? String(selected.id) : '',
+        defaultAdvanceAccountTitle: selected?.name || '',
+      });
+      showToast(selected ? `Company default Advance Account saved: ${selected.name}.` : 'Company default Advance Account cleared.');
+    } catch (error) {
+      console.error('Could not save company default Advance Account:', error);
+      showToast('Could not save the company default Advance Account. Please try again.');
+    } finally {
+      setIsSavingAdvanceAccount(false);
+    }
   };
 
   const openNewCustomer = () => {
@@ -722,8 +748,31 @@ export function Billing() {
 
           {invoiceStep === 2 && <>
             <div className="flex items-start justify-between gap-3 flex-wrap mb-3">
-              <div><h3 className="text-sm font-black text-slate-800 dark:text-white">Services & items billed</h3><p className="text-[11px] text-slate-500 mt-1">Enter each description, choose Income or Advances, and type the amount directly. Advances require a linked liability account title.</p></div>
+              <div><h3 className="text-sm font-black text-slate-800 dark:text-white">Services & items billed</h3><p className="text-[11px] text-slate-500 mt-1">Enter each description, choose Income or Advances, and type the amount directly. The company default Advance Account is linked once below and reused for every Advances line.</p></div>
               <button type="button" onClick={() => setLineItems(items => [...items, { id: crypto.randomUUID(), description: '', natureBilling: 'Income', advanceAccountId: '', advanceAccountTitle: '', postingAccountTitle: defaultIncomeAccountTitle, qty: 1, unitPrice: 0, amount: 0 }])} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900 px-3 py-2 text-xs font-bold text-emerald-700 dark:text-emerald-300"><Plus className="w-3.5 h-3.5" /> Add service line</button>
+            </div>
+            <div className="mb-3 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/70 dark:bg-indigo-950/20 p-3">
+              <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(260px,1fr)] gap-3 items-end">
+                <div>
+                  <label className="block text-[10px] font-black uppercase tracking-wider text-indigo-800 dark:text-indigo-200 mb-1">Company Default Advance Account Title</label>
+                  <p className="text-[10px] text-indigo-700/80 dark:text-indigo-300/80">Saved for {currentClient.name || 'this company'} and reused automatically on all bill lines marked Advances.</p>
+                </div>
+                <div>
+                  <select
+                    aria-label="Company default Advance Account Title"
+                    value={defaultAdvanceAccountId}
+                    disabled={isSavingAdvanceAccount || !canBillingAction('edit')}
+                    onChange={event => void handleSaveDefaultAdvanceAccount(event.target.value)}
+                    className="form-input"
+                  >
+                    <option value="">{advanceAccountOptions.length ? 'Select company default liability account…' : 'No postable liability accounts found'}</option>
+                    {advanceAccountOptions.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}
+                  </select>
+                  {isSavingAdvanceAccount && <p className="mt-1 text-[10px] text-indigo-600 dark:text-indigo-300">Saving company default…</p>}
+                  {!canBillingAction('edit') && <p className="mt-1 text-[10px] text-slate-500">You need Billing edit permission to change this company setting.</p>}
+                </div>
+              </div>
+              {!advanceAccountOptions.length && <p className="mt-2 text-[10px] text-amber-700 dark:text-amber-300">Add a postable credit-balance Liabilities account in the Chart of Accounts first.</p>}
             </div>
             <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
               <table className="w-full min-w-[820px] text-xs">
@@ -735,13 +784,7 @@ export function Billing() {
                       <option value="Income">Income</option>
                       <option value="Advances">Advances</option>
                     </select>
-                    {item.natureBilling === 'Advances' && <div><label className="block text-[9px] font-bold text-slate-500 mb-1">Advance Account Title</label><select aria-label={`Advance account title ${index + 1}`} value={item.advanceAccountId || ''} onChange={e => {
-                      const selected = advanceAccountOptions.find(account => String(account.id) === e.target.value);
-                      setLineItems(items => items.map((row, i) => i === index ? { ...row, advanceAccountId: selected ? String(selected.id) : '', advanceAccountTitle: selected?.name || '' } : row));
-                    }} className="form-input">
-                      <option value="">{advanceAccountOptions.length ? 'Link liability account…' : 'No postable liability accounts found'}</option>
-                      {advanceAccountOptions.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}
-                    </select></div>}
+                    {item.natureBilling === 'Advances' && <p className="text-[9px] text-slate-500">Uses company default: <strong>{defaultAdvanceAccountTitle || 'Not linked yet'}</strong></p>}
                   </td>
                   <td className="p-2"><input aria-label={`Amount ${index + 1}`} type="number" min="0" step="0.01" value={item.amount ?? 0} onChange={e => setLineItems(items => items.map((row, i) => i === index ? { ...row, amount: Math.max(0, Number(e.target.value) || 0) } : row))} placeholder="0.00" className="form-input text-right" /></td>
                   <td className="p-2"><button type="button" disabled={lineItems.length === 1} onClick={() => setLineItems(items => items.filter((_, i) => i !== index))} className="p-2 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 disabled:opacity-30" title="Remove line"><Trash2 className="w-4 h-4" /></button></td>
@@ -750,8 +793,8 @@ export function Billing() {
             </div>
             <div className="mt-2 space-y-1 text-[10px] text-slate-500">
               <p>Income lines post to <strong>{defaultIncomeAccountTitle || 'a postable Revenue account'}</strong> in the Sales Journal.</p>
-              <p>Advances lines post to the selected <strong>Advance Account Title</strong> in the Sales Journal.</p>
-              {!advanceAccountOptions.length && <p className="text-amber-700 dark:text-amber-300">No postable liability accounts were found. Add a postable Liabilities account in the Chart of Accounts to use Advances.</p>}
+              <p>All Advances lines post to the company's saved default <strong>{defaultAdvanceAccountTitle || 'Advance Account Title'}</strong> in the Sales Journal.</p>
+              {advanceAccountOptions.length > 0 && !defaultAdvanceAccountId && <p className="text-amber-700 dark:text-amber-300">Select and save the company default Advance Account above before recording any Advances lines.</p>}
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
               <div className="space-y-3">
