@@ -126,8 +126,37 @@ export function Billing() {
   }, [currentClient?.accounts, currentClient?.industry, currentClient?.coaFormat]);
 
   const postableAccounts = useMemo(() => getPostableCoaAccounts(coaAccounts), [coaAccounts]);
-  const advanceAccountOptions = useMemo(() => postableAccounts
-    .filter(account => /liabilit/i.test(String(account.type || '')) && account.normalSide !== 'debit'), [postableAccounts]);
+  // The company default for Advances must be a postable detail account whose
+  // hierarchy descends from the TRADE AND OTHER RECEIVABLES COA group.
+  // Normalize '&' and punctuation so both "TRADE & OTHER RECEIVABLES" and
+  // "TRADE AND OTHER RECEIVABLES" match imported/custom charts.
+  const advanceAccountOptions = useMemo(() => {
+    const normalizeGroupTitle = (value: unknown) => String(value || '')
+      .normalize('NFKD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toUpperCase()
+      .replace(/&/g, ' AND ')
+      .replace(/[^A-Z0-9]+/g, ' ')
+      .trim();
+    const targetGroupIds = new Set(
+      coaAccounts
+        .filter(account => normalizeGroupTitle(account.name) === 'TRADE AND OTHER RECEIVABLES')
+        .map(account => String(account.id))
+    );
+    if (!targetGroupIds.size) return [];
+
+    const accountsById = new Map(coaAccounts.map(account => [String(account.id), account]));
+    return postableAccounts.filter(account => {
+      let parentId = account.parentId ? String(account.parentId) : '';
+      const visited = new Set<string>();
+      while (parentId && !visited.has(parentId)) {
+        if (targetGroupIds.has(parentId)) return true;
+        visited.add(parentId);
+        parentId = String(accountsById.get(parentId)?.parentId || '');
+      }
+      return false;
+    });
+  }, [coaAccounts, postableAccounts]);
   const defaultAdvanceAccount = advanceAccountOptions.find(account => String(account.id) === String(currentClient?.defaultAdvanceAccountId || ''));
   const defaultAdvanceAccountId = defaultAdvanceAccount ? String(defaultAdvanceAccount.id) : '';
   const defaultAdvanceAccountTitle = defaultAdvanceAccount?.name || '';
@@ -765,14 +794,14 @@ export function Billing() {
                     onChange={event => void handleSaveDefaultAdvanceAccount(event.target.value)}
                     className="form-input"
                   >
-                    <option value="">{advanceAccountOptions.length ? 'Select company default liability account…' : 'No postable liability accounts found'}</option>
+                    <option value="">{advanceAccountOptions.length ? 'Select a postable receivables account…' : 'No postable accounts under Trade & Other Receivables'}</option>
                     {advanceAccountOptions.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}
                   </select>
                   {isSavingAdvanceAccount && <p className="mt-1 text-[10px] text-indigo-600 dark:text-indigo-300">Saving company default…</p>}
                   {!canBillingAction('edit') && <p className="mt-1 text-[10px] text-slate-500">You need Billing edit permission to change this company setting.</p>}
                 </div>
               </div>
-              {!advanceAccountOptions.length && <p className="mt-2 text-[10px] text-amber-700 dark:text-amber-300">Add a postable credit-balance Liabilities account in the Chart of Accounts first.</p>}
+              {!advanceAccountOptions.length && <p className="mt-2 text-[10px] text-amber-700 dark:text-amber-300">Add postable detail accounts beneath Trade & Other Receivables in the Chart of Accounts first.</p>}
             </div>
             <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
               <table className="w-full min-w-[820px] text-xs">

@@ -110,7 +110,7 @@ export interface BillingInvoiceLineItem {
   description: string;
   /** Billing nature controls the Sales Journal account credited for this line. */
   natureBilling?: 'Income' | 'Advances';
-  /** Postable liability account selected when Nature Billing is Advances. */
+  /** Postable Trade & Other Receivables account linked to Advances billing. */
   advanceAccountId?: string;
   advanceAccountTitle?: string;
   /** Resolved income account title retained for repeatable recurring postings. */
@@ -251,7 +251,7 @@ export interface Client {
   fiscalMonthEnd?: number;
   coaFormat?: 'numeric' | 'alphanumeric';
   industry?: ClientIndustry;
-  /** Company-wide default liability account used by all new Billing lines marked Advances. */
+  /** Company-wide default Trade & Other Receivables account used by Billing lines marked Advances. */
   defaultAdvanceAccountId?: string;
   defaultAdvanceAccountTitle?: string;
   // BIR VAT registration type — drives whether the RELIEF (SLSP) module is available.
