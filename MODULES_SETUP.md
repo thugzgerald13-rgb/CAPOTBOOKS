@@ -17,7 +17,20 @@ It is idempotent. It adds the trial columns, an `account_modules` table, the
 twice). Not executed against a live database here — run it on a staging project
 or review it first.
 
-## 3. Deploy (`npm run build`)
+## 3. Correct the live trial duration (required if accounts are getting 14 days)
+
+The landing page and frontend constant already say **7 days**, and the original
+`modules_entitlements.sql` also defines a 7-day trial. The actual trial clock is
+started by the Supabase `get_my_entitlements()` database function, not by the
+landing page or frontend build. If the live app is granting 14 days, the deployed
+Supabase function is out of sync with this source.
+
+Run `scripts/fix_trial_duration_7_days.sql` in **Supabase → SQL Editor**. It
+replaces only `get_my_entitlements()` and makes future trial starts exactly
+**7 days**. This patch does not retroactively shorten trials already stored in
+`profiles.trial_started_at` / `profiles.trial_ends_at`.
+
+## 4. Deploy (`npm run build`)
 
 ## What users get
 | | |
@@ -29,8 +42,10 @@ or review it first.
 | **Annual** | Pay 10 months, get 12. |
 | **Team members** | Inherit the account owner's trial/modules; they never pay. |
 
-All prices live in `src/lib/modules.ts` (one place). Trial lengths are in that
-file and in `scripts/modules_entitlements.sql` — change both together. Paid routes
+All prices live in `src/lib/modules.ts` (one place). Trial lengths are
+`TRIAL_DAYS` in that file and the `get_my_entitlements()` SQL in
+`scripts/modules_entitlements.sql` (or the focused hotfix above) — keep them in
+sync. Paid routes
 are mapped in `moduleForRoute()` in `src/lib/modules.ts`; core transaction entry, COA
 and transaction history remain accessible after the trial.
 
