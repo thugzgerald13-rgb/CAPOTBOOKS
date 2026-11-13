@@ -47,6 +47,22 @@ function daysBetween(startDate: string, endDate: string): number {
 }
 
 const money = (value: number) => `₱${(Number(value) || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const roundMoney = (value: number) => Math.round(((Number(value) || 0) + Number.EPSILON) * 100) / 100;
+
+/** Allocate the invoice's discounted gross amount across lines in cents. */
+function allocateBillingLineGrossAmounts(lines: BillingInvoiceLineItem[], grossTotal: number): number[] {
+  const rawSubtotal = lines.reduce((sum, line) => sum + Math.max(0, Number(line.amount ?? (Number(line.qty || 0) * Number(line.unitPrice || 0))) || 0), 0);
+  let allocated = 0;
+  return lines.map((line, index) => {
+    const rawAmount = Math.max(0, Number(line.amount ?? (Number(line.qty || 0) * Number(line.unitPrice || 0))) || 0);
+    const share = rawSubtotal > 0 ? rawAmount / rawSubtotal : (lines.length ? 1 / lines.length : 0);
+    const lineGross = index === lines.length - 1
+      ? roundMoney(grossTotal - allocated)
+      : roundMoney(grossTotal * share);
+    allocated = roundMoney(allocated + lineGross);
+    return lineGross;
+  });
+}
 
 export function Billing() {
   const { currentClient, currentClientId, saveClient, saveBillingInvoice, deleteBillingInvoice, saveSale, deleteSale, saveJournalEntry, saveTinEntry, showToast, businessProfile } = useAccounting();
@@ -185,11 +201,25 @@ export function Billing() {
   });
   const subtotal = cleanLineItems.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
   const discountRate = Math.min(100, Math.max(0, Number(discountPercent) || 0));
-  const discountAmount = subtotal * discountRate / 100;
-  const grossAmount = Math.max(0, subtotal - discountAmount);
+  const discountAmount = roundMoney(subtotal * discountRate / 100);
+  const grossAmount = roundMoney(Math.max(0, subtotal - discountAmount));
   const isVatable = vatType === 'VATable';
-  const netOfVat = isVatable ? grossAmount / 1.12 : grossAmount;
-  const outputTax = isVatable ? grossAmount - netOfVat : 0;
+  // Allocate the invoice discount proportionally, then calculate VAT only on
+  // Income lines. Advances are receivables/liabilities and are never taxable.
+  const discountedLineGrossAmounts = allocateBillingLineGrossAmounts(cleanLineItems, grossAmount);
+  const vatBreakdown = cleanLineItems.reduce((totals, item, index) => {
+    const lineGross = discountedLineGrossAmounts[index] || 0;
+    if (item.natureBilling === 'Advances') {
+      totals.netOfVat += lineGross;
+    } else if (isVatable) {
+      const lineNet = roundMoney(lineGross / 1.12);
+      totals.netOfVat += lineNet;
+      totals.outputTax += roundMoney(lineGross - lineNet);
+    }
+    return totals;
+  }, { netOfVat: 0, outputTax: 0 });
+  const netOfVat = isVatable ? roundMoney(vatBreakdown.netOfVat) : grossAmount;
+  const outputTax = isVatable ? roundMoney(vatBreakdown.outputTax) : 0;
   const customerDirectory = currentClient?.tinLibrary?.customers || [];
 
 
@@ -214,12 +244,9 @@ export function Billing() {
     const sourceLines: BillingInvoiceLineItem[] = Array.isArray(invoice.lineItems) && invoice.lineItems.length
       ? invoice.lineItems
       : [{ id: 'billing-line-1', description: invoice.description || 'Services billed', qty: 1, unitPrice: invoice.amount, amount: invoice.amount, natureBilling: 'Income' as const, postingAccountTitle: defaultIncomeAccountTitle }];
-    const rawSubtotal = sourceLines.reduce((sum, line) => sum + Math.max(0, Number(line.amount ?? (Number(line.qty || 0) * Number(line.unitPrice || 0))) || 0), 0);
     const grossTotal = Math.max(0, Number(invoice.amount) || 0);
     const vatable = invoice.vatType === 'VATable';
-    const netTotal = vatable ? Math.max(0, Number(invoice.netOfVat) || 0) : 0;
-    let allocatedGross = 0;
-    let allocatedNet = 0;
+    const lineGrossAmounts = allocateBillingLineGrossAmounts(sourceLines, grossTotal);
     const enrichedLines = sourceLines.map((line, index) => ({
       ...line,
       salesJournalSaleId: line.salesJournalSaleId || billingSaleIdFor(invoice, line, index),
@@ -227,20 +254,16 @@ export function Billing() {
 
     for (let index = 0; index < enrichedLines.length; index += 1) {
       const line = enrichedLines[index];
-      const rawLineAmount = Math.max(0, Number(line.amount ?? (Number(line.qty || 0) * Number(line.unitPrice || 0))) || 0);
-      const share = rawSubtotal > 0 ? rawLineAmount / rawSubtotal : (enrichedLines.length ? 1 / enrichedLines.length : 0);
-      const lineGross = index === enrichedLines.length - 1
-        ? Math.round((grossTotal - allocatedGross) * 100) / 100
-        : Math.round(grossTotal * share * 100) / 100;
-      allocatedGross += lineGross;
-      const lineNet = vatable
-        ? (index === enrichedLines.length - 1
-          ? Math.round((netTotal - allocatedNet) * 100) / 100
-          : Math.round(netTotal * share * 100) / 100)
-        : 0;
-      allocatedNet += lineNet;
-      const lineOutputVat = vatable ? Math.round((lineGross - lineNet) * 100) / 100 : 0;
+      const lineGross = lineGrossAmounts[index] || 0;
       const nature = line.natureBilling === 'Advances' ? 'Advances' : 'Income';
+      // An Advances line is credited to its linked receivables account in full;
+      // only Income lines have VAT extracted from their VAT-inclusive amount.
+      const lineNet = nature === 'Advances'
+        ? lineGross
+        : vatable ? roundMoney(lineGross / 1.12) : 0;
+      const lineOutputVat = nature === 'Income' && vatable
+        ? roundMoney(lineGross - lineNet)
+        : 0;
       const accountTitle = nature === 'Advances'
         ? String(line.advanceAccountTitle || '').trim()
         : String(line.postingAccountTitle || defaultIncomeAccountTitle).trim();
@@ -262,8 +285,10 @@ export function Billing() {
         outputTax: lineOutputVat,
         incomeType: accountTitle,
         desc: `Billing ${invoice.invoiceNo}: ${line.description}`,
-        exemptAmount: !vatable && invoice.vatType === 'VAT Exempt' ? lineGross : 0,
-        zeroRatedAmount: !vatable && invoice.vatType === 'Zero-Rated' ? lineGross : 0,
+        // Advances are not exempt or zero-rated sales; they are credited to
+        // the linked advance account and excluded from all VAT classifications.
+        exemptAmount: nature === 'Income' && !vatable && invoice.vatType === 'VAT Exempt' ? lineGross : 0,
+        zeroRatedAmount: nature === 'Income' && !vatable && invoice.vatType === 'Zero-Rated' ? lineGross : 0,
       };
       await saveSale(String(line.salesJournalSaleId), sale);
     }
@@ -771,7 +796,7 @@ export function Billing() {
               <div><label className="form-label">VAT classification</label><select value={vatType} onChange={e => setVatType(e.target.value)} className="form-input"><option value="VATable">VATable (12% VAT-inclusive)</option><option value="VAT Exempt">VAT Exempt</option><option value="Zero-Rated">Zero-Rated</option></select></div>
             </div>
             <div className="mt-4 rounded-xl bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/50 p-3 text-[11px] text-indigo-800 dark:text-indigo-200">
-              Amounts entered in the next step are treated as VAT-inclusive for VATable invoices, matching CAPOTBOOKS' existing billing and sales VAT calculations. VAT Exempt and Zero-Rated invoices do not calculate output VAT.
+              For VATable bills, entered Income amounts are treated as VAT-inclusive and output VAT is computed only on Income lines. Advances lines are excluded from VAT and credited in full to the company's linked Advance Account. VAT Exempt and Zero-Rated bills do not calculate output VAT.
             </div>
           </>}
 
@@ -832,9 +857,9 @@ export function Billing() {
                 {isRecurring && <div className="space-y-1"><label className="form-label">Bill frequency</label><select value={recurrenceFrequency} onChange={e => setRecurrenceFrequency(e.target.value as 'Monthly' | 'Quarterly' | 'Annually')} className="form-input max-w-xs"><option value="Monthly">Monthly</option><option value="Quarterly">Quarterly</option><option value="Annually">Annually</option></select><p className="text-[10px] text-slate-500">Next bill: {addInterval(date, recurrenceFrequency)}. On that date, use Generate Next Bill in the recurring schedule to create the next bill with a new Bill No.</p></div>}
               </div>
               <div className="rounded-xl bg-slate-50 dark:bg-slate-800/70 p-4 space-y-2 text-xs">
-                <div className="flex justify-between"><span className="text-slate-500">Subtotal (VAT-inclusive)</span><strong>{money(subtotal)}</strong></div>
+                <div className="flex justify-between"><span className="text-slate-500">Subtotal</span><strong>{money(subtotal)}</strong></div>
                 <div className="flex justify-between"><span className="text-slate-500">Discount ({discountRate.toFixed(2)}%)</span><strong>- {money(discountAmount)}</strong></div>
-                {isVatable ? <><div className="flex justify-between"><span className="text-slate-500">Net of VAT</span><strong>{money(netOfVat)}</strong></div><div className="flex justify-between"><span className="text-slate-500">Output VAT (12%)</span><strong>{money(outputTax)}</strong></div></> : <div className="text-slate-500">{vatType} · No output VAT</div>}
+                {isVatable ? <><div className="flex justify-between"><span className="text-slate-500">Net of VAT (Income net + Advances)</span><strong>{money(netOfVat)}</strong></div><div className="flex justify-between"><span className="text-slate-500">Output VAT on Income only (12%)</span><strong>{money(outputTax)}</strong></div></> : <div className="text-slate-500">{vatType} · No output VAT</div>}
                 <div className="border-t border-slate-200 dark:border-slate-700 pt-3 flex justify-between text-sm"><strong className="text-slate-800 dark:text-white">TOTAL DUE</strong><strong className="text-indigo-600 dark:text-indigo-300">{money(grossAmount)}</strong></div>
               </div>
             </div>
@@ -850,7 +875,7 @@ export function Billing() {
               </div>
               <div className="grid grid-cols-2 gap-4 my-5 text-xs"><div><p className="font-black text-[9px] uppercase tracking-widest text-slate-400 mb-1">Bill to</p><p className="font-bold">{customerName || 'Customer name not entered'}</p><p>{customerTin}</p><p>{customerAddress}</p><p>{customerEmail}</p></div><div><p className="font-black text-[9px] uppercase tracking-widest text-slate-400 mb-1">VAT classification</p><p>{vatType}{isVatable ? ' · 12% VAT-inclusive' : ''}</p></div></div>
               <div className="overflow-x-auto"><table className="w-full text-xs"><thead className="bg-slate-100"><tr><th className="text-left p-2">Description</th><th className="text-left p-2">Nature Billing</th><th className="text-right p-2">Amount</th></tr></thead><tbody>{cleanLineItems.filter(item => item.description || item.advanceAccountTitle || Number(item.amount) > 0).map((item, index) => <tr key={item.id || index} className="border-b border-slate-200"><td className="p-2">{item.description || '—'}</td><td className="p-2">{item.natureBilling === 'Advances' ? `Advances · ${item.advanceAccountTitle || 'Account not linked'}` : 'Income'}</td><td className="p-2 text-right">{money(Number(item.amount) || 0)}</td></tr>)}</tbody></table></div>
-              <div className="max-w-xs ml-auto mt-4 space-y-1.5 text-xs"><div className="flex justify-between"><span>Subtotal</span><strong>{money(subtotal)}</strong></div><div className="flex justify-between"><span>Discount ({discountRate.toFixed(2)}%)</span><strong>- {money(discountAmount)}</strong></div>{isVatable && <><div className="flex justify-between"><span>Net of VAT</span><strong>{money(netOfVat)}</strong></div><div className="flex justify-between"><span>Output VAT (12%)</span><strong>{money(outputTax)}</strong></div></>}<div className="border-t-2 border-slate-800 pt-2 flex justify-between text-sm font-black"><span>TOTAL DUE</span><span>{money(grossAmount)}</span></div></div>
+              <div className="max-w-xs ml-auto mt-4 space-y-1.5 text-xs"><div className="flex justify-between"><span>Subtotal</span><strong>{money(subtotal)}</strong></div><div className="flex justify-between"><span>Discount ({discountRate.toFixed(2)}%)</span><strong>- {money(discountAmount)}</strong></div>{isVatable && <><div className="flex justify-between"><span>Net of VAT (Income net + Advances)</span><strong>{money(netOfVat)}</strong></div><div className="flex justify-between"><span>Output VAT on Income only (12%)</span><strong>{money(outputTax)}</strong></div></>}<div className="border-t-2 border-slate-800 pt-2 flex justify-between text-sm font-black"><span>TOTAL DUE</span><span>{money(grossAmount)}</span></div></div>
               <p className="text-center text-[9px] text-slate-400 mt-7 border-t border-slate-200 pt-3">Generated from CAPOTBOOKS billing records. This document is not proof of payment.</p>
             </div>
             <div className="mt-3 text-[10px] text-slate-500">Template: {selectedTemplate?.name || 'Standard'} · Terms and conditions follow the selected invoice template. No separate invoice note field is shown.</div>
