@@ -474,9 +474,6 @@ export function Billing() {
               <div><label className="form-label">Customer email (optional)</label><input type="email" value={customerEmail} onChange={e => setCustomerEmail(e.target.value)} placeholder="customer@example.com" className="form-input" /></div>
               <div><label className="form-label">VAT classification</label><select value={vatType} onChange={e => setVatType(e.target.value)} className="form-input"><option value="VATable">VATable (12% VAT-inclusive)</option><option value="VAT Exempt">VAT Exempt</option><option value="Zero-Rated">Zero-Rated</option></select></div>
             </div>
-            <div className="mt-4 rounded-xl bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/50 p-3 text-[11px] text-indigo-800 dark:text-indigo-200">
-              Unit prices entered in the next step are treated as VAT-inclusive for VATable invoices, matching CAPOTBOOKS' existing billing and sales VAT calculations. VAT Exempt and Zero-Rated invoices do not calculate output VAT.
-            </div>
           </>}
 
           {invoiceStep === 2 && <>
