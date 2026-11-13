@@ -108,8 +108,13 @@ export interface CoaAccount {
 export interface BillingInvoiceLineItem {
   id: string;
   description: string;
+  /** Selected postable account under Trade and Other Receivables. */
+  accountId?: string;
+  accountTitle?: string;
+  /** Legacy fields retained for existing invoices and EIS compatibility. */
   qty: number;
   unitPrice: number;
+  /** Editable line amount; when present this takes precedence over qty × unit price. */
   amount?: number;
 }
 

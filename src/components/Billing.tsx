@@ -20,6 +20,7 @@ import { useGranularPermissions } from '../lib/useGranularPermissions';
 import { YearDropdownDateInput } from './ui/YearDropdownDateInput';
 import { Modal } from './ui/Modal';
 import { UserPlus } from 'lucide-react';
+import { getDefaultAccountsForIndustry, getPostableCoaAccounts } from '../lib/journalDefaults';
 
 const CASH_RECEIPT_PAYMENT_TYPES = ['Cash', 'Check', 'E-Payment', 'Bank Transfer'];
 
@@ -82,7 +83,7 @@ export function Billing() {
 
   const today = new Date().toISOString().split('T')[0];
 
-  // Bill creation state. Entered unit prices are VAT-inclusive for VATable bills.
+  // Bill creation state. Entered line amounts are VAT-inclusive for VATable bills.
   const [invoiceStep, setInvoiceStep] = useState<1 | 2 | 3 | 4>(1);
   const [date, setDate] = useState(today);
   const [dueDate, setDueDate] = useState(addDays(today, 14));
@@ -92,7 +93,7 @@ export function Billing() {
   const [customerAddress, setCustomerAddress] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
   const [vatType, setVatType] = useState('VATable');
-  const [lineItems, setLineItems] = useState<BillingInvoiceLineItem[]>([{ id: crypto.randomUUID(), description: '', qty: 1, unitPrice: 0 }]);
+  const [lineItems, setLineItems] = useState<BillingInvoiceLineItem[]>([{ id: crypto.randomUUID(), description: '', accountId: '', accountTitle: '', qty: 1, unitPrice: 0, amount: 0 }]);
   const [discountPercent, setDiscountPercent] = useState('0');
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurrenceFrequency, setRecurrenceFrequency] = useState<'Monthly' | 'Quarterly' | 'Annually'>('Monthly');
@@ -118,17 +119,50 @@ export function Billing() {
   const templates = useMemo(() => currentClientId ? listTemplatesFor(currentClientId, 'billing') : [], [currentClientId, activeTab]);
   const selectedTemplate = useMemo(() => currentClientId ? getTemplate(currentClientId, templateId) : getTemplate('', templateId), [currentClientId, templateId]);
 
+  const receivableAccountOptions = useMemo(() => {
+    if (!currentClient) return [];
+    let accounts = currentClient.accounts || [];
+    if (!accounts.length) {
+      accounts = getDefaultAccountsForIndustry(currentClient.industry, currentClient.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric');
+    }
+    const normalizeTitle = (value: string) => value.toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]/g, '');
+    const receivablesGroup = accounts.find(account => normalizeTitle(account.name) === 'tradeandotherreceivables');
+    if (!receivablesGroup) return [];
+
+    // Include all descendants of the Trade and Other Receivables group, then
+    // keep only visible leaf/postable accounts for the dropdown.
+    const descendantIds = new Set<string>([String(receivablesGroup.id)]);
+    let added = true;
+    while (added) {
+      added = false;
+      for (const account of accounts) {
+        if (account.parentId && descendantIds.has(String(account.parentId)) && !descendantIds.has(String(account.id))) {
+          descendantIds.add(String(account.id));
+          added = true;
+        }
+      }
+    }
+    return getPostableCoaAccounts(accounts)
+      .filter(account => String(account.id) !== String(receivablesGroup.id) && descendantIds.has(String(account.id)))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [currentClient?.accounts, currentClient?.industry, currentClient?.coaFormat]);
+
   if (!currentClient || !currentClientId) return null;
 
   const invoices = currentClient.billingInvoices || [];
 
-  const cleanLineItems = lineItems.map(item => ({
-    ...item,
-    description: item.description.trim(),
-    qty: Math.max(0, Number(item.qty) || 0),
-    unitPrice: Math.max(0, Number(item.unitPrice) || 0),
-  }));
-  const subtotal = cleanLineItems.reduce((sum, item) => sum + Math.round(item.qty * item.unitPrice * 100) / 100, 0);
+  const cleanLineItems = lineItems.map(item => {
+    const legacyAmount = (Number(item.qty) || 0) * (Number(item.unitPrice) || 0);
+    return {
+      ...item,
+      description: item.description.trim(),
+      accountTitle: String(item.accountTitle || '').trim(),
+      qty: Math.max(0, Number(item.qty) || 0),
+      unitPrice: Math.max(0, Number(item.unitPrice) || 0),
+      amount: Math.max(0, Math.round((Number(item.amount ?? legacyAmount) || 0) * 100) / 100),
+    };
+  });
+  const subtotal = cleanLineItems.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
   const discountRate = Math.min(100, Math.max(0, Number(discountPercent) || 0));
   const discountAmount = subtotal * discountRate / 100;
   const grossAmount = Math.max(0, subtotal - discountAmount);
@@ -136,6 +170,7 @@ export function Billing() {
   const netOfVat = isVatable ? grossAmount / 1.12 : grossAmount;
   const outputTax = isVatable ? grossAmount - netOfVat : 0;
   const customerDirectory = currentClient?.tinLibrary?.customers || [];
+
 
   const getStatus = (inv: BillingInvoice): 'Outstanding' | 'Overdue' | 'Paid' => {
     if (inv.status === 'Paid') return 'Paid';
@@ -240,9 +275,10 @@ export function Billing() {
       setInvoiceStep(1);
       return;
     }
-    const validLines = cleanLineItems.filter(item => item.description && item.qty > 0 && item.unitPrice >= 0);
-    if (!validLines.length || validLines.every(item => item.qty * item.unitPrice <= 0)) {
-      showToast('Add at least one service line with a description, quantity, and unit price greater than zero.');
+    const enteredLines = cleanLineItems.filter(item => item.description || item.accountTitle || Number(item.amount) > 0);
+    const validLines = enteredLines.filter(item => item.description && item.accountTitle && Number(item.amount) > 0);
+    if (!validLines.length || validLines.length !== enteredLines.length) {
+      showToast('Complete each bill line with a description, a Trade and Other Receivables account title, and an amount greater than zero.');
       setInvoiceStep(2);
       return;
     }
@@ -255,9 +291,13 @@ export function Billing() {
     const normalizedLines = validLines.map(item => ({
       id: item.id || crypto.randomUUID(),
       description: item.description,
-      qty: item.qty,
-      unitPrice: item.unitPrice,
-      amount: Math.round(item.qty * item.unitPrice * 100) / 100,
+      accountId: item.accountId || undefined,
+      accountTitle: item.accountTitle,
+      // Keep legacy quantity/unit-price fields populated for downstream EIS
+      // integrations; the recorded and displayed amount remains user-entered.
+      qty: 1,
+      unitPrice: Number(item.amount) || 0,
+      amount: Math.round((Number(item.amount) || 0) * 100) / 100,
     }));
     const newInvoice: BillingInvoice = {
       id: crypto.randomUUID(),
@@ -305,8 +345,12 @@ export function Billing() {
       setInvoiceStep(2); return;
     }
     if (invoiceStep === 2) {
-      const validLines = cleanLineItems.filter(item => item.description && item.qty > 0 && item.unitPrice >= 0 && item.qty * item.unitPrice > 0);
-      if (!validLines.length) { showToast('Add at least one service line with a description, quantity, and unit price greater than zero.'); return; }
+      const enteredLines = cleanLineItems.filter(item => item.description || item.accountTitle || Number(item.amount) > 0);
+      const validLines = enteredLines.filter(item => item.description && item.accountTitle && Number(item.amount) > 0);
+      if (!validLines.length || validLines.length !== enteredLines.length) {
+        showToast('Complete each bill line with a description, a Trade and Other Receivables account title, and an amount greater than zero.');
+        return;
+      }
       setInvoiceStep(3); return;
     }
     if (invoiceStep === 3) setInvoiceStep(4);
@@ -323,7 +367,7 @@ export function Billing() {
     setCustomerAddress('');
     setCustomerEmail('');
     setVatType('VATable');
-    setLineItems([{ id: crypto.randomUUID(), description: '', qty: 1, unitPrice: 0 }]);
+    setLineItems([{ id: crypto.randomUUID(), description: '', accountId: '', accountTitle: '', qty: 1, unitPrice: 0, amount: 0 }]);
     setDiscountPercent('0');
     setIsRecurring(false);
     setRecurrenceFrequency('Monthly');
@@ -623,21 +667,27 @@ export function Billing() {
 
           {invoiceStep === 2 && <>
             <div className="flex items-start justify-between gap-3 flex-wrap mb-3">
-              <div><h3 className="text-sm font-black text-slate-800 dark:text-white">Services & items billed</h3><p className="text-[11px] text-slate-500 mt-1">Enter a description, quantity, and unit price for each service line.</p></div>
-              <button type="button" onClick={() => setLineItems(items => [...items, { id: crypto.randomUUID(), description: '', qty: 1, unitPrice: 0 }])} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900 px-3 py-2 text-xs font-bold text-emerald-700 dark:text-emerald-300"><Plus className="w-3.5 h-3.5" /> Add service line</button>
+              <div><h3 className="text-sm font-black text-slate-800 dark:text-white">Services & items billed</h3><p className="text-[11px] text-slate-500 mt-1">Enter each description, select its receivables account title, and type the amount directly.</p></div>
+              <button type="button" onClick={() => setLineItems(items => [...items, { id: crypto.randomUUID(), description: '', accountId: '', accountTitle: '', qty: 1, unitPrice: 0, amount: 0 }])} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900 px-3 py-2 text-xs font-bold text-emerald-700 dark:text-emerald-300"><Plus className="w-3.5 h-3.5" /> Add service line</button>
             </div>
             <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
-              <table className="w-full min-w-[650px] text-xs">
-                <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 uppercase tracking-wider text-[9px]"><tr><th className="text-left p-3">Description</th><th className="text-right p-3 w-24">Qty</th><th className="text-right p-3 w-36">Unit price (₱)</th><th className="text-right p-3 w-36">Amount (₱)</th><th className="w-12 p-3"></th></tr></thead>
+              <table className="w-full min-w-[760px] text-xs">
+                <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 uppercase tracking-wider text-[9px]"><tr><th className="text-left p-3">Description</th><th className="text-left p-3 w-64">Account Title</th><th className="text-right p-3 w-40">Amount (₱)</th><th className="w-12 p-3"></th></tr></thead>
                 <tbody>{lineItems.map((item, index) => <tr key={item.id || index} className="border-t border-slate-100 dark:border-slate-800">
                   <td className="p-2"><input aria-label={`Service description ${index + 1}`} value={item.description} onChange={e => setLineItems(items => items.map((row, i) => i === index ? { ...row, description: e.target.value } : row))} placeholder="Service performed / item supplied" className="form-input" /></td>
-                  <td className="p-2"><input aria-label={`Quantity ${index + 1}`} type="number" min="0.01" step="0.01" value={item.qty} onChange={e => setLineItems(items => items.map((row, i) => i === index ? { ...row, qty: Number(e.target.value) } : row))} className="form-input text-right" /></td>
-                  <td className="p-2"><input aria-label={`Unit price ${index + 1}`} type="number" min="0" step="0.01" value={item.unitPrice} onChange={e => setLineItems(items => items.map((row, i) => i === index ? { ...row, unitPrice: Number(e.target.value) } : row))} className="form-input text-right" /></td>
-                  <td className="p-3 text-right font-bold text-slate-800 dark:text-white">{money((Number(item.qty) || 0) * (Number(item.unitPrice) || 0))}</td>
+                  <td className="p-2"><select aria-label={`Account title ${index + 1}`} value={item.accountId || ''} onChange={e => {
+                    const selected = receivableAccountOptions.find(account => String(account.id) === e.target.value);
+                    setLineItems(items => items.map((row, i) => i === index ? { ...row, accountId: selected ? String(selected.id) : '', accountTitle: selected?.name || '' } : row));
+                  }} className="form-input">
+                    <option value="">{receivableAccountOptions.length ? 'Select account title…' : 'No postable receivables accounts found'}</option>
+                    {receivableAccountOptions.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}
+                  </select></td>
+                  <td className="p-2"><input aria-label={`Amount ${index + 1}`} type="number" min="0" step="0.01" value={item.amount ?? 0} onChange={e => setLineItems(items => items.map((row, i) => i === index ? { ...row, amount: Math.max(0, Number(e.target.value) || 0) } : row))} placeholder="0.00" className="form-input text-right" /></td>
                   <td className="p-2"><button type="button" disabled={lineItems.length === 1} onClick={() => setLineItems(items => items.filter((_, i) => i !== index))} className="p-2 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 disabled:opacity-30" title="Remove line"><Trash2 className="w-4 h-4" /></button></td>
                 </tr>)}</tbody>
               </table>
             </div>
+            {!receivableAccountOptions.length && <p className="mt-2 text-[10px] text-amber-700 dark:text-amber-300">No postable accounts were found under Trade and Other Receivables. Check that your Chart of Accounts includes this group and its postable child accounts.</p>}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
               <div className="space-y-3">
                 <div><label className="form-label">Discount (%)</label><input type="number" min="0" max="100" step="0.01" value={discountPercent} onChange={e => setDiscountPercent(String(Math.min(100, Math.max(0, Number(e.target.value) || 0))))} className="form-input max-w-xs" /></div>
@@ -662,7 +712,7 @@ export function Billing() {
                 <div className="text-right"><h4 className="font-black text-xl tracking-widest">{selectedTemplate?.documentTitle || 'INVOICE'}</h4><p className="text-xs">{invoiceNo || 'Bill No. not entered'}</p><p className="text-[10px] text-slate-500">Date: {date} · Due: {dueDate}</p></div>
               </div>
               <div className="grid grid-cols-2 gap-4 my-5 text-xs"><div><p className="font-black text-[9px] uppercase tracking-widest text-slate-400 mb-1">Bill to</p><p className="font-bold">{customerName || 'Customer name not entered'}</p><p>{customerTin}</p><p>{customerAddress}</p><p>{customerEmail}</p></div><div><p className="font-black text-[9px] uppercase tracking-widest text-slate-400 mb-1">VAT classification</p><p>{vatType}{isVatable ? ' · 12% VAT-inclusive' : ''}</p></div></div>
-              <div className="overflow-x-auto"><table className="w-full text-xs"><thead className="bg-slate-100"><tr><th className="text-left p-2">Description</th><th className="text-right p-2">Qty</th><th className="text-right p-2">Unit price</th><th className="text-right p-2">Amount</th></tr></thead><tbody>{cleanLineItems.filter(item => item.description || item.qty || item.unitPrice).map((item, index) => <tr key={item.id || index} className="border-b border-slate-200"><td className="p-2">{item.description || '—'}</td><td className="p-2 text-right">{item.qty}</td><td className="p-2 text-right">{money(item.unitPrice)}</td><td className="p-2 text-right">{money(item.qty * item.unitPrice)}</td></tr>)}</tbody></table></div>
+              <div className="overflow-x-auto"><table className="w-full text-xs"><thead className="bg-slate-100"><tr><th className="text-left p-2">Description</th><th className="text-left p-2">Account Title</th><th className="text-right p-2">Amount</th></tr></thead><tbody>{cleanLineItems.filter(item => item.description || item.accountTitle || Number(item.amount) > 0).map((item, index) => <tr key={item.id || index} className="border-b border-slate-200"><td className="p-2">{item.description || '—'}</td><td className="p-2">{item.accountTitle || '—'}</td><td className="p-2 text-right">{money(Number(item.amount) || 0)}</td></tr>)}</tbody></table></div>
               <div className="max-w-xs ml-auto mt-4 space-y-1.5 text-xs"><div className="flex justify-between"><span>Subtotal</span><strong>{money(subtotal)}</strong></div><div className="flex justify-between"><span>Discount ({discountRate.toFixed(2)}%)</span><strong>- {money(discountAmount)}</strong></div>{isVatable && <><div className="flex justify-between"><span>Net of VAT</span><strong>{money(netOfVat)}</strong></div><div className="flex justify-between"><span>Output VAT (12%)</span><strong>{money(outputTax)}</strong></div></>}<div className="border-t-2 border-slate-800 pt-2 flex justify-between text-sm font-black"><span>TOTAL DUE</span><span>{money(grossAmount)}</span></div></div>
               <p className="text-center text-[9px] text-slate-400 mt-7 border-t border-slate-200 pt-3">Generated from CAPOTBOOKS billing records. This document is not proof of payment.</p>
             </div>
