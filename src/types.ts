@@ -108,7 +108,16 @@ export interface CoaAccount {
 export interface BillingInvoiceLineItem {
   id: string;
   description: string;
-  /** Selected postable account under Trade and Other Receivables. */
+  /** Billing nature controls the Sales Journal account credited for this line. */
+  natureBilling?: 'Income' | 'Advances';
+  /** Postable liability account selected when Nature Billing is Advances. */
+  advanceAccountId?: string;
+  advanceAccountTitle?: string;
+  /** Resolved income account title retained for repeatable recurring postings. */
+  postingAccountTitle?: string;
+  /** Stable sales-row ID makes invoice posting and deletion idempotent. */
+  salesJournalSaleId?: string;
+  /** Legacy account fields retained for old saved bills and EIS compatibility. */
   accountId?: string;
   accountTitle?: string;
   /** Legacy fields retained for existing invoices and EIS compatibility. */

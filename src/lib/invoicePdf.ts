@@ -269,13 +269,13 @@ export function downloadTemplatedInvoicePdf(inv: BillingInvoice, profile: Busine
   y = Math.max(titleBottom, buyerY) + 16;
 
   const descriptionX = tableX + 8;
-  const accountTitleX = tableX + tableW * 0.54;
+  const natureBillingX = tableX + tableW * 0.56;
   const amountColumnRight = right;
   const drawTableHeader = () => {
     doc.setFillColor(241, 245, 249); doc.rect(tableX, y, tableW, 22, 'F');
     doc.setFontSize(8); doc.setFont(tpl.fontFamily || 'helvetica', 'bold'); doc.setTextColor(71, 85, 105);
     doc.text('DESCRIPTION', descriptionX, y + 14);
-    doc.text('ACCOUNT TITLE', accountTitleX, y + 14);
+    doc.text('NATURE BILLING', natureBillingX, y + 14);
     doc.text('AMOUNT', amountColumnRight, y + 14, { align: 'right' });
     y += 22;
   };
@@ -283,10 +283,12 @@ export function downloadTemplatedInvoicePdf(inv: BillingInvoice, profile: Busine
   doc.setFont(tpl.fontFamily || 'helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(30, 41, 59);
   for (const line of sourceLines) {
     const description = String(line.description || '—');
-    const accountTitle = String(line.accountTitle || '—');
+    const natureBilling = line.natureBilling === 'Advances'
+      ? `Advances - ${String(line.advanceAccountTitle || line.accountTitle || 'Account not linked')}`
+      : 'Income';
     const descriptionLines = doc.splitTextToSize(description, tableW * 0.50 - 14);
-    const accountTitleLines = doc.splitTextToSize(accountTitle, tableW * 0.27 - 8);
-    const rowH = Math.max(20, Math.max(descriptionLines.length, accountTitleLines.length) * 11 + 8);
+    const natureLines = doc.splitTextToSize(natureBilling, tableW * 0.27 - 8);
+    const rowH = Math.max(20, Math.max(descriptionLines.length, natureLines.length) * 11 + 8);
     if (y + rowH > pageH - 110) {
       doc.addPage();
       y = 52;
@@ -294,7 +296,7 @@ export function downloadTemplatedInvoicePdf(inv: BillingInvoice, profile: Busine
       doc.setFont(tpl.fontFamily || 'helvetica', 'normal'); doc.setFontSize(9); doc.setTextColor(30, 41, 59);
     }
     doc.text(descriptionLines, descriptionX, y + 13);
-    doc.text(accountTitleLines, accountTitleX, y + 13);
+    doc.text(natureLines, natureBillingX, y + 13);
     const amount = line.amount == null ? (Number(line.qty) || 0) * (Number(line.unitPrice) || 0) : Number(line.amount) || 0;
     doc.text(money(amount), amountColumnRight, y + 13, { align: 'right' });
     y += rowH;
@@ -345,10 +347,11 @@ export function printTemplatedInvoice(inv: BillingInvoice, profile: BusinessProf
   const discount = Math.max(0, subtotal - Number(inv.amount || 0));
   const lineRows = lines.map((line: any) => {
     const amount = line.amount == null ? (Number(line.qty) || 0) * (Number(line.unitPrice) || 0) : Number(line.amount) || 0;
-    return `<tr><td>${htmlEscape(line.description || '—')}</td><td>${htmlEscape(line.accountTitle || '—')}</td><td class="num">${money(amount)}</td></tr>`;
+    const nature = line.natureBilling === 'Advances' ? `Advances - ${line.advanceAccountTitle || line.accountTitle || 'Account not linked'}` : 'Income';
+    return `<tr><td>${htmlEscape(line.description || '—')}</td><td>${htmlEscape(nature)}</td><td class="num">${money(amount)}</td></tr>`;
   }).join('');
   const totalRows = `<tr><td colspan="2">Subtotal (VAT-inclusive)</td><td class="num">${money(subtotal)}</td></tr>${discount > 0 ? `<tr><td colspan="2">Discount (${Number(inv.discountPercent || 0)}%)</td><td class="num">-${money(discount)}</td></tr>` : ''}${inv.vatType === 'VATable' ? `<tr><td colspan="2">Net of VAT</td><td class="num">${money(inv.netOfVat)}</td></tr><tr><td colspan="2">Output VAT (12%)</td><td class="num">${money(inv.outputTax)}</td></tr>` : ''}<tr class="grand"><td colspan="2">TOTAL DUE</td><td class="num">${money(inv.amount)}</td></tr>`;
-  win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${htmlEscape(inv.invoiceNo)}</title><style>body{font:12px Arial,sans-serif;color:#1f2937;margin:28px}header{border-bottom:3px double #334155;padding-bottom:14px;margin-bottom:18px;display:flex;justify-content:space-between;gap:20px}.company{font-size:18px;font-weight:bold}.doc{text-align:right}.doc h1{font-size:20px;margin:0 0 8px}.meta{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:18px 0}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{padding:8px;border-bottom:1px solid #d1d5db;text-align:left}th{background:#f1f5f9;text-transform:uppercase;font-size:10px}.num{text-align:right;white-space:nowrap}.totals{width:55%;margin-left:auto}.totals td{border:0}.grand{font-weight:bold;border-top:2px solid #334155}.terms{margin-top:24px;color:#64748b;font-size:10px}@media print{body{margin:12mm}}</style></head><body><header><div><div class="company">${htmlEscape(company)}</div><div>${htmlEscape(address)}</div><div>${htmlEscape(contact)}</div><div>${tpl.showSellerTin !== false ? `TIN: ${htmlEscape(profileField(profile, 'tin'))}` : ''}</div></div><div class="doc"><h1>${htmlEscape(tpl.documentTitle || 'INVOICE')}</h1><div>Bill No.: ${htmlEscape(inv.invoiceNo)}</div><div>Date: ${htmlEscape(inv.date)} · Due: ${htmlEscape(inv.dueDate)}</div></div></header><section class="meta"><div><strong>Bill To</strong><br>${htmlEscape(inv.customerName)}<br>${tpl.showBuyerTin ? `TIN: ${htmlEscape(inv.customerTin)}<br>` : ''}${tpl.showBuyerAddress ? `${htmlEscape(inv.customerAddress)}<br>` : ''}${htmlEscape(inv.customerEmail || '')}</div><div><strong>VAT Type</strong><br>${htmlEscape(inv.vatType)}</div></section><table><thead><tr><th>Description</th><th>Account Title</th><th class="num">Amount</th></tr></thead><tbody>${lineRows}</tbody></table><table class="totals"><tbody>${totalRows}</tbody></table>${tpl.termsAndConditions ? `<div class="terms"><strong>TERMS &amp; CONDITIONS</strong><br>${htmlEscape(tpl.termsAndConditions).replace(/\n/g, '<br>')}</div>` : ''}${tpl.footerNote ? `<div class="terms">${htmlEscape(tpl.footerNote)}</div>` : ''}<script>window.onload=function(){window.focus();window.print();};</script></body></html>`);
+  win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${htmlEscape(inv.invoiceNo)}</title><style>body{font:12px Arial,sans-serif;color:#1f2937;margin:28px}header{border-bottom:3px double #334155;padding-bottom:14px;margin-bottom:18px;display:flex;justify-content:space-between;gap:20px}.company{font-size:18px;font-weight:bold}.doc{text-align:right}.doc h1{font-size:20px;margin:0 0 8px}.meta{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:18px 0}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{padding:8px;border-bottom:1px solid #d1d5db;text-align:left}th{background:#f1f5f9;text-transform:uppercase;font-size:10px}.num{text-align:right;white-space:nowrap}.totals{width:55%;margin-left:auto}.totals td{border:0}.grand{font-weight:bold;border-top:2px solid #334155}.terms{margin-top:24px;color:#64748b;font-size:10px}@media print{body{margin:12mm}}</style></head><body><header><div><div class="company">${htmlEscape(company)}</div><div>${htmlEscape(address)}</div><div>${htmlEscape(contact)}</div><div>${tpl.showSellerTin !== false ? `TIN: ${htmlEscape(profileField(profile, 'tin'))}` : ''}</div></div><div class="doc"><h1>${htmlEscape(tpl.documentTitle || 'INVOICE')}</h1><div>Bill No.: ${htmlEscape(inv.invoiceNo)}</div><div>Date: ${htmlEscape(inv.date)} · Due: ${htmlEscape(inv.dueDate)}</div></div></header><section class="meta"><div><strong>Bill To</strong><br>${htmlEscape(inv.customerName)}<br>${tpl.showBuyerTin ? `TIN: ${htmlEscape(inv.customerTin)}<br>` : ''}${tpl.showBuyerAddress ? `${htmlEscape(inv.customerAddress)}<br>` : ''}${htmlEscape(inv.customerEmail || '')}</div><div><strong>VAT Type</strong><br>${htmlEscape(inv.vatType)}</div></section><table><thead><tr><th>Description</th><th>Nature Billing</th><th class="num">Amount</th></tr></thead><tbody>${lineRows}</tbody></table><table class="totals"><tbody>${totalRows}</tbody></table>${tpl.termsAndConditions ? `<div class="terms"><strong>TERMS &amp; CONDITIONS</strong><br>${htmlEscape(tpl.termsAndConditions).replace(/\n/g, '<br>')}</div>` : ''}${tpl.footerNote ? `<div class="terms">${htmlEscape(tpl.footerNote)}</div>` : ''}<script>window.onload=function(){window.focus();window.print();};</script></body></html>`);
   win.document.close();
 }
 

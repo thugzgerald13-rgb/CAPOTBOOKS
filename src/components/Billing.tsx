@@ -22,7 +22,6 @@ import { Modal } from './ui/Modal';
 import { UserPlus } from 'lucide-react';
 import { getDefaultAccountsForIndustry, getPostableCoaAccounts } from '../lib/journalDefaults';
 
-const CASH_RECEIPT_PAYMENT_TYPES = ['Cash', 'Check', 'E-Payment', 'Bank Transfer'];
 
 function addInterval(dateStr: string, frequency: 'Monthly' | 'Quarterly' | 'Annually', intervals = 1): string {
   // Clamp month-end dates (e.g. Jan 31 → Feb 28/29) instead of overflowing
@@ -50,7 +49,7 @@ function daysBetween(startDate: string, endDate: string): number {
 const money = (value: number) => `₱${(Number(value) || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 export function Billing() {
-  const { currentClient, currentClientId, saveBillingInvoice, deleteBillingInvoice, saveSale, saveJournalEntry, saveTinEntry, showToast, businessProfile } = useAccounting();
+  const { currentClient, currentClientId, saveBillingInvoice, deleteBillingInvoice, saveSale, deleteSale, saveJournalEntry, saveTinEntry, showToast, businessProfile } = useAccounting();
   const navigate = useNavigate();
   const { canAction: canBillingAction, canDropdownOption: canBillingDropdown } = useGranularPermissions('billing');
   const { canAction: canEisAction } = useGranularPermissions('eis_center');
@@ -61,7 +60,6 @@ export function Billing() {
     { value: 'E-Payment', label: 'E-Payment', permission: 'e_payment' },
     { value: 'Bank Transfer', label: 'Bank Transfer', permission: 'bank_transfer' },
     { value: 'Credit Card', label: 'Credit Card', permission: 'credit_card' },
-    { value: 'On Account', label: 'On Account', permission: 'on_account' },
   ].filter((option) => canBillingDropdown('payment_type', option.permission));
   const canInvoiceTab = canBillingDropdown('document_type', 'invoice');
   const canSoaTab = canBillingDropdown('document_type', 'statement_of_account');
@@ -93,7 +91,7 @@ export function Billing() {
   const [customerAddress, setCustomerAddress] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
   const [vatType, setVatType] = useState('VATable');
-  const [lineItems, setLineItems] = useState<BillingInvoiceLineItem[]>([{ id: crypto.randomUUID(), description: '', accountId: '', accountTitle: '', qty: 1, unitPrice: 0, amount: 0 }]);
+  const [lineItems, setLineItems] = useState<BillingInvoiceLineItem[]>([{ id: crypto.randomUUID(), description: '', natureBilling: 'Income', advanceAccountId: '', advanceAccountTitle: '', postingAccountTitle: '', qty: 1, unitPrice: 0, amount: 0 }]);
   const [discountPercent, setDiscountPercent] = useState('0');
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurrenceFrequency, setRecurrenceFrequency] = useState<'Monthly' | 'Quarterly' | 'Annually'>('Monthly');
@@ -119,33 +117,20 @@ export function Billing() {
   const templates = useMemo(() => currentClientId ? listTemplatesFor(currentClientId, 'billing') : [], [currentClientId, activeTab]);
   const selectedTemplate = useMemo(() => currentClientId ? getTemplate(currentClientId, templateId) : getTemplate('', templateId), [currentClientId, templateId]);
 
-  const receivableAccountOptions = useMemo(() => {
+  const coaAccounts = useMemo(() => {
     if (!currentClient) return [];
-    let accounts = currentClient.accounts || [];
-    if (!accounts.length) {
-      accounts = getDefaultAccountsForIndustry(currentClient.industry, currentClient.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric');
-    }
-    const normalizeTitle = (value: string) => value.toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]/g, '');
-    const receivablesGroup = accounts.find(account => normalizeTitle(account.name) === 'tradeandotherreceivables');
-    if (!receivablesGroup) return [];
-
-    // Include all descendants of the Trade and Other Receivables group, then
-    // keep only visible leaf/postable accounts for the dropdown.
-    const descendantIds = new Set<string>([String(receivablesGroup.id)]);
-    let added = true;
-    while (added) {
-      added = false;
-      for (const account of accounts) {
-        if (account.parentId && descendantIds.has(String(account.parentId)) && !descendantIds.has(String(account.id))) {
-          descendantIds.add(String(account.id));
-          added = true;
-        }
-      }
-    }
-    return getPostableCoaAccounts(accounts)
-      .filter(account => String(account.id) !== String(receivablesGroup.id) && descendantIds.has(String(account.id)))
-      .sort((a, b) => a.name.localeCompare(b.name));
+    return currentClient.accounts?.length
+      ? currentClient.accounts
+      : getDefaultAccountsForIndustry(currentClient.industry, currentClient.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric');
   }, [currentClient?.accounts, currentClient?.industry, currentClient?.coaFormat]);
+
+  const postableAccounts = useMemo(() => getPostableCoaAccounts(coaAccounts), [coaAccounts]);
+  const advanceAccountOptions = useMemo(() => postableAccounts
+    .filter(account => /liabilit/i.test(String(account.type || '')) && account.normalSide !== 'debit'), [postableAccounts]);
+  const defaultIncomeAccount = useMemo(() => postableAccounts
+    .find(account => /revenue|income|sales/i.test(String(account.type || '')) && account.normalSide !== 'debit'), [postableAccounts]);
+  const defaultIncomeAccountTitle = defaultIncomeAccount?.name || '';
+
 
   if (!currentClient || !currentClientId) return null;
 
@@ -156,7 +141,10 @@ export function Billing() {
     return {
       ...item,
       description: item.description.trim(),
-      accountTitle: String(item.accountTitle || '').trim(),
+      natureBilling: item.natureBilling === 'Advances' ? 'Advances' : 'Income',
+      advanceAccountId: String(item.advanceAccountId || '').trim(),
+      advanceAccountTitle: String(item.advanceAccountTitle || '').trim(),
+      postingAccountTitle: String(item.postingAccountTitle || (item.natureBilling === 'Advances' ? '' : defaultIncomeAccountTitle)).trim(),
       qty: Math.max(0, Number(item.qty) || 0),
       unitPrice: Math.max(0, Number(item.unitPrice) || 0),
       amount: Math.max(0, Math.round((Number(item.amount ?? legacyAmount) || 0) * 100) / 100),
@@ -182,6 +170,91 @@ export function Billing() {
     if (statusFilter === 'Recurring') return Boolean(inv.isRecurring);
     return getStatus(inv) === statusFilter;
   }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+  const billingSaleIdFor = (invoice: BillingInvoice, line: BillingInvoiceLineItem, index: number) => {
+    const safe = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 48);
+    return `billing_${safe(invoice.customerTin || 'customer')}_${safe(invoice.invoiceNo || invoice.id)}_${safe(line.id || String(index + 1))}`;
+  };
+
+  /** Create/update the sale source rows that feed the Sales Journal and GL. */
+  const postBillingInvoiceToSalesJournal = async (invoice: BillingInvoice): Promise<BillingInvoice> => {
+    const sourceLines: BillingInvoiceLineItem[] = Array.isArray(invoice.lineItems) && invoice.lineItems.length
+      ? invoice.lineItems
+      : [{ id: 'billing-line-1', description: invoice.description || 'Services billed', qty: 1, unitPrice: invoice.amount, amount: invoice.amount, natureBilling: 'Income' as const, postingAccountTitle: defaultIncomeAccountTitle }];
+    const rawSubtotal = sourceLines.reduce((sum, line) => sum + Math.max(0, Number(line.amount ?? (Number(line.qty || 0) * Number(line.unitPrice || 0))) || 0), 0);
+    const grossTotal = Math.max(0, Number(invoice.amount) || 0);
+    const vatable = invoice.vatType === 'VATable';
+    const netTotal = vatable ? Math.max(0, Number(invoice.netOfVat) || 0) : 0;
+    let allocatedGross = 0;
+    let allocatedNet = 0;
+    const enrichedLines = sourceLines.map((line, index) => ({
+      ...line,
+      salesJournalSaleId: line.salesJournalSaleId || billingSaleIdFor(invoice, line, index),
+    }));
+
+    for (let index = 0; index < enrichedLines.length; index += 1) {
+      const line = enrichedLines[index];
+      const rawLineAmount = Math.max(0, Number(line.amount ?? (Number(line.qty || 0) * Number(line.unitPrice || 0))) || 0);
+      const share = rawSubtotal > 0 ? rawLineAmount / rawSubtotal : (enrichedLines.length ? 1 / enrichedLines.length : 0);
+      const lineGross = index === enrichedLines.length - 1
+        ? Math.round((grossTotal - allocatedGross) * 100) / 100
+        : Math.round(grossTotal * share * 100) / 100;
+      allocatedGross += lineGross;
+      const lineNet = vatable
+        ? (index === enrichedLines.length - 1
+          ? Math.round((netTotal - allocatedNet) * 100) / 100
+          : Math.round(netTotal * share * 100) / 100)
+        : 0;
+      allocatedNet += lineNet;
+      const lineOutputVat = vatable ? Math.round((lineGross - lineNet) * 100) / 100 : 0;
+      const nature = line.natureBilling === 'Advances' ? 'Advances' : 'Income';
+      const accountTitle = nature === 'Advances'
+        ? String(line.advanceAccountTitle || '').trim()
+        : String(line.postingAccountTitle || defaultIncomeAccountTitle).trim();
+      if (!accountTitle) throw new Error(nature === 'Advances' ? 'An advance account title is not linked.' : 'No postable Revenue account is available.');
+
+      const sale = {
+        id: line.salesJournalSaleId,
+        date: invoice.date,
+        ref: invoice.invoiceNo,
+        // Billing creates an invoice receivable; routing it as On Account places
+        // the row in the Sales Journal without recognizing a second sale later.
+        paymentType: 'On Account',
+        buyerTin: invoice.customerTin,
+        buyerName: invoice.customerName,
+        buyerAddress: invoice.customerAddress,
+        vatType: invoice.vatType,
+        amount: lineGross,
+        netOfVat: lineNet,
+        outputTax: lineOutputVat,
+        incomeType: accountTitle,
+        desc: `Billing ${invoice.invoiceNo}: ${line.description}`,
+        exemptAmount: !vatable && invoice.vatType === 'VAT Exempt' ? lineGross : 0,
+        zeroRatedAmount: !vatable && invoice.vatType === 'Zero-Rated' ? lineGross : 0,
+      };
+      await saveSale(String(line.salesJournalSaleId), sale);
+    }
+
+    return { ...invoice, lineItems: enrichedLines };
+  };
+
+  const validateBillingLines = () => {
+    const enteredLines = cleanLineItems.filter(item => item.description || item.advanceAccountTitle || Number(item.amount) > 0);
+    const validLines = enteredLines.filter(item => item.description && Number(item.amount) > 0 && (
+      item.natureBilling === 'Income'
+        ? Boolean(item.postingAccountTitle || defaultIncomeAccountTitle)
+        : Boolean(item.advanceAccountId && item.advanceAccountTitle && advanceAccountOptions.some(account => String(account.id) === item.advanceAccountId))
+    ));
+    if (!validLines.length || validLines.length !== enteredLines.length) {
+      showToast('Complete each bill line with a description, choose Income or Advances, link a liability account for Advances, and enter an amount greater than zero.');
+      return false;
+    }
+    if (!defaultIncomeAccountTitle && validLines.some(item => item.natureBilling === 'Income')) {
+      showToast('No postable Revenue account is available in the Chart of Accounts for Income billing.');
+      return false;
+    }
+    return true;
+  };
 
   const openNewCustomer = () => {
     if (!canTinLibraryAction('add')) {
@@ -275,13 +348,8 @@ export function Billing() {
       setInvoiceStep(1);
       return;
     }
-    const enteredLines = cleanLineItems.filter(item => item.description || item.accountTitle || Number(item.amount) > 0);
-    const validLines = enteredLines.filter(item => item.description && item.accountTitle && Number(item.amount) > 0);
-    if (!validLines.length || validLines.length !== enteredLines.length) {
-      showToast('Complete each bill line with a description, a Trade and Other Receivables account title, and an amount greater than zero.');
-      setInvoiceStep(2);
-      return;
-    }
+    if (!validateBillingLines()) { setInvoiceStep(2); return; }
+    const validLines = cleanLineItems.filter(item => item.description && Number(item.amount) > 0);
     if (customerEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail.trim())) {
       showToast('Enter a valid customer email address or leave it blank.');
       setInvoiceStep(1);
@@ -291,8 +359,10 @@ export function Billing() {
     const normalizedLines = validLines.map(item => ({
       id: item.id || crypto.randomUUID(),
       description: item.description,
-      accountId: item.accountId || undefined,
-      accountTitle: item.accountTitle,
+      natureBilling: item.natureBilling === 'Advances' ? 'Advances' as const : 'Income' as const,
+      advanceAccountId: item.advanceAccountId || undefined,
+      advanceAccountTitle: item.advanceAccountTitle || undefined,
+      postingAccountTitle: item.natureBilling === 'Income' ? (item.postingAccountTitle || defaultIncomeAccountTitle) : undefined,
       // Keep legacy quantity/unit-price fields populated for downstream EIS
       // integrations; the recorded and displayed amount remains user-entered.
       qty: 1,
@@ -323,12 +393,13 @@ export function Billing() {
 
     setIsSavingInvoice(true);
     try {
-      await saveBillingInvoice(newInvoice.id, newInvoice);
-      setRecordedInvoice(newInvoice);
-      showToast(isRecurring ? 'Recurring bill recorded' : 'Bill recorded');
+      const invoiceWithSales = await postBillingInvoiceToSalesJournal(newInvoice);
+      await saveBillingInvoice(invoiceWithSales.id, invoiceWithSales);
+      setRecordedInvoice(invoiceWithSales);
+      showToast(isRecurring ? 'Recurring bill recorded and posted to the Sales Journal' : 'Bill recorded and posted to the Sales Journal');
     } catch (error) {
-      console.error(error);
-      showToast('Failed to record bill');
+      console.error('Billing invoice or Sales Journal posting failed:', error);
+      showToast('Failed to fully record the bill. Retry using the same Bill No.; Sales Journal rows are safely upserted.');
     } finally {
       setIsSavingInvoice(false);
     }
@@ -345,12 +416,7 @@ export function Billing() {
       setInvoiceStep(2); return;
     }
     if (invoiceStep === 2) {
-      const enteredLines = cleanLineItems.filter(item => item.description || item.accountTitle || Number(item.amount) > 0);
-      const validLines = enteredLines.filter(item => item.description && item.accountTitle && Number(item.amount) > 0);
-      if (!validLines.length || validLines.length !== enteredLines.length) {
-        showToast('Complete each bill line with a description, a Trade and Other Receivables account title, and an amount greater than zero.');
-        return;
-      }
+      if (!validateBillingLines()) return;
       setInvoiceStep(3); return;
     }
     if (invoiceStep === 3) setInvoiceStep(4);
@@ -367,7 +433,7 @@ export function Billing() {
     setCustomerAddress('');
     setCustomerEmail('');
     setVatType('VATable');
-    setLineItems([{ id: crypto.randomUUID(), description: '', accountId: '', accountTitle: '', qty: 1, unitPrice: 0, amount: 0 }]);
+    setLineItems([{ id: crypto.randomUUID(), description: '', natureBilling: 'Income', advanceAccountId: '', advanceAccountTitle: '', postingAccountTitle: defaultIncomeAccountTitle, qty: 1, unitPrice: 0, amount: 0 }]);
     setDiscountPercent('0');
     setIsRecurring(false);
     setRecurrenceFrequency('Monthly');
@@ -423,16 +489,19 @@ export function Billing() {
     if (generatingRecurringRef.current) return;
 
     const scheduledDate = template.nextBillingDate;
-    const alreadyGenerated = invoices.some(inv => inv.parentInvoiceId === template.id && inv.date === scheduledDate);
+    const existingGenerated = invoices.find(inv => inv.parentInvoiceId === template.id && inv.date === scheduledDate);
     generatingRecurringRef.current = true;
     setGeneratingRecurringId(template.id);
     try {
-      if (alreadyGenerated) {
-        // Recover safely if a previous save created the bill but failed to advance the schedule.
+      if (existingGenerated) {
+        // Repair either side of a partial prior save without duplicating the bill
+        // or its Sales Journal rows (the generated sale IDs are deterministic).
+        const repairedGenerated = await postBillingInvoiceToSalesJournal(existingGenerated);
+        await saveBillingInvoice(repairedGenerated.id, repairedGenerated);
         const generatedCount = invoices.filter(inv => inv.parentInvoiceId === template.id).length;
         const advancedTemplate = { ...template, nextBillingDate: addInterval(template.date, template.recurrenceFrequency, generatedCount + 2) };
         await saveBillingInvoice(advancedTemplate.id, advancedTemplate);
-        showToast(`The bill for ${scheduledDate} already exists. The schedule has been advanced.`);
+        showToast(`The bill for ${scheduledDate} already exists. Its Sales Journal rows were checked and the schedule advanced.`);
         return;
       }
 
@@ -452,7 +521,7 @@ export function Billing() {
         dueDate: addDays(scheduledDate, dueTermDays),
         invoiceNo: generatedBillNo,
         customerEmail: template.customerEmail,
-        lineItems: template.lineItems?.map(item => ({ ...item })) || [],
+        lineItems: template.lineItems?.map(item => ({ ...item, salesJournalSaleId: undefined })) || [],
         status: 'Outstanding',
         isRecurring: false,
         recurrenceFrequency: undefined,
@@ -471,9 +540,10 @@ export function Billing() {
       // above protects against repeated clicks if the user retries after a network error.
       // Persist the new bill first. If advancing the schedule then fails, a retry
       // detects the existing child bill and advances the schedule without duplicating it.
-      await saveBillingInvoice(generated.id, generated);
+      const generatedWithSales = await postBillingInvoiceToSalesJournal(generated);
+      await saveBillingInvoice(generatedWithSales.id, generatedWithSales);
       await saveBillingInvoice(updatedTemplate.id, updatedTemplate);
-      showToast(`Generated Bill No. ${generated.invoiceNo} for ${generated.date}.`);
+      showToast(`Generated Bill No. ${generatedWithSales.invoiceNo} and posted it to the Sales Journal.`);
     } catch (error) {
       console.error('Failed to generate recurring bill:', error);
       showToast('Failed to generate the recurring bill. The schedule was not confirmed as advanced.');
@@ -484,71 +554,56 @@ export function Billing() {
   };
 
   const buildCashReceiptEntry = (inv: BillingInvoice, paymentType: string): JournalEntry => {
-    const columns = currentClient.crjColumns || DEFAULT_CRJ_COLUMNS;
+    const columns = currentClient.crjColumns?.length ? currentClient.crjColumns : DEFAULT_CRJ_COLUMNS;
     const colIds = new Set(columns.map(c => c.id));
     const values: Record<string, string> = {};
     if (colIds.has('date')) values['date'] = today;
     if (colIds.has('reference')) values['reference'] = inv.invoiceNo;
-    if (colIds.has('description')) values['description'] = `Billing - ${inv.customerName}`;
+    if (colIds.has('payor')) values['payor'] = inv.customerName;
+    if (colIds.has('description')) values['description'] = `Billing payment received - ${paymentType}`;
     if (colIds.has('post_ref')) values['post_ref'] = inv.customerTin;
     if (colIds.has('cash')) values['cash'] = inv.amount.toFixed(2);
-    if (colIds.has('sales')) values['sales'] = inv.netOfVat.toFixed(2);
-    if (colIds.has('sundry') && inv.outputTax > 0) values['sundry'] = inv.outputTax.toFixed(2);
-    return { id: crypto.randomUUID(), values };
+    // The invoice already credited its Income / Advances account in the Sales
+    // Journal. A later collection only debits cash and credits receivables.
+    if (colIds.has('ar')) values['ar'] = inv.amount.toFixed(2);
+    return { id: `billing-payment-${inv.id}`, values };
   };
 
-  const handleConfirmPaid = (inv: BillingInvoice) => {
+  const handleConfirmPaid = async (inv: BillingInvoice) => {
     if (!canBillingAction('post')) { showToast('Your profile does not have permission to post invoice payments.'); return; }
     const payment = billingPaymentOptions.find((option) => option.value === payPaymentType);
-    if (!payment || !canBillingDropdown('payment_type', payment.permission)) { showToast('The selected payment method is not permitted for your profile.'); return; }
+    if (!payment || !canBillingDropdown('payment_type', payment.permission) || payPaymentType === 'On Account') { showToast('Select a valid payment method to settle this receivable.'); return; }
     const updatedInvoice: BillingInvoice = {
       ...inv,
       status: 'Paid',
       datePaid: today,
       paymentType: payPaymentType
     };
-
-    // Recognize income now that payment has been collected, reusing the same
-    // Sale shape / posting logic the Income form uses.
-    const newSale = {
-      id: Date.now(),
-      datMonthYear: undefined,
-      date: today,
-      ref: inv.invoiceNo,
-      paymentType: payPaymentType,
-      buyerTin: inv.customerTin,
-      buyerName: inv.customerName,
-      buyerAddress: inv.customerAddress,
-      vatType: inv.vatType,
-      amount: inv.amount,
-      netOfVat: inv.netOfVat,
-      outputTax: inv.outputTax,
-      incomeType: '',
-      desc: inv.description ? `Billing: ${inv.description}` : `Billing invoice ${inv.invoiceNo}`
-    };
-
-    const crjEntry = CASH_RECEIPT_PAYMENT_TYPES.includes(payPaymentType)
-      ? { ...buildCashReceiptEntry(inv, payPaymentType), auto: true, autoSource: 'billing' }
-      : null;
-
-    Promise.all([
-      saveBillingInvoice(updatedInvoice.id, updatedInvoice),
-      saveSale(String(newSale.id), newSale),
-      ...(crjEntry ? [saveJournalEntry('CRJ', crjEntry)] : [])
-    ]).then(() => {
-      showToast('Invoice marked as paid and recorded as income');
+    try {
+      await Promise.all([
+        saveBillingInvoice(updatedInvoice.id, updatedInvoice),
+        saveJournalEntry('CRJ', buildCashReceiptEntry(inv, payPaymentType)),
+      ]);
+      showToast('Invoice payment recorded: Cash/Bank debited and Accounts Receivable credited.');
       setPayingId(null);
-    }).catch((e) => {
-      console.error(e);
-      showToast('Failed to record payment');
-    });
-    showToast('Invoice marked as paid and recorded as income');
-    setPayingId(null);
+    } catch (error) {
+      console.error('Failed to record billing payment:', error);
+      showToast('Failed to record invoice payment. The invoice has not been confirmed as paid.');
+    }
   };
 
-  const handleDelete = (id: string) => {
+
+  const handleDelete = async (id: string) => {
     if (!canBillingAction('delete')) { showToast('Your profile does not have permission to delete invoices.'); return; }
-    deleteBillingInvoice(id).catch((e) => { console.error(e); showToast('Failed to delete invoice'); });
+    const invoice = invoices.find(item => item.id === id);
+    try {
+      const postedIds = (invoice?.lineItems || []).map(item => item.salesJournalSaleId).filter((saleId): saleId is string => Boolean(saleId));
+      for (const saleId of postedIds) await deleteSale(saleId);
+      await deleteBillingInvoice(id);
+    } catch (e) {
+      console.error(e);
+      showToast('Failed to delete bill and its linked Sales Journal rows.');
+    }
   };
   // Run 007 / T007 — PDF export, payment link copy, email reminder
   const handleDownloadPdf = (inv: BillingInvoice) => {
@@ -661,33 +716,43 @@ export function Billing() {
               <div><label className="form-label">VAT classification</label><select value={vatType} onChange={e => setVatType(e.target.value)} className="form-input"><option value="VATable">VATable (12% VAT-inclusive)</option><option value="VAT Exempt">VAT Exempt</option><option value="Zero-Rated">Zero-Rated</option></select></div>
             </div>
             <div className="mt-4 rounded-xl bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/50 p-3 text-[11px] text-indigo-800 dark:text-indigo-200">
-              Unit prices entered in the next step are treated as VAT-inclusive for VATable invoices, matching CAPOTBOOKS' existing billing and sales VAT calculations. VAT Exempt and Zero-Rated invoices do not calculate output VAT.
+              Amounts entered in the next step are treated as VAT-inclusive for VATable invoices, matching CAPOTBOOKS' existing billing and sales VAT calculations. VAT Exempt and Zero-Rated invoices do not calculate output VAT.
             </div>
           </>}
 
           {invoiceStep === 2 && <>
             <div className="flex items-start justify-between gap-3 flex-wrap mb-3">
-              <div><h3 className="text-sm font-black text-slate-800 dark:text-white">Services & items billed</h3><p className="text-[11px] text-slate-500 mt-1">Enter each description, select its receivables account title, and type the amount directly.</p></div>
-              <button type="button" onClick={() => setLineItems(items => [...items, { id: crypto.randomUUID(), description: '', accountId: '', accountTitle: '', qty: 1, unitPrice: 0, amount: 0 }])} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900 px-3 py-2 text-xs font-bold text-emerald-700 dark:text-emerald-300"><Plus className="w-3.5 h-3.5" /> Add service line</button>
+              <div><h3 className="text-sm font-black text-slate-800 dark:text-white">Services & items billed</h3><p className="text-[11px] text-slate-500 mt-1">Enter each description, choose Income or Advances, and type the amount directly. Advances require a linked liability account title.</p></div>
+              <button type="button" onClick={() => setLineItems(items => [...items, { id: crypto.randomUUID(), description: '', natureBilling: 'Income', advanceAccountId: '', advanceAccountTitle: '', postingAccountTitle: defaultIncomeAccountTitle, qty: 1, unitPrice: 0, amount: 0 }])} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900 px-3 py-2 text-xs font-bold text-emerald-700 dark:text-emerald-300"><Plus className="w-3.5 h-3.5" /> Add service line</button>
             </div>
             <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
-              <table className="w-full min-w-[760px] text-xs">
-                <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 uppercase tracking-wider text-[9px]"><tr><th className="text-left p-3">Description</th><th className="text-left p-3 w-64">Account Title</th><th className="text-right p-3 w-40">Amount (₱)</th><th className="w-12 p-3"></th></tr></thead>
+              <table className="w-full min-w-[820px] text-xs">
+                <thead className="bg-slate-50 dark:bg-slate-800 text-slate-500 uppercase tracking-wider text-[9px]"><tr><th className="text-left p-3">Description</th><th className="text-left p-3 w-72">Nature Billing</th><th className="text-right p-3 w-40">Amount (₱)</th><th className="w-12 p-3"></th></tr></thead>
                 <tbody>{lineItems.map((item, index) => <tr key={item.id || index} className="border-t border-slate-100 dark:border-slate-800">
                   <td className="p-2"><input aria-label={`Service description ${index + 1}`} value={item.description} onChange={e => setLineItems(items => items.map((row, i) => i === index ? { ...row, description: e.target.value } : row))} placeholder="Service performed / item supplied" className="form-input" /></td>
-                  <td className="p-2"><select aria-label={`Account title ${index + 1}`} value={item.accountId || ''} onChange={e => {
-                    const selected = receivableAccountOptions.find(account => String(account.id) === e.target.value);
-                    setLineItems(items => items.map((row, i) => i === index ? { ...row, accountId: selected ? String(selected.id) : '', accountTitle: selected?.name || '' } : row));
-                  }} className="form-input">
-                    <option value="">{receivableAccountOptions.length ? 'Select account title…' : 'No postable receivables accounts found'}</option>
-                    {receivableAccountOptions.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}
-                  </select></td>
+                  <td className="p-2 space-y-1.5">
+                    <select aria-label={`Nature billing ${index + 1}`} value={item.natureBilling || 'Income'} onChange={e => setLineItems(items => items.map((row, i) => i === index ? { ...row, natureBilling: e.target.value as 'Income' | 'Advances' } : row))} className="form-input">
+                      <option value="Income">Income</option>
+                      <option value="Advances">Advances</option>
+                    </select>
+                    {item.natureBilling === 'Advances' && <div><label className="block text-[9px] font-bold text-slate-500 mb-1">Advance Account Title</label><select aria-label={`Advance account title ${index + 1}`} value={item.advanceAccountId || ''} onChange={e => {
+                      const selected = advanceAccountOptions.find(account => String(account.id) === e.target.value);
+                      setLineItems(items => items.map((row, i) => i === index ? { ...row, advanceAccountId: selected ? String(selected.id) : '', advanceAccountTitle: selected?.name || '' } : row));
+                    }} className="form-input">
+                      <option value="">{advanceAccountOptions.length ? 'Link liability account…' : 'No postable liability accounts found'}</option>
+                      {advanceAccountOptions.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}
+                    </select></div>}
+                  </td>
                   <td className="p-2"><input aria-label={`Amount ${index + 1}`} type="number" min="0" step="0.01" value={item.amount ?? 0} onChange={e => setLineItems(items => items.map((row, i) => i === index ? { ...row, amount: Math.max(0, Number(e.target.value) || 0) } : row))} placeholder="0.00" className="form-input text-right" /></td>
                   <td className="p-2"><button type="button" disabled={lineItems.length === 1} onClick={() => setLineItems(items => items.filter((_, i) => i !== index))} className="p-2 rounded-lg text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 disabled:opacity-30" title="Remove line"><Trash2 className="w-4 h-4" /></button></td>
                 </tr>)}</tbody>
               </table>
             </div>
-            {!receivableAccountOptions.length && <p className="mt-2 text-[10px] text-amber-700 dark:text-amber-300">No postable accounts were found under Trade and Other Receivables. Check that your Chart of Accounts includes this group and its postable child accounts.</p>}
+            <div className="mt-2 space-y-1 text-[10px] text-slate-500">
+              <p>Income lines post to <strong>{defaultIncomeAccountTitle || 'a postable Revenue account'}</strong> in the Sales Journal.</p>
+              <p>Advances lines post to the selected <strong>Advance Account Title</strong> in the Sales Journal.</p>
+              {!advanceAccountOptions.length && <p className="text-amber-700 dark:text-amber-300">No postable liability accounts were found. Add a postable Liabilities account in the Chart of Accounts to use Advances.</p>}
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
               <div className="space-y-3">
                 <div><label className="form-label">Discount (%)</label><input type="number" min="0" max="100" step="0.01" value={discountPercent} onChange={e => setDiscountPercent(String(Math.min(100, Math.max(0, Number(e.target.value) || 0))))} className="form-input max-w-xs" /></div>
@@ -712,7 +777,7 @@ export function Billing() {
                 <div className="text-right"><h4 className="font-black text-xl tracking-widest">{selectedTemplate?.documentTitle || 'INVOICE'}</h4><p className="text-xs">{invoiceNo || 'Bill No. not entered'}</p><p className="text-[10px] text-slate-500">Date: {date} · Due: {dueDate}</p></div>
               </div>
               <div className="grid grid-cols-2 gap-4 my-5 text-xs"><div><p className="font-black text-[9px] uppercase tracking-widest text-slate-400 mb-1">Bill to</p><p className="font-bold">{customerName || 'Customer name not entered'}</p><p>{customerTin}</p><p>{customerAddress}</p><p>{customerEmail}</p></div><div><p className="font-black text-[9px] uppercase tracking-widest text-slate-400 mb-1">VAT classification</p><p>{vatType}{isVatable ? ' · 12% VAT-inclusive' : ''}</p></div></div>
-              <div className="overflow-x-auto"><table className="w-full text-xs"><thead className="bg-slate-100"><tr><th className="text-left p-2">Description</th><th className="text-left p-2">Account Title</th><th className="text-right p-2">Amount</th></tr></thead><tbody>{cleanLineItems.filter(item => item.description || item.accountTitle || Number(item.amount) > 0).map((item, index) => <tr key={item.id || index} className="border-b border-slate-200"><td className="p-2">{item.description || '—'}</td><td className="p-2">{item.accountTitle || '—'}</td><td className="p-2 text-right">{money(Number(item.amount) || 0)}</td></tr>)}</tbody></table></div>
+              <div className="overflow-x-auto"><table className="w-full text-xs"><thead className="bg-slate-100"><tr><th className="text-left p-2">Description</th><th className="text-left p-2">Nature Billing</th><th className="text-right p-2">Amount</th></tr></thead><tbody>{cleanLineItems.filter(item => item.description || item.advanceAccountTitle || Number(item.amount) > 0).map((item, index) => <tr key={item.id || index} className="border-b border-slate-200"><td className="p-2">{item.description || '—'}</td><td className="p-2">{item.natureBilling === 'Advances' ? `Advances · ${item.advanceAccountTitle || 'Account not linked'}` : 'Income'}</td><td className="p-2 text-right">{money(Number(item.amount) || 0)}</td></tr>)}</tbody></table></div>
               <div className="max-w-xs ml-auto mt-4 space-y-1.5 text-xs"><div className="flex justify-between"><span>Subtotal</span><strong>{money(subtotal)}</strong></div><div className="flex justify-between"><span>Discount ({discountRate.toFixed(2)}%)</span><strong>- {money(discountAmount)}</strong></div>{isVatable && <><div className="flex justify-between"><span>Net of VAT</span><strong>{money(netOfVat)}</strong></div><div className="flex justify-between"><span>Output VAT (12%)</span><strong>{money(outputTax)}</strong></div></>}<div className="border-t-2 border-slate-800 pt-2 flex justify-between text-sm font-black"><span>TOTAL DUE</span><span>{money(grossAmount)}</span></div></div>
               <p className="text-center text-[9px] text-slate-400 mt-7 border-t border-slate-200 pt-3">Generated from CAPOTBOOKS billing records. This document is not proof of payment.</p>
             </div>
