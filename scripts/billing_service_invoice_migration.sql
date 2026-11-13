@@ -12,3 +12,14 @@ comment on column public.billing_invoices.discount_percent is
   'Invoice-level discount percentage applied to the sum of service invoice lines.';
 comment on column public.billing_invoices.template_id is
   'Invoice template selected when the service invoice was created.';
+
+
+-- Supports recurring-bill schedule lookups by client and next due date.
+create index if not exists idx_billing_invoices_recurring_due
+  on public.billing_invoices(client_id, next_billing_date)
+  where is_recurring = true;
+
+comment on column public.billing_invoices.next_billing_date is
+  'Next scheduled generation date for an active recurring bill.';
+comment on column public.billing_invoices.parent_invoice_id is
+  'Links generated recurring bills to their recurring bill schedule record.';

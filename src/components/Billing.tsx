@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
 import { formatTIN } from '../lib/utils';
-import { CreditCard, Plus, Trash2, RefreshCw, CheckCircle2, FileDown, Link2, Bell, FileSignature, Printer, Mail, ArrowLeft, ArrowRight, Save, Eye, ListChecks } from 'lucide-react';
+import { CreditCard, Plus, Trash2, RefreshCw, CheckCircle2, FileDown, Link2, Bell, FileSignature, Printer, Mail, ArrowLeft, ArrowRight, Save, Eye } from 'lucide-react';
 import { getTransmissionByInvoice } from '../lib/eisStore';
 import { EmptyState } from './ui/EmptyState';
 import { DEFAULT_CRJ_COLUMNS } from './CashReceiptsJournal';
@@ -23,21 +23,27 @@ import { UserPlus } from 'lucide-react';
 
 const CASH_RECEIPT_PAYMENT_TYPES = ['Cash', 'Check', 'E-Payment', 'Bank Transfer'];
 
-function addInterval(dateStr: string, frequency: 'Monthly' | 'Quarterly' | 'Annually'): string {
-  const d = new Date(dateStr);
-  if (frequency === 'Monthly') d.setMonth(d.getMonth() + 1);
-  else if (frequency === 'Quarterly') d.setMonth(d.getMonth() + 3);
-  else d.setFullYear(d.getFullYear() + 1);
-  return d.toISOString().split('T')[0];
+function addInterval(dateStr: string, frequency: 'Monthly' | 'Quarterly' | 'Annually', intervals = 1): string {
+  // Clamp month-end dates (e.g. Jan 31 → Feb 28/29) instead of overflowing
+  // into the following month. UTC avoids browser timezone shifts for date-only values.
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const monthOffset = (frequency === 'Monthly' ? 1 : frequency === 'Quarterly' ? 3 : 12) * Math.max(1, intervals);
+  const targetMonth = new Date(Date.UTC(year, month - 1 + monthOffset, 1));
+  const lastDay = new Date(Date.UTC(targetMonth.getUTCFullYear(), targetMonth.getUTCMonth() + 1, 0)).getUTCDate();
+  targetMonth.setUTCDate(Math.min(day, lastDay));
+  return targetMonth.toISOString().slice(0, 10);
 }
 
 function addDays(dateStr: string, days: number): string {
-  const d = new Date(`${dateStr}T00:00:00`);
-  d.setDate(d.getDate() + days);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function daysBetween(startDate: string, endDate: string): number {
+  const start = new Date(`${startDate}T00:00:00Z`).getTime();
+  const end = new Date(`${endDate}T00:00:00Z`).getTime();
+  return Math.max(0, Math.round((end - start) / 86_400_000));
 }
 
 const money = (value: number) => `₱${(Number(value) || 0).toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -76,8 +82,7 @@ export function Billing() {
 
   const today = new Date().toISOString().split('T')[0];
 
-  // Service invoice workbench state. Invoice line amounts follow the existing
-  // CAPOTBOOKS convention: entered unit prices are VAT-inclusive for VATable invoices.
+  // Bill creation state. Entered unit prices are VAT-inclusive for VATable bills.
   const [invoiceStep, setInvoiceStep] = useState<1 | 2 | 3 | 4>(1);
   const [date, setDate] = useState(today);
   const [dueDate, setDueDate] = useState(addDays(today, 14));
@@ -93,6 +98,8 @@ export function Billing() {
   const [recurrenceFrequency, setRecurrenceFrequency] = useState<'Monthly' | 'Quarterly' | 'Annually'>('Monthly');
   const [recordedInvoice, setRecordedInvoice] = useState<BillingInvoice | null>(null);
   const [isSavingInvoice, setIsSavingInvoice] = useState(false);
+  const [generatingRecurringId, setGeneratingRecurringId] = useState<string | null>(null);
+  const generatingRecurringRef = useRef(false);
   const [newCustomerOpen, setNewCustomerOpen] = useState(false);
   const [newCustomerTin, setNewCustomerTin] = useState('');
   const [newCustomerName, setNewCustomerName] = useState('');
@@ -100,7 +107,7 @@ export function Billing() {
   const [newCustomerEmail, setNewCustomerEmail] = useState('');
   const [isSavingNewCustomer, setIsSavingNewCustomer] = useState(false);
 
-  const [statusFilter, setStatusFilter] = useState<'All' | 'Outstanding' | 'Overdue' | 'Paid'>('All');
+  const [statusFilter, setStatusFilter] = useState<'All' | 'Outstanding' | 'Overdue' | 'Paid' | 'Recurring'>('All');
   const [payingId, setPayingId] = useState<string | null>(null);
   const [payPaymentType, setPayPaymentType] = useState('Cash');
   // The E-Invoice tab is intentionally hidden; EIS actions remain available where permitted.
@@ -137,6 +144,7 @@ export function Billing() {
 
   const filteredInvoices = invoices.filter(inv => {
     if (statusFilter === 'All') return true;
+    if (statusFilter === 'Recurring') return Boolean(inv.isRecurring);
     return getStatus(inv) === statusFilter;
   }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
@@ -218,7 +226,7 @@ export function Billing() {
     if (!canBillingAction('add')) { showToast('Your profile does not have permission to create invoices.'); return; }
     if (!canInvoiceTab) { showToast('Invoice creation is not enabled for your profile.'); return; }
     if (!invoiceNo.trim() || !customerTin.trim() || !customerName.trim() || !customerAddress.trim()) {
-      showToast('Invoice number, customer TIN, name, and address are required.');
+      showToast('Bill No., customer TIN, name, and address are required.');
       setInvoiceStep(1);
       return;
     }
@@ -228,7 +236,7 @@ export function Billing() {
       return;
     }
     if (invoices.some(inv => inv.invoiceNo.trim().toLowerCase() === invoiceNo.trim().toLowerCase())) {
-      showToast('That invoice number already exists. Enter a unique invoice number.');
+      showToast('That Bill No. already exists. Enter a unique Bill No.');
       setInvoiceStep(1);
       return;
     }
@@ -277,10 +285,10 @@ export function Billing() {
     try {
       await saveBillingInvoice(newInvoice.id, newInvoice);
       setRecordedInvoice(newInvoice);
-      showToast(isRecurring ? 'Recurring service invoice recorded' : 'Service invoice recorded');
+      showToast(isRecurring ? 'Recurring bill recorded' : 'Bill recorded');
     } catch (error) {
       console.error(error);
-      showToast('Failed to record service invoice');
+      showToast('Failed to record bill');
     } finally {
       setIsSavingInvoice(false);
     }
@@ -289,11 +297,11 @@ export function Billing() {
   const advanceInvoiceStep = () => {
     if (invoiceStep === 1) {
       if (!invoiceNo.trim() || !customerTin.trim() || !customerName.trim() || !customerAddress.trim()) {
-        showToast('Complete the invoice number, customer TIN, name, and address first.'); return;
+        showToast('Complete the Bill No., customer TIN, name, and address first.'); return;
       }
       if (!date || !dueDate || dueDate < date) { showToast('Check the invoice date and due date.'); return; }
       if (customerEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(customerEmail.trim())) { showToast('Enter a valid customer email address or leave it blank.'); return; }
-      if (invoices.some(inv => inv.invoiceNo.trim().toLowerCase() === invoiceNo.trim().toLowerCase())) { showToast('That invoice number already exists.'); return; }
+      if (invoices.some(inv => inv.invoiceNo.trim().toLowerCase() === invoiceNo.trim().toLowerCase())) { showToast('That Bill No. already exists.'); return; }
       setInvoiceStep(2); return;
     }
     if (invoiceStep === 2) {
@@ -361,32 +369,74 @@ export function Billing() {
     }
   };
 
-  const handleGenerateNext = (template: BillingInvoice) => {
-    if (!canBillingAction('add')) { showToast('Your profile does not have permission to create invoices.'); return; }
-    if (!template.nextBillingDate || !template.recurrenceFrequency) return;
-    const newDueDate = addInterval(template.nextBillingDate, template.recurrenceFrequency);
+  const handleGenerateNext = async (template: BillingInvoice) => {
+    if (!canBillingAction('add')) { showToast('Your profile does not have permission to create bills.'); return; }
+    if (!template.isRecurring || !template.nextBillingDate || !template.recurrenceFrequency) return;
+    if (template.nextBillingDate > today) {
+      showToast(`The next bill is scheduled for ${template.nextBillingDate}.`);
+      return;
+    }
+    if (generatingRecurringRef.current) return;
 
-    const generated: BillingInvoice = {
-      ...template,
-      id: crypto.randomUUID(),
-      date: template.nextBillingDate,
-      dueDate: newDueDate,
-      status: 'Outstanding',
-      isRecurring: false,
-      nextBillingDate: undefined,
-      recurrenceFrequency: undefined,
-      parentInvoiceId: template.id,
-      datePaid: undefined,
-      paymentType: undefined
-    };
+    const scheduledDate = template.nextBillingDate;
+    const alreadyGenerated = invoices.some(inv => inv.parentInvoiceId === template.id && inv.date === scheduledDate);
+    generatingRecurringRef.current = true;
+    setGeneratingRecurringId(template.id);
+    try {
+      if (alreadyGenerated) {
+        // Recover safely if a previous save created the bill but failed to advance the schedule.
+        const generatedCount = invoices.filter(inv => inv.parentInvoiceId === template.id).length;
+        const advancedTemplate = { ...template, nextBillingDate: addInterval(template.date, template.recurrenceFrequency, generatedCount + 2) };
+        await saveBillingInvoice(advancedTemplate.id, advancedTemplate);
+        showToast(`The bill for ${scheduledDate} already exists. The schedule has been advanced.`);
+        return;
+      }
 
-    const updatedTemplate: BillingInvoice = {
-      ...template,
-      nextBillingDate: addInterval(template.nextBillingDate, template.recurrenceFrequency)
-    };
+      const dueTermDays = daysBetween(template.date, template.dueDate);
+      const priorBills = invoices.filter(inv => inv.parentInvoiceId === template.id).length;
+      let sequence = priorBills + 2;
+      let generatedBillNo = `${template.invoiceNo}-${String(sequence).padStart(2, '0')}`;
+      while (invoices.some(inv => inv.invoiceNo.trim().toLowerCase() === generatedBillNo.toLowerCase())) {
+        sequence += 1;
+        generatedBillNo = `${template.invoiceNo}-${String(sequence).padStart(2, '0')}`;
+      }
 
-    Promise.all([saveBillingInvoice(updatedTemplate.id, updatedTemplate), saveBillingInvoice(generated.id, generated)]).catch((e) => { console.error(e); showToast('Failed to generate invoice'); });
-    showToast(`Generated invoice for ${generated.date}`);
+      const generated: BillingInvoice = {
+        ...template,
+        id: crypto.randomUUID(),
+        date: scheduledDate,
+        dueDate: addDays(scheduledDate, dueTermDays),
+        invoiceNo: generatedBillNo,
+        customerEmail: template.customerEmail,
+        lineItems: template.lineItems?.map(item => ({ ...item })) || [],
+        status: 'Outstanding',
+        isRecurring: false,
+        recurrenceFrequency: undefined,
+        nextBillingDate: undefined,
+        parentInvoiceId: template.id,
+        datePaid: undefined,
+        paymentType: undefined,
+      };
+
+      const updatedTemplate: BillingInvoice = {
+        ...template,
+        nextBillingDate: addInterval(template.date, template.recurrenceFrequency, priorBills + 2),
+      };
+
+      // Save the bill and advance the schedule together. A date-based duplicate guard
+      // above protects against repeated clicks if the user retries after a network error.
+      // Persist the new bill first. If advancing the schedule then fails, a retry
+      // detects the existing child bill and advances the schedule without duplicating it.
+      await saveBillingInvoice(generated.id, generated);
+      await saveBillingInvoice(updatedTemplate.id, updatedTemplate);
+      showToast(`Generated Bill No. ${generated.invoiceNo} for ${generated.date}.`);
+    } catch (error) {
+      console.error('Failed to generate recurring bill:', error);
+      showToast('Failed to generate the recurring bill. The schedule was not confirmed as advanced.');
+    } finally {
+      generatingRecurringRef.current = false;
+      setGeneratingRecurringId(null);
+    }
   };
 
   const buildCashReceiptEntry = (inv: BillingInvoice, paymentType: string): JournalEntry => {
@@ -513,8 +563,8 @@ export function Billing() {
         <div className="p-4 md:p-5 border-b border-slate-100 dark:border-slate-800">
           <div className="flex items-start justify-between gap-3 flex-wrap">
             <div>
-              <h2 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2"><ListChecks className="w-5 h-5 text-indigo-500" /> Service Invoice Workbench</h2>
-              <p className="text-xs text-slate-500 mt-1">Create a multi-line service invoice, review its totals, then record and deliver it.</p>
+              <h2 className="text-base font-black text-slate-900 dark:text-white flex items-center gap-2"><Plus className="w-5 h-5 text-indigo-500" /> Create New Bill</h2>
+              <p className="text-xs text-slate-500 mt-1">Create a customer bill, track payment, or set it to recur on a monthly, quarterly, or annual schedule.</p>
             </div>
             {recordedInvoice && <span className="text-[10px] font-black uppercase tracking-wider rounded-full px-3 py-1 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300">Recorded · {recordedInvoice.invoiceNo}</span>}
           </div>
@@ -557,7 +607,7 @@ export function Billing() {
                 </div>
                 <p className="mt-1.5 text-[10px] text-slate-500">New customers are saved to TIN Library and selected automatically for this invoice.</p>
               </div>
-              <div><label className="form-label">Invoice number <span className="text-rose-500">*</span></label><input type="text" value={invoiceNo} onChange={e => setInvoiceNo(e.target.value)} placeholder="INV-001" className="form-input" /></div>
+              <div><label className="form-label">Bill No. <span className="text-rose-500">*</span></label><input type="text" value={invoiceNo} onChange={e => setInvoiceNo(e.target.value)} placeholder="INV-001" className="form-input" /></div>
               <div><label className="form-label">Invoice date <span className="text-rose-500">*</span></label><YearDropdownDateInput value={date} onChange={setDate} className="form-input" /></div>
               <div><label className="form-label">Due date <span className="text-rose-500">*</span></label><YearDropdownDateInput value={dueDate} onChange={setDueDate} className="form-input" /></div>
               <div><label className="form-label">Customer TIN <span className="text-rose-500">*</span></label><input type="text" value={customerTin} onChange={e => setCustomerTin(formatTIN(e.target.value))} placeholder="000-000-000" maxLength={11} className="form-input font-mono" /></div>
@@ -591,8 +641,8 @@ export function Billing() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
               <div className="space-y-3">
                 <div><label className="form-label">Discount (%)</label><input type="number" min="0" max="100" step="0.01" value={discountPercent} onChange={e => setDiscountPercent(String(Math.min(100, Math.max(0, Number(e.target.value) || 0))))} className="form-input max-w-xs" /></div>
-                <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-600 dark:text-slate-300"><input type="checkbox" className="w-4 h-4 rounded" checked={isRecurring} onChange={e => setIsRecurring(e.target.checked)} /> Recurring billing</label>
-                {isRecurring && <div><label className="form-label">Recurrence frequency</label><select value={recurrenceFrequency} onChange={e => setRecurrenceFrequency(e.target.value as 'Monthly' | 'Quarterly' | 'Annually')} className="form-input max-w-xs"><option value="Monthly">Monthly</option><option value="Quarterly">Quarterly</option><option value="Annually">Annually</option></select></div>}
+                <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-600 dark:text-slate-300"><input type="checkbox" className="w-4 h-4 rounded" checked={isRecurring} onChange={e => setIsRecurring(e.target.checked)} /> Set as recurring bill</label>
+                {isRecurring && <div className="space-y-1"><label className="form-label">Bill frequency</label><select value={recurrenceFrequency} onChange={e => setRecurrenceFrequency(e.target.value as 'Monthly' | 'Quarterly' | 'Annually')} className="form-input max-w-xs"><option value="Monthly">Monthly</option><option value="Quarterly">Quarterly</option><option value="Annually">Annually</option></select><p className="text-[10px] text-slate-500">Next bill: {addInterval(date, recurrenceFrequency)}. On that date, use Generate Next Bill in the recurring schedule to create the next bill with a new Bill No.</p></div>}
               </div>
               <div className="rounded-xl bg-slate-50 dark:bg-slate-800/70 p-4 space-y-2 text-xs">
                 <div className="flex justify-between"><span className="text-slate-500">Subtotal (VAT-inclusive)</span><strong>{money(subtotal)}</strong></div>
@@ -604,12 +654,12 @@ export function Billing() {
           </>}
 
           {invoiceStep === 3 && <>
-            <h3 className="text-sm font-black text-slate-800 dark:text-white mb-1">Invoice preview</h3>
+            <h3 className="text-sm font-black text-slate-800 dark:text-white mb-1">Bill preview</h3>
             <p className="text-[11px] text-slate-500 mb-4">Review the actual customer and service details before recording the invoice.</p>
             <div className="max-w-4xl mx-auto rounded-xl border border-slate-200 bg-white text-slate-800 p-5 md:p-7 shadow-sm">
               <div className="flex justify-between gap-5 flex-wrap border-b-2 border-double border-slate-400 pb-4">
                 <div><h4 className="font-black text-lg">{businessProfile?.tradeName || businessProfile?.registeredName || businessProfile?.name || 'CAPOTBOOKS Business'}</h4><p className="text-[10px] text-slate-500">{businessProfile?.address || [businessProfile?.street, businessProfile?.barangay, businessProfile?.city].filter(Boolean).join(', ')}</p><p className="text-[10px] text-slate-500">{businessProfile?.tin ? `TIN: ${businessProfile.tin}` : ''}</p></div>
-                <div className="text-right"><h4 className="font-black text-xl tracking-widest">{selectedTemplate?.documentTitle || 'INVOICE'}</h4><p className="text-xs">{invoiceNo || 'Invoice number not entered'}</p><p className="text-[10px] text-slate-500">Date: {date} · Due: {dueDate}</p></div>
+                <div className="text-right"><h4 className="font-black text-xl tracking-widest">{selectedTemplate?.documentTitle || 'INVOICE'}</h4><p className="text-xs">{invoiceNo || 'Bill No. not entered'}</p><p className="text-[10px] text-slate-500">Date: {date} · Due: {dueDate}</p></div>
               </div>
               <div className="grid grid-cols-2 gap-4 my-5 text-xs"><div><p className="font-black text-[9px] uppercase tracking-widest text-slate-400 mb-1">Bill to</p><p className="font-bold">{customerName || 'Customer name not entered'}</p><p>{customerTin}</p><p>{customerAddress}</p><p>{customerEmail}</p></div><div><p className="font-black text-[9px] uppercase tracking-widest text-slate-400 mb-1">VAT classification</p><p>{vatType}{isVatable ? ' · 12% VAT-inclusive' : ''}</p></div></div>
               <div className="overflow-x-auto"><table className="w-full text-xs"><thead className="bg-slate-100"><tr><th className="text-left p-2">Description</th><th className="text-right p-2">Qty</th><th className="text-right p-2">Unit price</th><th className="text-right p-2">Amount</th></tr></thead><tbody>{cleanLineItems.filter(item => item.description || item.qty || item.unitPrice).map((item, index) => <tr key={item.id || index} className="border-b border-slate-200"><td className="p-2">{item.description || '—'}</td><td className="p-2 text-right">{item.qty}</td><td className="p-2 text-right">{money(item.unitPrice)}</td><td className="p-2 text-right">{money(item.qty * item.unitPrice)}</td></tr>)}</tbody></table></div>
@@ -623,10 +673,10 @@ export function Billing() {
             <h3 className="text-sm font-black text-slate-800 dark:text-white mb-1">Record & deliver invoice</h3>
             <p className="text-[11px] text-slate-500 mb-4">Record the invoice first. Then download the PDF, open the browser print dialog, or prepare an email draft.</p>
             {!recordedInvoice ? <div className="rounded-xl border border-indigo-200 dark:border-indigo-900 bg-indigo-50 dark:bg-indigo-950/20 p-4">
-              <div className="text-xs text-indigo-800 dark:text-indigo-200 mb-3"><strong>Ready to record:</strong> {invoiceNo || 'Invoice number pending'} · {customerName || 'Customer pending'} · {money(grossAmount)} total due.</div>
-              <button type="button" onClick={handleAddInvoice} disabled={isSavingInvoice} className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 text-xs font-black disabled:opacity-60"><Save className="w-4 h-4" /> {isSavingInvoice ? 'Recording…' : 'Record invoice'}</button>
+              <div className="text-xs text-indigo-800 dark:text-indigo-200 mb-3"><strong>Ready to record:</strong> {invoiceNo || 'Bill No. pending'} · {customerName || 'Customer pending'} · {money(grossAmount)} total due.</div>
+              <button type="button" onClick={handleAddInvoice} disabled={isSavingInvoice} className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 text-xs font-black disabled:opacity-60"><Save className="w-4 h-4" /> {isSavingInvoice ? 'Recording…' : 'Record bill'}</button>
             </div> : <>
-              <div className="rounded-xl border border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/20 p-4 mb-4"><div className="font-black text-sm text-emerald-800 dark:text-emerald-200">Invoice {recordedInvoice.invoiceNo} recorded</div><div className="text-xs text-emerald-700 dark:text-emerald-300 mt-1">{recordedInvoice.customerName} · {money(recordedInvoice.amount)} · Due {recordedInvoice.dueDate}</div></div>
+              <div className="rounded-xl border border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/20 p-4 mb-4"><div className="font-black text-sm text-emerald-800 dark:text-emerald-200">Bill {recordedInvoice.invoiceNo} recorded</div><div className="text-xs text-emerald-700 dark:text-emerald-300 mt-1">{recordedInvoice.customerName} · {money(recordedInvoice.amount)} · Due {recordedInvoice.dueDate}</div></div>
               <div className="flex flex-col sm:flex-row sm:items-end gap-2 mb-4">
                 <div className="flex-1"><label className="form-label">Customer email for delivery</label><input type="email" value={customerEmail || recordedInvoice.customerEmail || ''} onChange={e => setCustomerEmail(e.target.value)} placeholder="customer@example.com" className="form-input" /></div>
                 <button type="button" onClick={handleSaveInvoiceEmail} className="rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2.5 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800">Save recipient</button>
@@ -636,13 +686,13 @@ export function Billing() {
                 <button type="button" onClick={() => handlePrintNewInvoice(recordedInvoice)} className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/60 p-4 text-left hover:border-slate-400"><Printer className="w-5 h-5 text-slate-600 dark:text-slate-300 mb-2" /><span className="block text-xs font-black">Print</span><span className="block text-[10px] text-slate-500 mt-1">Open browser print dialog</span></button>
                 <button type="button" onClick={() => handleEmailNewInvoice(recordedInvoice)} className="rounded-xl border border-emerald-200 dark:border-emerald-900 bg-emerald-50 dark:bg-emerald-950/20 p-4 text-left hover:border-emerald-400"><Mail className="w-5 h-5 text-emerald-600 mb-2" /><span className="block text-xs font-black">Email customer</span><span className="block text-[10px] text-slate-500 mt-1">Prepare email with PDF download</span></button>
               </div>
-              <button type="button" onClick={resetInvoiceForm} className="mt-4 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 text-xs font-black">Create another invoice</button>
+              <button type="button" onClick={resetInvoiceForm} className="mt-4 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 text-xs font-black">Create another bill</button>
             </>}
           </>}
 
           <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-3">
             <button type="button" onClick={() => setInvoiceStep(step => Math.max(1, step - 1) as 1 | 2 | 3 | 4)} disabled={invoiceStep === 1 || !!recordedInvoice} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 dark:border-slate-700 px-3 py-2 text-xs font-bold text-slate-600 dark:text-slate-300 disabled:opacity-30"><ArrowLeft className="w-3.5 h-3.5" /> Back</button>
-            {invoiceStep < 4 && <button type="button" onClick={advanceInvoiceStep} className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 text-xs font-black">{invoiceStep === 2 ? 'Preview invoice' : invoiceStep === 3 ? 'Record & send' : 'Next'} <ArrowRight className="w-3.5 h-3.5" /></button>}
+            {invoiceStep < 4 && <button type="button" onClick={advanceInvoiceStep} className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 text-xs font-black">{invoiceStep === 2 ? 'Preview bill' : invoiceStep === 3 ? 'Record & send' : 'Next'} <ArrowRight className="w-3.5 h-3.5" /></button>}
           </div>
         </div>
       </section>}
@@ -654,12 +704,13 @@ export function Billing() {
           <option value="Outstanding">Outstanding</option>
           <option value="Overdue">Overdue</option>
           <option value="Paid">Paid</option>
+          <option value="Recurring">Recurring Bills</option>
         </select>
       </div>
 
       <div className="space-y-3">
         {filteredInvoices.length === 0 && (
-          <div className="py-8"><EmptyState compact icon={<CreditCard className="w-7 h-7" />} title="No invoices yet" description="Create your first invoice to start tracking receivables and payments." /></div>
+          <div className="py-8"><EmptyState compact icon={<CreditCard className="w-7 h-7" />} title={statusFilter === 'Recurring' ? 'No recurring bills yet' : 'No bills yet'} description="Create a bill to start tracking receivables and payments." /></div>
         )}
         {filteredInvoices.map(inv => {
           const status = getStatus(inv);
@@ -678,13 +729,13 @@ export function Billing() {
                       <span className={`px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border ${statusBadge(status)}`}>{status}</span>
                       {inv.isRecurring && (
                         <span className="px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider bg-cyan-50 text-cyan-600 dark:bg-cyan-900/30 dark:text-cyan-400 flex items-center gap-1">
-                          <RefreshCw className="w-2.5 h-2.5" /> {inv.recurrenceFrequency}
+                          <RefreshCw className="w-2.5 h-2.5" /> Recurring · {inv.recurrenceFrequency}
                         </span>
                       )}
                       {eisBadgeFor(inv.id)}
                     </div>
                     <div className="text-[10px] text-slate-500 mt-1">
-                      Issued {inv.date} · Due {inv.dueDate} · TIN {inv.customerTin}
+                      Issued {inv.date} · Due {inv.dueDate} · TIN {inv.customerTin}{inv.isRecurring && inv.nextBillingDate ? ` · Next bill ${inv.nextBillingDate}` : ''}
                     </div>
                   </div>
                 </div>
@@ -705,8 +756,8 @@ export function Billing() {
               ) : (
                 <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center gap-2 justify-end">
                   {canGenerateNext && canBillingAction('add') && (
-                    <button onClick={() => handleGenerateNext(inv)} className="text-xs text-cyan-700 dark:text-cyan-400 font-bold border border-cyan-200 dark:border-cyan-800 rounded-lg px-3 py-1.5 hover:bg-cyan-50 dark:hover:bg-cyan-950/20 transition flex items-center gap-1.5">
-                      <RefreshCw className="w-3.5 h-3.5" /> Generate Next Invoice
+                    <button onClick={() => handleGenerateNext(inv)} disabled={generatingRecurringId === inv.id} className="text-xs text-cyan-700 dark:text-cyan-400 font-bold border border-cyan-200 dark:border-cyan-800 rounded-lg px-3 py-1.5 hover:bg-cyan-50 dark:hover:bg-cyan-950/20 transition flex items-center gap-1.5 disabled:opacity-50">
+                      <RefreshCw className="w-3.5 h-3.5" /> {generatingRecurringId === inv.id ? 'Generating…' : 'Generate Next Bill'}
                     </button>
                   )}
                   {canBillingAction('print') && <button onClick={() => handleDownloadPdf(inv)} className="text-xs text-slate-600 dark:text-slate-300 font-bold border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 transition flex items-center gap-1.5">

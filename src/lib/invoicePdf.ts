@@ -3,7 +3,7 @@
 // branded PDF and a copyable payment message (GCash/Maya/bank) since no live
 // payment gateway is connected yet.
 import { jsPDF } from 'jspdf';
-import type { BillingInvoice } from '../types';
+import type { BillingInvoice, BillingInvoiceLineItem } from '../types';
 import type { BusinessProfile } from '../types';
 
 const money = (n: number) => `₱${Math.abs(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -32,7 +32,7 @@ export function downloadInvoicePdf(inv: BillingInvoice, profile?: BusinessProfil
   doc.setFontSize(26); doc.setFont('helvetica', 'bold');
   doc.text('INVOICE', pageW - margin, 48, { align: 'right' });
   doc.setFontSize(10); doc.setFont('helvetica', 'normal');
-  doc.text(`Invoice #: ${inv.invoiceNo}`, pageW - margin, 66, { align: 'right' });
+  doc.text(`Bill No.: ${inv.invoiceNo}`, pageW - margin, 66, { align: 'right' });
   doc.text(`Date: ${inv.date}    Due: ${inv.dueDate}`, pageW - margin, 82, { align: 'right' });
 
   y = 130;
@@ -242,15 +242,15 @@ export function downloadTemplatedInvoicePdf(inv: BillingInvoice, profile: Busine
   const tableX = margin;
   const tableW = pageW - margin * 2;
   const right = tableX + tableW - 8;
-  const sourceLines = Array.isArray(inv.lineItems) && inv.lineItems.length
+  const sourceLines: BillingInvoiceLineItem[] = Array.isArray(inv.lineItems) && inv.lineItems.length
     ? inv.lineItems
-    : [{ description: inv.description || 'Services rendered', qty: 1, unitPrice: Number(inv.amount) || 0, amount: Number(inv.amount) || 0 }];
+    : [{ id: 'fallback-line', description: inv.description || 'Services rendered', qty: 1, unitPrice: Number(inv.amount) || 0, amount: Number(inv.amount) || 0 }];
   const lineAmount = (line: any) => line.amount == null ? (Number(line.qty) || 0) * (Number(line.unitPrice) || 0) : Number(line.amount) || 0;
   const subtotal = sourceLines.reduce((sum, line) => sum + lineAmount(line), 0);
   const discountPercent = Math.max(0, Number(inv.discountPercent) || 0);
   const discountAmount = Math.max(0, subtotal - Number(inv.amount || 0));
   let y = drawHeader(doc, tpl, profile, pageW, margin) + 22;
-  const titleBottom = drawDocTitleMeta(doc, tpl, tpl.documentTitle || 'INVOICE', [`Invoice #: ${inv.invoiceNo}`, `Date: ${inv.date}    Due: ${inv.dueDate}`], pageW, margin, y + 2);
+  const titleBottom = drawDocTitleMeta(doc, tpl, tpl.documentTitle || 'INVOICE', [`Bill No.: ${inv.invoiceNo}`, `Date: ${inv.date}    Due: ${inv.dueDate}`], pageW, margin, y + 2);
 
   // Buyer block shares the title row horizontally, then content continues below both.
   let buyerY = y + 2;
@@ -337,12 +337,12 @@ export function printTemplatedInvoice(inv: BillingInvoice, profile: BusinessProf
   const company = tpl.companyNameOverride || profileField(profile, 'tradeName') || profileField(profile, 'registeredName') || profileField(profile, 'name') || 'CAPOT Books';
   const address = sellerAddress(profile);
   const contact = sellerContact(profile);
-  const lines = Array.isArray(inv.lineItems) && inv.lineItems.length ? inv.lineItems : [{ description: inv.description || 'Services rendered', qty: 1, unitPrice: Number(inv.amount) || 0 }];
+  const lines: BillingInvoiceLineItem[] = Array.isArray(inv.lineItems) && inv.lineItems.length ? inv.lineItems : [{ id: 'fallback-line', description: inv.description || 'Services rendered', qty: 1, unitPrice: Number(inv.amount) || 0, amount: Number(inv.amount) || 0 }];
   const subtotal = lines.reduce((sum, line: any) => sum + (line.amount == null ? (Number(line.qty) || 0) * (Number(line.unitPrice) || 0) : Number(line.amount) || 0), 0);
   const discount = Math.max(0, subtotal - Number(inv.amount || 0));
   const lineRows = lines.map((line: any) => { const amount = line.amount == null ? (Number(line.qty) || 0) * (Number(line.unitPrice) || 0) : Number(line.amount) || 0; return `<tr><td>${htmlEscape(line.description || '—')}</td><td class="num">${Number(line.qty) || 0}</td><td class="num">${money(Number(line.unitPrice) || 0)}</td><td class="num">${money(amount)}</td></tr>`; }).join('');
   const totalRows = `<tr><td colspan="3">Subtotal (VAT-inclusive)</td><td class="num">${money(subtotal)}</td></tr>${discount > 0 ? `<tr><td colspan="3">Discount (${Number(inv.discountPercent || 0)}%)</td><td class="num">-${money(discount)}</td></tr>` : ''}${inv.vatType === 'VATable' ? `<tr><td colspan="3">Net of VAT</td><td class="num">${money(inv.netOfVat)}</td></tr><tr><td colspan="3">Output VAT (12%)</td><td class="num">${money(inv.outputTax)}</td></tr>` : ''}<tr class="grand"><td colspan="3">TOTAL DUE</td><td class="num">${money(inv.amount)}</td></tr>`;
-  win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${htmlEscape(inv.invoiceNo)}</title><style>body{font:12px Arial,sans-serif;color:#1f2937;margin:28px}header{border-bottom:3px double #334155;padding-bottom:14px;margin-bottom:18px;display:flex;justify-content:space-between;gap:20px}.company{font-size:18px;font-weight:bold}.doc{text-align:right}.doc h1{font-size:20px;margin:0 0 8px}.meta{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:18px 0}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{padding:8px;border-bottom:1px solid #d1d5db;text-align:left}th{background:#f1f5f9;text-transform:uppercase;font-size:10px}.num{text-align:right;white-space:nowrap}.totals{width:55%;margin-left:auto}.totals td{border:0}.grand{font-weight:bold;border-top:2px solid #334155}.terms{margin-top:24px;color:#64748b;font-size:10px}@media print{body{margin:12mm}}</style></head><body><header><div><div class="company">${htmlEscape(company)}</div><div>${htmlEscape(address)}</div><div>${htmlEscape(contact)}</div><div>${tpl.showSellerTin !== false ? `TIN: ${htmlEscape(profileField(profile, 'tin'))}` : ''}</div></div><div class="doc"><h1>${htmlEscape(tpl.documentTitle || 'INVOICE')}</h1><div>Invoice #: ${htmlEscape(inv.invoiceNo)}</div><div>Date: ${htmlEscape(inv.date)} · Due: ${htmlEscape(inv.dueDate)}</div></div></header><section class="meta"><div><strong>Bill To</strong><br>${htmlEscape(inv.customerName)}<br>${tpl.showBuyerTin ? `TIN: ${htmlEscape(inv.customerTin)}<br>` : ''}${tpl.showBuyerAddress ? `${htmlEscape(inv.customerAddress)}<br>` : ''}${htmlEscape(inv.customerEmail || '')}</div><div><strong>VAT Type</strong><br>${htmlEscape(inv.vatType)}</div></section><table><thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Unit Price</th><th class="num">Amount</th></tr></thead><tbody>${lineRows}</tbody></table><table class="totals"><tbody>${totalRows}</tbody></table>${tpl.termsAndConditions ? `<div class="terms"><strong>TERMS &amp; CONDITIONS</strong><br>${htmlEscape(tpl.termsAndConditions).replace(/\n/g, '<br>')}</div>` : ''}${tpl.footerNote ? `<div class="terms">${htmlEscape(tpl.footerNote)}</div>` : ''}<script>window.onload=function(){window.focus();window.print();};</script></body></html>`);
+  win.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Invoice ${htmlEscape(inv.invoiceNo)}</title><style>body{font:12px Arial,sans-serif;color:#1f2937;margin:28px}header{border-bottom:3px double #334155;padding-bottom:14px;margin-bottom:18px;display:flex;justify-content:space-between;gap:20px}.company{font-size:18px;font-weight:bold}.doc{text-align:right}.doc h1{font-size:20px;margin:0 0 8px}.meta{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:18px 0}table{width:100%;border-collapse:collapse;margin-top:20px}th,td{padding:8px;border-bottom:1px solid #d1d5db;text-align:left}th{background:#f1f5f9;text-transform:uppercase;font-size:10px}.num{text-align:right;white-space:nowrap}.totals{width:55%;margin-left:auto}.totals td{border:0}.grand{font-weight:bold;border-top:2px solid #334155}.terms{margin-top:24px;color:#64748b;font-size:10px}@media print{body{margin:12mm}}</style></head><body><header><div><div class="company">${htmlEscape(company)}</div><div>${htmlEscape(address)}</div><div>${htmlEscape(contact)}</div><div>${tpl.showSellerTin !== false ? `TIN: ${htmlEscape(profileField(profile, 'tin'))}` : ''}</div></div><div class="doc"><h1>${htmlEscape(tpl.documentTitle || 'INVOICE')}</h1><div>Bill No.: ${htmlEscape(inv.invoiceNo)}</div><div>Date: ${htmlEscape(inv.date)} · Due: ${htmlEscape(inv.dueDate)}</div></div></header><section class="meta"><div><strong>Bill To</strong><br>${htmlEscape(inv.customerName)}<br>${tpl.showBuyerTin ? `TIN: ${htmlEscape(inv.customerTin)}<br>` : ''}${tpl.showBuyerAddress ? `${htmlEscape(inv.customerAddress)}<br>` : ''}${htmlEscape(inv.customerEmail || '')}</div><div><strong>VAT Type</strong><br>${htmlEscape(inv.vatType)}</div></section><table><thead><tr><th>Description</th><th class="num">Qty</th><th class="num">Unit Price</th><th class="num">Amount</th></tr></thead><tbody>${lineRows}</tbody></table><table class="totals"><tbody>${totalRows}</tbody></table>${tpl.termsAndConditions ? `<div class="terms"><strong>TERMS &amp; CONDITIONS</strong><br>${htmlEscape(tpl.termsAndConditions).replace(/\n/g, '<br>')}</div>` : ''}${tpl.footerNote ? `<div class="terms">${htmlEscape(tpl.footerNote)}</div>` : ''}<script>window.onload=function(){window.focus();window.print();};</script></body></html>`);
   win.document.close();
 }
 

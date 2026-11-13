@@ -105,6 +105,14 @@ export interface CoaAccount {
   [key: string]: any;
 }
 
+export interface BillingInvoiceLineItem {
+  id: string;
+  description: string;
+  qty: number;
+  unitPrice: number;
+  amount?: number;
+}
+
 export interface BillingInvoice {
   id: string;
   date: string;
@@ -118,6 +126,9 @@ export interface BillingInvoice {
   netOfVat: number;
   outputTax: number;
   description?: string;
+  customerEmail?: string;
+  lineItems?: BillingInvoiceLineItem[];
+  discountPercent?: number;
   status: 'Outstanding' | 'Paid';
   paymentType?: string;
   datePaid?: string;

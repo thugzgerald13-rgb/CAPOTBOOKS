@@ -576,11 +576,15 @@ create table if not exists public.billing_invoices (
   customer_tin text,
   customer_name text,
   customer_address text,
+  customer_email text,
   vat_type text,
   amount numeric(18,2),
   net_of_vat numeric(18,2),
   output_tax numeric(18,2),
   description text,
+  line_items jsonb not null default '[]'::jsonb,
+  discount_percent numeric(9,4) not null default 0,
+  template_id text,
   status text,
   payment_type text,
   date_paid date,
@@ -596,6 +600,9 @@ create index if not exists idx_billing_invoices_client_id
   on public.billing_invoices(client_id);
 create index if not exists idx_billing_invoices_due_date
   on public.billing_invoices(client_id, due_date);
+create index if not exists idx_billing_invoices_recurring_due
+  on public.billing_invoices(client_id, next_billing_date)
+  where is_recurring = true;
 
 -- ---------------------------------------------------------------------------
 -- Financial statement snapshots
