@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useMemo, useState } from 'react';
+import { forwardRef, useEffect, useMemo, useState, type Ref } from 'react';
 import { cn } from '@/lib/utils';
 
 interface DateParts {
@@ -18,6 +18,8 @@ export interface YearDropdownDateInputProps {
   name?: string;
   title?: string;
   ariaLabel?: string;
+  /** Optional ref to the month text input (e.g. to focus + select it). */
+  monthInputRef?: Ref<HTMLInputElement>;
 }
 
 const MIN_SELECTABLE_YEAR = 2020;
@@ -97,6 +99,7 @@ export const YearDropdownDateInput = forwardRef<HTMLSelectElement, YearDropdownD
       name,
       title,
       ariaLabel = 'Date',
+      monthInputRef,
     },
     yearSelectRef,
   ) {
@@ -186,6 +189,7 @@ export const YearDropdownDateInput = forwardRef<HTMLSelectElement, YearDropdownD
         aria-label={ariaLabel}
       >
         <input
+          ref={monthInputRef}
           aria-label={`${ariaLabel} month`}
           type="text"
           inputMode="numeric"

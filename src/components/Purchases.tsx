@@ -178,6 +178,17 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
   const [checkNumber, setCheckNumber] = useState('');
   const [invoiceNo, setInvoiceNo] = useState('');
   const transactionDateRef = useRef<HTMLSelectElement>(null);
+  // Month field of the Transaction Date: focused + fully selected (highlighted)
+  // when the page opens and after every Add/Update Entry.
+  const transactionMonthRef = useRef<HTMLInputElement>(null);
+  const highlightTransactionMonth = () => {
+    window.setTimeout(() => {
+      const el = transactionMonthRef.current;
+      if (!el) return;
+      el.focus();
+      el.select();
+    }, 50);
+  };
   // Embedded-edit bookkeeping: the record's real id (viewIndex is not a
   // context index in embedded mode) and its original storage-backed
   // attachment so it is not wiped out when the user saves without re-uploading.
@@ -441,6 +452,14 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
     loadPurchase(0, [editPurchase]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [embedded, editPurchase]);
+
+  // Highlight the Transaction Date month when the page opens (and when
+  // switching between Invoiced / Other Payments / AP) so typing starts there.
+  useEffect(() => {
+    if (embedded) return;
+    highlightTransactionMonth();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [embedded, isOtherPayments, isAP]);
 
   const handleAddNew = () => {
     setViewIndex(null);
@@ -775,9 +794,7 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
 
     // After adding/updating an entry, place the cursor back on Transaction Date
     // so the next transaction always starts from the first field.
-    setTimeout(() => {
-      transactionDateRef.current?.focus();
-    }, 0);
+    highlightTransactionMonth();
   };
 
   const handleDelete = async (id: number) => {
@@ -840,6 +857,7 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
               <label className="form-label text-red-500">Transaction Date *</label>
               <YearDropdownDateInput
                 ref={transactionDateRef}
+                monthInputRef={transactionMonthRef}
                 value={date}
                 onChange={value => setDate(value)}
                 min={currentDat ? `${currentDat.year}-${String(currentDat.month).padStart(2, '0')}-01` : undefined}
