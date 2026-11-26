@@ -797,7 +797,7 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
       {!embedded && (
         <PageHeader
           className="flex-wrap gap-y-3 gap-x-4"
-          title={currentDat ? "Expense Data Entry Screen (DAT)" : "Expense Data Entry Screen"}
+          title={currentDat ? "Purchases (DAT)" : "Purchases"}
           icon={<ShoppingCart className="w-5 h-5 text-amber-500" />}
           actions={
             (canViewInvoiced || canViewOtherPayments) ? (
