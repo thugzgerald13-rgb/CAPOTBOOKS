@@ -6,7 +6,7 @@ import { Combobox } from './ui/Combobox';
 import { useAccounting } from '../context/AccountingContext';
 import { formatTIN, generateCSV, MONTHS, getMonthName } from '../lib/utils';
 import { ShoppingCart, Plus, Trash2, X, Paperclip, Upload, FileText, Image as ImageIcon } from 'lucide-react';
-import { DEFAULT_ACCOUNTS, getNormalSide, resequenceAccounts } from './ChartOfAccounts';
+import { DEFAULT_ACCOUNTS } from './ChartOfAccounts';
 import { getDefaultAccountsForIndustry, getPostableCoaAccounts } from '../lib/journalDefaults';
 import { ATC_SCHEDULE } from '../lib/atcSchedule';
 import { AtcSelect } from './AtcSelect';
@@ -167,7 +167,7 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
     { value: 'w/o', label: 'No withholding', permission: 'none' },
     { value: 'with', label: 'Apply withholding tax', permission: 'withholding' },
   ].filter((option) => canPurchaseDropdown('withholding', option.permission));
-  const { currentClient, currentClientId, currentDat, saveCoaAccounts, savePurchase, deletePurchase, showToast, setCurrentDat } = useAccounting();
+  const { currentClient, currentClientId, currentDat, savePurchase, deletePurchase, showToast, setCurrentDat } = useAccounting();
   // Run 009 / T009 — AP aging summary (unpaid = On Account)
   const apAging = useMemo(() => isAP ? computeApAging(currentClient?.purchases || [], new Date().toISOString().split('T')[0]) : null, [currentClient?.purchases, isAP]);
   
@@ -237,32 +237,6 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentDat, coaAccounts]);
 
-  // Let users customize the "Payment for" account list right from this tab —
-  // adding a new Chart of Accounts entry or removing the currently selected
-  // one — without having to navigate to the Chart of Accounts page.
-  const [showAddPaymentAccount, setShowAddPaymentAccount] = useState(false);
-  const [newPaymentAccountName, setNewPaymentAccountName] = useState('');
-  const [newPaymentAccountType, setNewPaymentAccountType] = useState<'Asset' | 'Costs' | 'Expense'>('Expense');
-
-  const generatePaymentAccountId = (type: string, format: 'numeric' | 'alphanumeric'): string => {
-    const baseByType: Record<string, number> = { Asset: 1000, Costs: 5000, Expense: 5100 };
-    const base = baseByType[type] ?? 9000;
-    const fallbackAccounts = getDefaultAccountsForIndustry(currentClient?.industry, currentClient?.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric');
-    const existingIds = new Set((currentClient?.accounts && currentClient.accounts.length > 0 ? currentClient.accounts : fallbackAccounts).map(a => a.id));
-    let n = base;
-    while (existingIds.has(String(n))) n += 10;
-    if (format === 'alphanumeric') {
-      const letters = newPaymentAccountName.replace(/[^a-zA-Z]/g, '').toUpperCase().padEnd(3, 'X').slice(0, 3) || 'GEN';
-      let candidate = `${letters}-${n}`;
-      while (existingIds.has(candidate)) {
-        n += 10;
-        candidate = `${letters}-${n}`;
-      }
-      return candidate;
-    }
-    return String(n);
-  };
-
   // ---- Other Payments multi-entry helpers ----
   const otherPaymentTotal = otherPaymentEntries.reduce((sum, e) => {
     const v = parseFloat(String(e.amount || '').replace(/,/g, '').trim());
@@ -313,36 +287,6 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
   const removeMultiRow = (id: string) => setMultiEntries(prev => (prev.length <= 1 ? prev : prev.filter(r => r.id !== id)));
   const updateMultiRow = (id: string, field: keyof MultiEntryRow, value: string | number) =>
     setMultiEntries(prev => prev.map(r => (r.id === id ? { ...r, [field]: value } : r)));
-
-  const handleAddPaymentAccount = () => {
-    if (!hasPermission(modulePermissionKey('coa')) || !hasPermission(actionPermissionKey('coa', 'add'))) { showToast('Your profile cannot add chart-of-accounts entries.'); return; }
-    if (!currentClient || !currentClientId) return;
-    const name = newPaymentAccountName.trim();
-    if (!name) {
-      alert('Please enter an account name.');
-      return;
-    }
-    const baseAccounts = currentClient.accounts && currentClient.accounts.length > 0 ? currentClient.accounts : getDefaultAccountsForIndustry(currentClient.industry, currentClient.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric');
-    if (baseAccounts.some(a => a.name.toLowerCase() === name.toLowerCase())) {
-      alert('An account with this name already exists.');
-      return;
-    }
-    const format = currentClient.coaFormat || 'numeric';
-    const id = generatePaymentAccountId(newPaymentAccountType, format);
-    const newAccount = {
-      id,
-      name,
-      type: newPaymentAccountType,
-      normalSide: getNormalSide(newPaymentAccountType),
-    };
-    const updatedAccounts = resequenceAccounts([...baseAccounts, newAccount], format);
-    saveCoaAccounts(updatedAccounts, format);
-    setAccountTitle(name);
-    setShowAddPaymentAccount(false);
-    setNewPaymentAccountName('');
-    setNewPaymentAccountType('Expense');
-    showToast(`Account "${name}" added.`);
-  };
 
   const [dateWarning, setDateWarning] = useState<string | null>(null);
   const [sequenceNumber, setSequenceNumber] = useState(1);
@@ -1051,16 +995,7 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
           </div>
         )}
         {!isOtherPayments && (<div className="lg:col-span-2 md:col-span-2">
-          <div className="flex items-center justify-between">
-            <label className="form-label">{currentDat ? "Account Title" : "Payment for"}</label>
-            {!currentDat && (
-              <div className="flex items-center gap-1 mb-1.5">
-                {hasPermission(modulePermissionKey('coa')) && hasPermission(actionPermissionKey('coa', 'add')) && <button type="button" onClick={() => setShowAddPaymentAccount(v => !v)} className="p-1 rounded hover:bg-emerald-100 dark:hover:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 transition-colors" title="Add a new account">
-                  <Plus className="w-3.5 h-3.5" />
-                </button>}
-              </div>
-            )}
-          </div>
+          <label className="form-label">{currentDat ? "Account Title" : "Payment for"}</label>
           <Combobox
             value={accountTitle}
             onChange={setAccountTitle}
@@ -1069,24 +1004,6 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
             selectionOnly={!isAP}
             inputClassName="form-input bg-blue-50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-900/50 font-bold text-blue-800 dark:text-blue-300"
           />
-          {showAddPaymentAccount && (
-            <div className="mt-2 p-3 bg-emerald-50 dark:bg-emerald-900/10 border border-emerald-200 dark:border-emerald-900/50 rounded-xl flex flex-col sm:flex-row gap-2 items-stretch sm:items-end">
-              <div className="flex-1">
-                <label className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wide">New Account Name</label>
-                <input type="text" value={newPaymentAccountName} onChange={e => setNewPaymentAccountName(e.target.value)} placeholder="e.g. Office Supplies Expense" className="form-input" />
-              </div>
-              <div className="sm:w-40">
-                <label className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wide">Type</label>
-                <select value={newPaymentAccountType} onChange={e => setNewPaymentAccountType(e.target.value as 'Asset' | 'Costs' | 'Expense')} className="form-input">
-                  <option value="Asset">Asset</option><option value="Costs">Costs</option><option value="Expense">Expense</option>
-                </select>
-              </div>
-              <div className="flex gap-2">
-                <button type="button" onClick={handleAddPaymentAccount} className="bg-emerald-500 hover:bg-emerald-600 text-white font-bold px-4 py-2.5 rounded-xl transition-colors text-sm">Add</button>
-                <button type="button" onClick={() => { setShowAddPaymentAccount(false); setNewPaymentAccountName(''); }} className="bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-bold px-3 py-2.5 rounded-xl transition-colors" title="Cancel"><X className="w-4 h-4" /></button>
-              </div>
-            </div>
-          )}
         </div>)}
 
         <div className="lg:col-span-1 md:col-span-2">
