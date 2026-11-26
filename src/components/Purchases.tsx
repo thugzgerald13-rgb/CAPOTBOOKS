@@ -149,6 +149,7 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
   const canPurchaseAction = (actionId: string) => canParentPurchaseAction(actionId) && canPurchaseSubmoduleAction(actionId);
   const { canDropdownOption: canPurchaseDropdown } = useGranularPermissions('purchases');
   const { hasPermission } = useAuth();
+  const canViewInvoiced = hasPermission(modulePermissionKey('purchases')) && hasPermission(actionPermissionKey('purchases', 'view'));
   const canViewOtherPayments = hasPermission(modulePermissionKey('purchases')) && hasPermission(modulePermissionKey('purchases_other_payments')) && hasPermission(actionPermissionKey('purchases_other_payments', 'view'));
   const paymentMethodOptions = [
     { value: 'Cash', label: '💵 Cash', permission: 'cash' },
@@ -793,19 +794,30 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
 
   return (
     <div className="w-full flex flex-col purchase-page-shell">
-      {!embedded && <PageHeader title={currentDat ? "Expense Data Entry Screen (DAT)" : "Expense Data Entry Screen"} icon={<ShoppingCart className="w-5 h-5 text-amber-500" />} />}
-      <div className="p-4 md:p-6 flex-1">
-
       {!embedded && (
-      <div className="mb-6 flex flex-wrap gap-2 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 shadow-sm">
-        {hasPermission(modulePermissionKey('purchases')) && hasPermission(actionPermissionKey('purchases', 'view')) && <button type="button" onClick={() => navigate('/purchases/invoiced')} className={`flex-1 min-w-[140px] px-4 py-3 rounded-xl text-sm font-bold transition-all ${!isOtherPayments && !isAP ? 'bg-amber-500 text-slate-900 shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Invoiced</button>}
-        {canViewOtherPayments && <button type="button" onClick={() => navigate('/purchases/other-payments')} className={`flex-1 min-w-[140px] px-4 py-3 rounded-xl text-sm font-bold transition-all ${isOtherPayments ? 'bg-amber-500 text-slate-900 shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}>Other Payments</button>}
-      </div>
+        <PageHeader
+          className="flex-wrap gap-y-3 gap-x-4"
+          title={currentDat ? "Expense Data Entry Screen (DAT)" : "Expense Data Entry Screen"}
+          icon={<ShoppingCart className="w-5 h-5 text-amber-500" />}
+          actions={
+            (canViewInvoiced || canViewOtherPayments) ? (
+              <div role="tablist" aria-label="Expense entry type" className="inline-flex items-center gap-1 rounded-xl bg-slate-100 dark:bg-slate-900 p-1 border border-slate-200 dark:border-slate-700">
+                {canViewInvoiced && (
+                  <button type="button" role="tab" aria-selected={!isOtherPayments && !isAP} onClick={() => navigate('/purchases/invoiced')} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${!isOtherPayments && !isAP ? 'bg-amber-500 text-slate-900 shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800'}`}>Invoiced</button>
+                )}
+                {canViewOtherPayments && (
+                  <button type="button" role="tab" aria-selected={isOtherPayments} onClick={() => navigate('/purchases/other-payments')} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-all whitespace-nowrap ${isOtherPayments ? 'bg-amber-500 text-slate-900 shadow-sm' : 'text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800'}`}>Other Payments</button>
+                )}
+              </div>
+            ) : undefined
+          }
+        />
       )}
+      <div className="p-4 md:p-6 flex-1 w-full max-w-6xl mx-auto">
 
-      {!embedded && (
-      <div className="mb-4 rounded-xl bg-slate-100 dark:bg-slate-800/70 px-4 py-2.5 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-        {isAP ? 'Accounts Payable (AP)' : isOtherPayments ? 'Other Payments' : 'Invoiced'}
+      {!embedded && isAP && (
+      <div className="mb-4 inline-flex items-center rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-amber-700 dark:text-amber-300">
+        Accounts Payable (AP)
       </div>
       )}
 
@@ -822,7 +834,7 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
           </div>
         </div>
       )}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6 bg-slate-50 dark:bg-slate-800/50 p-5 rounded-2xl border border-slate-100 dark:border-slate-700 relative">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-x-5 gap-y-4 mb-6 bg-white dark:bg-slate-800/60 p-5 md:p-6 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm relative">
         <div className="lg:col-span-3 pb-2 mb-2 border-b border-slate-200 dark:border-slate-700 flex flex-col md:flex-row gap-4 justify-between">
             <div className="w-full md:w-1/3">
               <label className="form-label text-red-500">Transaction Date *</label>
