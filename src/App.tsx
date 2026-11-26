@@ -22,6 +22,9 @@ import { Wallet, KeyRound, ShieldCheck } from 'lucide-react';
 import { moduleIdForRoute, moduleIdsForRoute, modulePermissionKey, actionPermissionKey } from './lib/granularPermissions';
 import { supabase } from './lib/supabase';
 import { useFeatureVisibility } from './lib/featureVisibility';
+import { Swappable } from './components/Swappable';
+// Registers developer-made customized pages/buttons (src/custom/registry.ts). Side-effect import.
+import './custom/registry';
 
 const Sales = lazy(() => import('./components/Sales').then(m => ({ default: m.Sales })));
 const Billing = lazy(() => import('./components/Billing').then(m => ({ default: m.Billing })));
@@ -216,34 +219,34 @@ function AppLayout() {
                 "No routes matched location \"/\"" while the dashboard
                 is rendered by AppLayout above. */}
             <Route path="/" element={null} />
-            <Route path="/sales" element={<Sales />} />
-            <Route path="/billing" element={<Billing />} />
-            <Route path="/journal-voucher" element={<JournalVoucher />} />
+            <Route path="/sales" element={<Swappable slot="page.sales" Universal={Sales} />} />
+            <Route path="/billing" element={<Swappable slot="page.billing" Universal={Billing} />} />
+            <Route path="/journal-voucher" element={<Swappable slot="page.journal-voucher" Universal={JournalVoucher} />} />
             {/* Purchases has three sub-workspaces (Invoiced, Other Payments,
                 AP), each with its own URL so they're bookmarkable and work
                 with browser back/forward, same pattern as Extras below. */}
             <Route path="/purchases" element={<Navigate to="/purchases/invoiced" replace />} />
-            <Route path="/purchases/invoiced" element={<Purchases />} />
-            <Route path="/purchases/other-payments" element={<Purchases />} />
-            <Route path="/purchases/ap" element={<Purchases />} />
-            <Route path="/tinlibrary" element={<TinLibrary />} />
-            <Route path="/history" element={<History />} />
-            <Route path="/coa" element={<ChartOfAccounts />} />
-            <Route path="/cash-receipt" element={<CashReceiptsJournal />} />
-            <Route path="/cash-disbursement" element={<CashDisbursementsJournal />} />
-            <Route path="/purchase-journal" element={<PurchasesJournal />} />
-            <Route path="/journal" element={<GeneralJournal />} />
-            <Route path="/ledger" element={<GeneralLedger />} />
-            <Route path="/subsidiary-ledger" element={<SubsidiaryGeneralLedger />} />
-            <Route path="/aging-reports" element={<AgingReports />} />
-            <Route path="/pl" element={<ProfitAndLoss />} />
+            <Route path="/purchases/invoiced" element={<Swappable slot="page.purchases" Universal={Purchases} />} />
+            <Route path="/purchases/other-payments" element={<Swappable slot="page.purchases" Universal={Purchases} />} />
+            <Route path="/purchases/ap" element={<Swappable slot="page.purchases" Universal={Purchases} />} />
+            <Route path="/tinlibrary" element={<Swappable slot="page.tinlibrary" Universal={TinLibrary} />} />
+            <Route path="/history" element={<Swappable slot="page.history" Universal={History} />} />
+            <Route path="/coa" element={<Swappable slot="page.coa" Universal={ChartOfAccounts} />} />
+            <Route path="/cash-receipt" element={<Swappable slot="page.cash-receipt" Universal={CashReceiptsJournal} />} />
+            <Route path="/cash-disbursement" element={<Swappable slot="page.cash-disbursement" Universal={CashDisbursementsJournal} />} />
+            <Route path="/purchase-journal" element={<Swappable slot="page.purchase-journal" Universal={PurchasesJournal} />} />
+            <Route path="/journal" element={<Swappable slot="page.journal" Universal={GeneralJournal} />} />
+            <Route path="/ledger" element={<Swappable slot="page.ledger" Universal={GeneralLedger} />} />
+            <Route path="/subsidiary-ledger" element={<Swappable slot="page.subsidiary-ledger" Universal={SubsidiaryGeneralLedger} />} />
+            <Route path="/aging-reports" element={<Swappable slot="page.aging-reports" Universal={AgingReports} />} />
+            <Route path="/pl" element={<Swappable slot="page.pl" Universal={ProfitAndLoss} />} />
             {/* AFS Draft entries currently use the existing report components.
                 Explicit routes prevent navigation to these sidebar entries from
                 producing React Router "No routes matched" errors. */}
-            <Route path="/afs-financial-position" element={<BalanceSheet />} />
-            <Route path="/afs-income-statements" element={<ProfitAndLoss />} />
-            <Route path="/afs-equity-retained-earnings" element={<BalanceSheet />} />
-            <Route path="/afs-ppe" element={<AssetLapsing />} />
+            <Route path="/afs-financial-position" element={<Swappable slot="page.afs-financial-position" Universal={BalanceSheet} />} />
+            <Route path="/afs-income-statements" element={<Swappable slot="page.afs-income-statements" Universal={ProfitAndLoss} />} />
+            <Route path="/afs-equity-retained-earnings" element={<Swappable slot="page.afs-equity-retained-earnings" Universal={BalanceSheet} />} />
+            <Route path="/afs-ppe" element={<Swappable slot="page.afs-ppe" Universal={AssetLapsing} />} />
             <Route path="/developertools/systemconfig" element={<AdminSettings />} />
             <Route path="/developertools/diagnostics" element={<AdminSettings />} />
             <Route path="/admin/payments" element={<PaymentApproval />} />
@@ -251,31 +254,31 @@ function AppLayout() {
             {/* Extras bundles several related pages in one file; each gets
                 its own route but they all mount the same component, which
                 internally shows only the section matching the current route. */}
-            <Route path="/account-settings" element={<AccountSettings />} />
+            <Route path="/account-settings" element={<Swappable slot="page.account-settings" Universal={AccountSettings} />} />
             <Route path="/plan-billing" element={<PlanBillingPage />} />
-            <Route path="/team" element={<TeamSettings />} />
-            <Route path="/clients" element={<Extras />} />
-            <Route path="/business" element={<Extras />} />
-            <Route path="/reports" element={<Extras />} />
-            <Route path="/books" element={<Extras />} />
-            <Route path="/taxnotes" element={<Extras />} />
-            <Route path="/trialbalance" element={<Extras />} />
-            <Route path="/balancesheet" element={<BalanceSheet />} />
-            <Route path="/cashflow" element={<CashFlow />} />
-            <Route path="/assetlapsing" element={<AssetLapsing />} />
-            <Route path="/sales-journal" element={<SalesJournal />} />
-            <Route path="/files" element={<FileManager />} />
-            <Route path="/files/income" element={<FileManager />} />
-            <Route path="/files/expense" element={<FileManager />} />
-            <Route path="/files/other" element={<FileManager />} />
-            <Route path="/inventory" element={<Inventory />} />
-            <Route path="/bir-forms" element={<BIRForms />} />
-            <Route path="/relief" element={<Relief />} />
-            <Route path="/alphalist" element={<Alphalist />} />
-            <Route path="/compliance-tracker" element={<ComplianceTracker />} />
-            <Route path="/eis-center" element={<EisCenter />} />
-            <Route path="/payroll" element={<PayrollHub company={payrollCompany} initialPage="dashboard" />} />
-            <Route path="/payroll/settings" element={<PayrollHub company={payrollCompany} initialPage="settings" />} />
+            <Route path="/team" element={<Swappable slot="page.team" Universal={TeamSettings} />} />
+            <Route path="/clients" element={<Swappable slot="page.clients" Universal={Extras} />} />
+            <Route path="/business" element={<Swappable slot="page.business" Universal={Extras} />} />
+            <Route path="/reports" element={<Swappable slot="page.reports" Universal={Extras} />} />
+            <Route path="/books" element={<Swappable slot="page.books" Universal={Extras} />} />
+            <Route path="/taxnotes" element={<Swappable slot="page.taxnotes" Universal={Extras} />} />
+            <Route path="/trialbalance" element={<Swappable slot="page.trialbalance" Universal={Extras} />} />
+            <Route path="/balancesheet" element={<Swappable slot="page.balancesheet" Universal={BalanceSheet} />} />
+            <Route path="/cashflow" element={<Swappable slot="page.cashflow" Universal={CashFlow} />} />
+            <Route path="/assetlapsing" element={<Swappable slot="page.assetlapsing" Universal={AssetLapsing} />} />
+            <Route path="/sales-journal" element={<Swappable slot="page.sales-journal" Universal={SalesJournal} />} />
+            <Route path="/files" element={<Swappable slot="page.files" Universal={FileManager} />} />
+            <Route path="/files/income" element={<Swappable slot="page.files" Universal={FileManager} />} />
+            <Route path="/files/expense" element={<Swappable slot="page.files" Universal={FileManager} />} />
+            <Route path="/files/other" element={<Swappable slot="page.files" Universal={FileManager} />} />
+            <Route path="/inventory" element={<Swappable slot="page.inventory" Universal={Inventory} />} />
+            <Route path="/bir-forms" element={<Swappable slot="page.bir-forms" Universal={BIRForms} />} />
+            <Route path="/relief" element={<Swappable slot="page.relief" Universal={Relief} />} />
+            <Route path="/alphalist" element={<Swappable slot="page.alphalist" Universal={Alphalist} />} />
+            <Route path="/compliance-tracker" element={<Swappable slot="page.compliance-tracker" Universal={ComplianceTracker} />} />
+            <Route path="/eis-center" element={<Swappable slot="page.eis-center" Universal={EisCenter} />} />
+            <Route path="/payroll" element={<Swappable slot="page.payroll" Universal={PayrollHub} componentProps={{ company: payrollCompany, initialPage: 'dashboard' as const }} />} />
+            <Route path="/payroll/settings" element={<Swappable slot="page.payroll-settings" Universal={PayrollHub} componentProps={{ company: payrollCompany, initialPage: 'settings' as const }} />} />
             <Route path="/ap-workspace" element={<Navigate to="/purchases/ap" replace />} />
             <Route path="/functions" element={<Navigate to="/account-settings" replace />} />
           </Routes>

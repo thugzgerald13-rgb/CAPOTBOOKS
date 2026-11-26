@@ -8,6 +8,7 @@ import { Client } from '../types';
 import { useAuth } from '../context/AuthContext';
 import { loadAuditLog, ALL_PERMISSIONS, ROLES, can } from '../lib/accessControl';
 import { FEATURE_FLAGS, getFlags, setFeatureFlag, buildBackup, parseBackup } from '../lib/featureFlags';
+import { VariantAssignmentsPanel } from './VariantAssignmentsPanel';
 import { FEATURE_VISIBILITY_ITEMS, loadGlobalFeatureVisibility, saveFeatureVisibility, useFeatureVisibility, loadDeveloperFeatureRules, saveDeveloperFeatureRule, type FeatureAccessRule, type FeatureRuleScope } from '../lib/featureVisibility';
 import { supabase } from '../lib/supabase';
 import packageJson from '../../package.json';
@@ -1252,6 +1253,9 @@ export function AdminSettings() {
               </div>
               <p className="text-[10px] text-slate-400 mt-3">Inherit removes the selected override. For user rules, inheritance resolves as user → subscription plan → global visibility. These settings control app navigation and page access; existing Supabase data policies and transaction permissions remain in force.</p>
             </section>
+
+            {/* Developer-assigned customized pages/buttons (src/custom/registry.ts) */}
+            <VariantAssignmentsPanel users={users} planOptions={featurePlanOptions} />
 
             {/* T025: feature flags + full backup */}
             <div className="grid md:grid-cols-2 gap-4 mb-6">

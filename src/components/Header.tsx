@@ -7,6 +7,7 @@ import { CommandPalette } from './ui/CommandPalette';
 import { Badge } from './ui/Badge';
 import { ClientSwitcher, clientDisplayName } from './ClientSwitcher';
 import { cn } from '../lib/utils';
+import { applyActionOverride, useUiVariants } from '../lib/uiVariants';
 
 interface HeaderProps {
   onMenuClick: () => void;
@@ -78,13 +79,19 @@ export function Header({ onMenuClick }: HeaderProps) {
     return () => document.removeEventListener('keydown', onKey);
   }, []);
 
+  // Universal quick-add buttons. A developer-assigned UI variant (src/custom/registry.ts)
+  // may relabel, re-icon, retarget, replace the action of, or hide any of them.
+  useUiVariants();
   const quickAddItems = [
     { label: 'New Invoice', icon: FileText, page: 'billing' },
     { label: 'New Bill / Expense', icon: ShoppingCart, page: 'purchases' },
     { label: 'New Income / Sale', icon: Receipt, page: 'sales' },
     { label: 'Journal Voucher', icon: FileSignature, page: 'journal-voucher' },
     { label: 'Upload Receipt / File', icon: FolderUp, page: 'files' },
-  ];
+  ].flatMap(base => {
+    const item = applyActionOverride(`action.header.quick-add.${base.page}`, base);
+    return item ? [{ ...item, slotKey: base.page }] : [];
+  });
 
   const initial = (user?.email || 'U').charAt(0).toUpperCase();
 
@@ -152,7 +159,7 @@ export function Header({ onMenuClick }: HeaderProps) {
           </button>
 
           {/* Quick-add (+) menu — hidden entirely for team members without edit_transactions */}
-          <div className="relative" ref={quickAddRef} style={canUse('edit_transactions') ? undefined : { display: 'none' }}>
+          <div className="relative" ref={quickAddRef} style={canUse('edit_transactions') && quickAddItems.length > 0 ? undefined : { display: 'none' }}>
             <button
               onClick={() => { setQuickAddOpen(o => !o); setNotifOpen(false); setUserMenuOpen(false); }}
               className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold shadow-sm shadow-blue-600/30 transition-colors"
@@ -166,8 +173,8 @@ export function Header({ onMenuClick }: HeaderProps) {
                 <p className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-text-muted">Create new</p>
                 {quickAddItems.map(item => (
                   <button
-                    key={item.page}
-                    onClick={() => { navigateToPage(item.page); setQuickAddOpen(false); }}
+                    key={item.slotKey}
+                    onClick={() => { if (item.onSelect) item.onSelect({ navigateToPage }); else navigateToPage(item.page); setQuickAddOpen(false); }}
                     className="w-full flex items-center gap-2.5 px-3 py-2 text-sm text-text-primary hover:bg-surface-subtle transition-colors text-left"
                   >
                     <item.icon className="w-4 h-4 text-text-muted" />
