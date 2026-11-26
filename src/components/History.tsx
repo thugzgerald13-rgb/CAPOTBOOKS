@@ -54,6 +54,15 @@ const MIN_EXPENSE_COLUMN_WIDTH = 60;
 const PURCHASE_SELECT_COLS = HISTORY_PURCHASE_COLS;
 const SALE_SELECT_COLS = HISTORY_SALE_COLS;
 const mapPurchaseRow = mapPurchaseHistoryRow;
+
+/** Per-account lines of a purchase split across several "Payment for" accounts. */
+const getAccountSplit = (p: any): Array<{ accountTitle: string; amount: number }> | null => {
+  const entries = Array.isArray(p?.paymentEntries) && p.paymentEntries.length > 1
+    ? p.paymentEntries
+    : (Array.isArray(p?.otherPaymentEntries) && p.otherPaymentEntries.length > 1 ? p.otherPaymentEntries : null);
+  return entries ? entries.map((e: any) => ({ accountTitle: String(e.accountTitle || ''), amount: Number(e.amount) || 0 })) : null;
+};
+const formatSplitAmount = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const mapSaleRow = mapSaleHistoryRow;
 
 type HistoryTab = 'expenses' | 'income' | 'slp' | 'sls';
@@ -481,7 +490,10 @@ export function History() {
       case 'atcCode': return p.atcCode || '—';
       case 'whtRate': return p.whtRate == null ? '—' : `${(Number(p.whtRate) * 100).toFixed(2)}%`;
       case 'whtAmount': return money(p.whtAmount);
-      case 'accountTitle': return p.accountTitle || '—';
+      case 'accountTitle': {
+        const split = getAccountSplit(p);
+        return split ? split.map(e => `${e.accountTitle}: ${formatSplitAmount(e.amount)}`).join('; ') : (p.accountTitle || '—');
+      }
       case 'transactionDetails': return p.transactionDetails || '—';
       case 'attachment': return p.attachment ? 'Attached' : '—';
       default: return p[key] == null || p[key] === '' ? '—' : String(p[key]);
@@ -1370,7 +1382,16 @@ export function History() {
                           </div>
                           <div>
                             <span className="text-[10px] text-slate-400 block">Classification</span>
-                            {editingAccountId === String(p.id) ? (
+                            {getAccountSplit(p) ? (
+                              <div className="mt-0.5 flex flex-col gap-0.5">
+                                {getAccountSplit(p)!.map((e, i) => (
+                                  <div key={i} className="flex items-center justify-between gap-3 text-xs">
+                                    <span className="font-semibold text-blue-700 dark:text-blue-300 truncate">{e.accountTitle}</span>
+                                    <span className="tabular-nums text-slate-600 dark:text-slate-300">{formatSplitAmount(e.amount)}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : editingAccountId === String(p.id) ? (
                               <input
                                 autoFocus
                                 type="text"
@@ -1636,6 +1657,15 @@ export function History() {
                                     <button onClick={() => setViewingAttachment(p.attachment)} className="p-1.5 text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg" title="View attachment"><Eye className="w-4 h-4" /></button>
                                     <button onClick={() => handleDownloadAttachment(p.attachment)} className="p-1.5 text-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 rounded-lg" title="Download attachment"><Download className="w-4 h-4" /></button>
                                   </span>
+                                ) : key === 'accountTitle' && getAccountSplit(p) ? (
+                                  <div className="flex flex-col gap-0.5 min-w-[180px]" title="Edit this entry from the Purchases page to change its accounts">
+                                    {getAccountSplit(p)!.map((e, i) => (
+                                      <div key={i} className="flex items-center justify-between gap-3 text-xs">
+                                        <span className="font-bold text-blue-700 dark:text-blue-300 truncate max-w-[180px]">{e.accountTitle}</span>
+                                        <span className="tabular-nums text-slate-600 dark:text-slate-300">{formatSplitAmount(e.amount)}</span>
+                                      </div>
+                                    ))}
+                                  </div>
                                 ) : key === 'accountTitle' ? (
                                   editingAccountId === String(p.id) ? (
                                     <input

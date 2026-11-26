@@ -26,6 +26,9 @@ export interface Purchase {
   zeroRatedAmount?: number;
   accountTitle: string;
   transactionDetails?: string;
+  /** Amount per account title when a purchase is split across several "Payment for" accounts (main account first). */
+  paymentEntries?: Array<{ accountTitle: string; amount: number }>;
+  otherPaymentEntries?: Array<{ accountTitle: string; amount: number }>;
   inputTax: number;
   attachment?: {
     name: string;

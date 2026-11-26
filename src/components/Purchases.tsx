@@ -206,6 +206,12 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
   const [atcCode, setAtcCode] = useState('');
   const [whtAmount, setWhtAmount] = useState(0);
   const [accountTitle, setAccountTitle] = useState('');
+  // Additional "Payment for" accounts (Invoiced / AP). Only when the user adds
+  // one does the purchase get split per account: the main account keeps the
+  // remainder of the amount, every extra account carries its own amount. The
+  // per-account breakdown is saved as `paymentEntries` so Expense History and
+  // the Cash Disbursements Journal can show the amount of each account title.
+  const [extraAccounts, setExtraAccounts] = useState<Array<{ id: string; accountTitle: string; amount: string }>>([]);
   // Other Payments multi-entry line items. Each row carries its own account
   // title and amount; the voucher total is the sum of all line amounts. One
   // empty row is always present so the form is never blank.
@@ -236,6 +242,26 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
     setAccountTitle(prev => (coaAccounts.find(a => a.name === prev) ? prev : ''));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentDat, coaAccounts]);
+
+  // ---- Additional "Payment for" accounts (Invoiced / AP) ----
+  const parseMoney = (v: string) => {
+    const n = parseFloat(String(v || '').replace(/,/g, '').trim());
+    return Number.isFinite(n) ? n : 0;
+  };
+  const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+  // Same total the purchase posts to its account(s): vatable net + exempt + 0-rated.
+  const allocatableTotal = round2(
+    ((vatType === 'vat' || vatType === 'vat-nonvat') ? netAmount : 0)
+    + ((vatType === 'non-vat' || vatType === 'vat-nonvat') ? parseMoney(exemptAmount) : 0)
+    + (vatType === 'zero-rated' ? parseMoney(zeroRatedAmount) : 0)
+  );
+  const extraAccountsTotal = round2(extraAccounts.reduce((sum, e) => sum + parseMoney(e.amount), 0));
+  const primaryAccountAmount = round2(allocatableTotal - extraAccountsTotal);
+  const addExtraAccount = () => setExtraAccounts(prev => [...prev, { id: `x${Date.now()}-${prev.length}`, accountTitle: '', amount: '' }]);
+  const removeExtraAccount = (id: string) => setExtraAccounts(prev => prev.filter(e => e.id !== id));
+  const updateExtraAccount = (id: string, field: 'accountTitle' | 'amount', value: string) =>
+    setExtraAccounts(prev => prev.map(e => (e.id === id ? { ...e, [field]: value } : e)));
+  const formatPeso = (n: number) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   // ---- Other Payments multi-entry helpers ----
   const otherPaymentTotal = otherPaymentEntries.reduce((sum, e) => {
@@ -350,6 +376,17 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
       setWithholdingOption(p.withholdingOption || 'w/o');
       setAtcCode(p.atcCode || '');
       setAccountTitle(p.accountTitle || '');
+      // Restore additional "Payment for" accounts (everything after the main account).
+      const storedSplit = (p as any).paymentEntries;
+      setExtraAccounts(
+        !isOtherPayments && Array.isArray(storedSplit) && storedSplit.length > 1
+          ? storedSplit.slice(1).map((e: any, i: number) => ({
+              id: `x${Date.now()}-${i}`,
+              accountTitle: e.accountTitle || '',
+              amount: e.amount ? Number(e.amount).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '',
+            }))
+          : []
+      );
       // Restore Other Payments multi-entry line items. Legacy records without
       // a stored breakdown fall back to one line built from accountTitle + amount.
       if (isOtherPayments) {
@@ -419,6 +456,7 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
     setTransactionDetails('');
     setAttachment(null);
     setAccountTitle('');
+    setExtraAccounts([]);
     setOtherPaymentEntries([{ id: `e${Date.now()}-0`, accountTitle: '', amount: '' }]);
     const count = periodPurchases.length;
     setSequenceNumber(count + 1);
@@ -570,6 +608,24 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
       return;
     }
 
+    // Additional "Payment for" accounts: only validated when the user added some.
+    const splitActive = !isOtherPayments && extraAccounts.length > 0;
+    if (splitActive) {
+      if (!String(accountTitle || '').trim()) {
+        alert('Please choose the main "Payment for" account.');
+        return;
+      }
+      const incomplete = extraAccounts.some(e => !String(e.accountTitle || '').trim() || parseMoney(e.amount) <= 0);
+      if (incomplete) {
+        alert('Each additional account needs an account title and an amount greater than zero.');
+        return;
+      }
+      if (primaryAccountAmount <= 0) {
+        alert(`The additional account amounts (₱${formatPeso(extraAccountsTotal)}) must be less than the purchase amount (₱${formatPeso(allocatableTotal)}).`);
+        return;
+      }
+    }
+
     const [y, m, d] = date.split('-');
     const formattedDate = `${m}/${d}/${y}`;
 
@@ -619,6 +675,14 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
             : `${validOtherPaymentEntries[0]?.accountTitle || 'Multiple'} +${validOtherPaymentEntries.length - 1} more`)
         : accountTitle,
       transactionDetails,
+      // Per-account breakdown for Invoiced / AP purchases that have additional
+      // "Payment for" accounts (main account first). Omitted otherwise.
+      paymentEntries: splitActive
+        ? [
+            { accountTitle, amount: primaryAccountAmount },
+            ...extraAccounts.map(e => ({ accountTitle: e.accountTitle, amount: round2(parseMoney(e.amount)) })),
+          ]
+        : undefined,
       // Full multi-entry breakdown for Other Payments (account + amount per line).
       ...(isOtherPayments ? {
         otherPaymentEntries: validOtherPaymentEntries.map(e => ({
@@ -728,6 +792,7 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
     setAtcCode('');
     setWhtAmount(0);
     setAccountTitle('');
+    setExtraAccounts([]);
     setOtherPaymentEntries([{ id: `e${Date.now()}-0`, accountTitle: '', amount: '' }]);
     setMultipleEntries(false);
     setMultiEntries([emptyMultiRow()]);
@@ -995,7 +1060,17 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
           </div>
         )}
         {!isOtherPayments && (<div className="lg:col-span-2 md:col-span-2">
-          <label className="form-label">{currentDat ? "Account Title" : "Payment for"}</label>
+          <div className="flex items-center justify-between">
+            <label className="form-label">{currentDat ? "Account Title" : "Payment for"}</label>
+            <button
+              type="button"
+              onClick={addExtraAccount}
+              className="mb-1.5 inline-flex items-center gap-1 text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 transition-colors"
+              title="Add another account with its own amount"
+            >
+              <Plus className="w-3.5 h-3.5" /> Add account
+            </button>
+          </div>
           <Combobox
             value={accountTitle}
             onChange={setAccountTitle}
@@ -1004,6 +1079,61 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
             selectionOnly={!isAP}
             inputClassName="form-input bg-blue-50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-900/50 font-bold text-blue-800 dark:text-blue-300"
           />
+          {extraAccounts.length > 0 && (
+            <div className="mt-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 p-3 space-y-2">
+              <div className="flex items-center gap-2">
+                <div className="flex-1 min-w-0 text-xs font-bold text-slate-600 dark:text-slate-300 truncate">
+                  {accountTitle || 'Main account'}
+                </div>
+                <div className="w-36 shrink-0">
+                  <input
+                    type="text"
+                    readOnly
+                    value={formatPeso(primaryAccountAmount)}
+                    title="Remaining amount after the additional accounts"
+                    className={`form-input !py-2 text-sm text-right font-bold cursor-not-allowed bg-slate-100 dark:bg-slate-800/80 ${primaryAccountAmount <= 0 ? 'text-rose-600 dark:text-rose-400' : 'text-slate-700 dark:text-slate-300'}`}
+                  />
+                </div>
+                <span className="w-8 shrink-0" />
+              </div>
+              {extraAccounts.map((entry, idx) => (
+                <div key={entry.id} className="flex items-start gap-2">
+                  <div className="flex-1 min-w-0">
+                    <Combobox
+                      value={entry.accountTitle}
+                      onChange={v => updateExtraAccount(entry.id, 'accountTitle', v)}
+                      options={coaAccounts.map(a => ({ id: a.id, label: a.name }))}
+                      placeholder={`Additional account #${idx + 1}`}
+                      selectionOnly={!isAP}
+                      inputClassName="form-input bg-blue-50 dark:bg-blue-900/10 border-blue-200 dark:border-blue-900/50 font-bold text-blue-800 dark:text-blue-300 !py-2 text-sm"
+                    />
+                  </div>
+                  <div className="w-36 shrink-0">
+                    <input
+                      type="text"
+                      value={entry.amount}
+                      onChange={e => { if (/^[0-9.,]*$/.test(e.target.value)) updateExtraAccount(entry.id, 'amount', e.target.value); }}
+                      onBlur={e => { const raw = e.target.value.replace(/,/g, ''); if (raw && !isNaN(parseFloat(raw))) updateExtraAccount(entry.id, 'amount', formatPeso(parseFloat(raw))); }}
+                      placeholder="0.00"
+                      className="form-input font-bold text-amber-900 border-amber-300 dark:bg-amber-900/20 dark:text-amber-100 !py-2 text-sm text-right"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeExtraAccount(entry.id)}
+                    className="p-2 rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors shrink-0"
+                    title="Remove account"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+              <div className="flex items-center justify-between pt-1 text-xs font-bold">
+                <span className="text-slate-500 dark:text-slate-400">Total amount</span>
+                <span className="tabular-nums text-amber-700 dark:text-amber-300">₱{formatPeso(allocatableTotal)}</span>
+              </div>
+            </div>
+          )}
         </div>)}
 
         <div className="lg:col-span-1 md:col-span-2">

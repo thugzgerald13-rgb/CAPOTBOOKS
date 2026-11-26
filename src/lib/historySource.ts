@@ -20,7 +20,7 @@ import { getCachedQuery, cacheQuery } from '../db/localDb';
 // Column projections — exactly the fields the History grid and RELIEF
 // aggregation read. Selecting '*' wastes PostgREST egress on every load.
 export const HISTORY_PURCHASE_COLS =
-  'id,client_id,date,payment_method,check_number,bank_name,invoice_no,supplier_name,supplier_address,supplier_tin,amount,vat_type,account_title,transaction_details,input_tax,attachment_name,attachment_type,attachment_original_type,attachment_size,attachment_original_size,attachment_compression,attachment_storage_path,withholding_option,atc_code,wht_rate,wht_amount,exempt_amount,zero_rated_amount,entry_source,created_at';
+  'id,client_id,date,payment_method,check_number,bank_name,invoice_no,supplier_name,supplier_address,supplier_tin,amount,vat_type,account_title,transaction_details,input_tax,attachment_name,attachment_type,attachment_original_type,attachment_size,attachment_original_size,attachment_compression,attachment_storage_path,withholding_option,atc_code,wht_rate,wht_amount,exempt_amount,zero_rated_amount,entry_source,payment_entries,created_at';
 
 export const HISTORY_SALE_COLS =
   'id,client_id,date,ref,payment_type,buyer_tin,buyer_name,buyer_address,vat_type,amount,net_of_vat,output_tax,income_type,description,exempt_amount,zero_rated_amount,withholding_option,atc_code,wht_rate,wht_amount,attachment_name,attachment_type,attachment_original_type,attachment_size,attachment_original_size,attachment_compression,attachment_storage_path';
@@ -59,6 +59,9 @@ export function mapPurchaseHistoryRow(p: any) {
     exemptAmount: Number(p.exempt_amount || 0),
     zeroRatedAmount: Number(p.zero_rated_amount || 0),
     entrySource: p.entry_source,
+    ...(Array.isArray(p.payment_entries) && p.payment_entries.length > 1
+      ? { paymentEntries: p.payment_entries, otherPaymentEntries: p.payment_entries }
+      : {}),
   };
 }
 

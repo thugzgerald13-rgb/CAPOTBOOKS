@@ -624,6 +624,22 @@ function postJournalVouchers(client: Client): Posting[] {
 // Source: Purchases module — has an explicit accountTitle per transaction.
 // ---------------------------------------------------------------------------
 
+/** Account lines of a purchase: one per "Payment for" account when the purchase
+ *  was split across several accounts, otherwise the single account title with the
+ *  full net amount. */
+function purchaseAccountLines(p: any, netAmount: number): Array<{ accountTitle: string; amount: number }> {
+  const split = Array.isArray(p.paymentEntries) && p.paymentEntries.length > 1
+    ? p.paymentEntries
+    : (Array.isArray(p.otherPaymentEntries) && p.otherPaymentEntries.length > 1 ? p.otherPaymentEntries : null);
+  if (split) {
+    const lines = split
+      .map((e: any) => ({ accountTitle: String(e.accountTitle || ''), amount: Number(e.amount) || 0 }))
+      .filter((e: { accountTitle: string; amount: number }) => e.accountTitle && e.amount > 0);
+    if (lines.length > 0) return lines;
+  }
+  return [{ accountTitle: p.accountTitle, amount: netAmount }];
+}
+
 function postPurchases(client: Client, accounts: CoaAccount[]): Posting[] {
   const postings: Posting[] = [];
   (client.purchases || []).forEach(p => {
@@ -637,13 +653,15 @@ function postPurchases(client: Client, accounts: CoaAccount[]): Posting[] {
     const netAmount = (Number(p.amount) || 0) + (Number(p.exemptAmount) || 0) + (Number(p.zeroRatedAmount) || 0);
     const inputTax = Number(p.inputTax) || 0;
 
-    const debitAcct = findAccountByLabel(p.accountTitle, accounts);
-    if (debitAcct && netAmount > 0) {
-      postings.push({
-        accountId: debitAcct.id,
-        entry: makeLeg(`purchase:${p.id}:debit`, 'debit', netAmount, p.date, particulars, ref, 'Purchases'),
-      });
-    }
+    purchaseAccountLines(p, netAmount).forEach((line, i) => {
+      const debitAcct = findAccountByLabel(line.accountTitle, accounts);
+      if (debitAcct && line.amount > 0) {
+        postings.push({
+          accountId: debitAcct.id,
+          entry: makeLeg(i === 0 ? `purchase:${p.id}:debit` : `purchase:${p.id}:debit:${i}`, 'debit', line.amount, p.date, particulars, ref, 'Purchases'),
+        });
+      }
+    });
 
     if (inputTax > 0) {
       const taxAcct = findAccountByLabel('Input Tax', accounts);
@@ -925,23 +943,27 @@ function cashPurchasesToCdjEntries(client: Client): JournalEntry[] {
       const cashDue = total - wht;
       if (cashDue <= 0) return null;
 
-      const entry: JournalEntry = {
-        id: `cdj-auto:purchase:${p.id}`,
+      // One CDJ row per account title when the purchase was split across several
+      // "Payment for" accounts, so each account shows its own amount. The first
+      // row carries the cash paid, input tax and withholding for the whole
+      // voucher; the following rows only carry their account's amount.
+      const lines = purchaseAccountLines(p, net);
+      return lines.map((line, i): JournalEntry => ({
+        id: i === 0 ? `cdj-auto:purchase:${p.id}` : `cdj-auto:purchase:${p.id}:${i}`,
         auto: true,
         autoSource: 'Purchases',
         values: {
           date: p.date,
           payee: p.supplierName,
-          account_title: p.accountTitle || 'Expense',
-          amount: net > 0 ? two(net) : '',
-          cash: two(cashDue),
-          input_tax: tax > 0 ? two(tax) : '',
-          wht: wht > 0 ? two(wht) : '',
+          account_title: line.accountTitle || 'Expense',
+          amount: line.amount > 0 ? two(line.amount) : '',
+          cash: i === 0 ? two(cashDue) : '',
+          input_tax: i === 0 && tax > 0 ? two(tax) : '',
+          wht: i === 0 && wht > 0 ? two(wht) : '',
         },
-      };
-      return entry;
+      }));
     })
-    .filter((e): e is JournalEntry => e !== null);
+    .flatMap(entries => entries ?? []);
 }
 
 function cashJournalVouchersToCdjEntries(client: Client, accounts: CoaAccount[]): JournalEntry[] {
