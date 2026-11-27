@@ -348,10 +348,80 @@ export interface InventoryItem {
   stockLevel: number;
   reorderPoint: number;
   location?: string;
-  customFields?: Record<string, string>;
+  /** Pharmacy Product Management variant: drug attributes + barcode list are
+   * carried in the JSONB custom_fields column (generic/brand, strength, dosage
+   * form, pack conversion, scanned barcodes...). `any` allows strings, numbers
+   * and arrays (barcode list). */
+  customFields?: Record<string, any>;
   /** Optional aliases used by inventoryValuation helpers */
   quantityOnHand?: number;
   unitCost?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Pharmacy Product Management — drug catalogue fields + batch/lot receiving.
+// The variant page (src/custom/pages/PharmacyInventory.tsx) persists drug
+// catalogue attributes in InventoryItem.customFields and lot-level receiving
+// records in the `pharmacy_stock_batches` table (see
+// scripts/pharmacy_inventory_migration.sql).
+// ---------------------------------------------------------------------------
+
+/** Medicine attributes kept in an InventoryItem's customFields JSONB object. */
+export interface PharmacyDrugFields {
+  genericName?: string;
+  brandName?: string;
+  /** Strength, e.g. "500 mg", "5 mg/5 mL", "10 mg/mL". */
+  strength?: string;
+  /** Sig / directions, e.g. "1 tablet orally twice daily". */
+  dosage?: string;
+  dosageForm?: string;
+  manufacturer?: string;
+  /** Route of administration: Oral, Topical, Injectable, Ophthalmic... */
+  route?: string;
+  /** All EAN/UPC/QR / packaging identifiers attached to this product. */
+  barcodes?: string[];
+  /** Smallest stocked inventory unit the stockLevel counts in, e.g. tablet. */
+  baseUnit?: string;
+  /** Purchase pack unit, e.g. box, bottle, blister strip. */
+  packUnit?: string;
+  /** Base units contained in one purchase pack. */
+  packSize?: number;
+  /** Conversion factor = packSize (base units per purchase pack). */
+  conversionFactor?: number;
+  /** Latest landed purchase cost per base unit recorded at receiving. */
+  lastPurchaseCost?: number;
+  /** True when the medicine requires a prescription. */
+  requiresRx?: boolean;
+}
+
+/** One received lot/batch of a pharmacy product (table: pharmacy_stock_batches). */
+export interface PharmacyStockBatch {
+  id: string;
+  clientId: string;
+  itemId: string;
+  itemName?: string;
+  itemCode?: string;
+  barcode?: string;
+  supplierName?: string;
+  batchLotNo?: string;
+  /** ISO date YYYY-MM-DD expiry of this lot. */
+  expiryDate?: string;
+  packUnit?: string;
+  /** Base units per one pack. */
+  packSize?: number;
+  packsReceived?: number;
+  /** Packs × packSize — quantity added to base-unit stock level. */
+  qtyReceivedBase?: number;
+  /** Remaining quantity in base units (deducted by outbound/adjustments). */
+  qtyOnHandBase?: number;
+  /** Purchase cost per pack. */
+  unitCostPack?: number;
+  /** Purchase cost per base unit (unitCostPack / packSize). */
+  unitCostBase?: number;
+  totalCost?: number;
+  reference?: string;
+  notes?: string;
+  receivedAt?: string;
 }
 
 export interface InventoryColumn {
@@ -375,7 +445,7 @@ export interface InventoryMovement {
   itemName: string;
   itemCode: string;
   date: string;
-  type: 'Inbound' | 'Outbound' | 'Adjustment' | string;
+  type: 'Inbound' | 'Outbound' | 'Adjustment' | 'Receiving' | string;
   qty: number;
   unitCost: number;
   totalValue: number;
@@ -383,6 +453,19 @@ export interface InventoryMovement {
   notes?: string;
   /** Optional alias used by inventoryValuation helpers */
   quantity?: number;
+  // Pharmacy Product Management — receiving (incoming stock) context.
+  // Persisted into the existing movement row via reference/notes; these fields
+  // drive the receiving UI and batch linkage.
+  barcode?: string;
+  supplierName?: string;
+  batchLotNo?: string;
+  expiryDate?: string;
+  packUnit?: string;
+  packSize?: number;
+  packQty?: number;
+  conversionFactor?: number;
+  baseQty?: number;
+  batchId?: string;
 }
 
 export interface AppFolder {

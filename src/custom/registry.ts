@@ -21,6 +21,21 @@ import { registerComponentVariant, registerActionVariant } from '../lib/uiVarian
 // `load` is lazy, so a variant adds nothing to the bundle users actually download
 // unless they are assigned it.
 // ---------------------------------------------------------------------------
+
+// Pharmacy Product Management — fork of the universal Inventory page.
+// Assigned from Developer System Config → UI Variants → slot `page.inventory`.
+// Covers: medicine catalogue (generic/brand, strength, dosage, dosage form,
+// SKU + multiple barcodes/QR, unit conversion, pricing/cost), barcode/QR-assisted
+// registration (wedge scanner + optional camera, existing-match retrieval,
+// duplicate guard), and barcode/QR-assisted receiving with supplier, lot/batch,
+// expiry date, purchase cost and pack→base-unit conversion.
+registerComponentVariant('page.inventory', {
+  id: 'pharmacy-inventory',
+  label: 'Pharmacy — Product Management & Receiving',
+  description: 'Pharmacy fork of Inventory: medicine registry with barcode/QR-assisted registration and lot/batch receiving with expiry monitoring.',
+  load: () => import('./pages/PharmacyInventory'),
+});
+
 // registerComponentVariant('page.sales', {
 //   id: 'acme-sales',                       // stored in the database — never rename once assigned
 //   label: 'Acme — Sales (with approval column)',
