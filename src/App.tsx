@@ -60,6 +60,7 @@ const TeamSettings = lazy(() => import('./components/TeamSettings').then(m => ({
 const PaymentApproval = lazy(() => import('./components/PaymentApproval').then(m => ({ default: m.PaymentApproval })));
 const EisCenter = lazy(() => import('./components/EisCenter').then(m => ({ default: m.EisCenter })));
 const PayrollHub = lazy(() => import('./payroll/PayrollHub').then(m => ({ default: m.PayrollHub })));
+const PharmacyPos = lazy(() => import('./components/pos/PharmacyPos').then(m => ({ default: m.default })));
 
 /**
  * Route-level permission + module guard (Goal A). Wraps the whole <Routes> block so a
@@ -272,6 +273,8 @@ function AppLayout() {
             <Route path="/files/expense" element={<Swappable slot="page.files" Universal={FileManager} />} />
             <Route path="/files/other" element={<Swappable slot="page.files" Universal={FileManager} />} />
             <Route path="/inventory" element={<Swappable slot="page.inventory" Universal={Inventory} />} />
+            {/* Pharmacy POS — developer-only (route guard ADMIN_ONLY_ROUTES); expose to users later via feature rules. */}
+            <Route path="/pos" element={<PharmacyPos />} />
             <Route path="/bir-forms" element={<Swappable slot="page.bir-forms" Universal={BIRForms} />} />
             <Route path="/relief" element={<Swappable slot="page.relief" Universal={Relief} />} />
             <Route path="/alphalist" element={<Swappable slot="page.alphalist" Universal={Alphalist} />} />

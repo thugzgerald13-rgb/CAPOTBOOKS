@@ -15,6 +15,7 @@ export const FEATURE_VISIBILITY_ITEMS = [
   { id: 'team', label: 'Team & Subusers', group: 'Core & Setup' },
   { id: 'billing', label: 'Billing & Invoices', group: 'Transactions' },
   { id: 'inventory', label: 'Inventory', group: 'Transactions' },
+  { id: 'pos', label: 'Pharmacy POS (Dev)', group: 'Transactions' },
   { id: 'payroll', label: 'Payroll', group: 'Transactions' },
   { id: 'journal', label: 'General Journal', group: 'Accounting Books' },
   { id: 'ledger', label: 'General Ledger', group: 'Accounting Books' },

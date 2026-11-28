@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Search, CornerDownLeft, FileText, Receipt, ShoppingCart, FileSignature, FolderUp, Home, BookOpen, CreditCard, History, Landmark, TrendingUp, Scale, Wrench, BookText, LineChart, Wallet, Boxes, Settings, Shield, FileSpreadsheet } from 'lucide-react';
+import { Search, CornerDownLeft, FileText, Receipt, ShoppingCart, FileSignature, FolderUp, Home, BookOpen, CreditCard, History, Landmark, TrendingUp, Scale, Wrench, BookText, LineChart, Wallet, Boxes, Settings, Shield, FileSpreadsheet, ScanBarcode } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAccounting } from '@/context/AccountingContext';
 import { useAuth } from '@/context/AuthContext';
@@ -27,11 +27,11 @@ const COMMAND_ROUTE: Record<string, string> = {
   'journal-voucher': '/journal-voucher', 'expense-history': '/history', 'income-history': '/history',
   'compliance-tracker': '/compliance-tracker', 'bir-forms': '/bir-forms', cashflow: '/cashflow',
   trialbalance: '/trialbalance', balancesheet: '/balancesheet', pl: '/pl', assetlapsing: '/assetlapsing',
-  files: '/files', inventory: '/inventory', clients: '/clients', business: '/business',
+  files: '/files', inventory: '/inventory', clients: '/clients', business: '/business', pos: '/pos',
 };
 
 /** Commands visible only to the developer account (isAdmin) until built out. */
-const ADMIN_ONLY_COMMANDS = new Set(['compliance-tracker', 'inventory']);
+const ADMIN_ONLY_COMMANDS = new Set(['compliance-tracker', 'inventory', 'pos']);
 
 export function CommandPalette({ open, onClose }: CommandPaletteProps) {
   const { navigateToPage, setHistoryTab } = useAccounting();
@@ -66,6 +66,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
     { id: 'assetlapsing', label: 'Asset Lapsing / Fixed Assets', hint: 'Reports', icon: <Wrench className="w-4 h-4" />, keywords: 'asset lapsing fixed depreciation', action: () => navigateToPage('assetlapsing') },
     { id: 'files', label: 'Upload Files / File Manager', hint: 'Files', icon: <FolderUp className="w-4 h-4" />, keywords: 'upload files receipts documents attachments', action: () => navigateToPage('files') },
     { id: 'inventory', label: 'Inventory', hint: 'Inventory', icon: <Boxes className="w-4 h-4" />, keywords: 'inventory stock items sku', action: () => navigateToPage('inventory') },
+    { id: 'pos', label: 'Pharmacy POS', hint: 'Transactions · Dev', icon: <ScanBarcode className="w-4 h-4" />, keywords: 'pos cashier pharmacy checkout barcode scan cart senior pwd discount receipt sale', action: () => navigateToPage('pos') },
     { id: 'clients', label: 'Clients (Multi-entity)', hint: 'Settings', icon: <History className="w-4 h-4" />, keywords: 'clients entities switch', action: () => navigateToPage('clients') },
     { id: 'business', label: 'Business Profile', hint: 'Settings', icon: <FileText className="w-4 h-4" />, keywords: 'business profile tin rdo setup', action: () => navigateToPage('business') },
     { id: 'account-settings', label: 'Account Settings', hint: 'Settings', icon: <Settings className="w-4 h-4" />, keywords: 'account settings profile password', action: () => navigateToPage('account-settings') },

@@ -97,6 +97,9 @@ export const ADMIN_ONLY_ROUTES: ReadonlySet<string> = new Set([
   '/developertools/diagnostics',
   '/diagnostics',
   '/admin/payments',
+  // Pharmacy POS pilot: developer account only until it is enabled for users
+  // through the feature-access rules (never added to FEATURE_ALLOWED_PAGE_IDS).
+  '/pos',
 ]);
 
 /**

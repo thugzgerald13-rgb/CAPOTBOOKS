@@ -15,7 +15,8 @@ import {
   LineChart, Scale, Receipt, ShoppingCart, 
   TrendingUp, FileText, FileDown, Library, FolderClock, History,
   ChevronDown, ChevronLeft, ChevronRight, Settings, Key, Banknote, Wallet, CreditCard, ShieldAlert, RefreshCw, LogOut, Shield, FolderUp,
-  Boxes, CheckCircle2, FileSignature, Home, Landmark, ArrowLeftRight, Wrench, UserCircle, Search, X, Clock3
+  Boxes, CheckCircle2, FileSignature, Home, Landmark, ArrowLeftRight, Wrench, UserCircle, Search, X, Clock3,
+  ScanBarcode,
 } from 'lucide-react';
 
 interface SidebarProps {
@@ -225,6 +226,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     { label: 'Asset Lapsing', pageId: 'assetlapsing', icon: Wrench, keywords: 'asset lapsing fixed depreciation' },
     { label: 'Upload Files', pageId: 'files', icon: FolderUp, keywords: 'upload files receipts documents' },
     { label: 'Inventory', pageId: 'inventory', icon: Boxes, keywords: 'inventory stock items' },
+    { label: 'Pharmacy POS', pageId: 'pos', icon: ScanBarcode, keywords: 'pos cashier pharmacy sale scan barcode senior pwd discount cart checkout receipt' },
     { label: 'Clients', pageId: 'clients', icon: Users, keywords: 'clients entities' },
     { label: 'Business Profile', pageId: 'business', icon: Building2, keywords: 'business profile tin rdo setup' },
     { label: 'Account Settings', pageId: 'account-settings', icon: UserCircle, keywords: 'account settings profile' },
@@ -415,7 +417,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               title={isCollapsed ? "Transactions" : undefined}
               className={cn(
                 "flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl transition-all w-full text-left group",
-                (isTransactionsOpen || ['coa','billing','sales','journal-voucher','history'].includes(activePage) || activePage?.startsWith('purchases')) ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
+                (isTransactionsOpen || ['coa','billing','sales','journal-voucher','history','pos'].includes(activePage) || activePage?.startsWith('purchases')) ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
                 (!canAny('edit_transactions', 'view_reports', 'manage_settings') || !['coa','billing','sales','purchases','journal-voucher','history'].some(canUsePage)) && 'hidden',
                 isCollapsed && "md:justify-center md:px-2"
               )}
@@ -491,6 +493,22 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                     <FileSignature className="w-4 h-4" />
                     Journal Voucher
                   </button>
+                  {/* Pharmacy POS — developer account only for now; can be enabled
+                      for users later via the developer feature-access rules. */}
+                  {isAdmin && (
+                    <button
+                      disabled={!canUse('edit_transactions')}
+                      onClick={() => {
+                        handleNavClick('pos');
+                        setIsOpen(false);
+                      }}
+                      className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'pos' && activeIndigo)}
+                    >
+                      <ScanBarcode className="w-4 h-4" />
+                      Pharmacy POS
+                      <span className="ml-auto text-[9px] font-black uppercase tracking-wide bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400 rounded px-1.5 py-0.5">Dev</span>
+                    </button>
+                  )}
 
                   <hr className="border-slate-100 dark:border-slate-800 my-1" />
 
