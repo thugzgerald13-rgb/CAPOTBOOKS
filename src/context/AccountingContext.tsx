@@ -1393,11 +1393,14 @@ export function AccountingProvider({
       // client permission filter as every other profile; do not synthesize it
       // into the staff list or persist it when no grant exists.
       if (membership?.isSubuser && !existing) return;
+      const expectedName = resolveProfileDisplayName(businessProfile);
+      const expectedTin = businessProfile.tin || '';
+      const expectedRegisteredName = businessProfile.registeredName || businessProfile.name;
       const needsSync =
         !existing ||
-        existing.name !== businessProfile.name ||
-        existing.tin !== businessProfile.tin ||
-        existing.registeredName !== (businessProfile.registeredName || businessProfile.name);
+        existing.name !== expectedName ||
+        existing.tin !== expectedTin ||
+        existing.registeredName !== expectedRegisteredName;
 
       if (needsSync) {
         const matchingClient = buildMatchingClient(businessProfile, existing, ownerId);
