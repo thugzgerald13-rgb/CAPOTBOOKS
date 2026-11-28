@@ -21,6 +21,7 @@ export const FEATURE_VISIBILITY_ITEMS = [
   { id: 'ledger', label: 'General Ledger', group: 'Accounting Books' },
   { id: 'subsidiary-ledger', label: 'Subsidiary General Ledger', group: 'Accounting Books' },
   { id: 'aging-reports', label: 'A/R & A/P Aging Reports', group: 'Accounting Books' },
+  { id: 'bank-reconciliation', label: 'Bank Reconciliation', group: 'Accounting Books' },
   { id: 'trialbalance', label: 'Trial Balance', group: 'Reports' },
   { id: 'sales-journal', label: 'Sales Journal', group: 'Accounting Books' },
   { id: 'purchase-journal', label: 'Purchase Journal', group: 'Accounting Books' },

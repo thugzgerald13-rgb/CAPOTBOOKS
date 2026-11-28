@@ -193,6 +193,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     { id: 'purchase-journal', label: 'Purchase Journal', icon: ShoppingCart },
     { id: 'cash-disbursement', label: 'Cash Disbursement Book', icon: CreditCard },
     { id: 'cash-receipt', label: 'Cash Receipt Journal', icon: Wallet },
+    { id: 'bank-reconciliation', label: 'Bank Reconciliation', icon: Landmark },
   ];
 
   // Sidebar inline search (Run 002 / T002): flat index of every navigable
@@ -228,6 +229,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
     { label: 'Purchase Journal', pageId: 'purchase-journal', icon: ShoppingCart, keywords: 'purchase journal book' },
     { label: 'Cash Disbursement Book', pageId: 'cash-disbursement', icon: CreditCard, keywords: 'cash disbursement cdb book' },
     { label: 'Cash Receipt Journal', pageId: 'cash-receipt', icon: Wallet, keywords: 'cash receipt crj book' },
+    { label: 'Bank Reconciliation', pageId: 'bank-reconciliation', icon: Landmark, keywords: 'bank reconciliation statement csv ofx bdo bpi gcash maya cleared uncleared match' },
     { label: 'Trial Balance', pageId: 'trialbalance', icon: Scale, keywords: 'trial balance tb report' },
     { label: 'Balance Sheet', pageId: 'balancesheet', icon: Landmark, keywords: 'balance sheet bs financial position' },
     { label: 'Profit & Loss', pageId: 'pl', icon: TrendingUp, keywords: 'profit loss pnl income statement' },
@@ -278,6 +280,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
       case 'ledger':
       case 'subsidiary-ledger':
       case 'aging-reports':
+      case 'bank-reconciliation':
       case 'afs-financial-position':
       case 'afs-income-statements':
       case 'afs-equity-retained-earnings':
@@ -857,7 +860,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               title={isCollapsed ? "Books" : undefined}
               className={cn(
                 "flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl transition-all w-full text-left group",
-                (isBooksOpen || ['journal','ledger','subsidiary-ledger','aging-reports','sales-journal','purchase-journal','cash-disbursement','cash-receipt'].includes(displayPage)) ? "bg-cyan-50 text-cyan-700 dark:bg-cyan-900/20 dark:text-cyan-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
+                (isBooksOpen || ['journal','ledger','subsidiary-ledger','aging-reports','sales-journal','purchase-journal','cash-disbursement','cash-receipt','bank-reconciliation'].includes(displayPage)) ? "bg-cyan-50 text-cyan-700 dark:bg-cyan-900/20 dark:text-cyan-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
                 !canAny('view_reports', 'edit_transactions') && 'hidden',
                 isCollapsed && "md:justify-center md:px-2"
               )}

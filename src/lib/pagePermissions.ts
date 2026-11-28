@@ -72,6 +72,7 @@ export const ROUTE_PERMISSIONS: Record<string, Permission> = {
   '/ledger': 'view_reports',         // General Ledger — read-only register
   '/subsidiary-ledger': 'view_reports', // Subsidiary General Ledger — read-only register
   '/aging-reports': 'view_reports', // Accounts Receivable / Payable aging — read-only report
+  '/bank-reconciliation': 'view_reports', // Bank Reconciliation — CSV/OFX statement matching
   '/history': 'view_reports',
   '/trialbalance': 'view_reports',
   '/balancesheet': 'view_reports',
@@ -164,6 +165,7 @@ const FEATURE_ALLOWED_PAGE_IDS: ReadonlySet<string> = new Set([
   'purchase-journal',
   'cash-receipt',
   'cash-disbursement',
+  'bank-reconciliation',
   'books',
   // Paid Module 2: Financial Statements & AFS ('reports')
   'pl',

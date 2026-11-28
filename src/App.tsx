@@ -41,6 +41,7 @@ const GeneralJournal = lazy(() => import('./components/GeneralJournal').then(m =
 const GeneralLedger = lazy(() => import('./components/GeneralLedger').then(m => ({ default: m.GeneralLedger })));
 const SubsidiaryGeneralLedger = lazy(() => import('./components/SubsidiaryGeneralLedger').then(m => ({ default: m.SubsidiaryGeneralLedger })));
 const AgingReports = lazy(() => import('./components/AgingReports').then(m => ({ default: m.AgingReports })));
+const BankReconciliation = lazy(() => import('./components/BankReconciliation').then(m => ({ default: m.BankReconciliation })));
 const ProfitAndLoss = lazy(() => import('./components/ProfitAndLoss').then(m => ({ default: m.ProfitAndLoss })));
 const BalanceSheet = lazy(() => import('./components/BalanceSheet').then(m => ({ default: m.BalanceSheet })));
 const CashFlow = lazy(() => import('./components/CashFlow').then(m => ({ default: m.CashFlow })));
@@ -241,6 +242,7 @@ function AppLayout() {
             <Route path="/ledger" element={<Swappable slot="page.ledger" Universal={GeneralLedger} />} />
             <Route path="/subsidiary-ledger" element={<Swappable slot="page.subsidiary-ledger" Universal={SubsidiaryGeneralLedger} />} />
             <Route path="/aging-reports" element={<Swappable slot="page.aging-reports" Universal={AgingReports} />} />
+            <Route path="/bank-reconciliation" element={<Swappable slot="page.bank-reconciliation" Universal={BankReconciliation} />} />
             <Route path="/pl" element={<Swappable slot="page.pl" Universal={ProfitAndLoss} />} />
             {/* AFS Draft entries currently use the existing report components.
                 Explicit routes prevent navigation to these sidebar entries from
