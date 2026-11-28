@@ -435,11 +435,12 @@ export function getNormalSide(type: string): 'debit' | 'credit' {
 // ---- Cash Receipts Journal (CashReceiptsJournal.tsx) ----
 export const DEFAULT_CRJ_COLUMNS: JournalColumn[] = [
   { id: 'date', name: 'Date', type: 'text', category: 'None', isSystem: true },
-  { id: 'reference', name: 'OR / Invoice No.', type: 'text', category: 'None', isSystem: true },
+  { id: 'reference', name: 'Invoice No.', type: 'text', category: 'None', isSystem: true },
   { id: 'payor', name: "Customer / Payor", type: 'text', category: 'None', isSystem: true },
   { id: 'description', name: 'Account Credited / Description', type: 'text', category: 'None', isSystem: true },
   { id: 'post_ref', name: 'PR', type: 'text', category: 'None', isSystem: true },
   { id: 'cash', name: 'Cash on Hand / Bank', type: 'number', category: 'Dr', isSystem: true },
+  { id: 'cwt', name: 'Creditable Withholding Tax', type: 'number', category: 'Dr', isSystem: true },
   { id: 'sales_disc', name: 'Sales Discount', type: 'number', category: 'Dr', isSystem: true },
   { id: 'ar', name: 'Accounts Receivable', type: 'number', category: 'Cr', isSystem: true },
   { id: 'sales', name: 'Sales', type: 'number', category: 'Cr', isSystem: true },
@@ -451,9 +452,14 @@ export const CDJ_SUNDRY_ACCOUNT_TITLE_ID = 'sundry_account_title';
 export const CDJ_SUNDRY_AMOUNT_ID = 'sundry_amount';
 export const DEFAULT_CDJ_COLUMNS: JournalColumn[] = [
   { id: 'date', name: 'Date', type: 'text', category: 'None', isSystem: true },
-  { id: 'payee', name: 'Payees', type: 'text', category: 'None', isSystem: true },
-  { id: 'folio_f', name: 'Folio/F', type: 'text', category: 'None', isSystem: true },
+  { id: 'check_cv_no', name: 'CV / Check No.', type: 'text', category: 'None', isSystem: true },
+  { id: 'payee', name: 'Payee', type: 'text', category: 'None', isSystem: true },
+  { id: 'payee_tin', name: 'Payee TIN', type: 'text', category: 'None', isSystem: true },
+  { id: 'folio_f', name: 'Ref / Folio', type: 'text', category: 'None', isSystem: true },
+  { id: 'accounts_payable', name: 'Accounts Payable', type: 'number', category: 'Dr', isSystem: true },
+  { id: 'input_vat', name: 'Input VAT', type: 'number', category: 'Dr', isSystem: true },
   { id: CDJ_CASH_ON_HAND_BANK_ID, name: 'Cash on Hand/Bank', type: 'number', category: 'Cr', isSystem: true },
+  { id: 'ewt_payable', name: 'EWT Payable', type: 'number', category: 'Cr', isSystem: true },
   { id: CDJ_SUNDRY_ACCOUNT_TITLE_ID, name: 'Account Title', type: 'text', category: 'None', isSystem: true },
   { id: CDJ_SUNDRY_AMOUNT_ID, name: 'Amount Dr/Cr', type: 'number', category: 'None', isSystem: true },
 ];

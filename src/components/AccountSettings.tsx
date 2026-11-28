@@ -180,7 +180,7 @@ export function AccountSettings() {
               <Copy className="w-3.5 h-3.5" /> Copy Email Address
             </button>
           </div>
-          <p className="text-[11px] text-slate-400">We typically respond within 24 hours on business days. Set <span className="font-mono">VITE_SUPPORT_EMAIL</span> in your <span className="font-mono">.env</span> to change this address.</p>
+          <p className="text-[11px] text-slate-400">We typically respond within 24 hours on business days.</p>
         </div>
       ))}
 

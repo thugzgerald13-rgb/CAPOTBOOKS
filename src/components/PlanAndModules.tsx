@@ -90,7 +90,7 @@ export function PlanAndModules() {
           <Sparkles className="w-4 h-4 text-cyan-600 shrink-0 mt-0.5" />
           <div className="text-xs text-cyan-800 dark:text-cyan-200">
             <span className="font-bold">Free trial — {daysLeft} day{daysLeft === 1 ? '' : 's'} left</span> (ends {fmtDate(ent.trialEndsAt)}).
-            Every module is unlocked. Afterwards, Chart of Accounts, transaction entry and transaction history stay free; formal books and paid modules require a subscription.
+            Only the modules universally available for each category are unlocked during your trial. Afterwards, Chart of Accounts, transaction entry and transaction history stay free; formal books and paid modules require a subscription.
           </div>
         </div>
       ) : trialOver ? (

@@ -36,7 +36,7 @@ export function CashReceiptsJournal() {
 
       const { data, error } = await supabase
         .from('sales')
-        .select('id,date,ref,payment_type,buyer_tin,buyer_name,buyer_address,vat_type,amount,net_of_vat,output_tax,income_type,description')
+        .select('id,date,ref,payment_type,buyer_tin,buyer_name,buyer_address,vat_type,amount,net_of_vat,output_tax,income_type,description,withholding_option,wht_amount')
         .eq('client_id', currentClientId)
         .not('payment_type', 'in', '(Credit Card,On Account)')
         .order('date', { ascending: true });
@@ -70,10 +70,13 @@ export function CashReceiptsJournal() {
   // Keep manually-entered CRJ rows, but derive all Income History rows automatically.
   // Old auto-generated rows are intentionally ignored to prevent duplicates.
   const manualEntries = (currentClient.crjEntries || []).filter((entry: any) => !entry.auto);
+  const fmtAmt = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const autoEntries: CashReceipt[] = incomeRows.map((sale: any) => {
     const gross = Number(sale.amount) || 0;
     const net = Number(sale.net_of_vat ?? gross) || 0;
     const vat = Number(sale.output_tax ?? 0) || 0;
+    const wht = sale.withholding_option === 'with' ? (Number(sale.wht_amount) || 0) : 0;
+    const netCash = Math.max(0, gross - wht);
     const isExemptOrZero = sale.vat_type === 'VAT Exempt' || sale.vat_type === 'Zero-Rated';
     const values: Record<string, string> = {
       date: sale.date || '',
@@ -81,11 +84,12 @@ export function CashReceiptsJournal() {
       payor: sale.buyer_name || '',
       description: sale.income_type || sale.description || 'Sales',
       post_ref: sale.buyer_tin || '',
-      cash: gross ? gross.toFixed(2) : '',
+      cash: netCash ? fmtAmt(netCash) : '',
+      cwt: wht > 0 ? fmtAmt(wht) : '',
       sales_disc: '',
       ar: '',
-      sales: isExemptOrZero ? gross.toFixed(2) : (net ? net.toFixed(2) : ''),
-      sundry: !isExemptOrZero && vat > 0 ? vat.toFixed(2) : '',
+      sales: isExemptOrZero ? fmtAmt(gross) : (net ? fmtAmt(net) : ''),
+      sundry: !isExemptOrZero && vat > 0 ? fmtAmt(vat) : '',
     };
     return { id: `income_${sale.id}`, values, auto: true } as CashReceipt;
   });

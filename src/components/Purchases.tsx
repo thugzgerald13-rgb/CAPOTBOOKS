@@ -700,7 +700,7 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
     // there is no invoice number (e.g. miscellaneous payments without one).
     const trimmedAddress = String(supplierAddress || '').trim();
     if (!isOtherPayments && (vatType === 'vat' || vatType === 'vat-nonvat') && !trimmedAddress) {
-      alert('Supplier Address is required for VATable purchases under BIR Sec. 113 NIRC and RELIEF Summary List of Purchases (SLP) rules.');
+      showToast('Supplier Address is required for VATable purchases (BIR Sec. 113 / RELIEF SLP).');
       return;
     }
 
@@ -946,7 +946,7 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
         </div>
 
         {!isOtherPayments && <div className="lg:col-span-2">
-          <label className="form-label">Supplier Address</label>
+          <label className="form-label">Supplier Address{!isOtherPayments && (vatType === 'vat' || vatType === 'vat-nonvat') && <span className="text-rose-500 ml-0.5">*</span>}</label>
           <input type="text" value={supplierAddress} onChange={e => setSupplierAddress(e.target.value)} placeholder="Street, City, Province" className="form-input" />
         </div>}
 

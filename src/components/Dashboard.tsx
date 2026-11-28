@@ -62,7 +62,16 @@ const money = (value: number) => `₱${(Number(value) || 0).toLocaleString(undef
 const pctDelta = (cur: number, prev: number) => (!prev ? null : ((cur - prev) / Math.abs(prev)) * 100);
 
 const normalize = (value: unknown) => String(value ?? '').trim().toLowerCase().replace(/[^a-z0-9]+/g, ' ');
-const accountIsType = (account: GeneralLedgerAccount, ...types: string[]) => types.some(t => normalize(account.accountType) === normalize(t));
+const accountIsType = (account: GeneralLedgerAccount, ...types: string[]) => {
+  const actual = normalize(account.accountType);
+  return types.some(t => {
+    const target = normalize(t);
+    if (actual === target) return true;
+    if (target === 'asset') return actual === 'assets' || actual.includes('asset');
+    if (target === 'liability') return actual === 'liabilities' || actual.includes('liabilit');
+    return false;
+  });
+};
 const isCashAccount = (a: GeneralLedgerAccount) => { const n = normalize(a.accountTitle); return n === 'cash' || n.includes('cash on hand') || n.includes('cash in bank') || n.includes('bank account') || n === 'bank' || n.endsWith(' bank'); };
 const isArAccount = (a: GeneralLedgerAccount) => { const n = normalize(a.accountTitle); return n === 'accounts receivable' || n === 'account receivable' || n.includes('accounts receivable'); };
 const isApAccount = (a: GeneralLedgerAccount) => { const n = normalize(a.accountTitle); return n === 'accounts payable' || n === 'account payable' || n.includes('accounts payable'); };
