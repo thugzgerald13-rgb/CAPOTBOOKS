@@ -45,31 +45,36 @@ export interface WhtAtcEntry {
   category?: 'individual' | 'corporate' | 'both' | 'government';
 }
 
-/** BIR Expanded & Final Withholding Tax ATC Schedule. */
+/** Official BIR Expanded & Final Withholding Tax ATC Schedule (RR 11-2018 / Form 1601-EQ & 2307). */
 export const WHT_ATC_SCHEDULE: WhtAtcEntry[] = [
-  { atc: 'WC010', description: 'Rent — real property', rate: 0.05, category: 'both' },
-  { atc: 'WC020', description: 'Rent — personal property', rate: 0.05, category: 'both' },
-  { atc: 'WC030', description: 'Services (general)', rate: 0.02, category: 'both' },
-  { atc: 'WC040', description: 'Contractor / subcontractor', rate: 0.01, category: 'both' },
-  { atc: 'WC050', description: 'Professional fees (individual)', rate: 0.10, category: 'individual' },
-  { atc: 'WC060', description: 'Professional fees (corporate)', rate: 0.15, category: 'corporate' },
-  { atc: 'WC070', description: 'Salaries / compensation (substituted)', rate: 0, category: 'individual' },
-  { atc: 'WC080', description: 'Suppliers (goods)', rate: 0.01, category: 'both' },
-  { atc: 'WC090', description: 'Income payments to top 20K / TWA', rate: 0.01, category: 'both' },
-  { atc: 'WC100', description: 'Credit card payments', rate: 0.005, category: 'both' },
-  { atc: 'WI010', description: 'Interest — bank deposits', rate: 0.20, category: 'both' },
-  { atc: 'WI011', description: 'Professional fees (individual ≤ ₱3M, 5%)', rate: 0.05, category: 'individual' },
-  { atc: 'WC011', description: 'Professional fees (corporate ≤ ₱720K, 10%)', rate: 0.10, category: 'corporate' },
+  // Professional, talent, and management fees
+  { atc: 'WI010', description: 'Professional / talent fees (individual ≤ ₱3M, 5%)', rate: 0.05, category: 'individual' },
+  { atc: 'WI011', description: 'Professional / talent fees (individual > ₱3M or VAT-registered, 10%)', rate: 0.10, category: 'individual' },
+  { atc: 'WC010', description: 'Professional / talent fees (corporate ≤ ₱720K, 10%)', rate: 0.10, category: 'corporate' },
+  { atc: 'WC011', description: 'Professional / talent fees (corporate > ₱720K, 15%)', rate: 0.15, category: 'corporate' },
+  // Rentals (real and personal property)
+  { atc: 'WI100', description: 'Rentals — real or personal property (individual)', rate: 0.05, category: 'individual' },
+  { atc: 'WC100', description: 'Rentals — real or personal property (corporate)', rate: 0.05, category: 'corporate' },
+  // Prime contractors / subcontractors
+  { atc: 'WI120', description: 'Contractors / subcontractors (individual)', rate: 0.02, category: 'individual' },
+  { atc: 'WC120', description: 'Contractors / subcontractors (corporate)', rate: 0.02, category: 'corporate' },
+  // Credit card company remittances (1/2 of 1%)
+  { atc: 'WI156', description: 'Credit card payments — gross remittance (individual)', rate: 0.005, category: 'individual' },
+  { atc: 'WC156', description: 'Credit card payments — gross remittance (corporate)', rate: 0.005, category: 'corporate' },
+  // Top Withholding Agents (TWA)
   { atc: 'WI158', description: 'Purchase of goods — Top Withholding Agent (individual)', rate: 0.01, category: 'individual' },
   { atc: 'WC158', description: 'Purchase of goods — Top Withholding Agent (corporate)', rate: 0.01, category: 'corporate' },
   { atc: 'WI160', description: 'Purchase of services — Top Withholding Agent (individual)', rate: 0.02, category: 'individual' },
   { atc: 'WC160', description: 'Purchase of services — Top Withholding Agent (corporate)', rate: 0.02, category: 'corporate' },
+  // Government Money Payments (GMP)
   { atc: 'WI640', description: 'Government money payments — purchase of goods (individual)', rate: 0.01, category: 'government' },
   { atc: 'WC640', description: 'Government money payments — purchase of goods (corporate)', rate: 0.01, category: 'government' },
   { atc: 'WI157', description: 'Government money payments — purchase of services (individual)', rate: 0.02, category: 'government' },
   { atc: 'WC157', description: 'Government money payments — purchase of services (corporate)', rate: 0.02, category: 'government' },
-  { atc: 'WV010', description: 'Government 5% Final VAT Withholding on Goods', rate: 0.05, category: 'government' },
-  { atc: 'WV020', description: 'Government 5% Final VAT Withholding on Services', rate: 0.05, category: 'government' },
+  // Government VAT Withholding & Bank Interest FWT
+  { atc: 'WV010', description: 'Government 5% Creditable/Final VAT Withholding on Goods', rate: 0.05, category: 'government' },
+  { atc: 'WV020', description: 'Government 5% Creditable/Final VAT Withholding on Services', rate: 0.05, category: 'government' },
+  { atc: 'WB080', description: 'Final Withholding Tax — Interest on Philippine peso bank deposits', rate: 0.20, category: 'both' },
 ];
 
 export function getWhtRate(atcCode: string): number {

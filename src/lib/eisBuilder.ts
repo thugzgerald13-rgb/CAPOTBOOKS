@@ -49,20 +49,33 @@ export function normalizeBranchCode(branch: string | undefined): string {
 export const WALK_IN_TIN = '000000000';
 export const WALK_IN_NAME = 'WALK-IN CUSTOMER';
 
+/** Maximum daily EIS sequence per branch using 2-char numeric (01–99) + base-36 (2S–ZZ) encoding. */
+export const MAX_DAILY_EIS_SEQUENCE = 1295;
+
 /**
- * Build a 24-char EisUniqueId.
- *   TIN(9) + Branch(5) + YYYYMMDD(8) + sequence(2, 01–99)
+ * Build a 24-char EisUniqueId without silent sequence collisions.
+ *   TIN(9) + Branch(5) + YYYYMMDD(8) + sequence(2)
+ * - Sequences 1–99 encode as zero-padded decimal ("01"–"99").
+ * - Sequences 100–1295 encode as 2-char uppercase base-36 ("2S"–"ZZ") so
+ *   high-volume POS/retail branches do not collide on the 100th daily invoice.
+ * - Sequences > 1295 throw a RangeError instead of silently duplicating IDs.
  */
 export function buildEisUniqueId(
   tin: string,
   branchCode: string,
   issueDate: string, // YYYY-MM-DD
-  sequence: number,   // 1–99 within the day
+  sequence: number,   // 1–1295 within the day
 ): string {
   const t = normalizeTin(tin) || '000000000';
   const b = normalizeBranchCode(branchCode);
   const d = String(issueDate || '').replace(/\D/g, '').slice(0, 8).padEnd(8, '0');
-  const seq = String(Math.max(1, Math.min(99, Math.floor(sequence)))).padStart(2, '0');
+  const n = Math.floor(Number(sequence));
+  if (!Number.isFinite(n) || n < 1 || n > MAX_DAILY_EIS_SEQUENCE) {
+    throw new RangeError(`EIS daily sequence ${sequence} out of supported 24-char range (1–${MAX_DAILY_EIS_SEQUENCE}).`);
+  }
+  const seq = n <= 99
+    ? String(n).padStart(2, '0')
+    : n.toString(36).toUpperCase().padStart(2, '0');
   return `${t}${b}${d}${seq}`;
 }
 

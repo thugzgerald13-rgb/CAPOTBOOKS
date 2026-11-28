@@ -190,11 +190,12 @@ export function getProfitAndLossTotals(client: Client, year = getCurrentYear(cli
     ['expense', 'expenses', 'other expense'].includes((x.account_type || '').toLowerCase())
   );
 
-  // Credit-normal P&L accounts have positive ending amounts when their
-  // signed TB balance is negative; debit-normal costs/expenses are positive.
-  const revenueTotal = revenue.reduce((n, x) => n + Math.max(0, -x.balance), 0);
-  const costTotal = costs.reduce((n, x) => n + Math.max(0, x.balance), 0);
-  const expenseTotal = expenses.reduce((n, x) => n + Math.max(0, x.balance), 0);
+  // Signed netting preserves contra-revenue (Sales Returns/Discounts),
+  // contra-cost (Purchase Returns/Discounts), and expense reversals per PFRS.
+  // Credit-normal P&L accounts have positive amounts when signed TB balance is negative.
+  const revenueTotal = revenue.reduce((n, x) => n + (-x.balance), 0);
+  const costTotal = costs.reduce((n, x) => n + x.balance, 0);
+  const expenseTotal = expenses.reduce((n, x) => n + x.balance, 0);
   const grossIncome = revenueTotal - costTotal;
   const netIncome = grossIncome - expenseTotal;
 
@@ -225,12 +226,13 @@ export function getProfitAndLossForPeriod(client: Client, startISO: string, endE
     const period_credit = periodEntries.reduce((n: number, e: any) => n + Number(String(e.credit ?? '').replace(/,/g, '') || 0), 0);
     return { account_type: String(account.accountType || ''), period_debit, period_credit };
   });
+  // Signed netting preserves contra-revenue, contra-cost, and credit-memo reversals
   const revenueTotal = balances.filter(x => ['revenue', 'other income'].includes(x.account_type.toLowerCase()))
-    .reduce((n, x) => n + Math.max(0, x.period_credit - x.period_debit), 0);
+    .reduce((n, x) => n + (x.period_credit - x.period_debit), 0);
   const costTotal = balances.filter(x => ['cost', 'costs'].includes(x.account_type.toLowerCase()))
-    .reduce((n, x) => n + Math.max(0, x.period_debit - x.period_credit), 0);
+    .reduce((n, x) => n + (x.period_debit - x.period_credit), 0);
   const expenseTotal = balances.filter(x => ['expense', 'expenses', 'other expense'].includes(x.account_type.toLowerCase()))
-    .reduce((n, x) => n + Math.max(0, x.period_debit - x.period_credit), 0);
+    .reduce((n, x) => n + (x.period_debit - x.period_credit), 0);
   return { revenueTotal, costTotal, expenseTotal, netIncome: revenueTotal - costTotal - expenseTotal };
 }
 

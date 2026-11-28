@@ -1349,11 +1349,17 @@ export function syncGeneralLedger(client: Client): Client {
   const accountIds = new Set(accounts.map(a => a.id));
   const postings = computeAutoPostings(client);
 
+  const SUSPENSE_ACCOUNT_ID = '__suspense_unmapped__';
   const autoByAccount = new Map<string, GeneralLedgerEntry[]>();
   postings.forEach(p => {
-    if (!accountIds.has(p.accountId)) return; // stale/deleted account — drop silently
-    if (!autoByAccount.has(p.accountId)) autoByAccount.set(p.accountId, []);
-    autoByAccount.get(p.accountId)!.push(p.entry);
+    // Double-entry invariant: NEVER silently drop one leg of a balanced posting
+    // when an accountId is stale or deleted — route to Suspense so Debits == Credits.
+    const targetAccountId = accountIds.has(p.accountId) ? p.accountId : SUSPENSE_ACCOUNT_ID;
+    if (targetAccountId === SUSPENSE_ACCOUNT_ID) {
+      console.warn(`[CAPOTBOOKS GL] Unmapped/deleted accountId "${p.accountId}" routed to Suspense to preserve double-entry balance.`);
+    }
+    if (!autoByAccount.has(targetAccountId)) autoByAccount.set(targetAccountId, []);
+    autoByAccount.get(targetAccountId)!.push(p.entry);
   });
 
   const existing = client.glAccounts || [];
@@ -1374,9 +1380,13 @@ export function syncGeneralLedger(client: Client): Client {
     const autoEntries = (autoByAccount.get(accountId) || []).sort((a, b) => dateSortKey(a) - dateSortKey(b));
     nextGlAccounts.push({
       id: accountId,
-      accountTitle: acct?.name || existingRecord?.accountTitle || '',
+      accountTitle: accountId === SUSPENSE_ACCOUNT_ID
+        ? 'Unmapped / Suspense Account (Orphaned Postings)'
+        : (acct?.name || existingRecord?.accountTitle || ''),
       accountId,
-      accountType: acct?.type || existingRecord?.accountType,
+      accountType: accountId === SUSPENSE_ACCOUNT_ID
+        ? 'Asset'
+        : (acct?.type || existingRecord?.accountType),
       entries: [...autoEntries, ...manualEntries],
       // Sourced live from the matching Chart of Accounts entry so the
       // General Ledger's beginning balance always reflects the opening
