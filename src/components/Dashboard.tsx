@@ -138,6 +138,11 @@ function DeltaChip({ delta, invert = false }: { delta: number | null; invert?: b
 }
 
 const tooltipFormatter = (value: number) => money(value);
+const COMPOSED_MARGIN = { top: 4, right: 8, left: 0, bottom: 0 };
+const AREA_MARGIN = { top: 4, right: 8, left: 0, bottom: 0 };
+const LEGEND_WRAPPER_STYLE = { fontSize: 12, paddingTop: 8 };
+const LINE_ACTIVE_DOT = { r: 5 };
+const AREA_DOT = { r: 3 };
 
 export function Dashboard() {
   const { currentClient, navigateToPage, setHistoryTab, syncData } = useAccounting();
@@ -147,15 +152,15 @@ export function Dashboard() {
   const [period, setPeriod] = useState<PeriodKey>('this-year');
   const isDark = useIsDark();
 
-  const chart = {
+  const chart = useMemo(() => ({
     grid: isDark ? '#334155' : '#e2e8f0',
     tick: isDark ? '#94a3b8' : '#64748b',
     income: '#10b981',
     expense: isDark ? '#f87171' : '#ef4444',
     net: isDark ? '#60a5fa' : '#2563eb',
     cash: isDark ? '#22d3ee' : '#0891b2',
-  };
-  const tooltipStyle = {
+  }), [isDark]);
+  const tooltipStyle = useMemo(() => ({
     contentStyle: {
       borderRadius: 12, fontSize: 12, padding: '8px 12px',
       background: isDark ? '#1e293b' : '#ffffff', color: isDark ? '#f1f5f9' : '#0f172a',
@@ -163,7 +168,10 @@ export function Dashboard() {
     },
     labelStyle: { fontWeight: 700, marginBottom: 4 },
     cursor: { fill: isDark ? 'rgb(148 163 184 / 0.08)' : 'rgb(100 116 139 / 0.06)' },
-  };
+  }), [isDark]);
+  const xTick12 = useMemo(() => ({ fontSize: 12, fill: chart.tick }), [chart.tick]);
+  const tick11 = useMemo(() => ({ fontSize: 11, fill: chart.tick }), [chart.tick]);
+  const lineDot = useMemo(() => ({ r: 3, strokeWidth: 2, fill: isDark ? '#0f172a' : '#fff' }), [isDark]);
 
   const range = useMemo(() => periodRange(period), [period]);
   const monthly = useMemo(() => (currentClient ? getMonthlyPnL(currentClient, 6) : []), [currentClient, refreshKey]);
@@ -317,16 +325,16 @@ export function Dashboard() {
           {hasTrend ? (
             <div style={{ height: 280 }}>
               <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={trendData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }} barGap={4}>
+                <ComposedChart data={trendData} margin={COMPOSED_MARGIN} barGap={4}>
                   <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
-                  <XAxis dataKey="month" tick={{ fontSize: 12, fill: chart.tick }} axisLine={false} tickLine={false} />
-                  <YAxis tickFormatter={compactMoney} tick={{ fontSize: 11, fill: chart.tick }} axisLine={false} tickLine={false} width={56} />
+                  <XAxis dataKey="month" tick={xTick12} axisLine={false} tickLine={false} />
+                  <YAxis tickFormatter={compactMoney} tick={tick11} axisLine={false} tickLine={false} width={56} />
                   <ReferenceLine y={0} stroke={chart.grid} />
                   <Tooltip formatter={tooltipFormatter} {...tooltipStyle} />
-                  <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
-                  <Bar dataKey="Income" fill={chart.income} radius={[4, 4, 0, 0]} maxBarSize={28} />
-                  <Bar dataKey="Expenses" fill={chart.expense} radius={[4, 4, 0, 0]} maxBarSize={28} />
-                  <Line type="monotone" dataKey="Net" stroke={chart.net} strokeWidth={2.5} dot={{ r: 3, strokeWidth: 2, fill: isDark ? '#0f172a' : '#fff' }} activeDot={{ r: 5 }} />
+                  <Legend iconType="circle" iconSize={8} wrapperStyle={LEGEND_WRAPPER_STYLE} />
+                  <Bar dataKey="Income" fill={chart.income} radius={[4, 4, 0, 0]} maxBarSize={28} isAnimationActive={false} />
+                  <Bar dataKey="Expenses" fill={chart.expense} radius={[4, 4, 0, 0]} maxBarSize={28} isAnimationActive={false} />
+                  <Line type="monotone" dataKey="Net" stroke={chart.net} strokeWidth={2.5} dot={lineDot} activeDot={LINE_ACTIVE_DOT} isAnimationActive={false} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -348,7 +356,7 @@ export function Dashboard() {
           </div>
           <div style={{ height: 200 }}>
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={forecastData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+              <AreaChart data={forecastData} margin={AREA_MARGIN}>
                 <defs>
                   <linearGradient id="cashGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor={chart.cash} stopOpacity={0.35} />
@@ -356,10 +364,10 @@ export function Dashboard() {
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke={chart.grid} vertical={false} />
-                <XAxis dataKey="label" tick={{ fontSize: 11, fill: chart.tick }} axisLine={false} tickLine={false} />
-                <YAxis tickFormatter={compactMoney} tick={{ fontSize: 11, fill: chart.tick }} axisLine={false} tickLine={false} width={52} />
+                <XAxis dataKey="label" tick={tick11} axisLine={false} tickLine={false} />
+                <YAxis tickFormatter={compactMoney} tick={tick11} axisLine={false} tickLine={false} width={52} />
                 <Tooltip formatter={tooltipFormatter} {...tooltipStyle} />
-                <Area type="monotone" dataKey="projected" name="Projected cash" stroke={chart.cash} strokeWidth={2.5} fill="url(#cashGrad)" dot={{ r: 3 }} />
+                <Area type="monotone" dataKey="projected" name="Projected cash" stroke={chart.cash} strokeWidth={2.5} fill="url(#cashGrad)" dot={AREA_DOT} isAnimationActive={false} />
               </AreaChart>
             </ResponsiveContainer>
           </div>

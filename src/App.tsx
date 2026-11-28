@@ -179,7 +179,7 @@ function AppLayout() {
 
       <main className={`${standaloneBilling ? 'block min-h-screen' : 'app-main flex-1 flex flex-col h-screen overflow-y-auto'} w-full relative`}>
         {!standaloneBilling && <Header onMenuClick={() => setIsSidebarOpen(true)} />}
-        <ErrorBoundary>
+        <ErrorBoundary key={`dash:${activePage || 'dashboard'}`}>
         <div className="app-content px-4 md:px-8 pt-[1.5px] pb-1 md:pb-2 max-w-[1400px] mx-auto w-full">
           {!activePage && (
             hasPermission('module.dashboard') && hasPermission('action.dashboard.view') ? (
@@ -212,6 +212,7 @@ function AppLayout() {
             (fresh state each visit) instead of keeping ~20 components alive
             and toggling visibility. */}
         <div className="app-content transaction-page-content px-4 md:px-8 pt-[1.5px] pb-4 md:pb-8 max-w-[1400px] mx-auto w-full">
+          <ErrorBoundary key={`route:${activePage || 'root'}`}>
           <Suspense fallback={<PageSkeleton />}>
           <RequirePermission>
           <Routes>
@@ -287,6 +288,7 @@ function AppLayout() {
           </Routes>
           </RequirePermission>
           </Suspense>
+          </ErrorBoundary>
         </div>
       </main>
     </div>
