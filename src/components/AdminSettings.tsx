@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { ShieldAlert, Download, Users, RefreshCw, Mail, Calendar, LineChart, CheckCircle2, XCircle, Copy, Check, Ban, Trash2, FlaskConical, Play, AlertTriangle } from 'lucide-react';
 import { PageHeader } from './ui/PageHeader';
 import { useAccounting } from '../context/AccountingContext';
@@ -27,8 +27,6 @@ interface UserProfile {
   blocked?: boolean;
   subscriptionPlan?: string;
 }
-
-type AdminTab = 'users' | 'diagnostics';
 
 type TaxpayerProfile = {
   id: string; user_id: string; owner_email: string | null; owner_name: string | null; name: string;
@@ -707,7 +705,6 @@ function TaxpayerTestBench({ profile }: { profile: TaxpayerProfile | null }) {
 export function AdminSettings() {
   const { currentClient } = useAccounting();
   const { isAdmin, userRole, setUserRole } = useAuth();
-  const navigate = useNavigate();
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [taxpayerProfiles, setTaxpayerProfiles] = useState<TaxpayerProfile[]>([]);
   const [selectedTaxpayerId, setSelectedTaxpayerId] = useState('');
@@ -800,12 +797,10 @@ export function AdminSettings() {
   const [actionUserId, setActionUserId] = useState<string | null>(null);
   const [dbConnectionOk, setDbConnectionOk] = useState<boolean | null>(null);
 
-  // Which tab shows is driven by the URL path itself
-  // (/developertools/systemconfig vs /developertools/diagnostics), so each
-  // tab has its own real, shareable/bookmarkable URL and the sidebar's
-  // "System Config" / "Diagnostics" buttons link straight to the right one.
+  // The Developer Tools dropdown in the sidebar is the only navigation
+  // control for switching between System Config and Diagnostics.
   const location = useLocation();
-  const activeTab: AdminTab = location.pathname.endsWith('/diagnostics') ? 'diagnostics' : 'users';
+  const isDiagnosticsPage = location.pathname.endsWith('/diagnostics');
 
   // Actually verify the Supabase database connection is live, instead of
   // showing a hardcoded "active" light regardless of real state.
@@ -1015,32 +1010,7 @@ export function AdminSettings() {
           ))}
         </div>
 
-        <div className="flex items-center gap-1 mb-2 border-b border-slate-200 dark:border-slate-700">
-          <button
-            onClick={() => navigate('/developertools/systemconfig')}
-            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-bold border-b-2 transition-all -mb-px ${
-              activeTab === 'users'
-                ? 'border-emerald-500 text-emerald-700 dark:text-emerald-400'
-                : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
-            }`}
-          >
-            <Users className="w-4 h-4" />
-            Superuser Dashboard
-          </button>
-          <button
-            onClick={() => navigate('/developertools/diagnostics')}
-            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-bold border-b-2 transition-all -mb-px ${
-              activeTab === 'diagnostics'
-                ? 'border-emerald-500 text-emerald-700 dark:text-emerald-400'
-                : 'border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'
-            }`}
-          >
-            <LineChart className="w-4 h-4" />
-            Diagnostics
-          </button>
-        </div>
-
-        {activeTab === 'diagnostics' ? (
+        {isDiagnosticsPage ? (
           <DiagnosticsTab />
         ) : (
         <>
