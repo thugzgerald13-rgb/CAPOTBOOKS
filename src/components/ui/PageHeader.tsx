@@ -42,16 +42,21 @@ export function PageHeader({ title, icon, badge, centered = false, actions, clas
   return (
     <div
       ref={ref}
-      className={`sticky top-[var(--app-header-h,56px)] flex items-center px-5 py-4 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 z-20 shrink-0 ${centered ? 'justify-center' : 'justify-between'} ${className}`}
+      className={`sticky top-[var(--app-header-h,56px)] ${
+        centered && actions
+          ? 'flex items-center justify-between gap-3 sm:grid sm:grid-cols-[1fr_auto_1fr]'
+          : `flex items-center gap-3 ${centered ? 'justify-center' : 'justify-between'}`
+      } px-5 py-4 border-b border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 z-20 shrink-0 ${className}`}
     >
-      <div className="flex items-center gap-3">
-        {icon && <span className="text-xl">{icon}</span>}
-        <h3 className="text-base md:text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
+      {centered && actions && <div className="hidden sm:block" aria-hidden="true" />}
+      <div className="flex items-center gap-3 min-w-0">
+        {icon && <span className="text-xl shrink-0">{icon}</span>}
+        <h3 className="text-base md:text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2 truncate">
           {title}
           {badge}
         </h3>
       </div>
-      {actions && <div className="flex items-center gap-3">{actions}</div>}
+      {actions && <div className="flex items-center justify-end gap-3 shrink-0">{actions}</div>}
     </div>
   );
 }

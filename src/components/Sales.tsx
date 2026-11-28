@@ -219,11 +219,14 @@ export function Sales({ embedded = false, editSale = null, onSaved, onClose }: S
   const netOfVat = isVatable ? grossAmount / 1.12 : grossAmount;
   const outputTax = isVatable ? grossAmount - netOfVat : 0;
 
-  // Default to the first ATC in the schedule whenever "With Withholdings" is
-  // selected and no ATC has been chosen yet; clear it when withholding is off.
+  // Default to a corporate (WC*) ATC for Non-Individual taxpayers or individual
+  // (WI*) ATC for Individual taxpayers whenever "With Withholdings" is selected.
   useEffect(() => {
     if (withholdingOption === 'with' && !atcCode && ATC_SCHEDULE.length > 0) {
-      setAtcCode(ATC_SCHEDULE[0].code);
+      const isCorp = currentClient?.taxpayerClassification === 'Non-Individual';
+      const preferredPrefix = isCorp ? 'WC' : 'WI';
+      const match = ATC_SCHEDULE.find(a => String(a.code || '').toUpperCase().startsWith(preferredPrefix));
+      setAtcCode((match || ATC_SCHEDULE[0]).code);
       return;
     }
     if (withholdingOption === 'w/o' && atcCode) {

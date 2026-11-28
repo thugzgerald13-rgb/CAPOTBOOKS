@@ -698,6 +698,12 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
     // same invoice number. Check across ALL periods (not just the currently
     // selected one) and exclude the record currently being edited. Skip when
     // there is no invoice number (e.g. miscellaneous payments without one).
+    const trimmedAddress = String(supplierAddress || '').trim();
+    if (!isOtherPayments && (vatType === 'vat' || vatType === 'vat-nonvat') && !trimmedAddress) {
+      alert('Supplier Address is required for VATable purchases under BIR Sec. 113 NIRC and RELIEF Summary List of Purchases (SLP) rules.');
+      return;
+    }
+
     const trimmedInvoice = String(invoiceNo || '').trim();
     const trimmedTin = String(supplierTin || '').trim();
     if (trimmedInvoice) {

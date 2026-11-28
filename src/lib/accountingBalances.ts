@@ -219,8 +219,8 @@ export function getProfitAndLossForPeriod(client: Client, startISO: string, endE
   const balances = (client.glAccounts || []).map((account: any) => {
     const entries = Array.isArray(account.entries) ? account.entries : [];
     const periodEntries = entries.filter((entry: any) => {
-      const d = String(entry.date || entry.dateDr || entry.dateCr || '').slice(0, 10);
-      return d >= startISO && d < endExclusiveISO;
+      const d = normalizeDateISO(entry.date || entry.dateDr || entry.dateCr || '');
+      return Boolean(d) && d >= startISO && d < endExclusiveISO;
     });
     const period_debit = periodEntries.reduce((n: number, e: any) => n + Number(String(e.debit ?? '').replace(/,/g, '') || 0), 0);
     const period_credit = periodEntries.reduce((n: number, e: any) => n + Number(String(e.credit ?? '').replace(/,/g, '') || 0), 0);
@@ -258,8 +258,26 @@ export function getMonthlyPnL(client: Client, monthsBack = 6): { label: string; 
 // balance (e.g. the Dashboard's Accounts Receivable / Accounts Payable
 // cards) must agree exactly, so they share this same balance formula.
 
+/** Normalize YYYY-MM-DD, MM/DD/YYYY, or Date-parseable strings to canonical YYYY-MM-DD. */
+function normalizeDateISO(raw: unknown): string {
+  const s = String(raw ?? '').trim();
+  if (!s) return '';
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const slash = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (slash) {
+    return `${slash[3]}-${slash[1].padStart(2, '0')}-${slash[2].padStart(2, '0')}`;
+  }
+  const ymdSlash = s.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})/);
+  if (ymdSlash) {
+    return `${ymdSlash[1]}-${ymdSlash[2].padStart(2, '0')}-${ymdSlash[3].padStart(2, '0')}`;
+  }
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 const entryDateKey = (entry: Pick<GeneralLedgerEntry, 'dateDr' | 'dateCr'>) =>
-  String(entry.dateDr || entry.dateCr || '').slice(0, 10);
+  normalizeDateISO(entry.dateDr || entry.dateCr || '');
 
 const glAmount = (value: unknown) => {
   const n = parseFloat(String(value ?? '').replace(/,/g, ''));

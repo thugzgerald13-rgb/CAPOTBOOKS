@@ -452,6 +452,10 @@ function incomeSalesToCrjEntries(client: Client): JournalEntry[] {
       const gross = Number(sale.amount) || 0;
       const net = Number(sale.netOfVat ?? sale.net_of_vat ?? gross) || 0;
       const vat = Number(sale.outputTax ?? sale.output_tax ?? 0) || 0;
+      const wht = (sale.withholdingOption === 'with' || sale.withholding_option === 'with')
+        ? (Number(sale.whtAmount ?? sale.wht_amount ?? 0) || 0)
+        : 0;
+      const netCash = Math.max(0, gross - wht);
       const vatType = String(sale.vatType ?? sale.vat_type ?? '');
       const exemptOrZero = vatType === 'VAT Exempt' || vatType === 'Zero-Rated';
 
@@ -465,7 +469,7 @@ function incomeSalesToCrjEntries(client: Client): JournalEntry[] {
           payor: sale.buyerName || sale.buyer_name || '',
           description: sale.incomeType || sale.income_type || sale.desc || sale.description || 'Sales',
           post_ref: sale.buyerTin || sale.buyer_tin || '',
-          cash: gross ? two(gross) : '',
+          cash: netCash ? two(netCash) : '',
           sales_disc: '',
           ar: '',
           sales: exemptOrZero ? two(gross) : (net ? two(net) : ''),
@@ -503,8 +507,18 @@ function incomeSalesToSjEntries(client: Client): JournalEntry[] {
           case 'output_vat': values.output_vat = vat ? two(vat) : ''; break;
           case 'exempt_zero_rated': values.exempt_zero_rated = exemptZero ? two(exemptZero) : ''; break;
           case 'account_title': values.account_title = sale.incomeType || sale.income_type || 'Sales'; break;
-          case 'accounts_receivable': values.accounts_receivable = payment === 'on account' && gross ? two(gross) : ''; break;
-          case 'credit_card': values.credit_card = payment === 'credit card' && gross ? two(gross) : ''; break;
+          case 'accounts_receivable': {
+            const wht = (sale.withholdingOption === 'with' || sale.withholding_option === 'with') ? (Number(sale.whtAmount ?? sale.wht_amount ?? 0) || 0) : 0;
+            const netAr = Math.max(0, gross - wht);
+            values.accounts_receivable = payment === 'on account' && netAr ? two(netAr) : '';
+            break;
+          }
+          case 'credit_card': {
+            const wht = (sale.withholdingOption === 'with' || sale.withholding_option === 'with') ? (Number(sale.whtAmount ?? sale.wht_amount ?? 0) || 0) : 0;
+            const netCc = Math.max(0, gross - wht);
+            values.credit_card = payment === 'credit card' && netCc ? two(netCc) : '';
+            break;
+          }
           default: break;
         }
       });
@@ -536,6 +550,27 @@ function postIncomeHistory(client: Client, accounts: CoaAccount[]): Posting[] {
       overrides: CRJ_LABEL_OVERRIDES,
     }
   );
+
+  // Post Creditable Withholding Tax (CWT / BIR Form 2307) debit leg for all
+  // sales with withholding so Cash/AR (net) + CWT (asset) == Sales + Output VAT.
+  const cwtAcct =
+    findAccountByLabel('Creditable Withholding Tax', accounts) ||
+    accounts.find(a => /creditable.*withholding/i.test(String(a.name || '')) && !/payable/i.test(String(a.name || '')));
+  if (cwtAcct) {
+    (client.sales || []).forEach((sale: any) => {
+      const wht = (sale.withholdingOption === 'with' || sale.withholding_option === 'with')
+        ? (Number(sale.whtAmount ?? sale.wht_amount ?? 0) || 0)
+        : 0;
+      if (wht <= 0) return;
+      const date = String(sale.date || '');
+      const ref = String(sale.ref || '');
+      const particulars = String(sale.buyerName || sale.buyer_name || sale.incomeType || 'Sales CWT (2307)');
+      crj.push({
+        accountId: cwtAcct.id,
+        entry: makeLeg(`sale:${sale.id}:cwt`, 'debit', wht, date, particulars, ref, 'Income History (CWT)'),
+      });
+    });
+  }
 
   // Use the same account-title and payment split displayed by the Sales Journal.
   const sjEntries = [

@@ -346,8 +346,18 @@ export function JournalVoucher() {
         <button onClick={addLine} className="text-xs font-bold text-cyan-700 dark:text-cyan-400 border border-cyan-200 dark:border-cyan-800 rounded-lg px-3 py-1.5 hover:bg-cyan-50 dark:hover:bg-cyan-950/20 transition flex items-center gap-1.5">
           <Plus className="w-3.5 h-3.5" /> Add Line
         </button>
-        <div className={`px-4 py-2 rounded-xl font-bold flex items-center gap-2 text-xs ${isBalanced ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400'}`}>
-          {isBalanced ? <><Check className="w-4 h-4" /> Balanced</> : <><X className="w-4 h-4" /> Out of Balance: ₱{Math.abs(totalDebit - totalCredit).toLocaleString(undefined, { minimumFractionDigits: 2 })}</>}
+        <div className={`px-4 py-2 rounded-xl font-bold flex items-center gap-2 text-xs ${
+          totalDebit === 0 && totalCredit === 0
+            ? 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400'
+            : isBalanced
+              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
+              : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
+        }`}>
+          {totalDebit === 0 && totalCredit === 0
+            ? <>Enter debit &amp; credit amounts</>
+            : isBalanced
+              ? <><Check className="w-4 h-4" /> Balanced</>
+              : <><X className="w-4 h-4" /> Out of Balance: ₱{Math.abs(totalDebit - totalCredit).toLocaleString(undefined, { minimumFractionDigits: 2 })}</>}
         </div>
       </div>
 
