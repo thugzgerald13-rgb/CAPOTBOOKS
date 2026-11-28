@@ -643,7 +643,14 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
     }
 
     const [y, m, d] = date.split('-');
-    const formattedDate = `${m}/${d}/${y}`;
+    // Canonical ISO YYYY-MM-DD prevents MM/DD/YYYY vs YYYY-MM-DD sorting and
+    // period-filtering drift across General Ledger, Subsidiary Ledger, and Aging.
+    const formattedDate = `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+    const resolveCoaId = (title: string) => {
+      const target = String(title || '').trim().toLowerCase();
+      if (!target) return undefined;
+      return coaAccounts.find(a => String(a.name || '').trim().toLowerCase() === target)?.id;
+    };
 
     // In embedded edit mode the real id comes from the loaded record (viewIndex
     // is 0 and is NOT a context index). Preserve an existing storage-backed
@@ -685,6 +692,9 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
       // Other Payments: accountTitle holds a summary of the line items so
       // list/history views still show something meaningful; the full per-line
       // breakdown is stored in otherPaymentEntries and restored on edit.
+      accountId: isOtherPayments
+        ? (validOtherPaymentEntries.length === 1 ? resolveCoaId(validOtherPaymentEntries[0].accountTitle) : undefined)
+        : resolveCoaId(accountTitle),
       accountTitle: isOtherPayments
         ? (validOtherPaymentEntries.length === 1
             ? validOtherPaymentEntries[0].accountTitle
@@ -695,13 +705,14 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
       // "Payment for" accounts (main account first). Omitted otherwise.
       paymentEntries: splitActive
         ? [
-            { accountTitle, amount: primaryAccountAmount },
-            ...extraAccounts.map(e => ({ accountTitle: e.accountTitle, amount: round2(parseMoney(e.amount)) })),
+            { accountId: resolveCoaId(accountTitle), accountTitle, amount: primaryAccountAmount },
+            ...extraAccounts.map(e => ({ accountId: resolveCoaId(e.accountTitle), accountTitle: e.accountTitle, amount: round2(parseMoney(e.amount)) })),
           ]
         : undefined,
       // Full multi-entry breakdown for Other Payments (account + amount per line).
       ...(isOtherPayments ? {
         otherPaymentEntries: validOtherPaymentEntries.map(e => ({
+          accountId: resolveCoaId(e.accountTitle),
           accountTitle: e.accountTitle,
           amount: parseFloat(String(e.amount || '').replace(/,/g, '').trim()) || 0,
         })),

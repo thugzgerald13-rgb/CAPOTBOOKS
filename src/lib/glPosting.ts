@@ -1,6 +1,9 @@
 import { Client, CoaAccount, GeneralLedgerAccount, GeneralLedgerEntry, JournalColumn, JournalEntry } from '../types';
 import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide, isNominalAccountType, DEFAULT_CRJ_COLUMNS, DEFAULT_CDJ_COLUMNS, CDJ_CASH_ON_HAND_BANK_ID, CDJ_SUNDRY_ACCOUNT_TITLE_ID, CDJ_SUNDRY_AMOUNT_ID, DEFAULT_PJ_COLUMNS, DEFAULT_SJ_COLUMNS } from './journalDefaults';
 import { getDefaultAccountsForIndustry } from './journalDefaults';
+import { normalizeIsoDate } from './accountingBalances';
+
+export const SUSPENSE_ACCOUNT_ID = '__suspense_unmapped__';
 
 /**
  * Automatic General Ledger posting.
@@ -201,13 +204,14 @@ function makeLeg(
   sourceLabel: string,
   party?: { name: string; type: 'customer' | 'supplier' }
 ): GeneralLedgerEntry {
+  const isoDate = normalizeIsoDate(date) || String(date || '');
   return {
     id: key,
-    dateDr: side === 'debit' ? date : '',
+    dateDr: side === 'debit' ? isoDate : '',
     particularsDr: side === 'debit' ? particulars : '',
     refDr: side === 'debit' ? ref : '',
     debit: side === 'debit' ? fmt(amount) : '',
-    dateCr: side === 'credit' ? date : '',
+    dateCr: side === 'credit' ? isoDate : '',
     particularsCr: side === 'credit' ? particulars : '',
     refCr: side === 'credit' ? ref : '',
     credit: side === 'credit' ? fmt(amount) : '',
@@ -680,17 +684,17 @@ function postJournalVouchers(client: Client): Posting[] {
 /** Account lines of a purchase: one per "Payment for" account when the purchase
  *  was split across several accounts, otherwise the single account title with the
  *  full net amount. */
-function purchaseAccountLines(p: any, netAmount: number): Array<{ accountTitle: string; amount: number }> {
+function purchaseAccountLines(p: any, netAmount: number): Array<{ accountId?: string; accountTitle: string; amount: number }> {
   const split = Array.isArray(p.paymentEntries) && p.paymentEntries.length > 1
     ? p.paymentEntries
     : (Array.isArray(p.otherPaymentEntries) && p.otherPaymentEntries.length > 1 ? p.otherPaymentEntries : null);
   if (split) {
     const lines = split
-      .map((e: any) => ({ accountTitle: String(e.accountTitle || ''), amount: Number(e.amount) || 0 }))
+      .map((e: any) => ({ accountId: e.accountId ? String(e.accountId) : undefined, accountTitle: String(e.accountTitle || ''), amount: Number(e.amount) || 0 }))
       .filter((e: { accountTitle: string; amount: number }) => e.accountTitle && e.amount > 0);
     if (lines.length > 0) return lines;
   }
-  return [{ accountTitle: p.accountTitle, amount: netAmount }];
+  return [{ accountId: p.accountId ? String(p.accountId) : undefined, accountTitle: p.accountTitle, amount: netAmount }];
 }
 
 function postPurchases(client: Client, accounts: CoaAccount[]): Posting[] {
@@ -707,23 +711,26 @@ function postPurchases(client: Client, accounts: CoaAccount[]): Posting[] {
     const inputTax = Number(p.inputTax) || 0;
 
     purchaseAccountLines(p, netAmount).forEach((line, i) => {
-      const debitAcct = findAccountByLabel(line.accountTitle, accounts);
-      if (debitAcct && line.amount > 0) {
-        postings.push({
-          accountId: debitAcct.id,
-          entry: makeLeg(i === 0 ? `purchase:${p.id}:debit` : `purchase:${p.id}:debit:${i}`, 'debit', line.amount, p.date, particulars, ref, 'Purchases'),
-        });
-      }
+      if (line.amount <= 0) return;
+      const debitAcct =
+        (line.accountId ? accounts.find(a => String(a.id) === String(line.accountId)) : undefined) ||
+        findAccountByLabel(line.accountTitle, accounts);
+      const targetId = debitAcct ? debitAcct.id : SUSPENSE_ACCOUNT_ID;
+      const legParticulars = debitAcct
+        ? particulars
+        : `[Unmapped: ${line.accountTitle || 'Unknown'}] ${particulars}`;
+      postings.push({
+        accountId: targetId,
+        entry: makeLeg(i === 0 ? `purchase:${p.id}:debit` : `purchase:${p.id}:debit:${i}`, 'debit', line.amount, p.date, legParticulars, ref, 'Purchases'),
+      });
     });
 
     if (inputTax > 0) {
-      const taxAcct = findAccountByLabel('Input Tax', accounts);
-      if (taxAcct) {
-        postings.push({
-          accountId: taxAcct.id,
-          entry: makeLeg(`purchase:${p.id}:inputtax`, 'debit', inputTax, p.date, particulars, ref, 'Purchases'),
-        });
-      }
+      const taxAcct = findAccountByLabel('Input Tax', accounts) || findAccountByLabel('Input VAT', accounts);
+      postings.push({
+        accountId: taxAcct ? taxAcct.id : SUSPENSE_ACCOUNT_ID,
+        entry: makeLeg(`purchase:${p.id}:inputtax`, 'debit', inputTax, p.date, taxAcct ? particulars : `[Unmapped: Input VAT] ${particulars}`, ref, 'Purchases'),
+      });
     }
 
     const total = netAmount + inputTax;
@@ -731,30 +738,23 @@ function postPurchases(client: Client, accounts: CoaAccount[]): Posting[] {
     const cashDue = total - wht;
 
     if (cashDue > 0) {
-      // On-account (credit) purchases credit Accounts Payable; cash/check/bank/e-payment
-      // purchases credit the resolved cash account (a bare "Cash" label
-      // ties between Cash on Hand and Cash in Bank and drops silently).
       const isOnAccount = !p.paymentMethod || p.paymentMethod === 'On Account';
       const creditAcct = isOnAccount
         ? findAccountByLabel('Accounts Payable', accounts)
         : resolveCashAccount(accounts);
-      if (creditAcct) {
-        postings.push({
-          accountId: creditAcct.id,
-          entry: makeLeg(`purchase:${p.id}:credit`, 'credit', cashDue, p.date, particulars, ref, 'Purchases',
-            isOnAccount && p.supplierName ? { name: p.supplierName, type: 'supplier' } : undefined),
-        });
-      }
+      postings.push({
+        accountId: creditAcct ? creditAcct.id : SUSPENSE_ACCOUNT_ID,
+        entry: makeLeg(`purchase:${p.id}:credit`, 'credit', cashDue, p.date, creditAcct ? particulars : `[Unmapped: ${isOnAccount ? 'Accounts Payable' : 'Cash'}] ${particulars}`, ref, 'Purchases',
+          isOnAccount && p.supplierName ? { name: p.supplierName, type: 'supplier' } : undefined),
+      });
     }
 
     if (wht > 0) {
       const whtAcct = findWithholdingTaxAccount(accounts);
-      if (whtAcct) {
-        postings.push({
-          accountId: whtAcct.id,
-          entry: makeLeg(`purchase:${p.id}:wht`, 'credit', wht, p.date, particulars, ref, 'Purchases'),
-        });
-      }
+      postings.push({
+        accountId: whtAcct ? whtAcct.id : SUSPENSE_ACCOUNT_ID,
+        entry: makeLeg(`purchase:${p.id}:wht`, 'credit', wht, p.date, whtAcct ? particulars : `[Unmapped: Withholding Tax Payable] ${particulars}`, ref, 'Purchases'),
+      });
     }
   });
   return postings;
@@ -1448,9 +1448,51 @@ export function syncGeneralLedger(client: Client): Client {
   const accountIds = new Set(accounts.map(a => a.id));
   const postings = computeAutoPostings(client);
 
-  const SUSPENSE_ACCOUNT_ID = '__suspense_unmapped__';
-  const autoByAccount = new Map<string, GeneralLedgerEntry[]>();
+  // Transaction-level double-entry balance enforcer: verify SUM(Dr) == SUM(Cr)
+  // per source transaction batch. If any source journal dropped a leg, emit an
+  // explicit balancing plug to SUSPENSE_ACCOUNT_ID so the Trial Balance and
+  // Balance Sheet never silently drift out of balance and the orphan is visible.
+  const parseLegNum = (v: unknown) => {
+    const n = parseFloat(String(v ?? '').replace(/,/g, ''));
+    return Number.isFinite(n) ? n : 0;
+  };
+  const batchTotals = new Map<string, { dr: number; cr: number; date: string; ref: string; source: string }>();
   postings.forEach(p => {
+    const parts = String(p.entry.id || '').split(':');
+    const batchKey = parts.length >= 2 ? `${parts[0]}:${parts[1]}` : String(p.entry.id || '');
+    const cur = batchTotals.get(batchKey) || {
+      dr: 0,
+      cr: 0,
+      date: p.entry.dateDr || p.entry.dateCr || '',
+      ref: p.entry.refDr || p.entry.refCr || '',
+      source: p.entry.autoSource || 'Ledger',
+    };
+    cur.dr += parseLegNum(p.entry.debit);
+    cur.cr += parseLegNum(p.entry.credit);
+    batchTotals.set(batchKey, cur);
+  });
+  const balancedPostings: Posting[] = [...postings];
+  batchTotals.forEach((tot, batchKey) => {
+    const diff = Math.round((tot.dr - tot.cr) * 100) / 100;
+    if (Math.abs(diff) >= 0.01) {
+      const side: 'debit' | 'credit' = diff > 0 ? 'credit' : 'debit';
+      balancedPostings.push({
+        accountId: SUSPENSE_ACCOUNT_ID,
+        entry: makeLeg(
+          `${batchKey}:suspense_plug`,
+          side,
+          Math.abs(diff),
+          tot.date,
+          `[Auto-Suspense Balancing Plug] Missing offset for ${tot.source} (${batchKey})`,
+          tot.ref,
+          tot.source
+        ),
+      });
+    }
+  });
+
+  const autoByAccount = new Map<string, GeneralLedgerEntry[]>();
+  balancedPostings.forEach(p => {
     // Double-entry invariant: NEVER silently drop one leg of a balanced posting
     // when an accountId is stale or deleted — route to Suspense so Debits == Credits.
     const targetAccountId = accountIds.has(p.accountId) ? p.accountId : SUSPENSE_ACCOUNT_ID;
@@ -1553,4 +1595,39 @@ export async function readJVAttachment(file: File): Promise<JVAttachment> {
     });
   }
   return base;
+}
+
+export interface LedgerIntegrityReport {
+  balanced: boolean;
+  totalDebit: number;
+  totalCredit: number;
+  difference: number;
+  suspenseEntries: GeneralLedgerEntry[];
+  unmappedCount: number;
+}
+
+/** Audits the client's synced General Ledger for double-entry balance and any
+ *  unmapped/suspense postings routed to __suspense_unmapped__. */
+export function auditLedgerIntegrity(client: Client): LedgerIntegrityReport {
+  const gl = client.glAccounts || [];
+  let totalDebit = 0;
+  let totalCredit = 0;
+  const suspenseEntries: GeneralLedgerEntry[] = [];
+  for (const acct of gl) {
+    const isSuspense = String(acct.accountId || acct.id) === SUSPENSE_ACCOUNT_ID;
+    for (const e of acct.entries || []) {
+      totalDebit += parseFloat(String(e.debit || '').replace(/,/g, '')) || 0;
+      totalCredit += parseFloat(String(e.credit || '').replace(/,/g, '')) || 0;
+      if (isSuspense) suspenseEntries.push(e);
+    }
+  }
+  const difference = Math.round((totalDebit - totalCredit) * 100) / 100;
+  return {
+    balanced: Math.abs(difference) < 0.01,
+    totalDebit: Math.round(totalDebit * 100) / 100,
+    totalCredit: Math.round(totalCredit * 100) / 100,
+    difference,
+    suspenseEntries,
+    unmappedCount: suspenseEntries.length,
+  };
 }

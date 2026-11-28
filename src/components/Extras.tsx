@@ -11,6 +11,7 @@ import { supabase } from '../lib/supabase';
 import { storageBucket } from '../lib/r2Storage';
 import { formatAccountAmount, glAccountBalanceBefore, getAccountBalances } from '../lib/accountingBalances';
 import { findAccountByLabel, syncGeneralLedger } from '../lib/glPosting';
+import { auditLedgerIntegrity } from '../lib/glPosting';
 import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide } from './ChartOfAccounts';
 import { DEFAULT_INDUSTRY, INDUSTRY_OPTIONS, getDefaultAccountsForIndustry, isNominalAccountType, glOpeningBalance } from '../lib/journalDefaults';
 import { parseBirCorDocument, BirCorExtractionResult } from '../lib/birCorParser';
@@ -2086,6 +2087,15 @@ export function Extras() {
               return (
                 <div className="max-w-4xl mx-auto">
                   {trialBalanceError && <div className="mb-4 p-3 rounded-lg bg-red-50 text-red-700 text-sm">{trialBalanceError}</div>}
+                  {(() => {
+                    const integrity = auditLedgerIntegrity(glClient);
+                    if (integrity.unmappedCount === 0) return null;
+                    return (
+                      <div className="mb-4 p-3 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-200 text-xs">
+                        <strong>Ledger Integrity Notice:</strong> {integrity.unmappedCount} posting leg{integrity.unmappedCount === 1 ? '' : 's'} could not match an active Chart of Accounts entry and {integrity.unmappedCount === 1 ? 'was' : 'were'} routed to <strong>Unmapped / Suspense Account</strong> to preserve double-entry balance. Review the General Ledger under Suspense to re-map {integrity.unmappedCount === 1 ? 'it' : 'them'}.
+                      </div>
+                    );
+                  })()}
                   {!trialBalanceError && balances.length === 0 && <div className="mb-4 text-center text-sm text-slate-400">Loading server-calculated balances…</div>}
                   <div className="text-center mb-6">
                     <h2 className="font-bold text-lg uppercase">{currentClient.taxpayerClassification === 'Individual' ? (currentClient.tradeName || [currentClient.firstName, currentClient.lastName].filter(Boolean).join(' ') || currentClient.name) : (currentClient.registeredName || currentClient.name || currentClient.tradeName)}</h2>

@@ -276,6 +276,21 @@ function normalizeDateISO(raw: unknown): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+export function normalizeIsoDate(raw: unknown): string {
+  const s = String(raw ?? '').trim();
+  if (!s) return '';
+  if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
+  const slash = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(s);
+  if (slash) {
+    return `${slash[3]}-${slash[1].padStart(2, '0')}-${slash[2].padStart(2, '0')}`;
+  }
+  const parsed = new Date(s);
+  if (!Number.isNaN(parsed.getTime())) {
+    return `${parsed.getUTCFullYear()}-${String(parsed.getUTCMonth() + 1).padStart(2, '0')}-${String(parsed.getUTCDate()).padStart(2, '0')}`;
+  }
+  return s.slice(0, 10);
+}
+
 export const entryDateKey = (entry: Pick<GeneralLedgerEntry, 'dateDr' | 'dateCr'>) =>
   normalizeDateISO(entry.dateDr || entry.dateCr || '');
 
