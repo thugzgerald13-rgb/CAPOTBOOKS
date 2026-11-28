@@ -1987,7 +1987,10 @@ export function Extras() {
               // found even if it's since been hidden in the Chart of Accounts.
               const coaAccounts = currentClient.accounts && currentClient.accounts.length > 0
                 ? currentClient.accounts
-                : (currentClient.coaFormat === 'alphanumeric' ? DEFAULT_ACCOUNTS_ALPHA : DEFAULT_ACCOUNTS);
+                : getDefaultAccountsForIndustry(
+                    currentClient.industry,
+                    currentClient.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric'
+                  );
               const coaById = new Map(coaAccounts.map(a => [String(a.id), a]));
               // The server RPC groups special-journal postings by account name
               // (stored inside journal_entries.values jsonb), so its
