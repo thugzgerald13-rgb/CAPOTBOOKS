@@ -982,12 +982,40 @@ export function AdminSettings() {
   return (
     <div className="w-full flex flex-col">
       <PageHeader title="Developer System Config" icon={<ShieldAlert className="text-emerald-500" />} />
-      <div className="p-4 md:p-6 flex-1">
-      <div className="p-6 overflow-y-auto max-h-[80vh]">
+      <div className="p-4 md:p-6 flex-1 min-w-0">
+      <div className="mx-auto w-full max-w-[1600px] space-y-5">
 
         {/* Tab switcher: Superuser Dashboard (user directory/backup) vs
             Diagnostics (system/environment info). */}
-        <div className="flex items-center gap-1 mb-6 border-b border-slate-200 dark:border-slate-700">
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-800 bg-gradient-to-br from-slate-900 to-slate-800 text-white p-5 md:p-6 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-[0.18em] text-emerald-300">Developer workspace</p>
+              <h2 className="mt-1 text-xl md:text-2xl font-black tracking-tight">System configuration</h2>
+              <p className="mt-1 text-sm text-slate-300">Manage accounts, taxpayer setup, access rules, UI variants and system tools.</p>
+            </div>
+            <div className="flex flex-wrap gap-2 text-xs">
+              <span className="rounded-full bg-white/10 px-3 py-1.5"> {users.length} registered users</span>
+              <span className="rounded-full bg-white/10 px-3 py-1.5">{taxpayerProfiles.length} workspaces</span>
+              <span className={`rounded-full px-3 py-1.5 ${dbConnectionOk === false ? 'bg-rose-500/20 text-rose-200' : 'bg-emerald-500/20 text-emerald-200'}`}>
+                {dbConnectionOk === null ? 'Checking database' : dbConnectionOk ? 'Database connected' : 'Database unavailable'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="sticky top-0 z-20 -mx-1 flex gap-2 overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-950/95 p-2 shadow-sm backdrop-blur">
+          {[
+            ['taxpayer-config', 'Taxpayer setup'],
+            ['user-directory', 'User directory'],
+            ['access-controls', 'Access controls'],
+            ['developer-tools', 'Developer tools'],
+          ].map(([id, label]) => (
+            <a key={id} href={`#${id}`} className="shrink-0 rounded-lg px-3 py-2 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 transition-colors">{label}</a>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-1 mb-2 border-b border-slate-200 dark:border-slate-700">
           <button
             onClick={() => navigate('/developertools/systemconfig')}
             className={`flex items-center gap-2 px-4 py-2.5 text-sm font-bold border-b-2 transition-all -mb-px ${
@@ -1048,7 +1076,7 @@ export function AdminSettings() {
         </div>
 
         {/* Developer-only cross-account taxpayer configuration */}
-        <section className="mb-8 rounded-2xl border border-violet-200 dark:border-violet-900 bg-white dark:bg-slate-900 p-4 md:p-5">
+        <section id="taxpayer-config" className="scroll-mt-24 mb-8 rounded-2xl border border-violet-200 dark:border-violet-900 bg-white dark:bg-slate-900 p-4 md:p-5">
           <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
             <div>
               <h4 className="font-bold text-slate-800 dark:text-slate-100">Taxpayer Profile Manager</h4>
@@ -1087,7 +1115,7 @@ export function AdminSettings() {
         <TaxpayerTestBench profile={taxpayerDraft} />
 
         {/* User List Table */}
-        <div className="mb-8">
+        <div id="user-directory" className="scroll-mt-24 mb-8">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <Users className="w-5 h-5 text-slate-500" />
@@ -1102,7 +1130,7 @@ export function AdminSettings() {
             </button>
           </div>
 
-          <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-700">
+          <div className="overflow-x-auto rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900">
             {/* T023: permissions matrix + audit trail */}
             <div className="grid md:grid-cols-2 gap-4 mb-6">
               <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
@@ -1150,7 +1178,7 @@ export function AdminSettings() {
             </div>
 
             {/* Developer-controlled global feature visibility */}
-            <div className="rounded-xl border border-violet-200 dark:border-violet-900 bg-white dark:bg-slate-900 p-4 mb-6">
+            <div id="access-controls" className="scroll-mt-24 rounded-xl border border-violet-200 dark:border-violet-900 bg-white dark:bg-slate-900 p-4 mb-6">
               <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
                 <div>
                   <div className="text-xs font-black uppercase tracking-wider text-violet-700 dark:text-violet-300">User Feature Visibility</div>
@@ -1176,7 +1204,7 @@ export function AdminSettings() {
             </div>
 
             {/* Plan-level and per-user developer feature rules */}
-            <section className="rounded-xl border border-indigo-200 dark:border-indigo-900 bg-white dark:bg-slate-900 p-4 mb-6">
+            <section className="scroll-mt-24 rounded-xl border border-indigo-200 dark:border-indigo-900 bg-white dark:bg-slate-900 p-4 mb-6">
               <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
                 <div>
                   <div className="text-xs font-black uppercase tracking-wider text-indigo-700 dark:text-indigo-300">Targeted Feature Controls</div>
@@ -1258,7 +1286,7 @@ export function AdminSettings() {
             <VariantAssignmentsPanel users={users} planOptions={featurePlanOptions} />
 
             {/* T025: feature flags + full backup */}
-            <div className="grid md:grid-cols-2 gap-4 mb-6">
+            <div id="developer-tools" className="scroll-mt-24 grid md:grid-cols-2 gap-4 mb-6">
               <div className="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
                 <div className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-3">Feature Flags</div>
                 <div className="space-y-2">
