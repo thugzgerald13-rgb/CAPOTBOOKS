@@ -200,7 +200,17 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
   const [supplierAddress, setSupplierAddress] = useState('');
   const [amount, setAmount] = useState('');
   const [netAmount, setNetAmount] = useState(0);
-  const [vatType, setVatType] = useState('vat');
+  const isNonVatOrExemptBuyer =
+    currentClient?.vatRegistrationType === 'non-vat' ||
+    currentClient?.vatRegistrationType === 'exempt';
+  const defaultPurchaseVatType = isNonVatOrExemptBuyer ? 'non-vat' : 'vat';
+  const [vatType, setVatType] = useState(defaultPurchaseVatType);
+
+  useEffect(() => {
+    if (viewIndex === null) {
+      setVatType(defaultPurchaseVatType);
+    }
+  }, [defaultPurchaseVatType, viewIndex]);
   const [exemptAmount, setExemptAmount] = useState('');
   const [zeroRatedAmount, setZeroRatedAmount] = useState('');
   const [withholdingOption, setWithholdingOption] = useState<'w/o' | 'with'>('w/o');
@@ -486,12 +496,17 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
   // selected and no ATC has been chosen yet.
   useEffect(() => {
     if (withholdingOption === 'with' && !atcCode && ATC_SCHEDULE.length > 0) {
-      setAtcCode(ATC_SCHEDULE[0].code);
+      const isGov = currentClient?.category === 'government';
+      const preferredCodes = isGov ? ['WC157', 'WC640', 'WI157', 'WI640'] : ['WC158', 'WC160', 'WI158'];
+      const match = preferredCodes
+        .map(code => ATC_SCHEDULE.find(a => String(a.code || '').toUpperCase() === code))
+        .find(Boolean);
+      setAtcCode((match || ATC_SCHEDULE[0]).code);
     }
     if (withholdingOption === 'w/o' && atcCode) {
       setAtcCode('');
     }
-  }, [withholdingOption, atcCode]);
+  }, [withholdingOption, atcCode, currentClient?.category]);
 
   // Re-compute withholding tax amount (per the BIR Schedule of Alphanumeric
   // Tax Codes) whenever the purchase base, withholding option, or selected
@@ -699,6 +714,10 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
     // same invoice number. Check across ALL periods (not just the currently
     // selected one) and exclude the record currently being edited. Skip when
     // there is no invoice number (e.g. miscellaneous payments without one).
+    if (isNonVatOrExemptBuyer && !isOtherPayments && (vatType === 'vat' || vatType === 'vat-nonvat')) {
+      toast.error('Non-VAT and VAT-Exempt taxpayers cannot claim Input VAT. Record this purchase as Non-VAT so the full VAT-inclusive cost is expensed/capitalized.');
+      return;
+    }
     const trimmedAddress = String(supplierAddress || '').trim();
     if (!isOtherPayments && (vatType === 'vat' || vatType === 'vat-nonvat') && !trimmedAddress) {
       toast.error('Supplier Address is required for VATable purchases (BIR Sec. 113 / RELIEF SLP).');
@@ -792,7 +811,7 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
     setSupplierAddress('');
     setAmount('');
     setNetAmount(0);
-    setVatType('vat');
+    setVatType(defaultPurchaseVatType);
     setExemptAmount('');
     setZeroRatedAmount('');
     setWithholdingOption('w/o');

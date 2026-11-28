@@ -274,10 +274,17 @@ export function Extras() {
       showToast(`Please complete required fields first: ${missing.join(', ')}.`);
       return;
     }
+    const wasAlreadySetup = Boolean(
+      businessProfile?.tin && businessProfile?.tradeName && businessProfile?.rdoCode
+    );
     saveBusinessProfile(editingBusiness);
     setIsBusinessLocked(true);
-    showToast('Business profile saved. Welcome aboard!');
-    navigateToPage(null);
+    if (wasAlreadySetup) {
+      showToast('Business profile updated.');
+    } else {
+      showToast('Business profile saved. Welcome aboard!');
+      navigateToPage(null);
+    }
   };
 
   const handleCreateBusinessProfile = () => {
@@ -1231,7 +1238,7 @@ export function Extras() {
                 >
                   <option value="">Select VAT Registration Type</option>
                   <option value="vat">VAT Registered (12% Output VAT — Form 2550Q + RELIEF)</option>
-                  <option value="non-vat">Non-VAT (Percentage Tax Form 2551Q or 8% Flat Option)</option>
+                  <option value="non-vat">{editingBusiness.taxpayerClassification === 'Non-Individual' ? 'Non-VAT (3% Percentage Tax — Form 2551Q)' : 'Non-VAT (Percentage Tax Form 2551Q or 8% Flat Option)'}</option>
                   <option value="exempt">VAT Exempt (0% VAT Exempt — Sec. 109 NIRC)</option>
                   <option value="zero-rated">Zero-Rated (0% Output VAT + Input VAT Credit — Form 2550Q + RELIEF)</option>
                 </select>
@@ -1273,6 +1280,7 @@ export function Extras() {
                         <option value="partnership">Taxable Partnership</option>
                         <option value="gpp">General Professional Partnership (GPP)</option>
                         <option value="cooperative">Exempt Cooperative</option>
+                        <option value="ecozone">PEZA / BOI Ecozone Enterprise (5% GIE)</option>
                       </>
                     )}
                   </select>
@@ -1281,31 +1289,52 @@ export function Extras() {
                   <label className="form-label">Income Tax Regime / Rate:</label>
                   <select
                     value={editingBusiness.incomeTaxRegime || ''}
-                    onChange={e => setEditingBusiness({ ...editingBusiness, incomeTaxRegime: (e.target.value || undefined) as IncomeTaxRegime | undefined })}
+                    onChange={e => {
+                      const nextRegime = (e.target.value || undefined) as IncomeTaxRegime | undefined;
+                      const syncedDeduction =
+                        nextRegime === '8_percent_flat' ? 'none_8_percent'
+                        : nextRegime === 'graduated_osd' || nextRegime === 'corp_20_osd' || nextRegime === 'corp_25_osd' ? 'osd_40'
+                        : nextRegime === 'graduated_itemized' || nextRegime === 'corp_20_msme' || nextRegime === 'corp_25_regular' ? 'itemized'
+                        : editingBusiness.deductionMethod;
+                      const syncedPct = nextRegime === '8_percent_flat' ? 0 : editingBusiness.percentageTaxRate;
+                      setEditingBusiness({
+                        ...editingBusiness,
+                        incomeTaxRegime: nextRegime,
+                        deductionMethod: syncedDeduction as any,
+                        percentageTaxRate: syncedPct,
+                      });
+                    }}
                     className="form-input"
                   >
                     <option value="">Auto / Default for Classification</option>
                     {editingBusiness.taxpayerClassification !== 'Non-Individual' ? (
                       <>
                         {editingBusiness.vatRegistrationType === 'non-vat' && (
-                          <option value="8_percent_flat">8% Flat Income Tax</option>
+                          <option value="8_percent_flat">8% Flat Income Tax (in lieu of Graduated + 2551Q)</option>
                         )}
                         <option value="graduated_itemized">Graduated TRAIN + Itemized</option>
                         <option value="graduated_osd">Graduated TRAIN + 40% OSD</option>
                       </>
+                    ) : editingBusiness.taxpayerSubClassification === 'gpp' ? (
+                      <option value="corp_gpp_exempt">0% Tax Exempt — GPP (BIR Form 1702-EX)</option>
                     ) : (
                       <>
-                        <option value="corp_20_msme">20% CREATE MSME + Itemized</option>
-                        <option value="corp_20_osd">20% CREATE MSME + 40% OSD</option>
-                        <option value="corp_25_regular">25% Regular RCIT + Itemized</option>
-                        <option value="corp_25_osd">25% Regular RCIT + 40% OSD</option>
-                        <option value="corp_gpp_exempt">0% Tax Exempt (GPP / Coop)</option>
-                        <option value="corp_special_5">5% Special Rate (PEZA / GIE)</option>
+                        <option value="corp_20_msme">20% CREATE MSME + Itemized (Form 1702-RT)</option>
+                        <option value="corp_20_osd">20% CREATE MSME + 40% OSD (Form 1702-RT)</option>
+                        <option value="corp_25_regular">25% Regular RCIT + Itemized (Form 1702-RT)</option>
+                        <option value="corp_25_osd">25% Regular RCIT + 40% OSD (Form 1702-RT)</option>
+                        <option value="corp_gpp_exempt">0% Tax Exempt — GPP / Coop (BIR Form 1702-EX)</option>
+                        <option value="corp_special_5">5% Special Rate — PEZA / GIE (BIR Form 1702-MX)</option>
                       </>
                     )}
                   </select>
                 </div>
               </div>
+              {editingBusiness.taxpayerSubClassification === 'mixed_income' && editingBusiness.incomeTaxRegime === '8_percent_flat' && (
+                <div className="mb-4 rounded-xl border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 p-3 text-xs text-amber-900 dark:text-amber-200">
+                  <strong>BIR TRAIN Law Notice (Mixed-Income Earner):</strong> Electing the 8% flat rate applies only to business/professional gross sales/receipts and is <strong>not</strong> eligible for the ₱250,000 exemption (already applied to compensation income under Form 2316). Compensation income remains subject to graduated rates.
+                </div>
+              )}
 
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 mb-4">
                 <div className="sm:col-span-4">
@@ -1331,10 +1360,15 @@ export function Extras() {
                 </div>
                 <div className="sm:col-span-4">
                   <label className="form-label">Percentage Tax Rate (2551Q):</label>
-                  <select value={editingBusiness.percentageTaxRate !== undefined ? String(editingBusiness.percentageTaxRate) : ''} onChange={e => setEditingBusiness({ ...editingBusiness, percentageTaxRate: e.target.value === '' ? undefined : Number(e.target.value) })} disabled={editingBusiness.vatRegistrationType !== 'non-vat'} className="form-input disabled:opacity-50">
-                    <option value="">Default (3% or 0% if 8% Flat)</option>
+                  <select
+                    value={editingBusiness.incomeTaxRegime === '8_percent_flat' ? '0' : (editingBusiness.percentageTaxRate !== undefined ? String(editingBusiness.percentageTaxRate) : '')}
+                    onChange={e => setEditingBusiness({ ...editingBusiness, percentageTaxRate: e.target.value === '' ? undefined : Number(e.target.value) })}
+                    disabled={editingBusiness.vatRegistrationType !== 'non-vat' || editingBusiness.incomeTaxRegime === '8_percent_flat' || editingBusiness.taxpayerSubClassification === 'gpp'}
+                    className="form-input disabled:opacity-50"
+                  >
+                    <option value="">Default (3% Sec. 116)</option>
                     <option value="0.03">3% Standard Non-VAT (Sec. 116)</option>
-                    <option value="0.01">1% Concessional Rate (CREATE)</option>
+                    <option value="0.01">1% Concessional Rate (Historical CREATE 2020–Jun 2023)</option>
                     <option value="0.02">2% Special Percentage Tax</option>
                     <option value="0.05">5% Gross Receipts Tax</option>
                     <option value="0">0% Exempt (8% Flat / Exempt)</option>
@@ -1388,41 +1422,64 @@ export function Extras() {
                 />
               </div>
 
-              <div className="mb-4">
-                <label className="form-label">Taxpayer Name:</label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <div className="flex flex-col items-center">
-                    <input 
-                      type="text" 
-                      disabled={editingBusiness.taxpayerClassification === 'Non-Individual'}
-                      value={editingBusiness.lastName || ''} 
-                      onChange={e => setEditingBusiness({...editingBusiness, lastName: e.target.value})}
-                      className="form-input border-slate-400 dark:border-slate-600 disabled:opacity-50"
-                    />
-                    <span className="text-[10px] text-slate-500 mt-1 uppercase font-bold">Last Name</span>
-                  </div>
-                  <div className="flex flex-col items-center">
-                    <input 
-                      type="text" 
-                      disabled={editingBusiness.taxpayerClassification === 'Non-Individual'}
-                      value={editingBusiness.firstName || ''} 
-                      onChange={e => setEditingBusiness({...editingBusiness, firstName: e.target.value})}
-                      className="form-input border-slate-400 dark:border-slate-600 disabled:opacity-50"
-                    />
-                    <span className="text-[10px] text-slate-500 mt-1 uppercase font-bold">First Name</span>
-                  </div>
-                  <div className="flex flex-col items-center">
-                    <input 
-                      type="text" 
-                      disabled={editingBusiness.taxpayerClassification === 'Non-Individual'}
-                      value={editingBusiness.middleName || ''} 
-                      onChange={e => setEditingBusiness({...editingBusiness, middleName: e.target.value})}
-                      className="form-input border-slate-400 dark:border-slate-600 disabled:opacity-50"
-                    />
-                    <span className="text-[10px] text-slate-500 mt-1 uppercase font-bold">Middle Name</span>
+              {editingBusiness.taxpayerClassification !== 'Non-Individual' ? (
+                <div className="mb-4">
+                  <label className="form-label">Taxpayer Name (Individual):</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div className="flex flex-col items-center">
+                      <input
+                        type="text"
+                        value={editingBusiness.lastName || ''}
+                        onChange={e => setEditingBusiness({ ...editingBusiness, lastName: e.target.value })}
+                        className="form-input border-slate-400 dark:border-slate-600"
+                      />
+                      <span className="text-[10px] text-slate-500 mt-1 uppercase font-bold">Last Name</span>
+                    </div>
+                    <div className="flex flex-col items-center">
+                      <input
+                        type="text"
+                        value={editingBusiness.firstName || ''}
+                        onChange={e => setEditingBusiness({ ...editingBusiness, firstName: e.target.value })}
+                        className="form-input border-slate-400 dark:border-slate-600"
+                      />
+                      <span className="text-[10px] text-slate-500 mt-1 uppercase font-bold">First Name</span>
+                    </div>
+                    <div className="flex flex-col items-center">
+                      <input
+                        type="text"
+                        value={editingBusiness.middleName || ''}
+                        onChange={e => setEditingBusiness({ ...editingBusiness, middleName: e.target.value })}
+                        className="form-input border-slate-400 dark:border-slate-600"
+                      />
+                      <span className="text-[10px] text-slate-500 mt-1 uppercase font-bold">Middle Name</span>
+                    </div>
                   </div>
                 </div>
-              </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <label className="form-label">Total Assets Excluding Land (₱ — CREATE 20% MSME Test):</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="e.g. 50000000 (≤ ₱100M for 20% MSME)"
+                      value={(editingBusiness as any).totalAssetsExcludingLand ?? ''}
+                      onChange={e => setEditingBusiness({ ...editingBusiness, totalAssetsExcludingLand: e.target.value === '' ? undefined : Number(e.target.value) } as any)}
+                      className="form-input border-slate-400 dark:border-slate-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="form-label">Date of Incorporation / Registration (4th-Yr MCIT):</label>
+                    <input
+                      type="date"
+                      value={(editingBusiness as any).incorporationDate || ''}
+                      onChange={e => setEditingBusiness({ ...editingBusiness, incorporationDate: e.target.value || undefined } as any)}
+                      className="form-input border-slate-400 dark:border-slate-600"
+                    />
+                  </div>
+                </div>
+              )}
 
               <div className="mb-4">
                 <label className="form-label">Trade Name:</label>

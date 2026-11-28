@@ -106,7 +106,18 @@ export function Billing() {
   const [customerName, setCustomerName] = useState('');
   const [customerAddress, setCustomerAddress] = useState('');
   const [customerEmail, setCustomerEmail] = useState('');
-  const [vatType, setVatType] = useState('VATable');
+  const defaultBillingVatType = (() => {
+    const reg = String(currentClient?.vatRegistrationType || '').toLowerCase();
+    if (reg === 'non-vat') return 'Non-VAT';
+    if (reg === 'exempt') return 'VAT Exempt';
+    if (reg === 'zero-rated') return 'Zero-Rated';
+    return 'VATable';
+  })();
+  const [vatType, setVatType] = useState(defaultBillingVatType);
+
+  useEffect(() => {
+    setVatType(defaultBillingVatType);
+  }, [defaultBillingVatType]);
   const [lineItems, setLineItems] = useState<BillingInvoiceLineItem[]>([{ id: crypto.randomUUID(), description: '', natureBilling: 'Income', advanceAccountId: '', advanceAccountTitle: '', postingAccountTitle: '', qty: 1, unitPrice: 0, amount: 0 }]);
   const [discountPercent, setDiscountPercent] = useState('0');
   const [isRecurring, setIsRecurring] = useState(false);
@@ -795,7 +806,7 @@ export function Billing() {
               <div><label className="form-label">Customer name <span className="text-rose-500">*</span></label><input type="text" value={customerName} onChange={e => setCustomerName(e.target.value)} placeholder="Company / Full Name" className="form-input" /></div>
               <div className="md:col-span-2"><label className="form-label">Customer address <span className="text-rose-500">*</span></label><input type="text" value={customerAddress} onChange={e => setCustomerAddress(e.target.value)} placeholder="Business / Residential Address" className="form-input" /></div>
               <div><label className="form-label">Customer email (optional)</label><input type="email" value={customerEmail} onChange={e => setCustomerEmail(e.target.value)} placeholder="customer@example.com" className="form-input" /></div>
-              <div><label className="form-label">VAT classification</label><select value={vatType} onChange={e => setVatType(e.target.value)} className="form-input"><option value="VATable">VATable (12% VAT-inclusive)</option><option value="VAT Exempt">VAT Exempt</option><option value="Zero-Rated">Zero-Rated</option></select></div>
+              <div><label className="form-label">VAT classification</label><select value={vatType} onChange={e => setVatType(e.target.value)} className="form-input">{currentClient?.vatRegistrationType !== 'non-vat' && currentClient?.vatRegistrationType !== 'exempt' && <option value="VATable">VATable (12% VAT-inclusive)</option>}<option value="Non-VAT">Non-VAT (No Output VAT)</option><option value="VAT Exempt">VAT Exempt</option><option value="Zero-Rated">Zero-Rated</option></select></div>
             </div>
             <div className="mt-4 rounded-xl bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-100 dark:border-indigo-900/50 p-3 text-[11px] text-indigo-800 dark:text-indigo-200">
               For VATable invoices, entered Income amounts are treated as VAT-inclusive and output VAT is computed only on Income lines. Advances lines are excluded from VAT and credited in full to the company's linked Advance Account. VAT Exempt and Zero-Rated bills do not calculate output VAT.

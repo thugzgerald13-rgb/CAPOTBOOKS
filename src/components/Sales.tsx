@@ -153,7 +153,21 @@ export function Sales({ embedded = false, editSale = null, onSaved, onClose }: S
   const [buyerTin, setBuyerTin] = useState('');
   const [buyerName, setBuyerName] = useState('');
   const [buyerAddress, setBuyerAddress] = useState('');
-  const [vatType, setVatType] = useState('VATable');
+  const defaultSaleVatType = (() => {
+    const reg = String(currentClient?.vatRegistrationType || '').toLowerCase();
+    if (reg === 'non-vat') return 'Non-VAT';
+    if (reg === 'exempt') return 'VAT Exempt';
+    if (reg === 'zero-rated') return 'Zero-Rated';
+    return 'VATable';
+  })();
+  const [vatType, setVatType] = useState(defaultSaleVatType);
+
+  // Sync default VAT type whenever the active client's VAT registration changes
+  useEffect(() => {
+    if (editingId == null) {
+      setVatType(defaultSaleVatType);
+    }
+  }, [defaultSaleVatType, editingId]);
   const [amount, setAmount] = useState('');
   const [incomeType, setIncomeType] = useState('');
   const [desc, setDesc] = useState('');
@@ -219,13 +233,29 @@ export function Sales({ embedded = false, editSale = null, onSaved, onClose }: S
   const netOfVat = isVatable ? grossAmount / 1.12 : grossAmount;
   const outputTax = isVatable ? grossAmount - netOfVat : 0;
 
-  // Default to a corporate (WC*) ATC for Non-Individual taxpayers or individual
-  // (WI*) ATC for Individual taxpayers whenever "With Withholdings" is selected.
+  // Default ATC based on Taxpayer Classification, Sub-Classification, and Counterparty Category:
+  // - Government counterparty -> GMP services/goods (WC157 / WI157)
+  // - Non-Individual (Corporation) -> WC*
+  // - Individual Sole Proprietor -> WI158/WI160 (trading/services) rather than WI010 (professional)
+  // - Individual Professional -> WI010
   useEffect(() => {
     if (withholdingOption === 'with' && !atcCode && ATC_SCHEDULE.length > 0) {
       const isCorp = currentClient?.taxpayerClassification === 'Non-Individual';
+      const isGov = currentClient?.category === 'government';
+      const isSoleProp = currentClient?.taxpayerSubClassification === 'sole_proprietor';
+      const preferredCodes = isGov
+        ? (isCorp ? ['WC157', 'WC640', 'WV020'] : ['WI157', 'WI640', 'WV020'])
+        : isCorp
+          ? ['WC160', 'WC158', 'WC010']
+          : isSoleProp
+            ? ['WI158', 'WI160', 'WI157']
+            : ['WI010', 'WI011'];
       const preferredPrefix = isCorp ? 'WC' : 'WI';
-      const match = ATC_SCHEDULE.find(a => String(a.code || '').toUpperCase().startsWith(preferredPrefix));
+      const match =
+        preferredCodes
+          .map(code => ATC_SCHEDULE.find(a => String(a.code || '').toUpperCase() === code))
+          .find(Boolean) ||
+        ATC_SCHEDULE.find(a => String(a.code || '').toUpperCase().startsWith(preferredPrefix));
       setAtcCode((match || ATC_SCHEDULE[0]).code);
       return;
     }
