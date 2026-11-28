@@ -126,7 +126,7 @@ export function BalanceSheet() {
   const diffPrior = P.assetTotal - P.totalLiabEquity;
 
   const data = currentClient.bsData || {
-    companyName: currentClient.tradeName || currentClient.name || '',
+    companyName: currentClient.name || currentClient.tradeName || '',
     address: [currentClient.street, currentClient.barangay, currentClient.city, currentClient.zipCode].filter(Boolean).join(', ') || '',
     reportName: 'BALANCE SHEET',
     asOfDate: `As of December 31, ${year}`,

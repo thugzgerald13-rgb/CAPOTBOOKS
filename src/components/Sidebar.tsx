@@ -159,6 +159,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
       setHistoryTab(historyType);
     }
 
+    setPendingPage(pageId);
     navigateToPage(pageId);
 
     if (!historyType) {
@@ -197,6 +198,13 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   // Sidebar inline search (Run 002 / T002): flat index of every navigable
   // page; typing filters it in an overlay below the search box.
   const [sidebarQuery, setSidebarQuery] = useState('');
+  // Optimistic active page so the sidebar highlight snaps immediately on click
+  // instead of lingering on the previous route while a lazy-loaded chunk resolves.
+  const [pendingPage, setPendingPage] = useState<string | null | undefined>(undefined);
+  useEffect(() => {
+    setPendingPage(undefined);
+  }, [displayPage]);
+  const displayPage = pendingPage !== undefined ? pendingPage : displayPage;
   const SIDEBAR_NAV_INDEX: { label: string; pageId: string | null; icon: any; historyTab?: string; keywords: string }[] = [
     { label: 'Dashboard', pageId: null, icon: Home, keywords: 'home overview kpi' },
     { label: 'Chart of Accounts', pageId: 'coa', icon: BookOpen, keywords: 'accounts coa ledger' },
@@ -371,7 +379,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       disabled={!canUsePage(item.pageId)}
                       onClick={() => {
                         if (item.historyTab) setHistoryTab(item.historyTab);
-                        navigateToPage(item.pageId);
+                        setPendingPage(item.pageId); navigateToPage(item.pageId);
                         setSidebarQuery('');
                         setIsOpen(false);
                       }}
@@ -396,13 +404,13 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
           <button
             onClick={() => {
               if (!canUsePage(null)) return;
-              navigateToPage(null);
+              setPendingPage(null); navigateToPage(null);
               setIsOpen(false);
             }}
             title={isCollapsed ? "Dashboard" : undefined}
             className={cn(
               "flex items-center gap-3 px-4 py-3 text-sm rounded-xl transition-all w-full text-left group mb-1 shrink-0",
-              !activePage
+              !displayPage
                 ? "font-bold text-blue-700 dark:text-blue-400 bg-blue-50/80 dark:bg-blue-900/25 hover:bg-blue-100 dark:hover:bg-blue-900/30"
                 : "font-medium text-slate-700 dark:text-slate-300 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
               !canUsePage(null) && 'hidden',
@@ -420,7 +428,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               title={isCollapsed ? "Transactions" : undefined}
               className={cn(
                 "flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl transition-all w-full text-left group",
-                (isTransactionsOpen || ['coa','billing','sales','journal-voucher','history','pos'].includes(activePage) || activePage?.startsWith('purchases')) ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
+                (isTransactionsOpen || ['coa','billing','sales','journal-voucher','history','pos'].includes(displayPage) || displayPage?.startsWith('purchases')) ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
                 (!canAny('edit_transactions', 'view_reports', 'manage_settings') || !['coa','billing','sales','purchases','journal-voucher','history'].some(canUsePage)) && 'hidden',
                 isCollapsed && "md:justify-center md:px-2"
               )}
@@ -447,7 +455,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       handleNavClick('coa');
                       setIsOpen(false);
                     }}
-                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'coa' && activeIndigo, (!canUse('manage_settings') || !canUsePage('coa')) && 'hidden')}
+                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", displayPage === 'coa' && activeIndigo, (!canUse('manage_settings') || !canUsePage('coa')) && 'hidden')}
                   >
                     <BookOpen className="w-4 h-4" />
                     Chart of Accounts
@@ -458,7 +466,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       handleNavClick('billing');
                       setIsOpen(false);
                     }}
-                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'billing' && activeIndigo, (!canUse('edit_transactions') || !canUsePage('billing') || (!isAdmin && !featureAllows('billing'))) && 'hidden')}
+                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", displayPage === 'billing' && activeIndigo, (!canUse('edit_transactions') || !canUsePage('billing') || (!isAdmin && !featureAllows('billing'))) && 'hidden')}
                   >
                     <CreditCard className="w-4 h-4" />
                     Billing
@@ -469,7 +477,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       handleNavClick('sales');
                       setIsOpen(false);
                     }}
-                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'sales' && activeIndigo, (!canUse('edit_transactions') || !canUsePage('sales') || (!isAdmin && !featureAllows('sales'))) && 'hidden')}
+                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", displayPage === 'sales' && activeIndigo, (!canUse('edit_transactions') || !canUsePage('sales') || (!isAdmin && !featureAllows('sales'))) && 'hidden')}
                   >
                     <Receipt className="w-4 h-4" />
                     Income
@@ -480,7 +488,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                         handleNavClick('purchases');
                         setIsOpen(false);
                     }}
-                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage?.startsWith('purchases') && activeIndigo, (!canUse('edit_transactions') || !canUsePage('purchases')) && 'hidden')}
+                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", displayPage?.startsWith('purchases') && activeIndigo, (!canUse('edit_transactions') || !canUsePage('purchases')) && 'hidden')}
                   >
                     <ShoppingCart className="w-4 h-4" />
                     Purchases
@@ -488,10 +496,10 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   <button
                     disabled={!canUse('edit_transactions')}
                     onClick={() => {
-                      navigateToPage('journal-voucher');
+                      setPendingPage('journal-voucher'); navigateToPage('journal-voucher');
                       setIsOpen(false);
                     }}
-                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'journal-voucher' && activeIndigo, (!canUse('edit_transactions') || !canUsePage('journal-voucher')) && 'hidden')}
+                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", displayPage === 'journal-voucher' && activeIndigo, (!canUse('edit_transactions') || !canUsePage('journal-voucher')) && 'hidden')}
                   >
                     <FileSignature className="w-4 h-4" />
                     Journal Voucher
@@ -505,7 +513,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                         handleNavClick('pos');
                         setIsOpen(false);
                       }}
-                      className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'pos' && activeIndigo)}
+                      className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", displayPage === 'pos' && activeIndigo)}
                     >
                       <ScanBarcode className="w-4 h-4" />
                       Pharmacy POS
@@ -525,7 +533,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                           handleNavClick('history', subItem.id);
                           setIsOpen(false);
                         }}
-                        className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'history' && historyTab === subItem.id && activeIndigo)}
+                        className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", displayPage === 'history' && historyTab === subItem.id && activeIndigo)}
                       >
                         <SubIcon className="w-4 h-4" />
                         {subItem.label}
@@ -544,7 +552,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
             title={isCollapsed ? "Payroll" : undefined}
             className={cn(
               "flex items-center gap-3 px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-slate-800 dark:hover:text-emerald-400 transition-all w-full text-left group",
-              activePage === 'payroll' && "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400",
+              displayPage === 'payroll' && "bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400",
               (!canUse('edit_transactions') || !canUsePage('payroll') || (!isAdmin && !featureAllows('payroll'))) && 'hidden',
               isCollapsed && "md:justify-center md:px-2"
             )}
@@ -560,7 +568,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               title={isCollapsed ? "Compliance" : undefined}
               className={cn(
                 "flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl transition-all w-full text-left group",
-                (isFormsOpen || activePage === 'compliance-tracker' || activePage === 'bir-forms' || activePage === 'relief' || ['afs-financial-position','afs-income-statements','afs-equity-retained-earnings','afs-ppe','cashflow'].includes(activePage)) ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
+                (isFormsOpen || displayPage === 'compliance-tracker' || displayPage === 'bir-forms' || displayPage === 'relief' || ['afs-financial-position','afs-income-statements','afs-equity-retained-earnings','afs-ppe','cashflow'].includes(displayPage)) ? "bg-indigo-50 text-indigo-700 dark:bg-indigo-900/20 dark:text-indigo-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
                 isCollapsed && "md:justify-center md:px-2",
                 (!isAdmin && !featureAllows('compliance-tracker')) && 'hidden',
                 (!canUse('view_reports') || !['bir-forms','relief','cashflow','afs-financial-position','afs-income-statements','afs-equity-retained-earnings','afs-ppe'].some(canUsePage)) && 'hidden'
@@ -588,7 +596,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                     navigateToPage('compliance-tracker');
                     setIsOpen(false);
                   }}
-                  className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-emerald-600 dark:text-emerald-400 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/10 border border-emerald-100/30 hover:bg-emerald-100/50 dark:hover:bg-emerald-900/20 transition-all w-full text-left", activePage === 'compliance-tracker' && activeEmerald, !isAdmin && 'hidden')}
+                  className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-emerald-600 dark:text-emerald-400 rounded-lg bg-emerald-50/50 dark:bg-emerald-950/10 border border-emerald-100/30 hover:bg-emerald-100/50 dark:hover:bg-emerald-900/20 transition-all w-full text-left", displayPage === 'compliance-tracker' && activeEmerald, !isAdmin && 'hidden')}
                 >
                   <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
                   Compliance Tracker
@@ -597,7 +605,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                 <div className="flex flex-col">
                   <button
                     onClick={() => setIsBirOpen(!isBirOpen)}
-                    className={cn("flex items-center justify-between gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", (activePage === 'bir-forms' || activePage === 'eis-center' || activePage === 'relief') && activeIndigo)}
+                    className={cn("flex items-center justify-between gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", (displayPage === 'bir-forms' || displayPage === 'eis-center' || displayPage === 'relief') && activeIndigo)}
                   >
                     <span className="flex items-center gap-3">
                       <Landmark className="w-4 h-4" />
@@ -621,7 +629,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                             navigateToPage('bir-forms');
                             setIsOpen(false);
                           }}
-                          className={cn("flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'bir-forms' && birFormTab === 'ebirforms' && activeIndigo)}
+                          className={cn("flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", displayPage === 'bir-forms' && birFormTab === 'ebirforms' && activeIndigo)}
                         >
                           <FileDown className="w-3.5 h-3.5" />
                           eBIRForms
@@ -632,7 +640,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                             navigateToPage('eis-center');
                             setIsOpen(false);
                           }}
-                          className={cn("flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'eis-center' && activeIndigo)}
+                          className={cn("flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", displayPage === 'eis-center' && activeIndigo)}
                         >
                           <FileSignature className="w-3.5 h-3.5" />
                           E-Invoicing (EIS)
@@ -643,7 +651,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                             navigateToPage('alphalist');
                             setIsOpen(false);
                           }}
-                          className={cn("flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'alphalist' && activeIndigo)}
+                          className={cn("flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", displayPage === 'alphalist' && activeIndigo)}
                         >
                           <Users className="w-3.5 h-3.5" />
                           Alphalist (1604-E/CF)
@@ -657,7 +665,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                               navigateToPage('relief');
                               setIsOpen(false);
                             }}
-                            className={cn("flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", activePage === 'relief' && activeIndigo)}
+                            className={cn("flex items-center gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", displayPage === 'relief' && activeIndigo)}
                           >
                             <FileText className="w-3.5 h-3.5" />
                             Relief
@@ -672,7 +680,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   <button
                     disabled={!canUse('view_reports')}
                     onClick={() => setIsSecOpen(!isSecOpen)}
-                    className={cn("flex items-center justify-between gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", ['afs-financial-position','afs-income-statements','afs-equity-retained-earnings','afs-ppe','cashflow'].includes(activePage) && activeIndigo)}
+                    className={cn("flex items-center justify-between gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", ['afs-financial-position','afs-income-statements','afs-equity-retained-earnings','afs-ppe','cashflow'].includes(displayPage) && activeIndigo)}
                   >
                     <span className="flex items-center gap-3">
                       <Building2 className="w-4 h-4" />
@@ -694,7 +702,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                           <button
                             disabled={!canUse('view_reports')}
                             onClick={() => setIsAfsDraftOpen(!isAfsDraftOpen)}
-                            className={cn("flex items-center justify-between gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", ['afs-financial-position','afs-income-statements','afs-equity-retained-earnings','afs-ppe','cashflow'].includes(activePage) && activeIndigo)}
+                            className={cn("flex items-center justify-between gap-3 px-4 py-2 text-[11px] font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-slate-800 dark:hover:text-indigo-400 transition-all w-full text-left", ['afs-financial-position','afs-income-statements','afs-equity-retained-earnings','afs-ppe','cashflow'].includes(displayPage) && activeIndigo)}
                           >
                             <span className="flex items-center gap-3">
                               <FileText className="w-3.5 h-3.5" />
@@ -749,7 +757,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                 title={isCollapsed ? item.label : (!canUse(item.permission) ? `${item.label} is not enabled for your role` : undefined)}
                 className={cn(
                   "flex items-center gap-3 px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800 dark:hover:text-blue-400 transition-all w-full text-left group",
-                  activePage === item.id && activeBlue,
+                  displayPage === item.id && activeBlue,
                   !canUse(item.permission) && 'hidden',
                   isCollapsed && "md:justify-center md:px-2"
                 )}
@@ -768,7 +776,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               title={isCollapsed ? "Upload Files" : undefined}
               className={cn(
                 "flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl transition-all w-full text-left group",
-                (isFilesOpen || activePage === 'files') ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
+                (isFilesOpen || displayPage === 'files') ? "bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
                 (!canUse('edit_transactions') || !featureAllows('files')) && 'hidden',
                 isCollapsed && "md:justify-center md:px-2"
               )}
@@ -784,7 +792,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                 <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden flex flex-col gap-1 mt-1 pl-4 pb-1 shrink-0">
                   {([['income','Income Files'],['expense','Expense Files'],['other','Other Files']] as const).map(([key,label]) => (
                     <button key={key} disabled={!canUse('edit_transactions')}
-                      onClick={() => { navigateToPage(`files/${key}`); setIsOpen(false); setIsFilesOpen(false); }}
+                      onClick={() => { setPendingPage(`files/${key}`); navigateToPage(`files/${key}`); setIsOpen(false); setIsFilesOpen(false); }}
                       className="flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-slate-800 dark:hover:text-blue-400 transition-all w-full text-left">
                       <FolderUp className="w-3.5 h-3.5" /> {label}
                     </button>
@@ -801,7 +809,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               title={isCollapsed ? "Reports" : undefined}
               className={cn(
                 "flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl transition-all w-full text-left group",
-                (isReportsOpen || ['trialbalance','balancesheet','pl','assetlapsing'].includes(activePage)) ? "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
+                (isReportsOpen || ['trialbalance','balancesheet','pl','assetlapsing'].includes(displayPage)) ? "bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
                 (!canUse('view_reports') || !['trialbalance','balancesheet','pl','assetlapsing'].some(canUsePage)) && 'hidden',
                 isCollapsed && "md:justify-center md:px-2"
               )}
@@ -829,7 +837,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                         key={subItem.id}
                         disabled={!canUse('view_reports')}
                         onClick={() => handleNavClick(subItem.id)}
-                        className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-amber-50 hover:text-amber-600 dark:hover:bg-slate-800 dark:hover:text-amber-400 transition-all w-full text-left", activePage === subItem.id && activeAmber, !canUse('view_reports') && "opacity-40 grayscale cursor-not-allowed pointer-events-none")}
+                        className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-amber-50 hover:text-amber-600 dark:hover:bg-slate-800 dark:hover:text-amber-400 transition-all w-full text-left", displayPage === subItem.id && activeAmber, !canUse('view_reports') && "opacity-40 grayscale cursor-not-allowed pointer-events-none")}
                       >
                         <SubIcon className="w-4 h-4" />
                         {subItem.label}
@@ -849,7 +857,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               title={isCollapsed ? "Books" : undefined}
               className={cn(
                 "flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl transition-all w-full text-left group",
-                (isBooksOpen || ['journal','ledger','subsidiary-ledger','aging-reports','sales-journal','purchase-journal','cash-disbursement','cash-receipt'].includes(activePage)) ? "bg-cyan-50 text-cyan-700 dark:bg-cyan-900/20 dark:text-cyan-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
+                (isBooksOpen || ['journal','ledger','subsidiary-ledger','aging-reports','sales-journal','purchase-journal','cash-disbursement','cash-receipt'].includes(displayPage)) ? "bg-cyan-50 text-cyan-700 dark:bg-cyan-900/20 dark:text-cyan-400" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
                 !canAny('view_reports', 'edit_transactions') && 'hidden',
                 isCollapsed && "md:justify-center md:px-2"
               )}
@@ -877,7 +885,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                         key={subItem.id}
                         disabled={!canAny('view_reports', 'edit_transactions')}
                         onClick={() => handleNavClick(subItem.id)}
-                        className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-cyan-50 hover:text-cyan-600 dark:hover:bg-slate-800 dark:hover:text-cyan-400 transition-all w-full text-left", activePage === subItem.id && activeCyan, !canAny('view_reports', 'edit_transactions') && "opacity-40 grayscale cursor-not-allowed pointer-events-none")}
+                        className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-cyan-50 hover:text-cyan-600 dark:hover:bg-slate-800 dark:hover:text-cyan-400 transition-all w-full text-left", displayPage === subItem.id && activeCyan, !canAny('view_reports', 'edit_transactions') && "opacity-40 grayscale cursor-not-allowed pointer-events-none")}
                       >
                         <SubIcon className="w-4 h-4" />
                         {subItem.label}
@@ -896,7 +904,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
               title={isCollapsed ? "Settings" : undefined}
               className={cn(
                 "flex items-center justify-between px-4 py-3 text-sm font-medium text-slate-700 dark:text-slate-300 rounded-xl transition-all w-full text-left group",
-                (isSettingsOpen || ['business','clients','tinlibrary','account-settings','team','payroll/settings'].includes(activePage)) ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
+                (isSettingsOpen || ['business','clients','tinlibrary','account-settings','team','payroll/settings'].includes(displayPage)) ? "bg-slate-100 text-slate-900 dark:bg-slate-800 dark:text-slate-100" : "hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
                 isCollapsed && "md:justify-center md:px-2"
               )}
             >
@@ -948,7 +956,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   <button
                     disabled={!canUse('manage_settings')}
                     onClick={() => handleNavClick('payroll/settings')}
-                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold rounded-lg transition-all w-full text-left", activePage === 'payroll/settings' ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200', (!canUse('manage_settings') || !canUsePage('payroll/settings') || (!isAdmin && !featureAllows('payroll/settings'))) && 'hidden')}
+                    className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold rounded-lg transition-all w-full text-left", displayPage === 'payroll/settings' ? 'bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200', (!canUse('manage_settings') || !canUsePage('payroll/settings') || (!isAdmin && !featureAllows('payroll/settings'))) && 'hidden')}
                   >
                     <Settings className="w-4 h-4" />
                     Payroll Settings
@@ -971,7 +979,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   <button
                     disabled={!canUse('manage_users')}
                     onClick={() => handleNavClick('team')}
-                    className={`flex items-center gap-3 px-4 py-2 text-xs font-bold rounded-lg transition-all w-full text-left ${(!canUse('manage_users') || !canUsePage('team')) ? 'hidden ' : ''}${activePage === 'team' ? 'bg-cyan-50 text-cyan-700 dark:bg-cyan-900/20 dark:text-cyan-400' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200'}`}
+                    className={`flex items-center gap-3 px-4 py-2 text-xs font-bold rounded-lg transition-all w-full text-left ${(!canUse('manage_users') || !canUsePage('team')) ? 'hidden ' : ''}${displayPage === 'team' ? 'bg-cyan-50 text-cyan-700 dark:bg-cyan-900/20 dark:text-cyan-400' : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 hover:text-slate-900 dark:hover:bg-slate-800 dark:hover:text-slate-200'}`}
                   >
                     <Users className="w-4 h-4" />
                     Team &amp; Subusers

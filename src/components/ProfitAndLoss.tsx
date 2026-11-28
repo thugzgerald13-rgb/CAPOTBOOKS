@@ -69,7 +69,7 @@ export function ProfitAndLoss() {
   const priorNetIncome = priorGrossIncome - priorExpenseTotal;
 
   const data = currentClient.plData || {
-    companyName: currentClient.tradeName || currentClient.name || '',
+    companyName: currentClient.name || currentClient.tradeName || '',
     address: [currentClient.street, currentClient.barangay, currentClient.city, currentClient.zipCode].filter(Boolean).join(', ') || '',
     reportName: 'INCOME STATEMENT',
     period: `For the year ended December 31, ${year}`,

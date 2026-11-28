@@ -14,6 +14,9 @@ import { PaymentInstructions } from './PaymentInstructions';
 const fmtDate = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleDateString('en-PH', { year: 'numeric', month: 'short', day: 'numeric' }) : '';
 
+// Modules temporarily hidden from Plan & Billing until perfected.
+const HIDDEN_BILLING_MODULES = new Set<ModuleId>(['compliance']);
+
 interface PendingRequest { modules: string[] | null; billing_cycle: string | null; plan: string }
 
 /** Plan & Billing section: trial status, bundles, and a-la-carte module picker. */
@@ -52,7 +55,7 @@ export function PlanAndModules() {
   useEffect(() => {
     const q = window.location.hash.split('?')[1];
     const buy = q ? new URLSearchParams(q).get('buy') : null;
-    if (buy && isModuleId(buy)) {
+    if (buy && isModuleId(buy) && !HIDDEN_BILLING_MODULES.has(buy)) {
       setSelected([buy]);
       setTimeout(() => document.getElementById('plan-modules')?.scrollIntoView({ behavior: 'smooth' }), 50);
     }
@@ -169,7 +172,7 @@ export function PlanAndModules() {
 
       {/* Module list */}
       <div className="space-y-2">
-        {PAID_MODULES.map((m) => {
+        {PAID_MODULES.filter((m) => !HIDDEN_BILLING_MODULES.has(m.id)).map((m) => {
           const access = moduleAccess(ent, m.id);
           const paid = ent.paid[m.id];
           const checked = selected.includes(m.id);
