@@ -100,8 +100,12 @@ export function Sales({ embedded = false, editSale = null, onSaved, onClose }: S
     { value: 'Credit Card', label: 'Credit Card', permission: 'credit' },
     { value: 'On Account', label: 'On Account', permission: 'credit' },
   ].filter((option) => canSalesDropdown('payment_type', option.permission));
+  const isNonVatOrExemptSeller =
+    currentClient?.vatRegistrationType === 'non-vat' ||
+    currentClient?.vatRegistrationType === 'exempt';
   const vatTypeOptions = [
-    { value: 'VATable', label: 'VATable', permission: 'vatable' },
+    ...(!isNonVatOrExemptSeller ? [{ value: 'VATable', label: 'VATable', permission: 'vatable' }] : []),
+    { value: 'Non-VAT', label: 'Non-VAT', permission: 'vat_exempt' },
     { value: 'VAT Exempt', label: 'VAT Exempt', permission: 'vat_exempt' },
     { value: 'Zero-Rated', label: 'Zero-Rated', permission: 'zero_rated' },
   ].filter((option) => canSalesDropdown('vat_type', option.permission));
