@@ -583,6 +583,10 @@ declare
   v_target_month text;
   v_locked_month text;
 begin
+  if tg_op = 'DELETE'
+     and coalesce(current_setting('app.account_deletion', true), '') = 'true' then
+    return old;
+  end if;
   if tg_op = 'UPDATE' then
     if old.record_type = 'filed' or new.record_type = 'filed' then
       if current_setting('app.relief_allow_amend', true) is distinct from 'on' then

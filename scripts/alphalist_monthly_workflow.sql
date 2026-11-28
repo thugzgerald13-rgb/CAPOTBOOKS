@@ -77,6 +77,10 @@ security definer
 set search_path = public, pg_temp
 as $$
 begin
+  if tg_op = 'DELETE'
+     and coalesce(current_setting('app.account_deletion', true), '') = 'true' then
+    return old;
+  end if;
   if old.record_type = 'alphalist_filed'
      and coalesce(current_setting('app.alphalist_amend', true), '') <> 'true' then
     raise exception 'Monthly Alphalist month % is filed and locked. Use Amend before changing it.', old.record_id;

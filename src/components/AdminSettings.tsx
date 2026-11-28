@@ -909,6 +909,17 @@ export function AdminSettings() {
     document.body.removeChild(link);
   };
   
+  const getErrorMessage = (err: unknown): string => {
+    if (err instanceof Error && err.message) return err.message;
+    if (typeof err === 'object' && err !== null) {
+      const e = err as { message?: unknown; details?: unknown; hint?: unknown };
+      const parts = [e.message, e.details, e.hint]
+        .filter((v): v is string => typeof v === 'string' && v.trim().length > 0);
+      if (parts.length > 0) return parts.join(' — ');
+    }
+    return String(err);
+  };
+
   const handleToggleApproval = async (uid: string, approve: boolean) => {
     setActionUserId(uid);
     try {
@@ -925,7 +936,7 @@ export function AdminSettings() {
       await fetchUsers();
     } catch (err) {
       console.error('Approval toggle failed:', err);
-      const message = err instanceof Error ? err.message : String(err);
+      const message = getErrorMessage(err);
       alert(`Failed to ${approve ? 'approve' : 'revoke'} user: ${message}`);
     } finally {
       setActionUserId(null);
@@ -943,7 +954,7 @@ export function AdminSettings() {
       await fetchUsers();
     } catch (err) {
       console.error('Block toggle failed:', err);
-      const message = err instanceof Error ? err.message : String(err);
+      const message = getErrorMessage(err);
       alert(`Failed to ${blocked ? 'block' : 'unblock'} user: ${message}`);
     } finally {
       setActionUserId(null);
@@ -961,11 +972,17 @@ export function AdminSettings() {
       const { error } = await supabase.rpc('delete_user_account', {
         p_target_user_id: user.uid,
       });
-      if (error) throw error;
-      await fetchUsers();
+      if (error) {
+        const msg = getErrorMessage(error);
+        if (/function.*does not exist|could not find/i.test(msg)) {
+          throw new Error('The delete_user_account server migration is not applied yet. Run scripts/fix_permanent_account_deletion.sql in your Supabase SQL Editor first.');
+        }
+        throw new Error(msg);
+      }
+      await Promise.all([fetchUsers(), fetchTaxpayerProfiles()]);
     } catch (err) {
       console.error('User deletion failed:', err);
-      const message = err instanceof Error ? err.message : String(err);
+      const message = getErrorMessage(err);
       alert(`Failed to delete user: ${message}`);
     } finally {
       setActionUserId(null);

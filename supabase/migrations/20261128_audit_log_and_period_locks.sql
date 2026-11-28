@@ -28,6 +28,22 @@ RETURNS TRIGGER
 LANGUAGE plpgsql
 AS $$
 BEGIN
+  IF TG_OP = 'UPDATE'
+     AND coalesce(current_setting('app.account_deletion', true), '') = 'true'
+     AND NEW.user_id IS NULL
+     AND NEW.id          IS NOT DISTINCT FROM OLD.id
+     AND NEW.client_id   IS NOT DISTINCT FROM OLD.client_id
+     AND NEW.user_email  IS NOT DISTINCT FROM OLD.user_email
+     AND NEW.action      IS NOT DISTINCT FROM OLD.action
+     AND NEW.entity      IS NOT DISTINCT FROM OLD.entity
+     AND NEW.entity_id   IS NOT DISTINCT FROM OLD.entity_id
+     AND NEW.before_data IS NOT DISTINCT FROM OLD.before_data
+     AND NEW.after_data  IS NOT DISTINCT FROM OLD.after_data
+     AND NEW.details     IS NOT DISTINCT FROM OLD.details
+     AND NEW.created_at  IS NOT DISTINCT FROM OLD.created_at THEN
+    RETURN NEW;
+  END IF;
+
   RAISE EXCEPTION 'audit_logs is append-only and cannot be modified or deleted (BIR CAS compliance).';
 END;
 $$;

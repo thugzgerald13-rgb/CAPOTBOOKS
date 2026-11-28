@@ -116,7 +116,7 @@ CREATE FUNCTION public.delete_user_account(
 RETURNS VOID
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, auth, pg_temp
 AS $$
 DECLARE
   caller_email TEXT;
@@ -142,12 +142,27 @@ BEGIN
   WHERE au.id = p_target_user_id;
 
   IF target_email IS NULL THEN
+    IF to_regclass('public.profiles') IS NOT NULL THEN
+      DELETE FROM public.profiles WHERE id = p_target_user_id;
+      IF FOUND THEN
+        RETURN;
+      END IF;
+    END IF;
     RAISE EXCEPTION 'Target user account not found';
   END IF;
 
   IF target_email = lower('thugz.gerald13@gmail.com') THEN
     RAISE EXCEPTION 'The developer account cannot be deleted here';
   END IF;
+
+  IF to_regprocedure('public._permanently_delete_user_account(uuid)') IS NOT NULL THEN
+    PERFORM public._permanently_delete_user_account(p_target_user_id);
+    RETURN;
+  END IF;
+
+  PERFORM set_config('app.account_deletion', 'true', true);
+  PERFORM set_config('app.relief_allow_amend', 'on', true);
+  PERFORM set_config('app.alphalist_amend', 'true', true);
 
   DELETE FROM public.profiles
   WHERE id = p_target_user_id;
@@ -160,7 +175,7 @@ BEGIN
   END IF;
 EXCEPTION
   WHEN foreign_key_violation THEN
-    RAISE EXCEPTION 'Cannot delete this account because another database object still references it. Block the account instead, or remove the dependent record first.';
+    RAISE EXCEPTION 'Cannot delete this account due to a remaining database reference: %', SQLERRM;
 END;
 $$;
 

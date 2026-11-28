@@ -90,14 +90,26 @@ export function AccountSettings() {
       if (rpcError) {
         const msg = rpcError.message || '';
         if (/function.*does not exist|could not find/i.test(msg)) {
-          throw new Error('The delete-account server migration is not applied yet. Run scripts/self_delete_account.sql in your Supabase dashboard first.');
+          throw new Error('The delete-account server migration is not applied yet. Run scripts/fix_permanent_account_deletion.sql in your Supabase SQL Editor first.');
         }
-        throw new Error(msg);
+        throw new Error(msg || 'Unable to delete account.');
       }
       showToast('Your account has been permanently deleted.');
-      await signOut();
+      // The auth.users row is already deleted, so server-side signOut() may
+      // return 401/403. Fall back to local sign-out so the UI always clears.
+      try {
+        await signOut();
+      } catch {
+        await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to delete account.');
+      const msg =
+        err instanceof Error
+          ? err.message
+          : typeof err === 'object' && err !== null && 'message' in err
+            ? String((err as { message?: unknown }).message || 'Unable to delete account.')
+            : 'Unable to delete account.';
+      setError(msg);
       setDeleting(false);
     }
   };
@@ -199,7 +211,11 @@ export function AccountSettings() {
           <h2 className="text-sm font-black uppercase tracking-wider text-red-700 dark:text-red-300">Danger Zone</h2>
         </div>
         <p className="text-xs text-red-500/80 dark:text-red-400/70 mb-4">Permanently remove your account and all associated data. This cannot be undone.</p>
-        {!showDeleteConfirm ? (
+        {isAdmin ? (
+          <p className="text-xs font-medium text-red-600/80 dark:text-red-400/80">
+            The developer account is protected and cannot be self-deleted from Account Settings.
+          </p>
+        ) : !showDeleteConfirm ? (
           <button
             type="button"
             onClick={() => { setShowDeleteConfirm(true); setDeleteConfirmText(''); setError(''); }}
