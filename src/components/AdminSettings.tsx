@@ -999,16 +999,26 @@ export function AdminSettings() {
           </div>
         </div>
 
-        <div className="sticky top-0 z-20 -mx-1 flex gap-2 overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-950/95 p-2 shadow-sm backdrop-blur">
+        <nav aria-label="System configuration sections" className="sticky top-0 z-20 -mx-1 flex gap-2 overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 bg-white/95 dark:bg-slate-950/95 p-2 shadow-sm backdrop-blur">
           {[
             ['taxpayer-config', 'Taxpayer setup'],
             ['user-directory', 'User directory'],
             ['access-controls', 'Access controls'],
             ['developer-tools', 'Developer tools'],
           ].map(([id, label]) => (
-            <a key={id} href={`#${id}`} className="shrink-0 rounded-lg px-3 py-2 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 transition-colors">{label}</a>
+            <button
+              key={id}
+              type="button"
+              onClick={() => {
+                const section = document.getElementById(id);
+                if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+              }}
+              className="shrink-0 rounded-lg px-3 py-2 text-xs font-bold text-slate-600 dark:text-slate-300 hover:bg-emerald-50 hover:text-emerald-700 dark:hover:bg-emerald-950/40 dark:hover:text-emerald-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500 transition-colors"
+            >
+              {label}
+            </button>
           ))}
-        </div>
+        </nav>
 
         {isDiagnosticsPage ? (
           <DiagnosticsTab />
