@@ -136,7 +136,7 @@ export function AccountSettings() {
       {section(<UserCircle className="w-4 h-4" />, 'Profile', 'Your account identity.', (
         <div className="grid md:grid-cols-2 gap-4">
           <div><label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Email</label><div className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-200 text-sm">{user?.email || '—'}</div></div>
-          <div><label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Role</label><div className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-200 text-sm capitalize">{userRole || '—'}</div></div>
+          <div><label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-2">Role</label><div className="w-full px-4 py-3 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-200 text-sm capitalize">{userRole === 'owner' ? 'Business Owner' : (userRole || '—')}</div></div>
         </div>
       ))}
 

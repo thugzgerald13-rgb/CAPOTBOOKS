@@ -139,10 +139,23 @@ const defaultBusinessProfile = (name: string): BusinessProfile => {
   };
 };
 
+const resolveProfileDisplayName = (profileData: BusinessProfile): string => {
+  const trade = String(profileData.tradeName || '').trim();
+  const registered = String(profileData.registeredName || '').trim();
+  const person = [profileData.firstName, profileData.middleName, profileData.lastName]
+    .map(v => String(v || '').trim())
+    .filter(Boolean)
+    .join(' ');
+  if (profileData.taxpayerClassification === 'Individual') {
+    return trade || person || registered || profileData.name;
+  }
+  return registered || trade || profileData.name;
+};
+
 const buildMatchingClient = (profileData: BusinessProfile, existing: Client | undefined, ownerId: string): Client =>
   ({
     id: ownerId,
-    name: profileData.name,
+    name: resolveProfileDisplayName(profileData),
     tin: profileData.tin || '',
     taxpayerClassification: profileData.taxpayerClassification || '',
     taxpayerSubClassification: profileData.taxpayerSubClassification || existing?.taxpayerSubClassification || 'sole_proprietor',

@@ -200,7 +200,7 @@ export function GeneralLedger() {
                     const debit = parseFloat(String(e.debit || '').replace(/,/g, '')) || 0;
                     const credit = parseFloat(String(e.credit || '').replace(/,/g, '')) || 0;
                     runningBalance += debit - credit;
-                    return <tr key={e.id} className="border-t border-slate-100 dark:border-slate-800"><td className="px-4 py-2">{e.dateDr||e.dateCr}</td><td className="px-4 py-2">{e.particularsDr||e.particularsCr}</td><td className="px-4 py-2">{e.refDr||e.refCr}</td><td className="px-4 py-2 text-right">{e.debit||''}</td><td className="px-4 py-2 text-right">{e.credit||''}</td><td className="px-4 py-2 text-right font-semibold whitespace-nowrap">{formatBalance(runningBalance)}</td></tr>;
+                    return <tr key={e.id} className="border-t border-slate-100 dark:border-slate-800"><td className="px-4 py-2 whitespace-nowrap">{entryDate(e)}</td><td className="px-4 py-2">{e.particularsDr||e.particularsCr}</td><td className="px-4 py-2">{e.refDr||e.refCr}</td><td className="px-4 py-2 text-right">{e.debit||''}</td><td className="px-4 py-2 text-right">{e.credit||''}</td><td className="px-4 py-2 text-right font-semibold whitespace-nowrap">{formatBalance(runningBalance)}</td></tr>;
                   });
                 })()}
                 {!account.entries.length&&<tr><td colSpan={7} className="px-4 py-8 text-center text-slate-400">No ledger entries for this period.</td></tr>}

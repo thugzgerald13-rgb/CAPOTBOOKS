@@ -2085,7 +2085,7 @@ export function Extras() {
                   {trialBalanceError && <div className="mb-4 p-3 rounded-lg bg-red-50 text-red-700 text-sm">{trialBalanceError}</div>}
                   {!trialBalanceError && balances.length === 0 && <div className="mb-4 text-center text-sm text-slate-400">Loading server-calculated balances…</div>}
                   <div className="text-center mb-6">
-                    <h2 className="font-bold text-lg uppercase">{currentClient.name || currentClient.tradeName}</h2>
+                    <h2 className="font-bold text-lg uppercase">{currentClient.taxpayerClassification === 'Individual' ? (currentClient.tradeName || [currentClient.firstName, currentClient.lastName].filter(Boolean).join(' ') || currentClient.name) : (currentClient.registeredName || currentClient.name || currentClient.tradeName)}</h2>
                     <p className="text-sm text-slate-500">Trial Balance — Current Year {trialBalanceYear}</p>
                   </div>
                   <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
