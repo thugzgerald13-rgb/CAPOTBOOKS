@@ -1014,26 +1014,29 @@ function cashPurchasesToCdjEntries(client: Client): JournalEntry[] {
 
 function cashJournalVouchersToCdjEntries(client: Client, accounts: CoaAccount[]): JournalEntry[] {
   const cashAccount = resolveCashAccount(accounts);
-  if (!cashAccount) return [];
-
   const cashAccountIds = new Set(
     accounts
-      .filter(a => a.id === cashAccount.id || /^cash(\s+(on\s+hand|in\s+bank))?$/i.test((a.name || '').trim()))
-      .map(a => a.id)
+      .filter(a => (cashAccount && a.id === cashAccount.id) || /\bcash\b/i.test(String(a.name || '')))
+      .map(a => String(a.id))
   );
+
+  const isCashLine = (l: { accountId?: string; accountName?: string }) =>
+    (l.accountId != null && cashAccountIds.has(String(l.accountId))) ||
+    /\bcash\b/i.test(String(l.accountName || ''));
 
   const entries: JournalEntry[] = [];
   (client.journalVouchers || []).forEach(v => {
-    const creditLines = v.lines.filter(l => l.credit > 0);
+    const lines = Array.isArray(v.lines) ? v.lines : [];
+    const creditLines = lines.filter(l => Number(l.credit) > 0);
     if (creditLines.length === 0) return;
 
-    // Only treat this voucher as a cash disbursement when every credit line
-    // on it is a Cash account. Mixed-credit vouchers are left for manual
-    // CDJ entry rather than guessing which portion was paid in cash.
-    const isCashOnlyCredit = creditLines.every(l => cashAccountIds.has(l.accountId));
+    // Match JournalVoucher.tsx's `isCashPaymentVoucher` rule: treat as a cash
+    // disbursement when every credit line is a Cash account (by ID or name).
+    const isCashOnlyCredit = creditLines.every(l => isCashLine(l));
     if (!isCashOnlyCredit) return;
 
-    v.lines.filter(l => l.debit > 0).forEach(l => {
+    lines.filter(l => Number(l.debit) > 0).forEach(l => {
+      const amt = Number(l.debit);
       entries.push({
         id: `cdj-auto:jv:${v.id}:${l.id}`,
         auto: true,
@@ -1042,9 +1045,9 @@ function cashJournalVouchersToCdjEntries(client: Client, accounts: CoaAccount[])
           date: v.date,
           payee: v.memo || v.reference,
           folio_f: v.reference || '',
-          cash_on_hand_bank: two(l.debit),
+          cash_on_hand_bank: two(amt),
           sundry_account_title: l.accountName,
-          sundry_amount: two(l.debit),
+          sundry_amount: two(amt),
         },
       });
     });
