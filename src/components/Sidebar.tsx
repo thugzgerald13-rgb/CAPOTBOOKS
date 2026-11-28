@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
+import { prefetchRoute } from '../lib/routePrefetch';
 import { useAccounting } from '../context/AccountingContext';
 import { useAuth } from '../context/AuthContext';
 import { useEntitlements, isTrialActive, trialDaysLeft, hasTrialEnded } from '../lib/subscription';
@@ -839,6 +840,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       <button
                         key={subItem.id}
                         disabled={!canUse('view_reports')}
+                        onMouseEnter={() => prefetchRoute(subItem.id)}
                         onClick={() => handleNavClick(subItem.id)}
                         className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-amber-50 hover:text-amber-600 dark:hover:bg-slate-800 dark:hover:text-amber-400 transition-all w-full text-left", displayPage === subItem.id && activeAmber, !canUse('view_reports') && "opacity-40 grayscale cursor-not-allowed pointer-events-none")}
                       >
@@ -887,6 +889,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                       <button
                         key={subItem.id}
                         disabled={!canAny('view_reports', 'edit_transactions')}
+                        onMouseEnter={() => prefetchRoute(subItem.id)}
                         onClick={() => handleNavClick(subItem.id)}
                         className={cn("flex items-center gap-3 px-4 py-2 text-xs font-bold text-slate-500 dark:text-slate-400 rounded-lg hover:bg-cyan-50 hover:text-cyan-600 dark:hover:bg-slate-800 dark:hover:text-cyan-400 transition-all w-full text-left", displayPage === subItem.id && activeCyan, !canAny('view_reports', 'edit_transactions') && "opacity-40 grayscale cursor-not-allowed pointer-events-none")}
                       >

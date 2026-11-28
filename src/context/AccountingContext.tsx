@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Client, BusinessProfile, DatSelection } from '../types';
 import { supabase } from '../lib/supabase';
@@ -796,8 +796,14 @@ export function AccountingProvider({
       // A manual sync means "give me exactly what Supabase has now".
       clearNormalizedClientCache();
       const permittedRows = await filterPermittedClientRows(data || []);
-      const cloudEntries = await Promise.all(permittedRows.map(async (row: any) => {
-        const normalized = await loadNormalizedClient(row.id);
+      const activeSyncId =
+        (currentClientId && permittedRows.some((r: any) => r.id === currentClientId) ? currentClientId : null) ||
+        permittedRows[0]?.id ||
+        null;
+      const activeNormalized = activeSyncId ? await loadNormalizedClient(activeSyncId) : null;
+      const cloudEntries = permittedRows.map((row: any) => {
+        const isHydrated = row.id === activeSyncId && activeNormalized !== null;
+        const normalized = isHydrated ? activeNormalized : ({} as any);
         const client = {
           id: row.id, name: row.name || 'Client',
           tin: row.tin, taxpayerClassification: row.taxpayer_classification, registeredName: row.registered_name,
@@ -818,8 +824,8 @@ export function AccountingProvider({
           sales: normalized.sales ?? [], purchases: normalized.purchases ?? [], expenses: purchasesToExpenses(normalized.purchases ?? []),
           ...(normalized as any)
         } as Client;
-        return [row.id, client] as const;
-      }));
+        return [row.id, { ...client, __hydrated: isHydrated } as Client] as const;
+      });
       const cloudClients: Record<string, Client> = Object.fromEntries(cloudEntries);
       setClients(cloudClients);
       showToast('Cloud sync complete');
@@ -1040,8 +1046,22 @@ export function AccountingProvider({
         clearTimeout(timeout);
         const permittedRows = await filterPermittedClientRows(data || []);
         if (isCancelled || isTimedOut) return;
-        const cloudEntries = await Promise.all(permittedRows.map(async (row: any) => {
-          const normalized = await loadNormalizedClient(row.id);
+        // Multi-client scalability: hydrate ONLY the active client's ~22 child
+        // tables on initial load; all other clients load as lightweight profile
+        // shells and hydrate on demand when selected in the Client Switcher.
+        const lastSavedId = (() => { try { return localStorage.getItem('capot.lastClientId'); } catch { return null; } })();
+        const initialHydrateId =
+          (savedActiveClientId && permittedRows.some((r: any) => r.id === savedActiveClientId) ? savedActiveClientId : null) ||
+          (lastSavedId && permittedRows.some((r: any) => r.id === lastSavedId) ? lastSavedId : null) ||
+          permittedRows[0]?.id ||
+          null;
+
+        const initialNormalized = initialHydrateId ? await loadNormalizedClient(initialHydrateId) : null;
+        if (isCancelled || isTimedOut) return;
+
+        const cloudEntries = permittedRows.map((row: any) => {
+          const isHydrated = row.id === initialHydrateId && initialNormalized !== null;
+          const normalized = isHydrated ? initialNormalized : ({} as any);
           const client = { id: row.id, name: row.name || 'Client',
             tin: row.tin, taxpayerClassification: row.taxpayer_classification, registeredName: row.registered_name,
             lastName: row.last_name, firstName: row.first_name, middleName: row.middle_name, tradeName: row.trade_name,
@@ -1057,9 +1077,9 @@ export function AccountingProvider({
             deductionMethod: row.deduction_method || undefined,
             percentageTaxRate: row.percentage_tax_rate ?? undefined,
             additionalBirForms: Array.isArray(row.additional_bir_forms) ? row.additional_bir_forms : [],
-            tinLibrary: normalized.tinLibrary ?? {customers:[], suppliers:[]}, sales: normalized.sales ?? [], purchases: normalized.purchases ?? [], expenses: purchasesToExpenses(normalized.purchases ?? []), ...(normalized as any) } as Client;
+            tinLibrary: normalized.tinLibrary ?? {customers:[], suppliers:[]}, sales: normalized.sales ?? [], purchases: normalized.purchases ?? [], expenses: purchasesToExpenses(normalized.purchases ?? []), ...(normalized as any), __hydrated: isHydrated } as Client;
           return [row.id, client] as const;
-        }));
+        });
         if (isCancelled || isTimedOut) return;
         const cloudClients: Record<string, Client> = Object.fromEntries(cloudEntries);
         mergeCloudClients(cloudClients);
@@ -2366,9 +2386,50 @@ export function AccountingProvider({
     return () => window.removeEventListener('online', onOnline);
   }, []);
 
-  const navigateToPage = (page: string | null) => {
+  const hydratingClientIds = useRef<Set<string>>(new Set());
+
+  // Persist last active client ID and lazily hydrate unhydrated clients on switch.
+  useEffect(() => {
+    if (!currentClientId || !user) return;
+    try { localStorage.setItem('capot.lastClientId', currentClientId); } catch { /* ignore */ }
+    const target = clients[currentClientId] as (Client & { __hydrated?: boolean }) | undefined;
+    if (!target || target.__hydrated !== false) return;
+    if (hydratingClientIds.current.has(currentClientId)) return;
+
+    hydratingClientIds.current.add(currentClientId);
+    let cancelled = false;
+    setIsSyncing(true);
+    void loadNormalizedClient(currentClientId)
+      .then((normalized) => {
+        if (cancelled) return;
+        setClients(prev => {
+          const cur = prev[currentClientId];
+          if (!cur) return prev;
+          return {
+            ...prev,
+            [currentClientId]: {
+              ...cur,
+              tinLibrary: normalized.tinLibrary ?? { customers: [], suppliers: [] },
+              sales: normalized.sales ?? [],
+              purchases: normalized.purchases ?? [],
+              expenses: purchasesToExpenses(normalized.purchases ?? []),
+              ...(normalized as any),
+              __hydrated: true,
+            } as Client,
+          };
+        });
+      })
+      .catch((err) => console.error(`On-demand hydration failed for client ${currentClientId}:`, err))
+      .finally(() => {
+        hydratingClientIds.current.delete(currentClientId);
+        if (!cancelled) setIsSyncing(false);
+      });
+    return () => { cancelled = true; };
+  }, [currentClientId, clients, user]);
+
+  const navigateToPage = useCallback((page: string | null) => {
     navigate(page ? `/${page}` : '/');
-  };
+  }, [navigate]);
 
   // Every account title's General Ledger entries are derived here so that
   // ANY change anywhere in the books (a sale, a purchase, a CRJ/CDJ/PJ row,

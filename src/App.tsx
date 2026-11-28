@@ -23,6 +23,7 @@ import { moduleIdForRoute, moduleIdsForRoute, modulePermissionKey, actionPermiss
 import { supabase } from './lib/supabase';
 import { useFeatureVisibility } from './lib/featureVisibility';
 import { Swappable } from './components/Swappable';
+import { prefetchCoreRoutesOnIdle } from './lib/routePrefetch';
 // Registers developer-made customized pages/buttons (src/custom/registry.ts). Side-effect import.
 import './custom/registry';
 
@@ -120,6 +121,7 @@ function RequirePermission({ children }: { children: React.ReactNode }) {
 
 function AppLayout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  useEffect(() => { prefetchCoreRoutesOnIdle(); }, []);
   const { clients, currentClient, navigateToPage, activePage, businessProfile } = useAccounting();
   const { userRole, isAdmin, isSubuser, hasPermission } = useAuth();
 
