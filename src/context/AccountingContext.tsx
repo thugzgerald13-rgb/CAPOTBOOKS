@@ -1422,7 +1422,10 @@ export function AccountingProvider({
         // the business profile on every refresh.
 
         if (isReady) {
-          persistNormalizedClient(matchingClient, dataOwnerId).catch((error) => console.error('Auto-syncing owner client failed:', error));
+          const persist = existing
+            ? persistClientProfileOnly(ownerId, matchingClient)
+            : persistNormalizedClient(matchingClient, dataOwnerId, { initialCreate: true });
+          persist.catch((error) => console.error('Auto-syncing owner client failed:', error));
         }
       }
 
