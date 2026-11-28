@@ -816,7 +816,7 @@ export function FileManager() {
         <div className="flex-1 flex flex-col gap-6">
           <div>
             <h3 className="text-lg font-bold text-slate-800 dark:text-slate-100 flex items-center gap-2">
-              <span>{activeFolder?.name} Folder</span>
+              <span>{activeFolder?.name && /\bfolder$/i.test(activeFolder.name.trim()) ? activeFolder.name : `${activeFolder?.name || ''} Folder`}</span>
               {activeFolder && isSystemDefaultFolder(activeFolder) && (
                 <span className="text-[10px] bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900 px-2 py-0.5 rounded-full font-bold uppercase tracking-wider">
                   Default

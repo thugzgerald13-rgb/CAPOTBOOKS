@@ -8,7 +8,7 @@ import { usePermission } from '../lib/teamPermissions';
 import { JournalColumn, JournalEntry, CoaAccount } from '../types';
 import { cn, parseDateToISO, periodPreset } from '../lib/utils';
 
-import { CDJ_CASH_ON_HAND_BANK_ID, CDJ_SUNDRY_ACCOUNT_TITLE_ID, CDJ_SUNDRY_AMOUNT_ID, DEFAULT_CDJ_COLUMNS } from '../lib/journalDefaults';
+import { CDJ_CASH_ON_HAND_BANK_ID, CDJ_SUNDRY_ACCOUNT_TITLE_ID, CDJ_SUNDRY_AMOUNT_ID, DEFAULT_CDJ_COLUMNS, getDefaultAccountsForIndustry } from '../lib/journalDefaults';
 export { CDJ_CASH_ON_HAND_BANK_ID, CDJ_SUNDRY_ACCOUNT_TITLE_ID, CDJ_SUNDRY_AMOUNT_ID, DEFAULT_CDJ_COLUMNS };
 
 const MAX_CDJ_ACCOUNT_COLUMNS = 10; // user-selectable COA columns; Input Tax is a fixed default column
@@ -22,18 +22,16 @@ function accountIdFromColumn(column: JournalColumn): string | undefined {
   return column.id.startsWith(CDJ_ACCOUNT_PREFIX) ? column.id.slice(CDJ_ACCOUNT_PREFIX.length) : undefined;
 }
 
-function getClientAccounts(client: any): CoaAccount[] {
-  return (client.accounts || []).filter((a: CoaAccount) => !a.hidden);
+function getAllClientAccounts(client: any): CoaAccount[] {
+  if (client?.accounts && client.accounts.length > 0) return client.accounts;
+  return getDefaultAccountsForIndustry(
+    client?.industry,
+    client?.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric'
+  );
 }
 
-// Unlike getClientAccounts, this does NOT filter out hidden accounts. It must
-// be used anywhere a previously-configured CDJ column is matched back to its
-// account (normalization, migration, display, totals). Using the hidden-
-// filtered list there would make a column vanish — and then get permanently
-// deleted by the one-time column migration effect — the moment its linked
-// account is archived, even though the user never removed the column.
-function getAllClientAccounts(client: any): CoaAccount[] {
-  return client.accounts || [];
+function getClientAccounts(client: any): CoaAccount[] {
+  return getAllClientAccounts(client).filter((a: CoaAccount) => !a.hidden);
 }
 
 function getInputTaxAccount(accounts: CoaAccount[]): CoaAccount | undefined {

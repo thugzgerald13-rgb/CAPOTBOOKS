@@ -7,6 +7,7 @@ import { printReportPage } from '../lib/reportPrint';
 import { generateCSV } from '../lib/utils';
 import { GeneralLedgerAccount, GeneralLedgerEntry } from '../types';
 import { getDefaultAccountsForIndustry, getPostableCoaAccounts } from '../lib/journalDefaults';
+import { entryDateKey } from '../lib/accountingBalances';
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
@@ -17,15 +18,14 @@ const amountOf = (value: unknown): number => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const entryDate = (entry: GeneralLedgerEntry): string => String(entry.dateDr || entry.dateCr || '').slice(0, 10);
+const entryDate = (entry: GeneralLedgerEntry): string => entryDateKey(entry);
 const signedAmount = (entry: GeneralLedgerEntry): number => amountOf(entry.debit) - amountOf(entry.credit);
 const formatAmount = (value: number): string => Math.abs(value).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const formatBalance = (value: number): string => `${value < 0 ? '-' : ''}${formatAmount(value)}`;
 
 function accountMatchesPartyType(account: GeneralLedgerAccount, partyType: PartyType): boolean {
   const name = String(account.accountTitle || '').toLowerCase();
-  const tagged = (account.entries || []).some(entry => entry.partyType === partyType && !!entry.partyName?.trim());
-  if (tagged) return true;
+  if (/\b(vat|tax|withholding|output|input|sss|philhealth|pag-?ibig)\b/.test(name)) return false;
   return partyType === 'customer'
     ? /accounts? receivable|trade receivable|trade debtors?/.test(name)
     : /accounts? payable|trade payable|trade creditors?/.test(name);
@@ -136,6 +136,7 @@ export function SubsidiaryGeneralLedger() {
   const totalDebit = periodEntries.reduce((sum, entry) => sum + amountOf(entry.debit), 0);
   const totalCredit = periodEntries.reduce((sum, entry) => sum + amountOf(entry.credit), 0);
   const endingBalance = beginningBalance + totalDebit - totalCredit;
+  const formatPartyBalance = (val: number) => formatBalance(partyType === 'supplier' ? -val : val);
 
   const exportRows: any[][] = [
     ['Subsidiary General Ledger'],
@@ -213,7 +214,7 @@ export function SubsidiaryGeneralLedger() {
           <div>
             <label className="block text-xs font-semibold text-slate-500 mb-1">Period</label>
             <div className="flex gap-2">
-              <select value={month} onChange={event => setMonth(Number(event.target.value))} className="form-input text-sm py-2">{MONTHS.map((name, index) => <option key={name} value={index + 1}>{name}</option>)}</select>
+              <select value={month} onChange={event => setMonth(Number(event.target.value))} className="form-input text-sm py-2 min-w-[132px]">{MONTHS.map((name, index) => <option key={name} value={index + 1}>{name}</option>)}</select>
               <select value={year} onChange={event => setYear(Number(event.target.value))} className="form-input text-sm py-2">{years.map(value => <option key={value} value={value}>{value}</option>)}</select>
             </div>
           </div>
@@ -230,7 +231,7 @@ export function SubsidiaryGeneralLedger() {
           </div>
           <div className="text-right">
             <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Ending Balance</div>
-            <div className="text-xl font-black tabular-nums text-slate-800 dark:text-slate-100">{partyName ? formatBalance(endingBalance) : '—'}</div>
+            <div className="text-xl font-black tabular-nums text-slate-800 dark:text-slate-100">{partyName ? formatPartyBalance(endingBalance) : '—'}</div>
           </div>
         </div>
 
@@ -262,7 +263,7 @@ export function SubsidiaryGeneralLedger() {
                   <td className="px-4 py-3"></td>
                   <td className="px-4 py-3 text-right">{beginningBalance > 0 ? formatAmount(beginningBalance) : ''}</td>
                   <td className="px-4 py-3 text-right">{beginningBalance < 0 ? formatAmount(beginningBalance) : ''}</td>
-                  <td className="px-4 py-3 text-right font-semibold">{formatBalance(beginningBalance)}</td>
+                  <td className="px-4 py-3 text-right font-semibold">{formatPartyBalance(beginningBalance)}</td>
                 </tr>
                 {(() => {
                   let runningBalance = beginningBalance;
@@ -275,7 +276,7 @@ export function SubsidiaryGeneralLedger() {
                         <td className="px-4 py-3">{entry.refDr || entry.refCr || ''}</td>
                         <td className="px-4 py-3 text-right tabular-nums">{entry.debit || ''}</td>
                         <td className="px-4 py-3 text-right tabular-nums">{entry.credit || ''}</td>
-                        <td className="px-4 py-3 text-right font-semibold tabular-nums whitespace-nowrap">{formatBalance(runningBalance)}</td>
+                        <td className="px-4 py-3 text-right font-semibold tabular-nums whitespace-nowrap">{formatPartyBalance(runningBalance)}</td>
                       </tr>
                     );
                   });
@@ -289,7 +290,7 @@ export function SubsidiaryGeneralLedger() {
                   <td className="px-4 py-3"></td>
                   <td className="px-4 py-3 text-right tabular-nums">{formatAmount(totalDebit)}</td>
                   <td className="px-4 py-3 text-right tabular-nums">{formatAmount(totalCredit)}</td>
-                  <td className="px-4 py-3 text-right tabular-nums whitespace-nowrap">{formatBalance(endingBalance)}</td>
+                  <td className="px-4 py-3 text-right tabular-nums whitespace-nowrap">{formatPartyBalance(endingBalance)}</td>
                 </tr>
               </tbody>
             </table>

@@ -270,11 +270,14 @@ function postColumnarJournal(
         values.supplier_name, values.supplierName, values.payor, values.payee,
         values.payee_name, values.payeeName,
       ].map(value => String(value ?? '').trim()).find(Boolean) || '';
-      const partyType = /receivable|debtors?/.test(accountLabel)
-        ? 'customer' as const
-        : /payable|creditors?/.test(accountLabel)
-          ? 'supplier' as const
-          : undefined;
+      const isTaxOrStatutory = /\b(vat|tax|withholding|output|input|sss|philhealth|pag-?ibig)\b/.test(accountLabel);
+      const partyType = isTaxOrStatutory
+        ? undefined
+        : /accounts?\s*receivable|trade\s*receivable|trade\s*debtors?/.test(accountLabel)
+          ? 'customer' as const
+          : /accounts?\s*payable|trade\s*payable|trade\s*creditors?/.test(accountLabel)
+            ? 'supplier' as const
+            : undefined;
       const party = partyType && partyName ? { name: partyName, type: partyType } : undefined;
       postings.push({
         accountId: account.id,
@@ -1001,6 +1004,7 @@ function cashPurchasesToCdjEntries(client: Client): JournalEntry[] {
         values: {
           date: p.date,
           payee: p.supplierName,
+          folio_f: p.invoiceNo || '',
           account_title: line.accountTitle || 'Expense',
           amount: line.amount > 0 ? two(line.amount) : '',
           cash: i === 0 ? two(cashDue) : '',

@@ -1,4 +1,5 @@
 import type { GeneralLedgerAccount, GeneralLedgerEntry } from '../types';
+import { entryDateKey } from './accountingBalances';
 
 export type AgingPartyType = 'customer' | 'supplier';
 
@@ -65,7 +66,7 @@ const amountOf = (value: unknown): number => {
 };
 
 const entryDate = (entry: GeneralLedgerEntry): string =>
-  String(entry.dateDr || entry.dateCr || '').slice(0, 10);
+  entryDateKey(entry);
 
 const entryReference = (entry: GeneralLedgerEntry): string =>
   String(entry.refDr || entry.refCr || '').trim();
@@ -91,13 +92,13 @@ function daysBetween(fromISO: string, toISO: string): number {
 
 function isControlAccount(account: GeneralLedgerAccount, partyType: AgingPartyType): boolean {
   const title = String(account.accountTitle || '').toLowerCase();
+  if (/\b(vat|tax|withholding|output|input|sss|philhealth|pag-?ibig)\b/.test(title)) {
+    return false;
+  }
   const nameMatches = partyType === 'customer'
     ? /accounts?\s*receivable|trade\s*receivable|trade\s*debtors?|debtors?/.test(title)
     : /accounts?\s*payable|trade\s*payable|trade\s*creditors?|creditors?/.test(title);
-  const hasTaggedEntries = (account.entries || []).some(entry =>
-    entry.partyType === partyType && !!String(entry.partyName || '').trim()
-  );
-  return nameMatches || hasTaggedEntries;
+  return nameMatches;
 }
 
 function bucketForAge(days: number): AgingBucket['id'] {

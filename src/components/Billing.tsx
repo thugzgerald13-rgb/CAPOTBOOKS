@@ -66,6 +66,17 @@ function allocateBillingLineGrossAmounts(lines: BillingInvoiceLineItem[], grossT
 
 export function Billing() {
   const { currentClient, currentClientId, saveClient, saveBillingInvoice, deleteBillingInvoice, saveSale, deleteSale, saveJournalEntry, saveTinEntry, showToast, businessProfile } = useAccounting();
+  // Invoices issued inside a client workspace belong to that active client,
+  // falling back to the user's own business profile only for missing fields.
+  const issuerProfile = currentClient ? {
+    ...businessProfile,
+    ...currentClient,
+    name: currentClient.name || businessProfile?.name || '',
+    registeredName: currentClient.name || businessProfile?.registeredName || '',
+    tradeName: currentClient.name || currentClient.tradeName || businessProfile?.tradeName || '',
+    tin: currentClient.tin || businessProfile?.tin || '',
+    address: [currentClient.substreet, currentClient.street, currentClient.barangay, currentClient.district, currentClient.city, currentClient.zipCode].filter(Boolean).join(', ') || businessProfile?.address || '',
+  } : businessProfile;
   const navigate = useNavigate();
   const { canAction: canBillingAction, canDropdownOption: canBillingDropdown } = useGranularPermissions('billing');
   const { canAction: canEisAction } = useGranularPermissions('eis_center');
@@ -536,7 +547,7 @@ export function Billing() {
 
   const handlePrintNewInvoice = (inv: BillingInvoice) => {
     if (!canBillingAction('print')) { showToast('Your profile does not have permission to print invoices.'); return; }
-    try { const tpl = inv.templateId && currentClientId ? getTemplate(currentClientId, inv.templateId) : selectedTemplate; printTemplatedInvoice(inv, businessProfile, tpl); }
+    try { const tpl = inv.templateId && currentClientId ? getTemplate(currentClientId, inv.templateId) : selectedTemplate; printTemplatedInvoice(inv, issuerProfile, tpl); }
     catch (error) { console.error(error); showToast(error instanceof Error ? error.message : 'Could not open the print window'); }
   };
 
@@ -549,8 +560,8 @@ export function Billing() {
     }
     try {
       const tpl = inv.templateId && currentClientId ? getTemplate(currentClientId, inv.templateId) : selectedTemplate;
-      downloadTemplatedInvoicePdf(inv, businessProfile, tpl);
-      const subject = encodeURIComponent(`Invoice ${inv.invoiceNo} from ${businessProfile?.tradeName || businessProfile?.registeredName || businessProfile?.name || 'CAPOTBOOKS'}`);
+      downloadTemplatedInvoicePdf(inv, issuerProfile, tpl);
+      const subject = encodeURIComponent(`Invoice ${inv.invoiceNo} from ${issuerProfile?.name || issuerProfile?.registeredName || issuerProfile?.tradeName || 'CAPOTBOOKS'}`);
       const body = encodeURIComponent(`Dear ${inv.customerName},\n\nPlease find the invoice PDF downloaded from CAPOTBOOKS. Attach the downloaded file to this email before sending.\n\nInvoice: ${inv.invoiceNo}\nInvoice date: ${inv.date}\nDue date: ${inv.dueDate}\nAmount due: ${money(inv.amount)}\n\nThank you.`);
       window.location.href = `mailto:${encodeURIComponent(inv.customerEmail)}?subject=${subject}&body=${body}`;
       showToast('Invoice PDF downloaded and email draft prepared. Attach the PDF before sending.');
@@ -701,17 +712,17 @@ export function Billing() {
   // Run 007 / T007 — PDF export, payment link copy, email reminder
   const handleDownloadPdf = (inv: BillingInvoice) => {
     if (!canBillingAction('print')) { showToast('Your profile does not have permission to print invoices.'); return; }
-    try { const tpl = inv.templateId && currentClientId ? getTemplate(currentClientId, inv.templateId) : selectedTemplate; downloadTemplatedInvoicePdf(inv, businessProfile, tpl); showToast('Invoice PDF downloaded'); }
+    try { const tpl = inv.templateId && currentClientId ? getTemplate(currentClientId, inv.templateId) : selectedTemplate; downloadTemplatedInvoicePdf(inv, issuerProfile, tpl); showToast('Invoice PDF downloaded'); }
     catch { showToast('Failed to generate PDF'); }
   };
   const handleCopyPaymentLink = async (inv: BillingInvoice) => {
     if (!canBillingAction('edit')) { showToast('Your profile does not have permission to manage invoice follow-ups.'); return; }
-    const ok = await copyPaymentMessage(inv, businessProfile);
+    const ok = await copyPaymentMessage(inv, issuerProfile);
     showToast(ok ? 'Payment details copied — paste to your customer' : 'Could not copy payment details');
   };
   const handleSendReminder = (inv: BillingInvoice) => {
     if (!canBillingAction('edit')) { showToast('Your profile does not have permission to manage invoice follow-ups.'); return; }
-    openPaymentReminderEmail(inv, businessProfile);
+    openPaymentReminderEmail(inv, issuerProfile);
     toast.info(`Payment reminder drafted for ${inv.invoiceNo}`);
   };
 
@@ -790,7 +801,7 @@ export function Billing() {
                       setCustomerEmail('');
                     }
                   }} className="form-input min-w-0 flex-1">
-                    <option value="">Select from TIN Library (optional)</option>
+                    <option value="">Select customer (optional)</option>
                     {customerDirectory.map(customer => <option key={customer.id} value={customer.tin}>{customer.name} · {customer.tin}</option>)}
                   </select>
                   {canTinLibraryAction('add') && <button type="button" onClick={openNewCustomer} className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/30 px-3 py-2 text-xs font-bold text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-950/50 transition">
@@ -883,7 +894,7 @@ export function Billing() {
             <p className="text-[11px] text-slate-500 mb-4">Review the actual customer and service details before recording the invoice.</p>
             <div className="max-w-4xl mx-auto rounded-xl border border-slate-200 bg-white text-slate-800 p-5 md:p-7 shadow-sm">
               <div className="flex justify-between gap-5 flex-wrap border-b-2 border-double border-slate-400 pb-4">
-                <div><h4 className="font-black text-lg">{businessProfile?.tradeName || businessProfile?.registeredName || businessProfile?.name || 'CAPOTBOOKS Business'}</h4><p className="text-[10px] text-slate-500">{businessProfile?.address || [businessProfile?.street, businessProfile?.barangay, businessProfile?.city].filter(Boolean).join(', ')}</p><p className="text-[10px] text-slate-500">{businessProfile?.tin ? `TIN: ${businessProfile.tin}` : ''}</p></div>
+                <div><h4 className="font-black text-lg">{issuerProfile?.name || issuerProfile?.registeredName || issuerProfile?.tradeName || 'CAPOTBOOKS Business'}</h4><p className="text-[10px] text-slate-500">{issuerProfile?.address || [issuerProfile?.street, issuerProfile?.barangay, issuerProfile?.city].filter(Boolean).join(', ')}</p><p className="text-[10px] text-slate-500">{issuerProfile?.tin ? `TIN: ${issuerProfile.tin}` : ''}</p></div>
                 <div className="text-right"><h4 className="font-black text-xl tracking-widest">{selectedTemplate?.documentTitle || 'INVOICE'}</h4><p className="text-xs">{invoiceNo || 'Invoice No. not entered'}</p><p className="text-[10px] text-slate-500">Date: {date} · Due: {dueDate}</p></div>
               </div>
               <div className="grid grid-cols-2 gap-4 my-5 text-xs"><div><p className="font-black text-[9px] uppercase tracking-widest text-slate-400 mb-1">Bill to</p><p className="font-bold">{customerName || 'Customer name not entered'}</p><p>{customerTin}</p><p>{customerAddress}</p><p>{customerEmail}</p></div><div><p className="font-black text-[9px] uppercase tracking-widest text-slate-400 mb-1">VAT classification</p><p>{vatType}{isVatable ? ' · 12% VAT-inclusive' : ''}</p></div></div>
