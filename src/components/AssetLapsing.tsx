@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { PageHeader } from './ui/PageHeader';
 import { printReportPage } from '../lib/reportPrint';
 import { useAccounting } from '../context/AccountingContext';
@@ -13,21 +13,53 @@ export function AssetLapsing() {
   const { currentClient, currentClientId, saveAssetLapsingSchedule, showToast } = useAccounting();
   const [asOfDate, setAsOfDate] = useState(new Date().toISOString().split('T')[0]);
   const [showJE, setShowJE] = useState(false);
+  const remoteSchedule: AssetLapsingEntry[] = currentClient?.assetLapsingSchedule || [];
+  const [schedule, setSchedule] = useState<AssetLapsingEntry[]>(remoteSchedule);
+  const debounceRef = useRef<number | null>(null);
+  const dirtyRef = useRef(false);
+
+  useEffect(() => {
+    if (!dirtyRef.current) {
+      setSchedule(remoteSchedule);
+    }
+  }, [currentClientId, remoteSchedule.length]);
+
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) window.clearTimeout(debounceRef.current);
+    };
+  }, []);
+
   if (!currentClient || !currentClientId) return null;
-  const schedule: AssetLapsingEntry[] = currentClient.assetLapsingSchedule || [];
-  const saveSchedule = (updated: AssetLapsingEntry[]) => { saveAssetLapsingSchedule(updated); };
+
+  const commitSchedule = (updated: AssetLapsingEntry[], immediate = false) => {
+    setSchedule(updated);
+    if (debounceRef.current) window.clearTimeout(debounceRef.current);
+    if (immediate) {
+      dirtyRef.current = false;
+      saveAssetLapsingSchedule(updated);
+      return;
+    }
+    dirtyRef.current = true;
+    debounceRef.current = window.setTimeout(() => {
+      dirtyRef.current = false;
+      saveAssetLapsingSchedule(updated);
+    }, 600);
+  };
+
+  const saveSchedule = (updated: AssetLapsingEntry[]) => { commitSchedule(updated, true); };
 
   const handleAddRow = () => {
     const newEntry: AssetLapsingEntry = {
       id: crypto.randomUUID(), datePurchased: asOfDate, invoiceNo: '', description: '',
       cost: 0, usefulLifeYears: 5, salvageValue: 0, method: 'straight-line',
     } as any;
-    saveSchedule([...schedule, newEntry]);
+    commitSchedule([...schedule, newEntry], true);
   };
   const handleUpdateRow = (id: string, field: keyof AssetLapsingEntry, value: string | number) => {
-    saveSchedule(schedule.map(row => row.id === id ? { ...row, [field]: value } : row));
+    commitSchedule(schedule.map(row => row.id === id ? { ...row, [field]: value } : row), false);
   };
-  const handleDeleteRow = (id: string) => { saveSchedule(schedule.filter(row => row.id !== id)); };
+  const handleDeleteRow = (id: string) => { commitSchedule(schedule.filter(row => row.id !== id), true); };
 
   // T018: disposal flow — prompt for proceeds, mark disposed, compute gain/loss.
   const handleDispose = (row: AssetLapsingEntry) => {

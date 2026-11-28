@@ -636,19 +636,29 @@ function postIncomeHistory(client: Client, accounts: CoaAccount[]): Posting[] {
 // ---------------------------------------------------------------------------
 
 function postJournalVouchers(client: Client): Posting[] {
+  const accounts = getCoaAccounts(client);
+  const validIds = new Set(accounts.map(a => a.id));
+  const resolveAccountId = (line: { accountId?: string; accountName?: string }) => {
+    if (line.accountId && validIds.has(line.accountId)) return line.accountId;
+    const byName = line.accountName ? findAccountByLabel(line.accountName, accounts) : undefined;
+    return byName?.id || line.accountId || '';
+  };
+
   const postings: Posting[] = [];
   (client.journalVouchers || []).forEach(v => {
-    v.lines.forEach(line => {
-      if (line.debit > 0) {
+    (v.lines || []).forEach(line => {
+      const accountId = resolveAccountId(line);
+      if (!accountId) return;
+      if (Number(line.debit) > 0) {
         postings.push({
-          accountId: line.accountId,
-          entry: makeLeg(`jv:${v.id}:${line.id}:dr`, 'debit', line.debit, v.date, v.memo || 'Journal Voucher', v.reference, 'Journal Voucher'),
+          accountId,
+          entry: makeLeg(`jv:${v.id}:${line.id}:dr`, 'debit', Number(line.debit), v.date, v.memo || 'Journal Voucher', v.reference, 'Journal Voucher'),
         });
       }
-      if (line.credit > 0) {
+      if (Number(line.credit) > 0) {
         postings.push({
-          accountId: line.accountId,
-          entry: makeLeg(`jv:${v.id}:${line.id}:cr`, 'credit', line.credit, v.date, v.memo || 'Journal Voucher', v.reference, 'Journal Voucher'),
+          accountId,
+          entry: makeLeg(`jv:${v.id}:${line.id}:cr`, 'credit', Number(line.credit), v.date, v.memo || 'Journal Voucher', v.reference, 'Journal Voucher'),
         });
       }
     });
@@ -1031,9 +1041,10 @@ function cashJournalVouchersToCdjEntries(client: Client, accounts: CoaAccount[])
         values: {
           date: v.date,
           payee: v.memo || v.reference,
-          account_title: l.accountName,
-          amount: two(l.debit),
-          cash: two(l.debit),
+          folio_f: v.reference || '',
+          cash_on_hand_bank: two(l.debit),
+          sundry_account_title: l.accountName,
+          sundry_amount: two(l.debit),
         },
       });
     });

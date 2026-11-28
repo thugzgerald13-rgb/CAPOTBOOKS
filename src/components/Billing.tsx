@@ -223,8 +223,11 @@ export function Billing() {
   const customerDirectory = currentClient?.tinLibrary?.customers || [];
 
 
+  const paidCrjIds = new Set(
+    (currentClient?.crjEntries || []).map((e: any) => String(e.id || ''))
+  );
   const getStatus = (inv: BillingInvoice): 'Outstanding' | 'Overdue' | 'Paid' => {
-    if (inv.status === 'Paid') return 'Paid';
+    if (inv.status === 'Paid' || paidCrjIds.has(`billing-payment-${inv.id}`)) return 'Paid';
     return inv.dueDate < today ? 'Overdue' : 'Outstanding';
   };
 
@@ -660,10 +663,9 @@ export function Billing() {
       paymentType: payPaymentType
     };
     try {
-      await Promise.all([
-        saveBillingInvoice(updatedInvoice.id, updatedInvoice),
-        saveJournalEntry('CRJ', buildCashReceiptEntry(inv, payPaymentType)),
-      ]);
+      // Run sequentially so saveJournalEntry does not overwrite state with a stale pre-Paid invoice closure.
+      await saveBillingInvoice(updatedInvoice.id, updatedInvoice);
+      await saveJournalEntry('CRJ', buildCashReceiptEntry(inv, payPaymentType));
       showToast('Invoice payment recorded: Cash/Bank debited and Accounts Receivable credited.');
       setPayingId(null);
     } catch (error) {
@@ -953,12 +955,12 @@ export function Billing() {
                 </div>
                 <div className="text-right shrink-0">
                   <div className="text-base font-black text-slate-800 dark:text-slate-200">₱{inv.amount.toLocaleString(undefined, { minimumFractionDigits: 2 })}</div>
-                  {inv.status === 'Paid' && <div className="text-[10px] text-emerald-600">Paid {inv.datePaid} via {inv.paymentType}</div>}
+                  {getStatus(inv) === 'Paid' && <div className="text-[10px] text-emerald-600">Paid {inv.datePaid || today}{inv.paymentType ? ` via ${inv.paymentType}` : ''}</div>}
                 </div>
               </div>
 
               <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center gap-2 justify-end">
-                {inv.status !== 'Paid' && canBillingAction('post') && (
+                {getStatus(inv) !== 'Paid' && canBillingAction('post') && (
                   payingId === inv.id ? (
                     <div className="flex flex-wrap items-center gap-2 mr-auto">
                       <select
