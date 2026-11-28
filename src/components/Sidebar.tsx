@@ -203,8 +203,8 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
   const [pendingPage, setPendingPage] = useState<string | null | undefined>(undefined);
   useEffect(() => {
     setPendingPage(undefined);
-  }, [displayPage]);
-  const displayPage = pendingPage !== undefined ? pendingPage : displayPage;
+  }, [activePage]);
+  const displayPage = pendingPage !== undefined ? pendingPage : activePage;
   const SIDEBAR_NAV_INDEX: { label: string; pageId: string | null; icon: any; historyTab?: string; keywords: string }[] = [
     { label: 'Dashboard', pageId: null, icon: Home, keywords: 'home overview kpi' },
     { label: 'Chart of Accounts', pageId: 'coa', icon: BookOpen, keywords: 'accounts coa ledger' },
