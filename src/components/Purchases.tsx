@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { toast } from './ui/Toast';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { PageHeader } from './ui/PageHeader';
 import { computeApAging, formatMoney } from '../lib/apAging';
@@ -700,7 +701,7 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
     // there is no invoice number (e.g. miscellaneous payments without one).
     const trimmedAddress = String(supplierAddress || '').trim();
     if (!isOtherPayments && (vatType === 'vat' || vatType === 'vat-nonvat') && !trimmedAddress) {
-      showToast('Supplier Address is required for VATable purchases (BIR Sec. 113 / RELIEF SLP).');
+      toast.error('Supplier Address is required for VATable purchases (BIR Sec. 113 / RELIEF SLP).');
       return;
     }
 

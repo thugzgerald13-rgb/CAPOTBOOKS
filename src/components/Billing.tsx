@@ -958,6 +958,50 @@ export function Billing() {
               </div>
 
               <div className="mt-3 pt-3 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center gap-2 justify-end">
+                {inv.status !== 'Paid' && canBillingAction('post') && (
+                  payingId === inv.id ? (
+                    <div className="flex flex-wrap items-center gap-2 mr-auto">
+                      <select
+                        value={payPaymentType}
+                        onChange={e => setPayPaymentType(e.target.value)}
+                        aria-label="Payment method"
+                        className="rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-2.5 py-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200"
+                      >
+                        {billingPaymentOptions
+                          .filter(o => o.value !== 'On Account' && canBillingDropdown('payment_type', o.permission))
+                          .map(o => (
+                            <option key={o.value} value={o.value}>{o.label}</option>
+                          ))}
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => { void handleConfirmPaid(inv); }}
+                        className="text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg px-3 py-1.5 transition"
+                      >
+                        Confirm Paid
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPayingId(null)}
+                        className="text-xs font-semibold text-slate-500 hover:text-slate-700 dark:text-slate-400 px-2 py-1.5"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const firstValid = billingPaymentOptions.find(o => o.value !== 'On Account' && canBillingDropdown('payment_type', o.permission));
+                        if (firstValid && payPaymentType === 'On Account') setPayPaymentType(firstValid.value);
+                        setPayingId(inv.id);
+                      }}
+                      className="text-xs text-emerald-700 dark:text-emerald-400 font-bold border border-emerald-200 dark:border-emerald-800 rounded-lg px-3 py-1.5 hover:bg-emerald-50 dark:hover:bg-emerald-950/20 transition flex items-center gap-1.5"
+                    >
+                      Record Payment
+                    </button>
+                  )
+                )}
                 {canGenerateNext && canBillingAction('add') && (
                   <button onClick={() => handleGenerateNext(inv)} disabled={generatingRecurringId === inv.id} className="text-xs text-cyan-700 dark:text-cyan-400 font-bold border border-cyan-200 dark:border-cyan-800 rounded-lg px-3 py-1.5 hover:bg-cyan-50 dark:hover:bg-cyan-950/20 transition flex items-center gap-1.5 disabled:opacity-50">
                     <RefreshCw className="w-3.5 h-3.5" /> {generatingRecurringId === inv.id ? 'Generating…' : 'Generate Next Bill'}

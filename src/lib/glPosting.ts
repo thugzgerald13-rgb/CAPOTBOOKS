@@ -170,7 +170,7 @@ const SALES_COLUMN_IDS = new Set(['sales']);
 // Per-journal, per-column overrides for labels that don't literally match an
 // account title (e.g. the CDJ's generic "Amount Dr(Cr)" column, whose actual
 // account is typed into the companion "Account Title" field).
-const CRJ_LABEL_OVERRIDES: Record<string, string> = { sundry: 'Output Tax' };
+const CRJ_LABEL_OVERRIDES: Record<string, string> = { sundry: 'Output Tax', cwt: 'Creditable Withholding Tax' };
 const CDJ_LABEL_OVERRIDES: Record<string, string> = { cash: 'Cash', cash_on_hand_bank: 'Cash', input_tax: 'Input Tax' };
 // PJ columns whose fixed account is known. "Net of VAT" and "Exempt / 0-Rated"
 // both debit the Purchases account.
@@ -470,6 +470,7 @@ function incomeSalesToCrjEntries(client: Client): JournalEntry[] {
           description: sale.incomeType || sale.income_type || sale.desc || sale.description || 'Sales',
           post_ref: sale.buyerTin || sale.buyer_tin || '',
           cash: netCash ? two(netCash) : '',
+          cwt: wht > 0 ? two(wht) : '',
           sales_disc: '',
           ar: '',
           sales: exemptOrZero ? two(gross) : (net ? two(net) : ''),
@@ -1224,9 +1225,19 @@ export function computeAutoPostings(client: Client): Posting[] {
   // is used to populate the CRJ/SJ screens, but it is NOT a direct GL source.
   // Once a transaction is in the Cash Receipts Journal or Sales Journal, the
   // GL posts that journal entry — exactly as it appears in the journal.
+  // Ensure `cwt` column is present even for clients with legacy saved crjColumns
+  const rawCrjCols = useColumns(client.crjColumns, DEFAULT_CRJ_COLUMNS);
+  const crjCols = rawCrjCols.some(c => c.id === 'cwt')
+    ? rawCrjCols
+    : [
+        ...rawCrjCols.slice(0, 6),
+        { id: 'cwt', name: 'Creditable Withholding Tax', type: 'number' as const, category: 'Dr' as const, isSystem: true },
+        ...rawCrjCols.slice(6),
+      ];
+
   const crj = postColumnarJournal(
     client.crjEntries || [],
-    useColumns(client.crjColumns, DEFAULT_CRJ_COLUMNS),
+    crjCols,
     accounts,
     {
       prefix: 'crj',
@@ -1237,6 +1248,34 @@ export function computeAutoPostings(client: Client): Posting[] {
       overrides: CRJ_LABEL_OVERRIDES,
     }
   );
+
+  // Guarantee CWT (BIR Form 2307) debit leg posts to 112500 Creditable Withholding Tax
+  // for all sales with withholding (avoiding double-posting if CRJ already posted `cwt`).
+  const cwtAcct =
+    findAccountByLabel('Creditable Withholding Tax', accounts) ||
+    accounts.find(a => a.id === '112500' || (/creditable.*withholding/i.test(String(a.name || '')) && !/payable/i.test(String(a.name || ''))));
+  if (cwtAcct) {
+    const alreadyPostedCwtIds = new Set(
+      crj
+        .filter(p => p.accountId === cwtAcct.id)
+        .map(p => String(p.entry.id || ''))
+    );
+    (client.sales || []).forEach((sale: any) => {
+      const wht = (sale.withholdingOption === 'with' || sale.withholding_option === 'with')
+        ? (Number(sale.whtAmount ?? sale.wht_amount ?? 0) || 0)
+        : 0;
+      if (wht <= 0) return;
+      const crjLegId = `crj:income_${sale.id}:cwt`;
+      if (alreadyPostedCwtIds.has(crjLegId)) return;
+      const date = String(sale.date || '');
+      const ref = String(sale.ref || '');
+      const particulars = String(sale.buyerName || sale.buyer_name || sale.incomeType || 'Sales CWT (2307)');
+      crj.push({
+        accountId: cwtAcct.id,
+        entry: makeLeg(`sale:${sale.id}:cwt`, 'debit', wht, date, particulars, ref, 'Income History (CWT)'),
+      });
+    });
+  }
 
   // Sales Journal has a system Account Title column, plus AR/Credit Card
   // debit columns and Output VAT/Revenue credit columns. Post the actual

@@ -684,7 +684,7 @@ export function CashDisbursementsJournal() {
             <table className="w-full text-xs text-left whitespace-nowrap min-w-[800px]">
               <thead>
                 <tr className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 uppercase tracking-wider font-bold border-b border-slate-200 dark:border-slate-700">
-                  <th className="px-3 py-3 w-10 text-center">Existing #</th>
+                  <th className="px-3 py-3 w-10 text-center">#</th>
                   {columns.filter(c => c.id === 'date' || c.id === 'payee' || c.id === 'folio_f' || c.id === CDJ_CASH_ON_HAND_BANK_ID).map(col => (
                     <th key={col.id} className="px-3 py-3">{col.name}</th>
                   ))}
