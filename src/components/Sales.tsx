@@ -164,10 +164,10 @@ export function Sales({ embedded = false, editSale = null, onSaved, onClose }: S
 
   // Sync default VAT type whenever the active client's VAT registration changes
   useEffect(() => {
-    if (editingId == null) {
+    if (!editSale) {
       setVatType(defaultSaleVatType);
     }
-  }, [defaultSaleVatType, editingId]);
+  }, [defaultSaleVatType, editSale]);
   const [amount, setAmount] = useState('');
   const [incomeType, setIncomeType] = useState('');
   const [desc, setDesc] = useState('');

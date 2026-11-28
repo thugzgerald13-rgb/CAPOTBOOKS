@@ -205,12 +205,6 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
     currentClient?.vatRegistrationType === 'exempt';
   const defaultPurchaseVatType = isNonVatOrExemptBuyer ? 'non-vat' : 'vat';
   const [vatType, setVatType] = useState(defaultPurchaseVatType);
-
-  useEffect(() => {
-    if (viewIndex === null) {
-      setVatType(defaultPurchaseVatType);
-    }
-  }, [defaultPurchaseVatType, viewIndex]);
   const [exemptAmount, setExemptAmount] = useState('');
   const [zeroRatedAmount, setZeroRatedAmount] = useState('');
   const [withholdingOption, setWithholdingOption] = useState<'w/o' | 'with'>('w/o');
@@ -329,6 +323,12 @@ export function Purchases({ embedded = false, mode = 'invoiced', editPurchase = 
   const [sequenceNumber, setSequenceNumber] = useState(1);
 
   const [viewIndex, setViewIndex] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (viewIndex === null) {
+      setVatType(defaultPurchaseVatType);
+    }
+  }, [defaultPurchaseVatType, viewIndex]);
 
   // Auto-count sequence number
   useEffect(() => {
