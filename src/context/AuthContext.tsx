@@ -62,6 +62,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
   // were resetting permissions and workspace membership during initial render,
   // which made the staff workspace appear to flicker.
   const syncingUserId = useRef<string | null>(null);
+  const syncedUserId = useRef<string | null>(null);
   // Watchdog: if getSession() or the background profile/RPC sync hangs (e.g. a
   // slow/unreachable Supabase call that never resolves OR rejects), the app
   // would otherwise spin forever on the loading spinner. Force the gate open
@@ -114,7 +115,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       gateForcedOpen.current = true;
       setLoading(false);
       setAccountReady(true);
-    }, 12000);
+    }, 8000);
 
     const clearAuthState = () => {
       if (!active) return;
@@ -129,6 +130,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setTeamMembers([]);
       setSubusersEnabled(false);
       setPendingApproval(false);
+      syncedUserId.current = null;
     };
 
     const syncUser = async (usr: User) => {
@@ -240,18 +242,23 @@ export function AuthProvider({ children }: AuthProviderProps) {
           accountReadyWatchdog.current = null;
         }
         if (syncingUserId.current === usr.id) syncingUserId.current = null;
+        syncedUserId.current = usr.id;
         if (active) setAccountReady(true);
       }
     };
 
     const deferUserSync = (usr: User) => {
+      if (syncedUserId.current === usr.id) {
+        if (active) setAccountReady(true);
+        return;
+      }
       // Arm the account-ready watchdog every time a user sync is deferred, so
       // a hanging background sync never leaves the app on the spinner — this
       // covers both initial session restore and later SIGNED_IN events.
       if (accountReadyWatchdog.current !== null) clearTimeout(accountReadyWatchdog.current);
       accountReadyWatchdog.current = window.setTimeout(() => {
         if (active) setAccountReady(true);
-      }, 10000);
+      }, 5000);
       window.setTimeout(() => {
         if (active) void syncUser(usr);
       }, 0);
@@ -263,7 +270,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
       const nextUser = session?.user ?? null;
       setUser(nextUser);
       if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') {
-        if (!gateForcedOpen.current) setAccountReady(false);
+        if (!gateForcedOpen.current && (!nextUser || syncedUserId.current !== nextUser.id)) {
+          setAccountReady(false);
+        }
       }
 
       // INITIAL_SESSION is handled by the explicit getSession() call below.
@@ -295,7 +304,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
         const sessionUser = session?.user ?? null;
         setUser(sessionUser);
-        if (!gateForcedOpen.current) setAccountReady(false);
+        if (!gateForcedOpen.current && (!sessionUser || syncedUserId.current !== sessionUser.id)) {
+          setAccountReady(false);
+        }
 
         if (sessionUser) {
           // Do not block the auth gate on profile/RPC/database work.
@@ -309,7 +320,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           // it completes normally.
           accountReadyWatchdog.current = window.setTimeout(() => {
             if (active) setAccountReady(true);
-          }, 10000);
+          }, 5000);
         } else if (!initialSessionHandled) {
           clearAuthState();
         }

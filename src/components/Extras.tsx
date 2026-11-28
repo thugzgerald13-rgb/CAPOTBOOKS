@@ -672,15 +672,15 @@ export function Extras() {
                     )}
                   </select>
                 </div>
-                <div className="sm:col-span-3">
+                <div className="sm:col-span-4">
                   <label className="form-label">Percentage Tax Rate (2551Q):</label>
                   <select
                     value={editingClient.percentageTaxRate !== undefined ? String(editingClient.percentageTaxRate) : ''}
                     onChange={e => setEditingClient({ ...editingClient, percentageTaxRate: e.target.value === '' ? undefined : Number(e.target.value) })}
                     disabled={editingClient.vatRegistrationType !== 'non-vat'}
-                    className="form-input disabled:opacity-50"
+                    className="form-input w-full disabled:opacity-50"
                   >
-                    <option value="">Default (3% or 0% if 8% Flat)</option>
+                    <option value="">Default (3% / 0% if 8% Flat)</option>
                     <option value="0.03">3% Standard Non-VAT (Sec. 116)</option>
                     <option value="0.01">1% Concessional Rate (CREATE)</option>
                     <option value="0.02">2% Special Percentage Tax</option>

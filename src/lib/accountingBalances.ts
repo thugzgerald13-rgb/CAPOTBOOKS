@@ -276,7 +276,7 @@ function normalizeDateISO(raw: unknown): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
-const entryDateKey = (entry: Pick<GeneralLedgerEntry, 'dateDr' | 'dateCr'>) =>
+export const entryDateKey = (entry: Pick<GeneralLedgerEntry, 'dateDr' | 'dateCr'>) =>
   normalizeDateISO(entry.dateDr || entry.dateCr || '');
 
 const glAmount = (value: unknown) => {

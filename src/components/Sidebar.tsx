@@ -319,7 +319,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
         isCollapsed ? "md:w-20" : "md:w-64",
         isOpen ? "translate-x-0" : "-translate-x-full"
       )}>
-        <div className="relative p-6 border-b border-slate-200 dark:border-slate-800 text-center shrink-0 overflow-hidden">
+        <div className="relative p-6 border-b border-slate-200 dark:border-slate-800 text-center shrink-0 overflow-visible">
           <h2 className="text-2xl font-black tracking-tighter text-blue-900 dark:text-blue-400 flex items-center justify-center whitespace-nowrap">
             <span className={cn(isCollapsed && "md:hidden")}>
               CAPOT<span className="text-amber-500 italic">BOOKS</span>
@@ -340,7 +340,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
           </button>
         </div>
 
-        <div className={cn("flex-1 overflow-y-auto py-4 px-3 flex flex-col gap-1 custom-scrollbar", isCollapsed && "md:px-2")}>
+        <div className={cn("flex-1 overflow-y-auto pt-4 pb-8 px-3 flex flex-col gap-1 custom-scrollbar", isCollapsed && "md:px-2")}>
           {/* Inline nav search (Run 002 / T002) — filters every page by label/keyword */}
           <div className={cn("relative mb-2", isCollapsed && "md:hidden")}>
             <div className="relative">
@@ -401,7 +401,10 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
             }}
             title={isCollapsed ? "Dashboard" : undefined}
             className={cn(
-              "flex items-center gap-3 px-4 py-3 text-sm font-bold text-blue-700 dark:text-blue-400 rounded-xl bg-blue-50/60 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-all w-full text-left group mb-1",
+              "flex items-center gap-3 px-4 py-3 text-sm rounded-xl transition-all w-full text-left group mb-1 shrink-0",
+              !activePage
+                ? "font-bold text-blue-700 dark:text-blue-400 bg-blue-50/80 dark:bg-blue-900/25 hover:bg-blue-100 dark:hover:bg-blue-900/30"
+                : "font-medium text-slate-700 dark:text-slate-300 hover:bg-blue-50 hover:text-blue-700 dark:hover:bg-slate-800",
               !canUsePage(null) && 'hidden',
               isCollapsed && "md:justify-center md:px-2"
             )}
@@ -436,7 +439,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   animate={{ height: 'auto', opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}
                   transition={{ duration: 0.2 }}
-                  className="overflow-hidden flex flex-col gap-1 mt-1 pl-4"
+                  className="overflow-hidden flex flex-col gap-1 mt-1 pl-4 pb-1 shrink-0"
                 >
                   <button
                     disabled={!canUse('manage_settings')}
@@ -577,7 +580,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                 animate={{ height: 'auto', opacity: 1 }}
                 exit={{ height: 0, opacity: 0 }}
                 transition={{ duration: 0.2 }}
-                className="overflow-hidden flex flex-col gap-1 mt-1 pl-4"
+                className="overflow-hidden flex flex-col gap-1 mt-1 pl-4 pb-1 shrink-0"
               >
                 <button
                   disabled={!canUse('view_reports')}
@@ -778,7 +781,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
             </button>
             <AnimatePresence>
               {isFilesOpen && (
-                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden flex flex-col gap-1 mt-1 pl-4">
+                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden flex flex-col gap-1 mt-1 pl-4 pb-1 shrink-0">
                   {([['income','Income Files'],['expense','Expense Files'],['other','Other Files']] as const).map(([key,label]) => (
                     <button key={key} disabled={!canUse('edit_transactions')}
                       onClick={() => { navigateToPage(`files/${key}`); setIsOpen(false); setIsFilesOpen(false); }}
@@ -817,7 +820,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   animate={{ height: 'auto', opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}
                   transition={{ duration: 0.2 }}
-                  className="overflow-hidden flex flex-col gap-1 mt-1 pl-4"
+                  className="overflow-hidden flex flex-col gap-1 mt-1 pl-4 pb-1 shrink-0"
                 >
                   {reportItems.filter((i) => (isAdmin || featureAllows(i.id)) && canUsePage(i.id)).map((subItem) => {
                     const SubIcon = subItem.icon;
@@ -865,7 +868,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   animate={{ height: 'auto', opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}
                   transition={{ duration: 0.2 }}
-                  className="overflow-hidden flex flex-col gap-1 mt-1 pl-4"
+                  className="overflow-hidden flex flex-col gap-1 mt-1 pl-4 pb-1 shrink-0"
                 >
                   {bookItems.filter((i) => (isAdmin || featureAllows(i.id)) && canUsePage(i.id)).map((subItem) => {
                     const SubIcon = subItem.icon;
@@ -911,7 +914,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                   animate={{ height: 'auto', opacity: 1 }}
                   exit={{ height: 0, opacity: 0 }}
                   transition={{ duration: 0.2 }}
-                  className="overflow-hidden flex flex-col gap-1 mt-1 pl-4"
+                  className="overflow-hidden flex flex-col gap-1 mt-1 pl-4 pb-1 shrink-0"
                 >
                   {userRole === 'owner' ? (
                     <button
@@ -1015,7 +1018,7 @@ export function Sidebar({ isOpen, setIsOpen }: SidebarProps) {
                     animate={{ height: 'auto', opacity: 1 }}
                     exit={{ height: 0, opacity: 0 }}
                     transition={{ duration: 0.2 }}
-                    className="overflow-hidden flex flex-col gap-1 mt-1 pl-4"
+                    className="overflow-hidden flex flex-col gap-1 mt-1 pl-4 pb-1 shrink-0"
                   >
                     <button
                       onClick={() => {

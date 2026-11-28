@@ -439,7 +439,14 @@ export function Sales({ embedded = false, editSale = null, onSaved, onClose }: S
           <input type="text" value={ref} onChange={e => setRef(e.target.value)} placeholder="INV-001" required className="form-input" />
         </div>
         <div className="relative">
-          <label className="form-label">Customer TIN</label>
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <label className="form-label !mb-0">Customer TIN</label>
+            {autoLoadMsg && (
+              <span className="text-[11px] font-semibold bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 rounded truncate max-w-[180px]" title={autoLoadMsg}>
+                {autoLoadMsg}
+              </span>
+            )}
+          </div>
           <input 
             type="text" 
             value={buyerTin} 
@@ -448,11 +455,6 @@ export function Sales({ embedded = false, editSale = null, onSaved, onClose }: S
             className="form-input font-mono" 
             maxLength={11}
           />
-          {autoLoadMsg && (
-            <span className="absolute top-8 right-3 text-xs bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300 px-2 py-1 rounded">
-              {autoLoadMsg}
-            </span>
-          )}
         </div>
         <div className="lg:col-span-2">
           <label className="form-label">Customer Name <span className="text-rose-500">*</span></label>
@@ -527,7 +529,7 @@ export function Sales({ embedded = false, editSale = null, onSaved, onClose }: S
           <input type="text" value={desc} onChange={e => setDesc(e.target.value)} placeholder="Optional notes about this transaction" className="form-input" />
         </div>
         <div className="lg:col-span-4">
-          <label className="form-label flex items-center gap-1"><Paperclip className="w-3.5 h-3.5" /> Attachment</label>
+          <label className="form-label flex items-center gap-1.5"><Paperclip className="w-3.5 h-3.5 shrink-0" /><span>Attachment</span></label>
           <div className="flex items-center gap-2">
             <label className={`flex-1 cursor-pointer form-input flex items-center gap-2 ${attachmentBusy ? 'opacity-60 pointer-events-none' : ''}`}>
               {attachmentBusy ? <Upload className="w-4 h-4 animate-pulse" /> : attachment?.type.startsWith('image/') ? <ImageIcon className="w-4 h-4" /> : <FileText className="w-4 h-4" />}

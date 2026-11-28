@@ -241,7 +241,7 @@ export function Dashboard() {
     return (
       <motion.button
         key={card.label} type="button" onClick={() => open(card)} title={card.hint}
-        initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.04 }}
+        initial={{ opacity: 0.96, y: 3 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.14 }}
         className="card-surface group flex flex-col text-left p-5 transition-all hover:-translate-y-0.5 hover:shadow-pop hover:border-brand-300 dark:hover:border-brand-700 focus-visible:outline-brand-500"
       >
         <div className="flex items-center justify-between gap-2">
@@ -267,7 +267,7 @@ export function Dashboard() {
   const projectedChange = projected - metrics.cash;
 
   return (
-    <div className="space-y-6 pb-6">
+    <div className="space-y-6 pt-2 pb-6">
       {/* Header */}
       <div className="sticky-page-title flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
         <div className="flex flex-wrap items-center gap-2">

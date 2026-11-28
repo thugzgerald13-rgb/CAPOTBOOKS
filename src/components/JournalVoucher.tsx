@@ -7,6 +7,7 @@ import { JournalVoucher as JournalVoucherType, JournalVoucherLine, JournalEntry 
 import { addIntervalISO, loadJVTemplates, persistJVTemplates, readJVAttachment, type JVTemplate, type JVAttachment, type RecurrenceFrequency } from '../lib/glPosting';
 import { useGranularPermissions } from '../lib/useGranularPermissions';
 import { YearDropdownDateInput } from './ui/YearDropdownDateInput';
+import { getDefaultAccountsForIndustry, getPostableCoaAccounts } from '../lib/journalDefaults';
 
 interface DraftLine {
   id: string;
@@ -55,7 +56,13 @@ export function JournalVoucher() {
 
   if (!currentClient || !currentClientId) return null;
 
-  const accounts = (currentClient.accounts || []).filter(a => !a.hidden);
+  const rawAccounts = currentClient.accounts && currentClient.accounts.length > 0
+    ? currentClient.accounts
+    : getDefaultAccountsForIndustry(
+        currentClient.industry,
+        currentClient.coaFormat === 'alphanumeric' ? 'alphanumeric' : 'numeric'
+      );
+  const accounts = getPostableCoaAccounts(rawAccounts);
   const vouchers = currentClient.journalVouchers || [];
 
   const totalDebit = lines.reduce((s, l) => s + (parseFloat(l.debit) || 0), 0);
@@ -292,7 +299,7 @@ export function JournalVoucher() {
                       className="w-full bg-transparent border border-transparent hover:border-slate-300 dark:hover:border-slate-600 focus:border-cyan-500 rounded px-2 py-1.5 outline-none"
                     >
                       <option value="">Select account...</option>
-                      {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                      {accounts.map(a => <option key={a.id} value={a.id}>{a.id} — {a.name}</option>)}
                     </select>
                   ) : (
                     <input

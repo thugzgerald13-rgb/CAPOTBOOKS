@@ -10,7 +10,7 @@ import { DEFAULT_ACCOUNTS, DEFAULT_ACCOUNTS_ALPHA, getNormalSide } from './Chart
 import { getDefaultAccountsForIndustry, getPostableCoaAccounts, glOpeningBalance } from '../lib/journalDefaults';
 import { supabase } from '../lib/supabase';
 import { generateCSV } from '../lib/utils';
-import { glAccountBalanceBefore } from '../lib/accountingBalances';
+import { entryDateKey, glAccountBalanceBefore } from '../lib/accountingBalances';
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 
@@ -29,7 +29,7 @@ const formatBalance = (n: number) => {
   return n < 0 ? `-${formatted}` : formatted;
 };
 
-const entryDate = (entry: GeneralLedgerEntry) => String(entry.dateDr || entry.dateCr || '').slice(0, 10);
+const entryDate = (entry: GeneralLedgerEntry) => entryDateKey(entry);
 
 export function GeneralLedger() {
   const canExport = usePermission('export_data');
@@ -156,7 +156,7 @@ export function GeneralLedger() {
             <div>
               <label className="block text-xs font-semibold text-slate-500 mb-1">Period</label>
               <div className="flex gap-2">
-                <select value={month} onChange={e=>setMonth(Number(e.target.value))} className="form-input text-sm py-2">{MONTHS.map((m,i)=><option key={m} value={i+1}>{m}</option>)}</select>
+                <select value={month} onChange={e=>setMonth(Number(e.target.value))} className="form-input text-sm py-2 min-w-[132px]">{MONTHS.map((m,i)=><option key={m} value={i+1}>{m}</option>)}</select>
                 <select value={year} onChange={e=>setYear(Number(e.target.value))} className="form-input text-sm py-2">{years.map(y=><option key={y} value={y}>{y}</option>)}</select>
               </div>
             </div>
